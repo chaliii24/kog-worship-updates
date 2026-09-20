@@ -7,7 +7,7 @@ release/
 build/
 *.exe
 *.blockmap
-*.yml
+# *.yml (allow workflow files)
 KOG_INSTALLER.zip
 
 # Environment
