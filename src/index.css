@@ -1,0 +1,228 @@
+@import '@fontsource-variable/geist';
+
+:root {
+  --font-sans: 'Geist Variable', 'Geist', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  font-family: var(--font-sans);
+}
+
+html,
+body,
+#root {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+@keyframes bibleStepIn {
+  from {
+    opacity: 0;
+    transform: translateX(26px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes bibleItemIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.bible-step {
+  animation: bibleStepIn 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.bible-item {
+  animation: bibleItemIn 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes dockIn {
+  from {
+    opacity: 0;
+    transform: translateY(120%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dockSettle {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+  45% {
+    transform: translateY(-4px) scale(1.05);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes sidebarBodyIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dock-btn {
+  position: relative;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #8b8b9e;
+  box-shadow: none;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 240ms ease,
+    color 160ms ease;
+}
+
+.dock-btn::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: #3b82f6;
+  transform: translateX(-50%);
+  transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease;
+  opacity: 0;
+}
+
+.dock-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #e2e8f0;
+}
+
+.dock-btn:hover::after {
+  width: 14px;
+  opacity: 0.5;
+}
+
+.dock-btn:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.7);
+  outline-offset: 2px;
+}
+
+.dock-btn[data-active='1'] {
+  background: rgba(37, 99, 235, 0.18);
+  border-color: rgba(59, 130, 246, 0.85);
+  color: #ffffff;
+  box-shadow: 0 0 18px rgba(59, 130, 246, 0.35);
+}
+
+.dock-btn[data-active='1']::after {
+  width: 24px;
+  opacity: 1;
+}
+
+.dock-btn[data-active='1'] .dock-icon {
+  animation: dockSettle 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dock-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dock-btn:hover .dock-icon {
+  transform: scale(1.18) translateY(-1px);
+}
+
+.dock-cta {
+  transition:
+    box-shadow 240ms ease;
+}
+
+.dock-cta:hover {
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+}
+
+.sidebar-shell {
+  transition:
+    margin-left 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease;
+}
+
+.sidebar-shell.is-closed {
+  margin-left: -340px;
+  opacity: 0;
+  pointer-events: none;
+  border-right-color: transparent;
+}
+
+.sidebar-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: sidebarBodyIn 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.right-panel-shell {
+  transition:
+    margin-right 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease;
+}
+
+.right-panel-shell.is-closed {
+  margin-right: -340px;
+  opacity: 0;
+  pointer-events: none;
+  border-left-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bible-step,
+  .bible-item,
+  .dock-shell,
+  .dock-btn[data-active='1'] .dock-icon,
+  .sidebar-body {
+    animation: none;
+  }
+
+  .dock-btn,
+  .dock-icon,
+  .dock-cta,
+  .sidebar-shell,
+  .right-panel-shell {
+    transition: none;
+  }
+
+  .dock-btn:hover,
+  .dock-btn:active,
+  .dock-cta:hover,
+  .dock-cta:active {
+    transform: none;
+  }
+}
