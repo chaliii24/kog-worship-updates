@@ -67,7 +67,6 @@
       }
     ],
     "asar": true,
-    "electronDist": "node_modules/electron/dist",
     "asarUnpack": [
       "node_modules/better-sqlite3/**"
     ],
