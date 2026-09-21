@@ -2117,7 +2117,7 @@ export default function App() {
   };
 
   const handleCheckUpdates = async () => {
-    const fallback = appInfo?.version || '1.0.0';
+    const fallback = appInfo?.version || '0.0.0';
     try {
       if (window.require) {
         const { ipcRenderer } = window.require('electron');
@@ -2507,7 +2507,7 @@ export default function App() {
           C={C}
           ACCENT={ACCENT}
           PINK={PINK}
-          version={appInfo?.version || '1.0.0'}
+          version={appInfo?.version || '...'}
           status={aboutStatus}
           updateReady={updateReady}
           updateProgress={updateProgress}
