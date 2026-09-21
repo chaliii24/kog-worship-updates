@@ -11,8 +11,6 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
-    env:
-      GH_TOKEN: ${{ secrets.GH_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,7 +28,10 @@ jobs:
         run: npm run dist
 
       - name: Debug release directory
-        run: dir release\
+        run: |
+          dir release\
+          echo "---- app-update.yml ----"
+          dir release\win-unpacked\resources\app-update.yml
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
