@@ -47,9 +47,7 @@
     "publish": {
       "provider": "github",
       "owner": "chaliii24",
-      "repo": "kog-worship-updates",
-      "private": true,
-      "token": "env:GH_TOKEN"
+      "repo": "kog-worship-updates"
     },
     "files": [
       "dist/**",
