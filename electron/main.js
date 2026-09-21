@@ -189,7 +189,6 @@ function createWindow() {
 autoUpdater.logger = electronLog;
 autoUpdater.logger.transports.file.level = 'info';
 autoUpdater.autoDownload = false;
-let lastUpdateInfo = null;
 
 app.whenReady().then(() => {
   serveMediaProtocol();
@@ -444,22 +443,19 @@ ipcMain.handle('get-output-status', () => {
 ipcMain.handle('check-for-updates', async () => {
   try {
     const result = await autoUpdater.checkForUpdates();
-    lastUpdateInfo = result?.updateInfo || null;
     return { updateInfo: result?.updateInfo, error: null };
   } catch (error) {
-    lastUpdateInfo = null;
     return { updateInfo: null, error: error.message };
   }
 });
  
 ipcMain.handle('download-update', async () => {
   try {
-    if (!lastUpdateInfo) {
-      const check = await autoUpdater.checkForUpdates();
-      lastUpdateInfo = check?.updateInfo || null;
+    const check = await autoUpdater.checkForUpdates();
+    if (!check || !check.updateInfo) {
+      return { success: false, error: 'No update found on server' };
     }
     await autoUpdater.downloadUpdate();
-    lastUpdateInfo = null;
     return { success: true, error: null };
   } catch (error) {
     return { success: false, error: error.message };
