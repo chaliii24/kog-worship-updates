@@ -189,14 +189,15 @@ function createWindow() {
 autoUpdater.logger = electronLog;
 autoUpdater.logger.transports.file.level = 'info';
 autoUpdater.autoDownload = false;
+let lastUpdateInfo = null;
 
 app.whenReady().then(() => {
-  autoUpdater.checkForUpdatesAndNotify();
   serveMediaProtocol();
   createWindow();
   screen.on('display-added', notifyDisplaysChanged);
   screen.on('display-removed', notifyDisplaysChanged);
   screen.on('display-metrics-changed', notifyDisplaysChanged);
+  setTimeout(() => autoUpdater.checkForUpdatesAndNotify(), 3000);
 });
 
 // --- OUTPUT DISPLAYS: list available physical displays/projectors ---
@@ -443,18 +444,22 @@ ipcMain.handle('get-output-status', () => {
 ipcMain.handle('check-for-updates', async () => {
   try {
     const result = await autoUpdater.checkForUpdates();
+    lastUpdateInfo = result?.updateInfo || null;
     return { updateInfo: result?.updateInfo, error: null };
   } catch (error) {
+    lastUpdateInfo = null;
     return { updateInfo: null, error: error.message };
   }
 });
  
 ipcMain.handle('download-update', async () => {
   try {
-    if (!autoUpdater.updateInfo) {
-      await autoUpdater.checkForUpdates();
+    if (!lastUpdateInfo) {
+      const check = await autoUpdater.checkForUpdates();
+      lastUpdateInfo = check?.updateInfo || null;
     }
     await autoUpdater.downloadUpdate();
+    lastUpdateInfo = null;
     return { success: true, error: null };
   } catch (error) {
     return { success: false, error: error.message };
