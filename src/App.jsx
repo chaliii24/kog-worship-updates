@@ -462,6 +462,7 @@ export default function App() {
       fetchServices();
       fetchTemplates();
       fetchPresentations();
+      fetchAppInfo();
     }
   }, [searchQuery, activeCategory, showSplash]);
 
@@ -2112,7 +2113,7 @@ export default function App() {
     ],
     help: [
       { label: 'Keyboard Shortcuts', action: () => setShowHotkeys(true) },
-      { label: 'About KOGWorship', action: () => { setAboutStatus(''); setShowAbout(true); } }
+      { label: 'About KOGWorship', action: () => { setAboutStatus(''); setShowAbout(true); fetchAppInfo(); } }
     ]
   };
 
@@ -2507,7 +2508,7 @@ export default function App() {
           C={C}
           ACCENT={ACCENT}
           PINK={PINK}
-          version={appInfo?.version || '...'}
+          version={appInfo?.version || '1.0.0'}
           status={aboutStatus}
           updateReady={updateReady}
           updateProgress={updateProgress}
