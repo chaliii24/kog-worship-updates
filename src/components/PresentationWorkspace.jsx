@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { Plus, Edit3, Square, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Edit3, Square, ChevronLeft, ChevronRight, MonitorPlay } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import PresentationSlide from './PresentationSlide';
 import { stubTap } from '../lib/anim';
@@ -109,7 +109,7 @@ export default function PresentationWorkspace() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: C.faint2, borderRadius: 14, minHeight: '100%' }}>
             <div style={{ width: '100%', maxWidth: 720, aspectRatio: '16 / 9', background: '#000', border: '1px solid #1e1e2e', borderRadius: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24, boxSizing: 'border-box' }}>
-              <div style={{ width: 58, height: 58, borderRadius: 16, background: 'radial-gradient(140% 140% at 30% 20%, #3b1d6e, #1a0c30)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, color: PINK }}>▦</div>
+              <div style={{ width: 58, height: 58, borderRadius: 16, background: 'radial-gradient(140% 140% at 30% 20%, #3b1d6e, #1a0c30)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><MonitorPlay size={28} color={PINK} /></div>
               <div style={{ fontSize: 14, fontWeight: 700, color: C.muted }}>No presentation is live</div>
               <div style={{ fontSize: 12, textAlign: 'center', maxWidth: 380, lineHeight: 1.5, color: C.faint2 }}>Press <b style={{ color: C.text }}>Present</b> on a deck in the list, or start a new presentation — its slides appear here to navigate like lyrics.</div>
               <motion.button {...stubTap} onClick={() => openPresentationEditor(null)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: ACCENT, border: 'none', color: '#fff', padding: '9px 16px', borderRadius: 9, fontSize: 12, fontWeight: 800, cursor: 'pointer' }}><Plus size={13} /> New Presentation</motion.button>

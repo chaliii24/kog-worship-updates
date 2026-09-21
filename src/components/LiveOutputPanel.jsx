@@ -10,16 +10,9 @@ export default function LiveOutputPanel({
   activeSlideIndex,
   slideCount,
   renderOutputPreview,
-  displays,
-  targetedDisplays,
-  toggleTarget,
   outputDisplays,
   selectedOutputDisplay,
   selectOutputDisplay,
-  projectorResolution,
-  setProjectorResolution,
-  outputAspect,
-  setOutputAspect,
   activeCue,
   fireCueLive,
   handlePrevCue,
@@ -38,7 +31,7 @@ export default function LiveOutputPanel({
 }) {
   const isLive = activeCue?.id !== 'clear' && activeCue !== null;
   return (
-    <motion.div className="right-panel-shell" initial={{ x: 64, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ type: 'spring', stiffness: 260, damping: 28, delay: 0.3 }} style={{ width: 340, minWidth: 340, background: C.panel, borderLeft: '1px solid #1F2937', flexDirection: 'column', display: 'flex' }}>
+    <motion.div className="right-panel-shell" initial={{ x: 64, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ type: 'spring', stiffness: 260, damping: 28, delay: 0.3 }} style={{ flex: '0 1 340px', minWidth: 280, maxWidth: '35vw', background: C.panel, borderLeft: '1px solid #1F2937', flexDirection: 'column', display: 'flex' }}>
       <div style={{ padding: '12px 12px 6px 12px', borderBottom: '1px solid ' + C.border, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 800, color: C.heading, textTransform: 'uppercase', letterSpacing: 1.5 }}>Live Output</span>
@@ -107,14 +100,6 @@ export default function LiveOutputPanel({
             : 'Not set — scripture uses the global style.'}</div>
         </div>
         )}
-        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-          {displays.map(d => (
-            <motion.button {...stubTap} key={d.id} onClick={() => toggleTarget(d.id)} style={{ background: targetedDisplays.includes(d.id) ? 'rgba(255,79,163,0.14)' : C.elevated, border: targetedDisplays.includes(d.id) ? `1px solid ${PINK}` : '1px solid #2b2b44', color: targetedDisplays.includes(d.id) ? PINK : C.muted, borderRadius: 8, padding: '4px 9px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: targetedDisplays.includes(d.id) && isLive ? '#22c55e' : C.faint2 }} />
-              {d.name}
-            </motion.button>
-          ))}
-        </div>
         <div style={{ display: 'flex', gap: 6, marginTop: 8, flexShrink: 0 }}>
           <motion.button {...stubTap} onClick={() => fireCueLive({ id: 'clear', label: 'Clear', text: '' })} style={{ flex: 1, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171', padding: '7px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><Square size={12} /> Clear All</motion.button>
           <motion.button {...iconBtnTap} onClick={handlePrevCue} style={{ width: 44, background: C.elevated, border: '1px solid #2b2b44', color: C.muted, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><SkipBack size={14} /></motion.button>
@@ -124,8 +109,8 @@ export default function LiveOutputPanel({
 
       {/* GROUPS & MEDIA */}
       <div style={{ padding: '10px 12px', borderBottom: '1px solid ' + C.border, display: 'flex', background: C.panel, gap: 4, flexShrink: 0 }}>
-        {['Groups', 'Media', 'Tools'].map(t => (
-          <motion.button key={t} {...stubTap} onClick={() => setRightTab(t === 'Groups' ? 'groups' : t === 'Media' ? 'media' : 'tools')} style={{ flex: 1, background: rightTab === (t === 'Groups' ? 'groups' : t === 'Media' ? 'media' : 'tools') ? PINK : 'transparent', color: rightTab === (t === 'Groups' ? 'groups' : t === 'Media' ? 'media' : 'tools') ? C.text : C.muted, border: 'none', padding: '6px 0', borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>{t}</motion.button>
+        {['Groups', 'Media'].map(t => (
+          <motion.button key={t} {...stubTap} onClick={() => setRightTab(t === 'Groups' ? 'groups' : 'media')} style={{ flex: 1, background: rightTab === (t === 'Groups' ? 'groups' : 'media') ? PINK : 'transparent', color: rightTab === (t === 'Groups' ? 'groups' : 'media') ? C.text : C.muted, border: 'none', padding: '6px 0', borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>{t}</motion.button>
         ))}
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>
@@ -143,57 +128,6 @@ export default function LiveOutputPanel({
           ) : (
             <div style={{ fontSize: 12, color: C.faint2, padding: 6 }}>Load a song to see its sections here.</div>
           )
-        ) : rightTab === 'tools' ? (
-          <div style={{ display: 'grid', gap: 10 }}>
-            {/* OUTPUT ASPECT */}
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 4 }}>Output Aspect</div>
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {['16:9', '4:3', '16:10', '21:9'].map(a => (
-                  <motion.button key={a} {...stubTap} onClick={() => setOutputAspect(a)} title={`Set projected content to ${a}`} style={{ flex: 1, minWidth: 52, background: outputAspect === a ? 'rgba(255,79,163,0.14)' : C.elevated, border: outputAspect === a ? `1px solid ${PINK}` : '1px solid #2b2b44', color: outputAspect === a ? PINK : C.muted, borderRadius: 7, padding: '5px 0', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{a}</motion.button>
-                ))}
-              </div>
-              <div style={{ fontSize: 9.5, color: C.faint, marginTop: 3 }}>Projection auto-fits any projector resolution.</div>
-            </div>
-            {/* OUTPUT RESOLUTION */}
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 4 }}>Output Resolution</div>
-              <select
-                value={projectorResolution || 'native'}
-                onChange={(e) => setProjectorResolution(e.target.value)}
-                style={{ width: '100%', background: C.elevated, border: '1px solid #2b2b44', borderRadius: 8, color: C.text2, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', cursor: 'pointer', outline: 'none' }}
-              >
-                <option value="native">Native (fullscreen)</option>
-                <optgroup label="4K / UHD">
-                  <option value="3840x2160">3840 × 2160 (4K UHD)</option>
-                </optgroup>
-                <optgroup label="Common Display Resolutions">
-                  <option value="2560x1440">2560 × 1440 (1440p / QHD)</option>
-                  <option value="1920x1080">1920 × 1080 (1080p / Full HD)</option>
-                  <option value="1920x1200">1920 × 1200 (WUXGA)</option>
-                  <option value="1600x1200">1600 × 1200 (UXGA)</option>
-                  <option value="1600x900">1600 × 900 (HD+)</option>
-                  <option value="1440x900">1440 × 900 (WXGA+)</option>
-                  <option value="1400x1050">1400 × 1050 (SXGA+)</option>
-                  <option value="1366x768">1366 × 768 (HD)</option>
-                  <option value="1280x1024">1280 × 1024 (SXGA)</option>
-                  <option value="1280x800">1280 × 800 (WXGA)</option>
-                  <option value="1280x768">1280 × 768 (WXGA)</option>
-                  <option value="1280x720">1280 × 720 (720p / HD)</option>
-                  <option value="1024x768">1024 × 768 (XGA)</option>
-                </optgroup>
-                <optgroup label="Preview / Testing">
-                  <option value="800x450">800 × 450 (Preview)</option>
-                </optgroup>
-              </select>
-              <div style={{ fontSize: 9.5, color: C.faint, marginTop: 3 }}>Choose a window size for testing, or Native for fullscreen on the projector.</div>
-            </div>
-            {/* DEVICE INFO */}
-            <div style={{ padding: 10, background: C.elevated, border: '1px solid #2b2b44', borderRadius: 8, fontSize: 10, color: C.text2 }}>
-              <div style={{ fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Auto-Fit Behavior</div>
-              <div style={{ lineHeight: 1.6 }}>Content scales to cover the selected aspect ratio within any window or display resolution (up to 4K). The preview above shows exactly what the projector will show.</div>
-            </div>
-          </div>
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
             <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Slide Timer</div>

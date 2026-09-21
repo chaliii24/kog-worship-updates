@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, PanelLeftClose } from 'lucide-react';
+import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, PanelLeftClose, Music, MonitorPlay } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap, iconBtnTap } from '../lib/anim';
@@ -13,7 +13,6 @@ export default function LeftSidebar() {
     leftOpen,
     setLeftOpen,
     dockTab,
-    viewMode,
     services,
     showsQuery,
     setShowsQuery,
@@ -99,17 +98,17 @@ export default function LeftSidebar() {
     <motion.div
       animate={{ width: leftOpen ? 340 : 0, opacity: leftOpen ? 1 : 0 }}
       transition={{ type: 'spring', stiffness: 320, damping: 34 }}
-      style={{ flexShrink: 0, overflow: 'hidden', height: '100%' }}
+      style={{ flexShrink: 0, overflow: 'hidden', height: '100%', maxWidth: '35vw' }}
     >
-    <div style={{ width: 340, minWidth: 340, height: '100%', background: '#11161D', borderRight: '1px solid #1F2937', flexDirection: 'column', display: 'flex' }}>
+    <div style={{ width: '100%', minWidth: 280, height: '100%', background: '#11161D', borderRight: '1px solid #1F2937', flexDirection: 'column', display: 'flex' }}>
   {/* Sidebar header */}
   <div style={{ padding: '10px 12px', borderBottom: '1px solid #1F2937', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexShrink: 0 }}>
-    {dockTab === 'shows' || viewMode === 'edit' ? (
+    {dockTab === 'shows' ? (
       <span style={{ fontSize: 11, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Presentation</span>
     ) : (
       <span style={{ fontSize: 11, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 1.5 }}>{dockTab} Tools</span>
     )}
-    {dockTab === 'shows' && viewMode === 'show' && (
+    {dockTab === 'shows' && (
       <motion.button {...stubTap} onClick={saveCurrentService} style={{ background: 'transparent', border: '1px solid #3B82F6', color: '#93C5FD', padding: '5px 11px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>Save Plan</motion.button>
     )}
     <motion.button {...iconBtnTap} onClick={() => setLeftOpen(false)} title="Minimize command center" style={{ background: 'transparent', border: 'none', color: '#64748B', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}><PanelLeftClose size={16} /></motion.button>
@@ -118,7 +117,7 @@ export default function LeftSidebar() {
   {/* PER-TOOL BODY */}
   <div key={dockTab} className="sidebar-body">
   {(() => {
-    if (dockTab === 'shows' || viewMode === 'edit') {
+    if (dockTab === 'shows') {
       return (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {/* PANEL 1 — SHOWS LIBRARY (Step 1) */}
@@ -174,7 +173,7 @@ export default function LeftSidebar() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 4, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button onClick={() => setServiceAddMenu(serviceAddMenu === 'song' ? null : 'song')} title="Add Song" style={{ background: serviceAddMenu === 'song' ? 'rgba(37,99,235,0.18)' : 'rgba(255,255,255,0.04)', border: serviceAddMenu === 'song' ? '1px solid #3B82F6' : '1px solid #1F2937', color: serviceAddMenu === 'song' ? '#93C5FD' : '#CBD5E1', padding: '4px 9px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><span style={{ fontSize: 12 }}>♪</span> Add Song</button>
+                <button onClick={() => setServiceAddMenu(serviceAddMenu === 'song' ? null : 'song')} title="Add Song" style={{ background: serviceAddMenu === 'song' ? 'rgba(37,99,235,0.18)' : 'rgba(255,255,255,0.04)', border: serviceAddMenu === 'song' ? '1px solid #3B82F6' : '1px solid #1F2937', color: serviceAddMenu === 'song' ? '#93C5FD' : '#CBD5E1', padding: '4px 9px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Music size={12} /> Add Song</button>
                 <button onClick={() => setServiceAddMenu(serviceAddMenu === 'media' ? null : 'media')} title="Add Media" style={{ background: serviceAddMenu === 'media' ? 'rgba(37,99,235,0.18)' : 'rgba(255,255,255,0.04)', border: serviceAddMenu === 'media' ? '1px solid #3B82F6' : '1px solid #1F2937', color: serviceAddMenu === 'media' ? '#93C5FD' : '#CBD5E1', padding: '4px 9px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><ImageIcon size={12} /> Add Media</button>
                 <button onClick={() => { const el = document.getElementById('service-media-input'); if (el) el.click(); }} title="Local Media" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid #1F2937', color: '#CBD5E1', padding: '4px 9px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Folder size={12} /> Local Media</button>
               </div>
@@ -244,7 +243,7 @@ export default function LeftSidebar() {
                   itemNum++;
                   const isLive = serviceItemIsLive(row.item);
                   const slideCount = serviceSlideCount(row.item);
-                  const icon = row.item.item_type === 'song' ? '♪' : row.item.item_type === 'media' ? <ImageIcon size={11} /> : row.item.item_type === 'presentation' ? '▦' : '▤';
+                  const icon = row.item.item_type === 'song' ? <Music size={11} /> : row.item.item_type === 'media' ? <ImageIcon size={11} /> : row.item.item_type === 'presentation' ? <MonitorPlay size={11} /> : <FileText size={11} />;
                   const iconColor = row.item.item_type === 'song' ? '#3B82F6' : '#94A3B8';
                   return (
                     <div key={`i-${ri}`} draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); try { const data = JSON.parse(e.dataTransfer.getData('text/plain')); if (data && data.kind === 'reorder') moveServiceBlock(Number(data.from), row.idx); } catch (_) {} }} onClick={() => { if (row.item.item_type === 'song') selectSong(row.item.content); else fireServiceItemLive(row.item); }} title="Drag to reorder; click to go live" style={{ position: 'relative', background: isLive ? 'rgba(34,197,94,0.10)' : (row.item.item_type === 'song' && Number(row.item.content) === activeSong?.id) || (row.item.item_type === 'custom_slide' && activeCue?.id === row.item.id) ? 'rgba(37,99,235,0.12)' : '#161B22', border: isLive ? '1px solid rgba(34,197,94,0.55)' : '1px solid #1F2937', borderRadius: 10, padding: '6px 8px', cursor: 'grab', display: 'grid', gridTemplateColumns: '14px 20px 18px 1fr auto', gap: 6, alignItems: 'center' }}>
@@ -403,7 +402,7 @@ if (dockTab === 'media') {
                       ) : asset.kind === 'video' ? (
                         <video src={asset.url} autoPlay loop muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       ) : (
-                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: PINK, fontSize: 18 }}>♪</div>
+                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: PINK }}><Music size={18} /></div>
                       )}
                       <span style={{ position: 'absolute', top: 4, left: 4, display: 'flex', gap: 4, alignItems: 'center' }}>
                         <span style={{ fontSize: 8, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, background: 'rgba(0,0,0,0.65)', color: C.heading, borderRadius: 4, padding: '1px 5px' }}>{asset.kind}</span>

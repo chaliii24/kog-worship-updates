@@ -163,6 +163,7 @@ function createWindow() {
     width: 1600,
     height: 900,
     title: 'KOG Worship - Matrix Command',
+    autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -283,6 +284,7 @@ function createOutputWindow(output) {
       x: target ? (target.bounds.x + 60) : (60 + outputWindows.size * 40),
       y: target ? (target.bounds.y + 60) : (60 + outputWindows.size * 40),
       title: `${output.name || 'Output'} (${w}×${h})`,
+      autoHideMenuBar: true,
       alwaysOnTop: true,
       minimizable: false,
       fullscreen: false,
@@ -299,6 +301,11 @@ function createOutputWindow(output) {
   });
 
   win.loadURL(`${startUrl}${outputRoute(output)}`);
+  win.webContents.on('did-finish-load', () => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('update-output-aspect', output.aspect || '16:9');
+    }
+  });
   win.on('closed', () => {
     if (outputWindows.get(output.id)?.win === win) outputWindows.delete(output.id);
   });
@@ -362,7 +369,8 @@ ipcMain.on('outputs-save', (event, outputs) => {
       name: o.name,
       role: o.role,
       displayId: o.displayId,
-      resolution: o.resolution || 'native'
+      resolution: o.resolution || 'native',
+      aspect: o.aspect || '16:9'
     }));
     fs.writeFileSync(OUTPUTS_FILE, JSON.stringify(persistable, null, 2));
   } catch (e) {}
@@ -382,8 +390,11 @@ ipcMain.on('update-live-stage', (event, stageData) => {
 });
 
 ipcMain.on('update-output-aspect', (event, aspect) => {
-  for (const { win } of outputWindows.values()) {
-    if (win && !win.isDestroyed()) win.webContents.send('update-output-aspect', aspect);
+  for (const [id, { win }] of outputWindows) {
+    if (win && !win.isDestroyed()) {
+      const output = lastSyncedOutputs.find(o => o.id === id);
+      win.webContents.send('update-output-aspect', output?.aspect || aspect);
+    }
   }
 });
 

@@ -158,11 +158,11 @@ export default function PresentationModal() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.86)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}>
-      <motion.div initial={{ opacity: 0, scale: 0.97, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.18 }} style={{ background: C.panel, border: '1px solid #2d2d3f', borderRadius: 14, width: 'min(1600px, 98vw)', height: 'min(95vh, 980px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.75)', position: 'relative' }}>
+      <motion.div initial={{ opacity: 0, scale: 0.97, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.18 }} style={{ background: C.panel, border: '1px solid #2d2d3f', borderRadius: 14, width: 'min(1600px, 98vw)', height: 'min(95vh, 980px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.75)', position: 'relative', boxSizing: 'border-box' }}>
 
         <div style={{ padding: '10px 16px', borderBottom: '1px solid #262639', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, flexWrap: 'wrap' }}>
           <Layers size={17} color={ACCENT} />
-          <input value={deck.title} onChange={(e) => patchDeck({ title: e.target.value })} placeholder="Presentation title" style={{ width: 300, background: '#0d1117', border: '1px solid #2d2d3f', borderRadius: 8, padding: '7px 10px', color: C.text, fontSize: 13, fontWeight: 700, outline: 'none' }} />
+          <input value={deck.title} onChange={(e) => patchDeck({ title: e.target.value })} placeholder="Presentation title" style={{ flex: '0 1 300px', minWidth: 150, background: '#0d1117', border: '1px solid #2d2d3f', borderRadius: 8, padding: '7px 10px', color: C.text, fontSize: 13, fontWeight: 700, outline: 'none' }} />
           <div style={{ flex: 1, minWidth: 20 }} />
           {status && <div style={{ fontSize: 11.5, color: ACCENT, fontWeight: 700, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={status}>{status}</div>}
           {headerBtn(() => setShowOutline(s => !s), Wand2, 'Import Outline')}
@@ -181,7 +181,7 @@ export default function PresentationModal() {
         )}
 
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-          <div style={{ width: 200, minWidth: 200, borderRight: '1px solid #262639', overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ flex: '0 0 200px', minWidth: 160, borderRight: '1px solid #262639', overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <button onClick={addSlide} style={{ background: 'rgba(59,130,246,0.14)', border: '1px dashed ' + ACCENT, color: ACCENT, borderRadius: 8, padding: '8px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Plus size={13} /> New Slide</button>
             {deck.slides.map((s, i) => (
               <div key={s.id || i} onClick={() => setIdx(i)} style={{ cursor: 'pointer', display: 'grid', gap: 4 }}>

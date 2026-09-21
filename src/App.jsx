@@ -26,8 +26,8 @@ import OutputsMonitorModal from './components/modals/OutputsMonitorModal';
 import { AppProvider } from './context/AppContext';
 
 const DEFAULT_OUTPUTS = [
-  { id: 'projector', name: 'Lyrics Projector', role: 'lyrics', displayId: null, enabled: false },
-  { id: 'stage', name: 'Stage Monitor', role: 'stage', displayId: null, enabled: false }
+  { id: 'projector', name: 'Lyrics Projector', role: 'lyrics', displayId: null, enabled: false, resolution: 'native', aspect: '16:9' },
+  { id: 'stage', name: 'Stage Monitor', role: 'stage', displayId: null, enabled: false, resolution: 'native', aspect: '16:9' }
 ];
 
 export default function App() {
@@ -68,7 +68,6 @@ export default function App() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   // New Command-Center Layout State
-  const [viewMode, setViewMode] = useState('show'); // 'show' | 'edit' | 'stage'
   const [dockTab, setDockTab] = useState('shows'); // shows | media | audio | templates | scripture | functions
   const [scheduleView, setScheduleView] = useState('schedule'); // 'schedule' | 'songs'
   const [activeMenu, setActiveMenu] = useState(null); // 'file' | 'edit' | 'view' | 'help'
@@ -231,7 +230,7 @@ export default function App() {
     if (isOutputWindow || !window.require) return;
     const { ipcRenderer } = window.require('electron');
     ipcRenderer.invoke('outputs-load')
-      .then((saved) => { if (Array.isArray(saved) && saved.length) setOutputs(saved.map(o => ({ ...o, enabled: false }))); })
+      .then((saved) => { if (Array.isArray(saved) && saved.length) setOutputs(saved.map(o => ({ ...o, resolution: o.resolution || 'native', aspect: o.aspect || '16:9', enabled: false }))); })
       .catch(() => {})
       .finally(() => { outputsReadyRef.current = true; });
   }, []);
@@ -242,6 +241,15 @@ export default function App() {
     const { ipcRenderer } = window.require('electron');
     ipcRenderer.send('outputs-sync', outputs);
     if (outputsReadyRef.current) ipcRenderer.send('outputs-save', outputs);
+  }, [outputs]);
+
+  // Sync projector output's aspect to global state so output windows receive it
+  useEffect(() => {
+    if (isOutputWindow || !window.require) return;
+    const projector = outputs.find(o => o.id === 'projector');
+    if (projector && projector.aspect && projector.aspect !== outputAspect) {
+      setOutputAspect(projector.aspect);
+    }
   }, [outputs]);
 
   const fetchSongs = async () => {
@@ -800,7 +808,7 @@ export default function App() {
         setActiveCue(titleCue);
         setSlideTimer({ start: Date.now(), elapsed: 0, duration: 0 });
         const bgStyle = songHasBackground(song) ? { backgroundType: song.bg_type, backgroundValue: song.bg_value } : {};
-        const slidePayload = { title: song.artist || '', text: song.title, label: 'Song Title', style: { ...stageStyle, ...bgStyle }, audio: song.audio_url || null, timestamp: Date.now() };
+        const slidePayload = { title: song.artist || '', artist: song.artist || '', text: song.title, label: 'Song Title', style: { ...stageStyle, ...bgStyle }, audio: song.audio_url || null, timestamp: Date.now() };
         setDisplays(displays.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
         if (window.require && targetedDisplays.includes(1)) { window.require('electron').ipcRenderer.send('update-live-slide', slidePayload); }
         const nextCue = (song.cues || [])[0];
@@ -817,7 +825,7 @@ export default function App() {
           if (songHasBackground(song)) return { ...stageStyle, backgroundType: song.bg_type || 'color', backgroundValue: song.bg_value || '#000000', lyric: cueLyricStyle(cue) };
           return { ...stageStyle, lyric: cueLyricStyle(cue) };
         })();
-        const slidePayload = { title: song.title, text: cue.text, label: cue.label || '', style: effectiveStyle, audio: song.audio_url || null, timestamp: Date.now() };
+        const slidePayload = { title: song.title, artist: song.artist || '', text: cue.text, label: cue.label || '', style: effectiveStyle, audio: song.audio_url || null, timestamp: Date.now() };
         setDisplays(displays.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
         if (window.require && targetedDisplays.includes(1)) { window.require('electron').ipcRenderer.send('update-live-slide', slidePayload); }
         const cueList = song.cues || [];
@@ -918,6 +926,7 @@ export default function App() {
     const effectiveStyle = resolutionStyle(cue);
     const slidePayload = { 
       title: activeSong?.title || '', 
+      artist: activeSong?.artist || '',
       text: cue && cue.id !== 'clear' ? cue.text : '',
       label: cue?.label || '',
       style: effectiveStyle,
@@ -948,6 +957,7 @@ export default function App() {
     setSlideTimer({ start: Date.now(), elapsed: 0, duration: 0 });
     const slidePayload = { 
       title: activeSong.artist || '', 
+      artist: activeSong.artist || '',
       text: activeSong.title,
       label: 'Song Title',
       style: songBackgroundStyle(),
@@ -1047,7 +1057,7 @@ export default function App() {
   const addOutput = () => {
     setOutputs(prev => {
       const id = `out-${Math.random().toString(36).slice(2, 8)}`;
-      return [...prev, { id, name: `Output ${prev.length + 1}`, role: 'lyrics', displayId: null, enabled: false }];
+      return [...prev, { id, name: `Output ${prev.length + 1}`, role: 'lyrics', displayId: null, enabled: false, resolution: 'native', aspect: '16:9' }];
     });
   };
 
@@ -1074,16 +1084,6 @@ export default function App() {
   const selectOutputDisplay = (displayId) => {
     const d = normalizeDisplay(displayId);
     updateOutput('projector', { displayId: d, enabled: d !== null });
-  };
-
-  const projectorResolution = (outputs.find(o => o.id === 'projector')?.resolution) || 'native';
-
-  const setProjectorResolution = (res) => {
-    const existing = outputs.find(o => o.id === 'projector');
-    let d = existing?.displayId ?? null;
-    if (res !== 'native' && d === null) d = 'preview';
-    if (res === 'native' && d === 'preview') d = (outputDisplays && outputDisplays.length ? outputDisplays[0].id : null);
-    updateOutput('projector', { resolution: res, enabled: true, displayId: normalizeDisplay(d) });
   };
 
   const selectStageDisplay = (displayId) => {
@@ -1575,10 +1575,29 @@ export default function App() {
     <button title={title} onClick={onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: active ? 'rgba(34,197,94,0.15)' : C.elevated, border: '1px solid ' + (active ? 'rgba(34,197,94,0.5)' : '#2d2d3f'), color: danger ? '#f87171' : C.text2, borderRadius: 7, padding: '6px 9px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{children}</button>
   );
 
-  const fitStageFont = (lineCount) => {
-    const base = Number(editorCue?.size) || 92;
-    const byLines = (editorBox.h * 0.9) / Math.max(1, lineCount * 1.24);
-    return Math.max(22, Math.min(base, byLines));
+  const fitStageFont = (text) => {
+    const lines = (text || '').split('\n');
+    const lh = editorCue?.lineHeight || 1.05;
+    const boxW = Math.max(200, (editorBox.w || 800) - 40);
+    const boxH = editorBox.h || 340;
+    const baseSize = Math.max(18, Math.min(Number(editorCue?.size) || 92, 400));
+    const scaleFor = (isEmph) => (isEmph ? 1.24 : 0.84);
+    const caps = lines.filter(l => l.trim().length > 1 && l.trim() === l.trim().toUpperCase());
+    const key = caps.length ? caps[0] : (lines.slice().sort((a, b) => b.trim().length - a.trim().length)[0] || '');
+    const totalHeight = (base) => lines.reduce((h, l) => {
+      if (!l.trim()) return h + base * lh * 0.7;
+      const f = base * scaleFor(l.trim() === key);
+      const cpl = Math.max(6, boxW / (f * 0.55));
+      const wrapped = Math.max(1, Math.ceil(l.length / cpl));
+      return h + wrapped * f * lh;
+    }, 0);
+    let fs = baseSize;
+    for (let i = 0; i < 5; i++) {
+      const actual = totalHeight(fs);
+      if (!actual) break;
+      fs = Math.max(14, Math.min(baseSize, fs * ((boxH * 0.92) / actual)));
+    }
+    return Math.round(fs);
   };
 
   const cueLyricStyle = (cue) => ({
@@ -1592,7 +1611,7 @@ export default function App() {
     outline: !!(cue?.outline),
     highlight: !!(cue?.highlight),
     hlOpacity: cue?.hlOpacity ?? 40,
-    box: cue?.box || null,
+    box: cue?.box || { x: 240, y: 190, w: 800, h: 340 },
   });
 
   useEffect(() => {
@@ -2086,14 +2105,14 @@ export default function App() {
   };
 
   const dockItems = [
-    { id: 'shows', label: 'Shows', icon: '▶', accent: true },
-    { id: 'presentations', label: 'Presentations', icon: '▦', accent: false },
-    { id: 'live', label: 'Live', icon: '▣', accent: false },
-    { id: 'media', label: 'Media', icon: '▤', accent: false },
-    { id: 'audio', label: 'Audio', icon: '♪', accent: false },
-    { id: 'scripture', label: 'Scripture', icon: '✝', accent: false },
-    { id: 'outputs', label: 'Outputs', icon: '▥', accent: false },
-    { id: 'functions', label: 'Functions', icon: '⚙', accent: false }
+    { id: 'shows', label: 'Shows', iconId: 'list-video', accent: true },
+    { id: 'presentations', label: 'Presentations', iconId: 'presentation', accent: false },
+    { id: 'live', label: 'Live', iconId: 'radio', accent: false },
+    { id: 'media', label: 'Media', iconId: 'film', accent: false },
+    { id: 'audio', label: 'Audio', iconId: 'music', accent: false },
+    { id: 'scripture', label: 'Scripture', iconId: 'book-open', accent: false },
+    { id: 'outputs', label: 'Outputs', iconId: 'monitor', accent: false },
+    { id: 'functions', label: 'Functions', iconId: 'settings', accent: false }
   ];
 
   const menuItems = {
@@ -2177,23 +2196,15 @@ export default function App() {
     setAboutStatus('The KOGWorship User Guide is not available yet.');
   };
 
-  const handleSelectMode = (modeId) => {
-    setViewMode(modeId);
-    if (modeId === 'stage') toggleStageWindow();
-    if (modeId === 'edit' && activeSong) { setEditingSong(activeSong); setEditorMode('manual'); setRawPasteText(''); setIsEditorOpen(true); }
-  };
-
   const handleDockSelect = (item) => {
     if (item.id === 'outputs') { setShowOutputMonitor(true); return; }
     setDockTab(item.id);
-    setViewMode('show');
     setLeftOpen(item.id !== 'scripture');
     if (item.id === 'live') { setRightOpen(true); } else { setScheduleView(item.id === 'shows' ? scheduleView : 'schedule'); }
   };
 
   const handleNewSong = () => {
     setDockTab('shows');
-    setViewMode('show');
     setLeftOpen(true);
     setScheduleView(scheduleView === 'schedule' ? 'schedule' : scheduleView);
     setEditingSong({ id: null, title: '', artist: '', category: 'Worship', cues: [{ label: 'Verse 1', text: '' }] });
@@ -2202,10 +2213,7 @@ export default function App() {
     setIsEditorOpen(true);
   };
 
-  const leftContent = (() => {
-    if (viewMode === 'edit') return 'library';
-    return dockTab;
-  })();
+  const leftContent = dockTab;
 
   const monitorContent = displays.find(d => d.id === 1)?.content || null;
 
@@ -2247,7 +2255,7 @@ export default function App() {
             <div style={{ width: 1280, height: 720, position: 'relative', transform: `scale(${previewScale})`, transformOrigin: 'center center', flexShrink: 0 }}>
               {(() => {
                 const lst = st.lyric || { font: st.fontFamily || 'system-ui, sans-serif', size: 92, lineHeight: 1.05, align: st.textAlign || 'center', color: st.fontColor || '#ffffff', caseMode: 'none' };
-                const box = lst.box || { x: 40, y: 40, w: 1200, h: 640 };
+                const box = lst.box || { x: 240, y: 190, w: 800, h: 340 };
                 return (
                   <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h }}>
                     {renderLyricsLayout(monitorContent.text, lst, box)}
@@ -2294,9 +2302,9 @@ export default function App() {
         ACCENT={ACCENT}
         logoImage={logoImage}
         onStartNewShow={() => { setShowWelcome(false); openNewShow(); }}
-        onOpenSavedShows={() => { setShowWelcome(false); setDockTab('shows'); setViewMode('show'); setLeftOpen(true); setActiveTab('service'); }}
+        onOpenSavedShows={() => { setShowWelcome(false); setDockTab('shows'); setLeftOpen(true); setActiveTab('service'); }}
         onStartBlank={() => setShowWelcome(false)}
-        onOpenRecent={(id) => { setShowWelcome(false); loadService(id); setDockTab('shows'); setViewMode('show'); setLeftOpen(true); setActiveTab('service'); }}
+        onOpenRecent={(id) => { setShowWelcome(false); loadService(id); setDockTab('shows'); setLeftOpen(true); setActiveTab('service'); }}
       />
     );
   }
@@ -2311,7 +2319,7 @@ export default function App() {
     showsCollapsed, setShowsCollapsed, songsCollapsed, setSongsCollapsed, serviceDragOver, setServiceDragOver,
     activeCategory, setActiveCategory, activeSong, setActiveSong, activeCue, setActiveCue,
     leftOpen, setLeftOpen, rightOpen, setRightOpen, showHotkeys, setShowHotkeys, showAbout, setShowAbout, showMoreMenu, setShowMoreMenu,
-    viewMode, setViewMode, dockTab, setDockTab, scheduleView, setScheduleView, activeMenu, setActiveMenu, rightTab, setRightTab,
+    dockTab, setDockTab, scheduleView, setScheduleView, activeMenu, setActiveMenu, rightTab, setRightTab,
     mediaLibrary, setMediaLibrary, scriptureBgLibrary, libraryStats, setLibraryStats, appInfo, setAppInfo, audioPreview, setAudioPreview, audioVolume, setAudioVolume,
     bibleLib, setBibleLib, bibleTrans, setBibleTrans, bibleBooks, setBibleBooks, bibleSel, setBibleSel, bibleChapter, setBibleChapter,
     bibleDL, setBibleDL, bibleLibQuery, setBibleLibQuery, bibleLibLoading, setBibleLibLoading, bibleTransOpen, setBibleTransOpen,
@@ -2363,7 +2371,7 @@ export default function App() {
     selectBibleChapter, handleBibleVerseClick, resetBibleToBooks, resetBibleToBook, openBibleTranslation, downloadBible,
     deleteBibleTranslation, resolveBibleReference, searchBibleKeywords, bibleActiveEntry, bibleInstalledLib,
     bibleLibQueryTrim, bibleLibFiltered, bibleAllBooks, bibleOtCount, bibleNtCount, bibleFilteredBooks, bibleStep,
-    deleteSavedService, shellOpenDataFolder, dockItems, menuItems, handleSelectMode, handleDockSelect, handleNewSong,
+    deleteSavedService, shellOpenDataFolder, dockItems, menuItems, handleDockSelect, handleNewSong,
     leftContent, monitorContent, renderOutputPreview, DEFAULT_BOX,
   };
 
@@ -2385,8 +2393,6 @@ export default function App() {
         activeMenu={activeMenu}
         setActiveMenu={setActiveMenu}
         menuItems={menuItems}
-        viewMode={viewMode}
-        onSelectMode={handleSelectMode}
         activeCue={activeCue}
         toggleDevProjectorWindow={toggleDevProjectorWindow}
         toggleStageWindow={toggleStageWindow}
@@ -2394,7 +2400,7 @@ export default function App() {
       />
 
       {/* ===== MAIN WORKSPACE ===== */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0, width: '100%' }}>
 
 {/* LEFT SIDEBAR */}
         <LeftSidebar />
@@ -2406,21 +2412,12 @@ export default function App() {
         <LiveOutputPanel
           C={C}
           PINK={PINK}
-          rightOpen={rightOpen}
-          setRightOpen={setRightOpen}
           activeSlideIndex={activeSlideIndex}
           slideCount={slideGrid.length}
           renderOutputPreview={renderOutputPreview}
-          displays={displays}
-          targetedDisplays={targetedDisplays}
-          toggleTarget={toggleTarget}
           outputDisplays={outputDisplays}
           selectedOutputDisplay={outputs.find(o => o.id === 'projector')?.displayId ?? null}
           selectOutputDisplay={selectOutputDisplay}
-          projectorResolution={projectorResolution}
-          setProjectorResolution={setProjectorResolution}
-          outputAspect={outputAspect}
-          setOutputAspect={setOutputAspect}
           activeCue={activeCue}
           fireCueLive={fireCueLive}
           handlePrevCue={handlePrevCue}
@@ -2446,7 +2443,6 @@ export default function App() {
         dockItems={dockItems}
         dockTab={dockTab}
         activeId={showOutputMonitor ? 'outputs' : undefined}
-        viewMode={viewMode}
         onSelect={handleDockSelect}
         onNewSong={handleNewSong}
       />
@@ -2533,6 +2529,8 @@ export default function App() {
           addOutput={addOutput}
           removeOutput={removeOutput}
           setOutputRunning={setOutputRunning}
+          outputAspect={outputAspect}
+          setOutputAspect={setOutputAspect}
           onClose={() => setShowOutputMonitor(false)}
         />
       )}

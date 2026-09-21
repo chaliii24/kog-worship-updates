@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Search, Download, Upload, Edit3, Image as ImageIcon, Video, ChevronDown, HelpCircle, ChevronLeft, CornerUpLeft, Zap } from 'lucide-react';
+import { Plus, Search, Download, Upload, Edit3, Image as ImageIcon, Video, ChevronDown, HelpCircle, ChevronLeft, CornerUpLeft, Zap, BookOpen, Music } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
@@ -420,7 +420,7 @@ export default function CenterWorkspace() {
                 ) : (
                   <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 40 }}>
                     <div style={{ textAlign: 'center', maxWidth: 360, display: 'grid', gap: 8, justifyItems: 'center' }}>
-                      <div style={{ width: 54, height: 54, borderRadius: 16, background: 'radial-gradient(140% 140% at 30% 20%, #1e3a8a, #0d1b3e)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, color: '#3B82F6' }}>📖</div>
+                      <div style={{ width: 54, height: 54, borderRadius: 16, background: 'radial-gradient(140% 140% at 30% 20%, #1e3a8a, #0d1b3e)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><BookOpen size={26} color="#3B82F6" /></div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: '#CBD5E1' }}>Pick a book, then a chapter</div>
                       <div style={{ fontSize: 11.5, color: '#64748B', lineHeight: 1.6 }}>Click a verse to send it live instantly. Use Ctrl+Click to multi-select or Shift+Click to grab a range, then Add to Playlist or Go Live.</div>
                     </div>
@@ -461,7 +461,7 @@ export default function CenterWorkspace() {
     ) : (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: C.faint2, borderRadius: 14 }}>
         <div style={{ width: '100%', maxWidth: 720, aspectRatio: '16 / 9', background: '#000', border: '1px solid #1e1e2e', borderRadius: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-          <div style={{ width: 58, height: 58, borderRadius: 16, background: 'radial-gradient(140% 140% at 30% 20%, #3b1d6e, #1a0c30)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, color: PINK }}>♪</div>
+          <div style={{ width: 58, height: 58, borderRadius: 16, background: 'radial-gradient(140% 140% at 30% 20%, #3b1d6e, #1a0c30)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Music size={28} color={PINK} /></div>
           <div style={{ fontSize: 14, fontWeight: 700, color: C.muted }}>Welcome to KOGWorship</div>
           <div style={{ fontSize: 12, textAlign: 'center', maxWidth: 380, lineHeight: 1.5, color: C.faint2 }}>Add a song from the Songs tab, or open a saved service from the Shows tab to begin.</div>
           <div style={{ fontSize: 11.5, textAlign: 'center', maxWidth: 380, lineHeight: 1.5, color: C.faint2 }}>Tip: assign a display under Live Outputs, then press Start to project to your screens.</div>

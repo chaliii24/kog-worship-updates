@@ -84,11 +84,11 @@ export default function SongEditorModal() {
         <button onClick={() => setEditorMode('auto')} style={{ background: editorMode === 'auto' ? ACCENT : 'transparent', border: 'none', color: C.text, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><Wand2 size={13} /> Smart Auto-Paste</button>
       </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flex: 1, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-        <div style={{ width: 220 }}>
-          <input type="text" value={editingSong.title} onChange={(e) => setEditingSong({ ...editingSong, title: e.target.value })} placeholder="Song title" style={{ width: '100%', background: C.elevated2, border: '1px solid #2d2d3f', borderRadius: 8, padding: '7px 10px', color: C.text, fontSize: 13, outline: 'none' }} />
+        <div style={{ flex: '0 1 220px', minWidth: 120 }}>
+          <input type="text" value={editingSong.title} onChange={(e) => setEditingSong({ ...editingSong, title: e.target.value })} placeholder="Song title" style={{ width: '100%', background: C.elevated2, border: '1px solid #2d2d3f', borderRadius: 8, padding: '7px 10px', color: C.text, fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
         </div>
-        <div style={{ width: 150 }}>
-          <input type="text" value={editingSong.artist} onChange={(e) => setEditingSong({ ...editingSong, artist: e.target.value })} placeholder="Artist" style={{ width: '100%', background: C.elevated2, border: '1px solid #2d2d3f', borderRadius: 8, padding: '7px 10px', color: C.text, fontSize: 13, outline: 'none' }} />
+        <div style={{ flex: '0 1 150px', minWidth: 100 }}>
+          <input type="text" value={editingSong.artist} onChange={(e) => setEditingSong({ ...editingSong, artist: e.target.value })} placeholder="Artist" style={{ width: '100%', background: C.elevated2, border: '1px solid #2d2d3f', borderRadius: 8, padding: '7px 10px', color: C.text, fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
         </div>
         <select value={editingSong.category} onChange={(e) => setEditingSong({ ...editingSong, category: e.target.value })} style={{ background: C.elevated2, color: C.text, border: '1px solid #2d2d3f', borderRadius: 8, padding: '7px 8px', fontSize: 12, outline: 'none' }}>
           <option value="Worship">Worship</option>
@@ -165,7 +165,7 @@ export default function SongEditorModal() {
       ) : (
         <>
           {/* ================== LEFT SIDEBAR ================== */}
-          <div style={{ width: 240, minWidth: 240, borderRight: '1px solid #262639', overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ flex: '0 0 240px', minWidth: 200, borderRight: '1px solid #262639', overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
 
             {/* ALIGNMENT */}
             <div style={{ background: C.elevated, border: '1px solid #2d2d3f', borderRadius: 10, padding: 10 }}>
@@ -294,7 +294,7 @@ export default function SongEditorModal() {
             {/* canvas */}
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12, overflow: 'hidden', minHeight: 0 }}>
               <div ref={canvasWrapRef} onPointerMove={onStagePointerMove} onPointerUp={endBoxDrag} onPointerLeave={endBoxDrag} style={{ width: '100%', maxWidth: '100%', aspectRatio: '16 / 9', position: 'relative', overflow: 'hidden', borderRadius: 12, boxShadow: '0 12px 44px rgba(0,0,0,0.45)', border: '1px solid #2d2d3f', cursor: boxDrag ? 'grabbing' : 'default' }}>
-                <div style={{ width: 1280, height: 720, transform: `scale(${canvasScale})`, transformOrigin: 'top left', position: 'relative', background: (resolveBg(editorCue, editingSong) && resolveBg(editorCue, editingSong).type === 'color' ? resolveBg(editorCue, editingSong).value : '#000000') }}>
+                <div style={{ width: 1280, height: 720, transform: `scale(${canvasScale})`, transformOrigin: 'top left', position: 'relative', background: (resolveBg(editorCue, editingSong) && resolveBg(editorCue, editingSong).type === 'color' ? resolveBg(editorCue, editingSong).value : '#000000') }} onMouseDown={(e) => { if (canvasEdit && !e.target.closest('[data-textbox]')) { setCanvasEdit(false); } }}>
                   {resolveBg(editorCue, editingSong) && resolveBg(editorCue, editingSong).type === 'image' && (
                     <img key={`edbg-${resolveBg(editorCue, editingSong).value}`} src={resolveBg(editorCue, editingSong).value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                   )}
@@ -302,20 +302,26 @@ export default function SongEditorModal() {
                     <video key={`edbg-${resolveBg(editorCue, editingSong).value}`} src={resolveBg(editorCue, editingSong).value} autoPlay loop muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                   )}
                   {editorCue && (
-                    <div key={editorCueIdx} onDoubleClick={() => !editorCue.locked && setCanvasEdit(true)} onMouseDown={(e) => { if (!canvasEdit) startBoxDrag(e, 'move'); }} style={{ position: 'absolute', left: editorBox.x, top: editorBox.y, width: editorBox.w, height: editorBox.h, border: '1.5px solid rgba(34,197,94,0.9)', borderRadius: 8, boxSizing: 'border-box', boxShadow: 'inset 0 0 0 9999px rgba(0,0,0,0.04)', cursor: canvasEdit ? 'default' : 'move' }}>
+                    <div key={editorCueIdx} data-textbox="true" onDoubleClick={() => !editorCue.locked && setCanvasEdit(true)} onMouseDown={(e) => { if (!canvasEdit) startBoxDrag(e, 'move'); }} style={{ position: 'absolute', left: editorBox.x, top: editorBox.y, width: editorBox.w, height: editorBox.h, border: '1.5px solid rgba(34,197,94,0.9)', borderRadius: 8, boxSizing: 'border-box', boxShadow: 'inset 0 0 0 9999px rgba(0,0,0,0.04)', cursor: canvasEdit ? 'default' : 'move' }}>
                       {canvasEdit ? (
-                        <textarea
-                          ref={editAreaRef}
-                          autoFocus
-                          value={editorCue.text || ''}
-                          onChange={(e) => updateCue(editorCueIdx, { text: e.target.value })}
-                          onKeyDown={(e) => {
-                            if (e.altKey && e.key === 'Enter') { e.preventDefault(); splitCueAtTextareaCaret(e.target); }
-                            else if (e.key === 'Escape') { setCanvasEdit(false); }
-                          }}
-                          placeholder="Type lyrics here…   (Alt+Enter splits this block into a new slide)"
-                          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', resize: 'none', background: 'rgba(0,0,0,0.55)', color: '#fff', border: 'none', outline: 'none', borderRadius: 8, fontFamily: editorCue.font || FONT_OPTIONS[0].value, fontSize: fitStageFont((editorCue.text || '').split('\n').length), lineHeight: editorCue.lineHeight || 1.05, padding: 14, textAlign: editorCue.align || 'center' }}
-                        />
+                        <>
+                          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1 }}>
+                            {renderLyricsLayout(editorCue.text || '', cueLyricStyle(editorCue), editorBox)}
+                          </div>
+                          <textarea
+                            ref={editAreaRef}
+                            autoFocus
+                            value={editorCue.text || ''}
+                            onChange={(e) => updateCue(editorCueIdx, { text: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.altKey && e.key === 'Enter') { e.preventDefault(); splitCueAtTextareaCaret(e.target); }
+                              else if (e.key === 'Escape') { setCanvasEdit(false); }
+                            }}
+                            placeholder=""
+                            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', resize: 'none', background: 'transparent', color: 'transparent', caretColor: '#fff', border: 'none', outline: 'none', borderRadius: 8, fontFamily: editorCue.font || FONT_OPTIONS[0].value, fontSize: fitStageFont(editorCue.text || ''), lineHeight: editorCue.lineHeight || 1.05, padding: '10px 18px', textAlign: editorCue.align || 'center', overflowWrap: 'break-word', wordBreak: 'break-word', whiteSpace: 'pre-wrap', letterSpacing: '0.02em', fontWeight: 600, zIndex: 2, WebkitTextFillColor: 'transparent' }}
+                          />
+                          <style>{`[data-textbox] textarea::selection { background: rgba(59,130,246,0.3); }`}</style>
+                        </>
                       ) : (
                         renderLyricsLayout(editorCue.text || '', cueLyricStyle(editorCue), editorBox)
                       )}
@@ -337,7 +343,7 @@ export default function SongEditorModal() {
           </div>
 
           {/* ================== RIGHT SIDEBAR ================== */}
-          <div style={{ width: 300, minWidth: 300, borderLeft: '1px solid #262639', overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ flex: '0 0 300px', minWidth: 240, borderLeft: '1px solid #262639', overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
             {/* SLIDES */}
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>

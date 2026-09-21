@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import logoImage from '../assets/logo.png';
 
-export default function TopHeader({ C, PINK, activeMenu, setActiveMenu, menuItems, viewMode, onSelectMode, activeCue, toggleDevProjectorWindow, toggleStageWindow, openNewShow }) {
+export default function TopHeader({ C, PINK, activeMenu, setActiveMenu, menuItems, activeCue, toggleDevProjectorWindow, toggleStageWindow, openNewShow }) {
   const isLive = activeCue?.id !== 'clear' && activeCue !== null;
   return (
     <motion.div initial={{ y: -16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ type: 'spring', stiffness: 280, damping: 26, delay: 0.05 }} style={{ background: C.panel, padding: '0 14px', height: 54, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #23233a', gap: 12, flexShrink: 0 }}>
@@ -27,17 +27,6 @@ export default function TopHeader({ C, PINK, activeMenu, setActiveMenu, menuItem
             </div>
           ))}
         </div>
-      </div>
-
-      {/* MODE SWITCHER */}
-      <div style={{ display: 'flex', background: C.elevated2, border: '1px solid #2b2b44', borderRadius: 10, padding: 3 }}>
-        {[
-          { id: 'show', label: 'Show' },
-          { id: 'edit', label: 'Edit' },
-          { id: 'stage', label: 'Stage' }
-        ].map(mode => (
-          <motion.button {...stubTap} key={mode.id} onClick={() => onSelectMode(mode.id)} style={{ background: viewMode === mode.id ? PINK : 'transparent', color: viewMode === mode.id ? C.text : C.muted, border: 'none', padding: '6px 20px', borderRadius: 7, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>{mode.label}</motion.button>
-        ))}
       </div>
 
       {/* RIGHT QUICK ACTIONS */}

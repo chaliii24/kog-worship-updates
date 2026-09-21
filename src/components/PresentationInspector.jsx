@@ -63,7 +63,7 @@ export default function PresentationInspector({
   );
 
   return (
-    <div style={{ width: 330, minWidth: 330, borderLeft: '1px solid #262639', overflowY: 'auto', padding: 14, display: 'grid', gap: 14, alignContent: 'start' }}>
+    <div style={{ flex: '0 1 330px', minWidth: 250, borderLeft: '1px solid #262639', overflowY: 'auto', padding: 14, display: 'grid', gap: 14, alignContent: 'start' }}>
       <div style={{ display: 'flex', gap: 5 }}>
         {tabBtn('content', 'Text', Type)}
         {tabBtn('background', 'BG', Palette)}

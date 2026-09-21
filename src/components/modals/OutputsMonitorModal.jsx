@@ -14,6 +14,27 @@ const ROLE_OPTIONS = [
   { value: 'stage', label: 'Stage' }
 ];
 
+const RESOLUTION_OPTIONS = [
+  { value: 'native', label: 'Native (fullscreen)' },
+  { group: '4K / UHD', options: [{ value: '3840x2160', label: '3840 × 2160 (4K UHD)' }] },
+  { group: 'Common Resolutions', options: [
+    { value: '2560x1440', label: '2560 × 1440 (QHD)' },
+    { value: '1920x1080', label: '1920 × 1080 (Full HD)' },
+    { value: '1920x1200', label: '1920 × 1200 (WUXGA)' },
+    { value: '1600x1200', label: '1600 × 1200 (UXGA)' },
+    { value: '1600x900', label: '1600 × 900 (HD+)' },
+    { value: '1440x900', label: '1440 × 900 (WXGA+)' },
+    { value: '1366x768', label: '1366 × 768 (HD)' },
+    { value: '1280x1024', label: '1280 × 1024 (SXGA)' },
+    { value: '1280x800', label: '1280 × 800 (WXGA)' },
+    { value: '1280x720', label: '1280 × 720 (720p)' },
+    { value: '1024x768', label: '1024 × 768 (XGA)' },
+  ]},
+  { group: 'Preview', options: [{ value: '800x450', label: '800 × 450 (Preview)' }] },
+];
+
+const ASPECT_OPTIONS = ['16:9', '4:3', '16:10', '21:9'];
+
 export default function OutputsMonitorModal({
   C,
   PINK,
@@ -23,6 +44,8 @@ export default function OutputsMonitorModal({
   addOutput,
   removeOutput,
   setOutputRunning,
+  outputAspect,
+  setOutputAspect,
   onClose
 }) {
   const [status, setStatus] = useState([]);
@@ -68,7 +91,7 @@ export default function OutputsMonitorModal({
 
   return (
     <motion.div {...modalOverlay} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }} onClick={onClose}>
-      <motion.div {...panelLg} onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: '1px solid #2d2d3f', borderRadius: 14, width: 860, maxWidth: '94vw', maxHeight: 'calc(100vh - 70px)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
+      <motion.div {...panelLg} onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: '1px solid #2d2d3f', borderRadius: 14, width: 'min(860px, 94vw)', maxHeight: 'calc(100vh - 70px)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #23233a', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -135,6 +158,30 @@ export default function OutputsMonitorModal({
                     >
                       {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                     </select>
+
+                    <div>
+                      <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>Resolution</div>
+                      <select
+                        value={out.resolution || 'native'}
+                        onChange={(e) => updateOutput(out.id, { resolution: e.target.value })}
+                        style={{ width: '100%', background: C.elevated, border: '1px solid #2b2b44', borderRadius: 8, color: C.text2, fontSize: 11, fontWeight: 600, padding: '5px 8px', cursor: 'pointer', outline: 'none' }}
+                      >
+                        {RESOLUTION_OPTIONS.map(o => o.group ? (
+                          <optgroup key={o.group} label={o.group}>{o.options.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}</optgroup>
+                        ) : (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>Aspect Ratio</div>
+                      <div style={{ display: 'flex', gap: 3 }}>
+                        {ASPECT_OPTIONS.map(a => (
+                          <motion.button key={a} {...stubTap} onClick={() => updateOutput(out.id, { aspect: a })} style={{ flex: 1, background: (out.aspect || '16:9') === a ? 'rgba(255,79,163,0.14)' : C.elevated, border: (out.aspect || '16:9') === a ? `1px solid ${PINK}` : '1px solid #2b2b44', color: (out.aspect || '16:9') === a ? PINK : C.muted, borderRadius: 6, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>{a}</motion.button>
+                        ))}
+                      </div>
+                    </div>
 
                     <select
                       value={out.displayId ?? ''}

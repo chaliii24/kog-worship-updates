@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Search, Trash2, Video, Monitor, LayoutGrid, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Search, Trash2, Video, Monitor, LayoutGrid, ChevronDown, ChevronLeft, ChevronRight, Music, FileText } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatCountdown } from '../lib/constants';
 import { useApp } from '../context/AppContext';
@@ -146,7 +146,7 @@ return (
                   return (
                     <div key={ii} onClick={() => selectBuilderItem(si, ii)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px 5px 28px', cursor: 'pointer', background: isSelected ? 'rgba(34,197,94,0.12)' : 'transparent', borderLeft: isSelected ? '3px solid #22c55e' : '3px solid transparent', fontSize: 11, transition: 'background 0.15s' }}>
                       <span style={{ fontSize: 10, fontWeight: 800, color: isSelected ? '#22c55e' : C.faint, minWidth: 18 }}>{globalNum}</span>
-                      <span style={{ fontSize: 10, color: C.muted }}>{it.songId ? '♪' : '▤'}</span>
+                      <span style={{ fontSize: 10, color: C.muted }}>{it.songId ? <Music size={10} /> : <FileText size={10} />}</span>
                       <span style={{ flex: 1, fontWeight: isSelected ? 700 : 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.title}</span>
                       <span style={{ fontSize: 9, color: C.muted }}>{slideCount(it)}s</span>
                     </div>
@@ -246,7 +246,7 @@ return (
               return (
                 <div key={fi} onClick={() => selectBuilderItem(entry.si, entry.ii)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 4, background: isActive ? 'rgba(34,197,94,0.1)' : 'transparent', cursor: 'pointer' }}>
                   <span style={{ fontSize: 9, fontWeight: 800, color: isActive ? '#22c55e' : C.faint, minWidth: 16 }}>{fi + 1}</span>
-                  <span style={{ fontSize: 9, color: C.muted }}>{entry.item.songId ? '♪' : '▤'}</span>
+                  <span style={{ fontSize: 9, color: C.muted }}>{entry.item.songId ? <Music size={9} /> : <FileText size={9} />}</span>
                   <span style={{ flex: 1, fontSize: 10, fontWeight: isActive ? 700 : 500, color: isActive ? C.text : C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.item.title}</span>
                   <span style={{ fontSize: 9, color: C.faint }}>{entry.c}s</span>
                 </div>

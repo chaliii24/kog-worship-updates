@@ -107,11 +107,20 @@ export default function ProjectorDisplay({ currentSlide, C, aspect }) {
           ) : currentSlide.text ? (
             (() => {
               const st = slideStyle.lyric || { font: slideStyle.fontFamily || 'system-ui, sans-serif', size: 92, lineHeight: 1.05, align: slideStyle.textAlign || 'center', color: slideStyle.fontColor || '#ffffff', caseMode: 'none' };
-              const box = st.box || { x: 40, y: 40, w: 1200, h: 640 };
+              const box = st.box || { x: 240, y: 190, w: 800, h: 340 };
+              const artist = currentSlide.artist || '';
+              const isTitleSlide = currentSlide.label === 'Song Title';
               return (
-                <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h }}>
-                  {renderLyricsLayout(currentSlide.text, st, box)}
-                </div>
+                <>
+                  <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h }}>
+                    {renderLyricsLayout(currentSlide.text, st, box)}
+                  </div>
+                  {isTitleSlide && artist && (
+                    <div style={{ position: 'absolute', bottom: 20, right: 24, fontFamily: st.font, fontSize: 24, fontWeight: 600, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.03em', textShadow: '0 2px 8px rgba(0,0,0,0.8)', whiteSpace: 'nowrap' }}>
+                      Song By: {artist}
+                    </div>
+                  )}
+                </>
               );
             })()
           ) : null}
