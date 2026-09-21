@@ -10,7 +10,19 @@ const FEATURES = [
   ['Multi-Display Control', 'Independent output routing for main projectors, side displays, and stage confidence monitors.']
 ];
 
-export default function AboutModal({ C, ACCENT, PINK, version, status, updateReady, onCheckUpdates, onDownloadUpdate, onInstallUpdate, onOpenGuide, onClose }) {
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+}
+
+function formatSpeed(bytesPerSec) {
+  if (!bytesPerSec) return '';
+  return formatBytes(bytesPerSec) + '/s';
+}
+
+export default function AboutModal({ C, ACCENT, PINK, version, status, updateReady, updateProgress, onCheckUpdates, onDownloadUpdate, onInstallUpdate, onOpenGuide, onClose }) {
   return (
     <motion.div {...modalOverlay} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }} onClick={onClose}>
       <motion.div {...modalPanel} onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: '1px solid #2d2d3f', borderRadius: '14px', width: '540px', maxWidth: '92vw', maxHeight: 'calc(100vh - 80px)', overflowY: 'auto', padding: '24px', boxSizing: 'border-box' }}>
@@ -41,7 +53,22 @@ export default function AboutModal({ C, ACCENT, PINK, version, status, updateRea
           Designed and Developed by Charles Darius Arradaza, a servant of God.
         </p>
 
-        {status && (
+        {updateProgress && (
+          <div style={{ marginTop: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: C.muted, marginBottom: '6px' }}>
+              <span>{formatBytes(updateProgress.transferred)} of {formatBytes(updateProgress.total)}</span>
+              <span>{Math.round(updateProgress.percent)}%</span>
+            </div>
+            <div style={{ width: '100%', height: '6px', background: C.elevated2, borderRadius: '3px', overflow: 'hidden' }}>
+              <div style={{ width: `${updateProgress.percent}%`, height: '100%', background: ACCENT, borderRadius: '3px', transition: 'width 0.3s ease' }} />
+            </div>
+            {updateProgress.bytesPerSecond > 0 && (
+              <div style={{ fontSize: '11px', color: C.muted, marginTop: '4px', textAlign: 'center' }}>{formatSpeed(updateProgress.bytesPerSecond)}</div>
+            )}
+          </div>
+        )}
+
+        {status && !updateProgress && (
           <div style={{ marginTop: '16px', fontSize: '12px', color: C.muted, textAlign: 'center' }}>{status}</div>
         )}
 
@@ -54,7 +81,7 @@ export default function AboutModal({ C, ACCENT, PINK, version, status, updateRea
         )}
 
 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '22px', flexWrap: 'wrap' }}>
-          {updateReady === 'available' && (
+          {updateReady === 'available' && !updateProgress && (
             <motion.button {...stubTap} onClick={onDownloadUpdate} style={{ display: 'flex', alignItems: 'center', gap: 6, background: ACCENT, border: 'none', color: '#fff', padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
               <Download size={13} /> Download Update
             </motion.button>

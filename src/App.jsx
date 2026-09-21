@@ -63,6 +63,7 @@ export default function App() {
   const [showAbout, setShowAbout] = useState(false);
   const [aboutStatus, setAboutStatus] = useState('');
   const [updateReady, setUpdateReady] = useState(null);
+  const [updateProgress, setUpdateProgress] = useState(null);
   const [showOutputMonitor, setShowOutputMonitor] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
@@ -436,19 +437,22 @@ export default function App() {
   useEffect(() => {
     if (isOutputWindow || !window.require) return;
     const { ipcRenderer } = window.require('electron');
-    const onUpdateAvailable = (event, info) => { setAboutStatus(`Update available: v${info.version}`); setUpdateReady('available'); };
-    const onUpdateDownloaded = (event, info) => { setAboutStatus(`Update downloaded: v${info.version}. Restart to install.`); setUpdateReady('downloaded'); };
-    const onUpdateError = (event, error) => { setAboutStatus(`Update error: ${error}`); setUpdateReady(null); };
-    const onUpdateNotAvailable = (event, info) => { setAboutStatus(`You're running the latest version.`); setUpdateReady(null); };
+    const onUpdateAvailable = (event, info) => { setAboutStatus(`Update available: v${info.version}`); setUpdateReady('available'); setUpdateProgress(null); };
+    const onUpdateDownloaded = (event, info) => { setAboutStatus(`Update downloaded: v${info.version}. Restart to install.`); setUpdateReady('downloaded'); setUpdateProgress(null); };
+    const onUpdateError = (event, error) => { setAboutStatus(`Update error: ${error}`); setUpdateReady(null); setUpdateProgress(null); };
+    const onUpdateNotAvailable = (event, info) => { setAboutStatus(`You're running the latest version.`); setUpdateReady(null); setUpdateProgress(null); };
+    const onDownloadProgress = (event, progress) => { setUpdateProgress(progress); setAboutStatus(`Downloading... ${Math.round(progress.percent)}%`); };
     ipcRenderer.on('update-available', onUpdateAvailable);
     ipcRenderer.on('update-downloaded', onUpdateDownloaded);
     ipcRenderer.on('update-error', onUpdateError);
     ipcRenderer.on('update-not-available', onUpdateNotAvailable);
+    ipcRenderer.on('update-download-progress', onDownloadProgress);
     return () => {
       ipcRenderer.removeListener('update-available', onUpdateAvailable);
       ipcRenderer.removeListener('update-downloaded', onUpdateDownloaded);
       ipcRenderer.removeListener('update-error', onUpdateError);
       ipcRenderer.removeListener('update-not-available', onUpdateNotAvailable);
+      ipcRenderer.removeListener('update-download-progress', onDownloadProgress);
     };
   }, [isOutputWindow]);
  
@@ -2143,14 +2147,17 @@ export default function App() {
     try {
       if (window.require) {
         const { ipcRenderer } = window.require('electron');
-        setAboutStatus('Downloading update...');
+        setAboutStatus('Starting download...');
+        setUpdateProgress(null);
         const result = await ipcRenderer.invoke('download-update');
         if (result.error) {
           setAboutStatus(`Download failed: ${result.error}`);
+          setUpdateProgress(null);
         }
       }
     } catch (e) {
       setAboutStatus(`Download failed: ${e.message}`);
+      setUpdateProgress(null);
     }
   };
 
@@ -2503,11 +2510,12 @@ export default function App() {
           version={appInfo?.version || '1.0.0'}
           status={aboutStatus}
           updateReady={updateReady}
+          updateProgress={updateProgress}
           onCheckUpdates={handleCheckUpdates}
           onDownloadUpdate={handleDownloadUpdate}
           onInstallUpdate={handleInstallUpdate}
           onOpenGuide={handleOpenGuide}
-          onClose={() => { setShowAbout(false); setUpdateReady(null); }}
+          onClose={() => { setShowAbout(false); setUpdateReady(null); setUpdateProgress(null); }}
         />
       )}
       </AnimatePresence>

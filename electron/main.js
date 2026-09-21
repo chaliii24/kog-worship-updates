@@ -494,6 +494,17 @@ ipcMain.on('update-downloaded', (event, info) => {
     operatorWindow.webContents.send('update-downloaded', info);
   }
 });
+
+autoUpdater.on('download-progress', (progress) => {
+  if (operatorWindow && !operatorWindow.isDestroyed()) {
+    operatorWindow.webContents.send('update-download-progress', {
+      percent: progress.percent,
+      transferred: progress.transferred,
+      total: progress.total,
+      bytesPerSecond: progress.bytesPerSecond
+    });
+  }
+});
  
 ipcMain.on('update-error', (event, error) => {
   if (operatorWindow && !operatorWindow.isDestroyed()) {
