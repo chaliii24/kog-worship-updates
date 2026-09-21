@@ -41,6 +41,7 @@
   "build": {
     "appId": "com.kogworship.app",
     "productName": "KOG Worship",
+    "artifactName": "${productName}.${version}.${ext}",
     "directories": {
       "output": "release"
     },
