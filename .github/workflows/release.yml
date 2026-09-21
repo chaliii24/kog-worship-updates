@@ -30,7 +30,7 @@ jobs:
         run: npm run dist
 
       - name: Debug release directory
-        run: ls -la release/
+        run: dir release\
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
