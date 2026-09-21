@@ -189,9 +189,9 @@ function createWindow() {
 autoUpdater.logger = electronLog;
 autoUpdater.logger.transports.file.level = 'info';
 autoUpdater.autoDownload = false;
-autoUpdater.checkForUpdatesAndNotify();
 
 app.whenReady().then(() => {
+  autoUpdater.checkForUpdatesAndNotify();
   serveMediaProtocol();
   createWindow();
   screen.on('display-added', notifyDisplaysChanged);
@@ -451,6 +451,9 @@ ipcMain.handle('check-for-updates', async () => {
  
 ipcMain.handle('download-update', async () => {
   try {
+    if (!autoUpdater.updateInfo) {
+      await autoUpdater.checkForUpdates();
+    }
     await autoUpdater.downloadUpdate();
     return { success: true, error: null };
   } catch (error) {
