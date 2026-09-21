@@ -1484,7 +1484,7 @@ export default function App() {
   };
 
   // ---- G-PRESENTER STYLE EDITOR HELPERS ----
-  const DEFAULT_BOX = { x: 240, y: 190, w: 800, h: 340 };
+  const DEFAULT_BOX = { x: 80, y: 60, w: 1120, h: 600 };
   const clampNum = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const editorCue = (editingSong.cues || [])[editorCueIdx] || null;
   const editorBox = editorCue?.box || DEFAULT_BOX;
@@ -1580,7 +1580,7 @@ export default function App() {
     const lh = editorCue?.lineHeight || 1.05;
     const boxW = Math.max(200, (editorBox.w || 800) - 40);
     const boxH = editorBox.h || 340;
-    const baseSize = Math.max(18, Math.min(Number(editorCue?.size) || 92, 400));
+    const baseSize = Math.max(18, Math.min(Number(editorCue?.size) || 110, 400));
     const scaleFor = (isEmph) => (isEmph ? 1.24 : 0.84);
     const caps = lines.filter(l => l.trim().length > 1 && l.trim() === l.trim().toUpperCase());
     const key = caps.length ? caps[0] : (lines.slice().sort((a, b) => b.trim().length - a.trim().length)[0] || '');
@@ -1602,7 +1602,7 @@ export default function App() {
 
   const cueLyricStyle = (cue) => ({
     font: cue?.font || FONT_OPTIONS[0].value,
-    size: cue?.size != null ? cue.size : 92,
+    size: cue?.size != null ? cue.size : 110,
     lineHeight: cue?.lineHeight || 1.05,
     align: cue?.align || 'center',
     color: cue?.color || '#f5f5f4',
@@ -1611,7 +1611,7 @@ export default function App() {
     outline: !!(cue?.outline),
     highlight: !!(cue?.highlight),
     hlOpacity: cue?.hlOpacity ?? 40,
-    box: cue?.box || { x: 240, y: 190, w: 800, h: 340 },
+    box: cue?.box || { x: 80, y: 60, w: 1120, h: 600 },
   });
 
   useEffect(() => {
@@ -2254,8 +2254,8 @@ export default function App() {
           <div key={monitorContent?.timestamp} style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
             <div style={{ width: 1280, height: 720, position: 'relative', transform: `scale(${previewScale})`, transformOrigin: 'center center', flexShrink: 0 }}>
               {(() => {
-                const lst = st.lyric || { font: st.fontFamily || 'system-ui, sans-serif', size: 92, lineHeight: 1.05, align: st.textAlign || 'center', color: st.fontColor || '#ffffff', caseMode: 'none' };
-                const box = lst.box || { x: 240, y: 190, w: 800, h: 340 };
+                const lst = st.lyric || { font: st.fontFamily || 'system-ui, sans-serif', size: 110, lineHeight: 1.05, align: st.textAlign || 'center', color: st.fontColor || '#ffffff', caseMode: 'none' };
+                const box = lst.box || { x: 80, y: 60, w: 1120, h: 600 };
                 return (
                   <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h }}>
                     {renderLyricsLayout(monitorContent.text, lst, box)}

@@ -106,8 +106,8 @@ export default function ProjectorDisplay({ currentSlide, C, aspect }) {
             <PresentationSlide slide={currentSlide.presentation.slide} />
           ) : currentSlide.text ? (
             (() => {
-              const st = slideStyle.lyric || { font: slideStyle.fontFamily || 'system-ui, sans-serif', size: 92, lineHeight: 1.05, align: slideStyle.textAlign || 'center', color: slideStyle.fontColor || '#ffffff', caseMode: 'none' };
-              const box = st.box || { x: 240, y: 190, w: 800, h: 340 };
+              const st = slideStyle.lyric || { font: slideStyle.fontFamily || 'system-ui, sans-serif', size: 110, lineHeight: 1.05, align: slideStyle.textAlign || 'center', color: slideStyle.fontColor || '#ffffff', caseMode: 'none' };
+              const box = st.box || { x: 80, y: 60, w: 1120, h: 600 };
               const artist = currentSlide.artist || '';
               const isTitleSlide = currentSlide.label === 'Song Title';
               return (

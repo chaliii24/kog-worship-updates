@@ -22,7 +22,7 @@ export const renderLyricsLayout = (text, st, box) => {
   const lh = st.lineHeight || 1.05;
   const boxW = Math.max(200, (box.w || 1280) - 40);
   const boxH = box.h || 640;
-  const baseSize = Math.max(18, Math.min(Number(st.size) || 92, 400));
+  const baseSize = Math.max(18, Math.min(Number(st.size) || 110, 400));
   const scaleFor = (isEmph) => (isEmph ? 1.24 : 0.84);
   const totalHeight = (base) => lines.reduce((h, l) => {
     if (!l.trim()) return h + base * scaleFor(false) * lh * 0.7;
