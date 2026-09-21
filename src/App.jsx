@@ -440,7 +440,7 @@ export default function App() {
     const onUpdateAvailable = (event, info) => { setAboutStatus(`Update available: v${info.version}`); setUpdateReady('available'); setUpdateProgress(null); };
     const onUpdateDownloaded = (event, info) => { setAboutStatus(`Update downloaded: v${info.version}. Restart to install.`); setUpdateReady('downloaded'); setUpdateProgress(null); };
     const onUpdateError = (event, error) => { setAboutStatus(`Update error: ${error}`); setUpdateReady(null); setUpdateProgress(null); };
-    const onUpdateNotAvailable = (event, info) => { setAboutStatus(`You're running the latest version.`); setUpdateReady(null); setUpdateProgress(null); };
+    const onUpdateNotAvailable = (event, info) => { setAboutStatus(`App is up to date.`); setUpdateReady(null); setUpdateProgress(null); };
     const onDownloadProgress = (event, progress) => { setUpdateProgress(progress); setAboutStatus(`Downloading... ${Math.round(progress.percent)}%`); };
     ipcRenderer.on('update-available', onUpdateAvailable);
     ipcRenderer.on('update-downloaded', onUpdateDownloaded);
@@ -2134,7 +2134,7 @@ export default function App() {
           setAboutStatus(`Update available: v${result.updateInfo.version}`);
           setUpdateReady('available');
         } else {
-          setAboutStatus(`You're running the latest version (v${fallback}).`);
+          setAboutStatus(`App is up to date (v${fallback}).`);
           setUpdateReady(null);
         }
       }

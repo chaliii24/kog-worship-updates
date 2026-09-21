@@ -468,7 +468,7 @@ ipcMain.handle('download-update', async () => {
     });
     autoUpdater.once('update-not-available', () => {
       cleanup();
-      resolve({ success: false, error: 'No update available' });
+      resolve({ success: false, error: 'App is up to date. No update available.' });
     });
     autoUpdater.once('error', (err) => {
       cleanup();
