@@ -450,16 +450,32 @@ ipcMain.handle('check-for-updates', async () => {
 });
  
 ipcMain.handle('download-update', async () => {
-  try {
-    const check = await autoUpdater.checkForUpdates();
-    if (!check || !check.updateInfo) {
-      return { success: false, error: 'No update found on server' };
-    }
-    await autoUpdater.downloadUpdate();
-    return { success: true, error: null };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      autoUpdater.removeAllListeners('update-available');
+      autoUpdater.removeAllListeners('update-not-available');
+      autoUpdater.removeAllListeners('error');
+    };
+    autoUpdater.once('update-available', async () => {
+      try {
+        await autoUpdater.downloadUpdate();
+        cleanup();
+        resolve({ success: true, error: null });
+      } catch (error) {
+        cleanup();
+        resolve({ success: false, error: error.message });
+      }
+    });
+    autoUpdater.once('update-not-available', () => {
+      cleanup();
+      resolve({ success: false, error: 'No update available' });
+    });
+    autoUpdater.once('error', (err) => {
+      cleanup();
+      resolve({ success: false, error: err.message });
+    });
+    autoUpdater.checkForUpdates();
+  });
 });
  
 ipcMain.handle('install-update', async () => {
