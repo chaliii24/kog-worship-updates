@@ -1,5 +1,5 @@
 import React from 'react';
-import { RefreshCw, BookOpen } from 'lucide-react';
+import { RefreshCw, BookOpen, Download, RotateCw } from 'lucide-react';
 import { motion } from 'motion/react';
 import { modalOverlay, modalPanel, stubTap } from '../../lib/anim';
 import logoImage from '../../assets/logo.png';
@@ -10,7 +10,7 @@ const FEATURES = [
   ['Multi-Display Control', 'Independent output routing for main projectors, side displays, and stage confidence monitors.']
 ];
 
-export default function AboutModal({ C, ACCENT, PINK, version, status, onCheckUpdates, onOpenGuide, onClose }) {
+export default function AboutModal({ C, ACCENT, PINK, version, status, updateReady, onCheckUpdates, onDownloadUpdate, onInstallUpdate, onOpenGuide, onClose }) {
   return (
     <motion.div {...modalOverlay} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }} onClick={onClose}>
       <motion.div {...modalPanel} onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: '1px solid #2d2d3f', borderRadius: '14px', width: '540px', maxWidth: '92vw', maxHeight: 'calc(100vh - 80px)', overflowY: 'auto', padding: '24px', boxSizing: 'border-box' }}>
@@ -45,7 +45,20 @@ export default function AboutModal({ C, ACCENT, PINK, version, status, onCheckUp
           <div style={{ marginTop: '16px', fontSize: '12px', color: C.muted, textAlign: 'center' }}>{status}</div>
         )}
 
+        {updateReady === 'downloaded' && (
+          <div style={{ marginTop: '12px', textAlign: 'center' }}>
+            <motion.button {...stubTap} onClick={onInstallUpdate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: ACCENT, border: 'none', color: '#fff', padding: '10px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+              <RotateCw size={13} /> Restart & Install
+            </motion.button>
+          </div>
+        )}
+
 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '22px', flexWrap: 'wrap' }}>
+          {updateReady === 'available' && (
+            <motion.button {...stubTap} onClick={onDownloadUpdate} style={{ display: 'flex', alignItems: 'center', gap: 6, background: ACCENT, border: 'none', color: '#fff', padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+              <Download size={13} /> Download Update
+            </motion.button>
+          )}
           <motion.button {...stubTap} onClick={onCheckUpdates} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid #2d2d3f', color: C.text, padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
             <RefreshCw size={13} /> Check for Updates
           </motion.button>
