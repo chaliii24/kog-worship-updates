@@ -1484,7 +1484,7 @@ export default function App() {
   };
 
   // ---- G-PRESENTER STYLE EDITOR HELPERS ----
-  const DEFAULT_BOX = { x: 80, y: 60, w: 1120, h: 600 };
+  const DEFAULT_BOX = { x: 80, y: 100, w: 1120, h: 480 };
   const clampNum = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const editorCue = (editingSong.cues || [])[editorCueIdx] || null;
   const editorBox = editorCue?.box || DEFAULT_BOX;
@@ -1611,7 +1611,7 @@ export default function App() {
     outline: !!(cue?.outline),
     highlight: !!(cue?.highlight),
     hlOpacity: cue?.hlOpacity ?? 40,
-    box: cue?.box || { x: 80, y: 60, w: 1120, h: 600 },
+    box: cue?.box || { x: 80, y: 100, w: 1120, h: 480 },
   });
 
   useEffect(() => {
@@ -2255,7 +2255,7 @@ export default function App() {
             <div style={{ width: 1280, height: 720, position: 'relative', transform: `scale(${previewScale})`, transformOrigin: 'center center', flexShrink: 0 }}>
               {(() => {
                 const lst = st.lyric || { font: st.fontFamily || 'system-ui, sans-serif', size: 110, lineHeight: 1.05, align: st.textAlign || 'center', color: st.fontColor || '#ffffff', caseMode: 'none' };
-                const box = lst.box || { x: 80, y: 60, w: 1120, h: 600 };
+                const box = lst.box || { x: 80, y: 100, w: 1120, h: 480 };
                 return (
                   <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h }}>
                     {renderLyricsLayout(monitorContent.text, lst, box)}
