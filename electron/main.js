@@ -262,22 +262,24 @@ function createOutputWindow(output) {
   const isWindowed = preset !== null;
 
   let win;
-  if (target && !isWindowed) {
+  if (!isWindowed) {
+    const primary = target || screen.getPrimaryDisplay();
     win = new BrowserWindow({
-      x: target.bounds.x,
-      y: target.bounds.y,
-      width: target.bounds.width,
-      height: target.bounds.height,
+      x: primary.bounds.x,
+      y: primary.bounds.y,
+      width: primary.bounds.width,
+      height: primary.bounds.height,
       fullscreen: true,
       frame: false,
       skipTaskbar: true,
       alwaysOnTop: true,
       minimizable: false,
       movable: false,
+      autoHideMenuBar: true,
       webPreferences: { nodeIntegration: true, contextIsolation: false }
     });
   } else {
-    const [w, h] = isWindowed ? preset : [800, 450];
+    const [w, h] = preset;
     win = new BrowserWindow({
       width: w,
       height: h,
