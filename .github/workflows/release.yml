@@ -62,7 +62,7 @@ jobs:
           foreach ($d in @("builtin-videos", "builtin-photos")) {
             if (-not (Test-Path "release\win-unpacked\resources\$d")) { Write-Error "$d was NOT embedded in the package"; exit 1 }
             $n = (Get-ChildItem "release\win-unpacked\resources\$d" -File | Measure-Object).Count
-            Write-Host "Embedded $d: $n file(s)"
+            Write-Host "Embedded ${d}: $n file(s)"
           }
 
       - name: Delete old release if exists
