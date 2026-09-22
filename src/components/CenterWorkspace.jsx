@@ -60,7 +60,6 @@ export default function CenterWorkspace() {
     slideGrid,
     renderSlideFace,
     formatBibleVerse,
-    fireBibleLive,
     fireBibleSelectionLive,
     queueBibleSelection,
     loadBibleChapter,
@@ -201,7 +200,7 @@ export default function CenterWorkspace() {
           ) : null}
           {bibleSelVerses.length ? <span style={{ fontSize: 10.5, fontWeight: 700, color: '#3B82F6', whiteSpace: 'nowrap' }}>{bibleSelVerses.length} selected</span> : null}
           <motion.button {...stubTap} onClick={queueBibleSelection} title="Add selected verses to the service plan" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid #334155', color: '#CBD5E1', padding: '7px 13px', borderRadius: 10, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}><Plus size={12} /> Add to Playlist</motion.button>
-          <motion.button {...stubTap} onClick={fireBibleSelectionLive} title="Send selected verses to the live output" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(180deg, #3B82F6, #2563EB)', border: 'none', color: '#FFFFFF', padding: '8px 16px', borderRadius: 9, fontSize: 12, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 0 0 1px rgba(37,99,235,0.5), 0 8px 24px rgba(37,99,235,0.35)' }}><Zap size={13} /> Go Live</motion.button>
+          <motion.button {...stubTap} onClick={fireBibleSelectionLive} title="Send selected verses to the live output" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(180deg, #3B82F6, #2563EB)', border: 'none', color: '#FFFFFF', padding: '8px 16px', borderRadius: 9, fontSize: 12, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 0 0 1px rgba(37,99,235,0.5), 0 8px 24px rgba(37,99,235,0.35)' }}><Zap size={13} /> Push to Display</motion.button>
         </div>
       </div>
 
@@ -356,9 +355,10 @@ export default function CenterWorkspace() {
                 <div style={{ position: 'relative' }} onMouseEnter={() => setBibleHelpOpen(true)} onMouseLeave={() => setBibleHelpOpen(false)}>
                   <HelpCircle size={14} color="#64748B" style={{ cursor: 'help', display: 'block' }} />
                   <span style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: 220, background: '#11161D', border: '1px solid #1F2937', borderRadius: 10, padding: '8px 10px', fontSize: 10.5, lineHeight: 1.6, color: '#CBD5E1', boxShadow: '0 16px 40px rgba(0,0,0,0.6)', zIndex: 20, opacity: bibleHelpOpen ? 1 : 0, pointerEvents: 'none', transition: 'opacity 0.12s' }}>
-                    <b style={{ color: '#F8FAFC' }}>Click</b> = send live<br />
-                    <b style={{ color: '#F8FAFC' }}>Ctrl + Click</b> = add / toggle multiple<br />
-                    <b style={{ color: '#F8FAFC' }}>Shift + Click</b> = select a range
+                    <b style={{ color: '#F8FAFC' }}>Click</b> = select one<br />
+                    <b style={{ color: '#F8FAFC' }}>Ctrl + Click</b> = multi-select<br />
+                    <b style={{ color: '#F8FAFC' }}>Shift + Click</b> = select range<br />
+                    <span style={{ color: '#94A3B8' }}>Push via Live Output → Push to Display</span>
                   </span>
                 </div>
                 {bibleChapter ? (
@@ -377,7 +377,7 @@ export default function CenterWorkspace() {
                   ) : (
                     <div style={{ display: 'grid', gap: 6 }}>
                       {bibleSearchResults.map((r, i) => (
-                        <button key={i} className="bible-item" onClick={async () => { setBibleSearchResults(null); const res = await loadBibleChapter(bibleTrans, r.bookIndex, r.chapter); if (res && res.bookIndex) { setBibleSelVerses([r.verse]); bibleLastVerseRef.current = r.verse; fireBibleLive({ book: res.book, chapter: res.chapter, verse: r.verse, text: formatBibleVerse({ verse: r.verse, text: r.text }) }); } }} style={{ animationDelay: `${Math.min(i * 10, 220)}ms`, textAlign: 'left', background: 'rgba(255,255,255,0.03)', border: '1px solid #1F2937', borderRadius: 10, padding: '9px 11px', cursor: 'pointer' }}>
+                        <button key={i} className="bible-item" onClick={async () => { setBibleSearchResults(null); const res = await loadBibleChapter(bibleTrans, r.bookIndex, r.chapter); if (res && res.bookIndex) { setBibleSelVerses([r.verse]); bibleLastVerseRef.current = r.verse; } }} style={{ animationDelay: `${Math.min(i * 10, 220)}ms`, textAlign: 'left', background: 'rgba(255,255,255,0.03)', border: '1px solid #1F2937', borderRadius: 10, padding: '9px 11px', cursor: 'pointer' }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: '#3B82F6', marginBottom: 3 }}>{r.book} {r.chapter}:{r.verse}</div>
                           <div style={{ fontSize: 12, lineHeight: 1.6, color: '#CBD5E1' }}>{r.text}</div>
                         </button>
@@ -397,7 +397,7 @@ export default function CenterWorkspace() {
                           onClick={(e) => { handleBibleVerseClick(e, v); setBibleFocusedVerse(v.verse); }}
                           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleBibleVerseClick(e, v); setBibleFocusedVerse(v.verse); } }}
                           tabIndex={0}
-                          title="Click = send live · Ctrl+Click = add/toggle · Shift+Click = select range · Arrow keys = navigate"
+                          title="Click = select · Ctrl+Click = multi-select · Shift+Click = select range · Push via Live Output"
                           style={{
                             animationDelay: `${Math.min(i * 6, 200)}ms`,
                             display: 'flex',

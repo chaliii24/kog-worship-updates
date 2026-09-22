@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Search, Trash2, Video, Monitor, LayoutGrid, ChevronDown, ChevronLeft, ChevronRight, Music, FileText } from 'lucide-react';
+import { Plus, Search, Trash2, Video, Monitor, LayoutGrid, ChevronDown, ChevronLeft, ChevronRight, Music, FileText, Image as ImageIcon } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatCountdown } from '../lib/constants';
 import { useApp } from '../context/AppContext';
@@ -16,6 +16,10 @@ export default function ShowBuilderModal() {
     builderSrcSongQuery,
     setBuilderSrcSongQuery,
     builderSheet,
+    setBuilderSheet,
+    builderTargetSecId,
+    setBuilderTargetSecId,
+    builderTargetSectionId,
     builderDensity,
     setBuilderDensity,
     builderTileIdx,
@@ -58,6 +62,8 @@ const total = flat.length > 0 ? flat.reduce((a, x) => a + x.c, 0) : 0;
 const cur = flat.find(e => e.si === builderSheet?.secIdx && e.ii === builderSheet?.itemIdx);
 const globalIdx = cur ? cur.start + builderTileIdx : 0;
 const upNext = cur ? (builderTileIdx + 1 < cur.c ? { entry: cur, idx: builderTileIdx + 1 } : (flat.indexOf(cur) < flat.length - 1 ? { entry: flat[flat.indexOf(cur) + 1], idx: 0 } : null)) : null;
+const sections = showBuilder.sections || [];
+const targetSecId = builderTargetSectionId || sections[0]?.id || '';
 
 const itemSlides = (it) => {
   if (it?.songId) {
@@ -99,15 +105,25 @@ return (
           <span style={{ fontSize: 11, fontWeight: 800, color: C.heading, textTransform: 'uppercase', letterSpacing: 1 }}>Service Order</span>
           <span style={{ fontSize: 10, background: C.elevated2, color: C.muted, borderRadius: 999, padding: '2px 7px' }}>{flat.length} items</span>
         </div>
-        {/* Source Bar */}
-        <div style={{ padding: '6px 8px', borderBottom: '1px solid #1f1f2e', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-          <button onClick={() => setServiceAddMenu(serviceAddMenu === 'builder-song' ? null : 'builder-song')} style={{ fontSize: 10, fontWeight: 700, background: '#1e1b4b', color: C.accLine, border: '1px solid #4338ca', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Song</button>
-          <button onClick={() => { const sec = showBuilder.sections[builderSheet?.secIdx ?? 0] || showBuilder.sections[0]; if (sec) addSlideToSection(sec.id); }} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid #2d2d3f', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Slide</button>
-          <button onClick={() => document.getElementById('show-media-input-builder')?.click()} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid #2d2d3f', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Media</button>
-          <input type="file" id="show-media-input-builder" accept="image/*,video/*" style={{ display: 'none' }} onChange={addShowBuilderMedia} />
-          {['Announcement'].map(lbl => (
-            <button key={lbl} onClick={() => addShowBuilderPlaceholder(lbl)} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid #2d2d3f', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>{lbl}</button>
-          ))}
+        {/* Target section picker — all Add* actions go here */}
+        <div style={{ padding: '6px 8px', borderBottom: '1px solid #1f1f2e', display: 'grid', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 0.8, whiteSpace: 'nowrap' }}>Add to</span>
+            <select
+              value={targetSecId}
+              onChange={(e) => setBuilderTargetSecId(e.target.value)}
+              style={{ flex: 1, minWidth: 0, background: C.elevated2, border: '1px solid #4338ca', borderRadius: 5, padding: '4px 6px', color: C.accLine, fontSize: 10.5, fontWeight: 700, outline: 'none', cursor: 'pointer' }}
+            >
+              {sections.map(s => <option key={s.id} value={s.id}>{s.title || 'Untitled'} ({s.items.length})</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            <button onClick={() => setServiceAddMenu(serviceAddMenu === 'builder-song' ? null : 'builder-song')} style={{ fontSize: 10, fontWeight: 700, background: '#1e1b4b', color: C.accLine, border: '1px solid #4338ca', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Song</button>
+            <button onClick={() => { if (targetSecId) addSlideToSection(targetSecId); }} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid #2d2d3f', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Slide</button>
+            <button onClick={() => document.getElementById('show-media-input-builder')?.click()} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid #2d2d3f', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Media</button>
+            <input type="file" id="show-media-input-builder" accept="image/*,video/*" style={{ display: 'none' }} onChange={addShowBuilderMedia} />
+            <button onClick={() => addShowBuilderPlaceholder('Announcement')} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid #2d2d3f', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Announcement</button>
+          </div>
         </div>
         {/* Song Search Dropdown */}
         {serviceAddMenu === 'builder-song' && (
@@ -116,7 +132,7 @@ return (
             {builderSrcSongQuery.trim() && (
               <div style={{ maxHeight: 120, overflowY: 'auto', marginTop: 4 }}>
                 {songs.filter(s => (s.title + ' ' + (s.artist || '')).toLowerCase().includes(builderSrcSongQuery.toLowerCase())).slice(0, 6).map(s => (
-                  <button key={s.id} onClick={() => { const sec = showBuilder.sections[builderSheet?.secIdx ?? 0] || showBuilder.sections[0]; if (sec) { addSongToSection(sec.id, s); setBuilderSrcSongQuery(''); setServiceAddMenu(null); } }} style={{ width: '100%', textAlign: 'left', background: C.elevated2, border: '1px solid #2d2d3f', color: C.text, padding: '5px 8px', borderRadius: 5, fontSize: 11, cursor: 'pointer', marginBottom: 2, display: 'flex', justifyContent: 'space-between' }}>
+                  <button key={s.id} onClick={() => { if (targetSecId) { addSongToSection(targetSecId, s); setBuilderSrcSongQuery(''); setServiceAddMenu(null); } }} style={{ width: '100%', textAlign: 'left', background: C.elevated2, border: '1px solid #2d2d3f', color: C.text, padding: '5px 8px', borderRadius: 5, fontSize: 11, cursor: 'pointer', marginBottom: 2, display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ fontWeight: 700 }}>{s.title}</span>
                     <span style={{ fontSize: 10, color: C.accLine }}>+Add</span>
                   </button>
@@ -130,11 +146,20 @@ return (
           {(showBuilder.sections || []).map((sec, si) => {
             const collapsed = builderCollapsed.includes(sec.id);
             const secSelected = builderSheet?.secIdx === si;
+            const isTarget = targetSecId === sec.id;
             return (
               <div key={sec.id}>
-                <div onClick={() => setBuilderCollapsed(prev => collapsed ? prev.filter(x => x !== sec.id) : [...prev, sec.id])} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', cursor: 'pointer', background: secSelected ? 'rgba(34,197,94,0.06)' : 'transparent' }}>
-                  <span style={{ color: C.muted }}>{collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</span>
-                  <input type="text" value={sec.title} onChange={(e) => renameShowSection(sec.id, e.target.value)} onClick={(e) => e.stopPropagation()} style={{ flex: 1, background: 'transparent', border: 'none', borderBottom: '1px dashed #3b3b5c', color: C.heading, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, outline: 'none', padding: '2px 0' }} />
+                <div
+                  onClick={() => {
+                    setBuilderTargetSecId(sec.id);
+                    setBuilderCollapsed(prev => collapsed ? prev.filter(x => x !== sec.id) : [...prev, sec.id]);
+                  }}
+                  title={isTarget ? 'Target section for new items — click to collapse/expand' : 'Click to make this the target section and collapse/expand'}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', cursor: 'pointer', background: isTarget ? 'rgba(59,130,246,0.10)' : secSelected ? 'rgba(34,197,94,0.06)' : 'transparent', borderBottom: isTarget ? '1px solid rgba(59,130,246,0.35)' : 'none' }}
+                >
+                  <span style={{ color: isTarget ? '#3B82F6' : C.muted }}>{collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</span>
+                  <input type="text" value={sec.title} onChange={(e) => renameShowSection(sec.id, e.target.value)} onClick={(e) => e.stopPropagation()} style={{ flex: 1, background: 'transparent', border: 'none', borderBottom: '1px dashed #3b3b5c', color: isTarget ? '#93C5FD' : C.heading, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, outline: 'none', padding: '2px 0' }} />
+                  {isTarget && <span style={{ fontSize: 8, fontWeight: 800, color: '#3B82F6', border: '1px solid rgba(59,130,246,0.5)', borderRadius: 4, padding: '0 4px' }}>ADD TO</span>}
                   <span style={{ fontSize: 9, color: C.muted, background: C.elevated2, borderRadius: 999, padding: '1px 5px' }}>{sec.items.length}</span>
                   <button onClick={(e) => { e.stopPropagation(); removeShowSection(sec.id); }} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', display: 'flex', padding: 1 }}><Trash2 size={11} /></button>
                 </div>
@@ -143,10 +168,11 @@ return (
                   let globalNum = 0;
                   for (let x = 0; x < si; x++) globalNum += showBuilder.sections[x].items.length;
                   globalNum += ii + 1;
+                  const ItemIcon = it.songId ? Music : it.media_url ? ImageIcon : FileText;
                   return (
-                    <div key={ii} onClick={() => selectBuilderItem(si, ii)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px 5px 28px', cursor: 'pointer', background: isSelected ? 'rgba(34,197,94,0.12)' : 'transparent', borderLeft: isSelected ? '3px solid #22c55e' : '3px solid transparent', fontSize: 11, transition: 'background 0.15s' }}>
+                    <div key={ii} onClick={() => { selectBuilderItem(si, ii); setBuilderTargetSecId(sec.id); }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px 5px 28px', cursor: 'pointer', background: isSelected ? 'rgba(34,197,94,0.12)' : 'transparent', borderLeft: isSelected ? '3px solid #22c55e' : '3px solid transparent', fontSize: 11, transition: 'background 0.15s' }}>
                       <span style={{ fontSize: 10, fontWeight: 800, color: isSelected ? '#22c55e' : C.faint, minWidth: 18 }}>{globalNum}</span>
-                      <span style={{ fontSize: 10, color: C.muted }}>{it.songId ? <Music size={10} /> : <FileText size={10} />}</span>
+                      <span style={{ fontSize: 10, color: C.muted, display: 'flex' }}><ItemIcon size={10} /></span>
                       <span style={{ flex: 1, fontWeight: isSelected ? 700 : 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.title}</span>
                       <span style={{ fontSize: 9, color: C.muted }}>{slideCount(it)}s</span>
                     </div>
@@ -243,10 +269,11 @@ return (
           <div style={{ marginTop: 4, display: 'grid', gap: 3 }}>
             {flat.map((entry, fi) => {
               const isActive = cur && entry.si === cur.si && entry.ii === cur.ii;
+              const ItemIcon = entry.item.songId ? Music : entry.item.media_url ? ImageIcon : FileText;
               return (
                 <div key={fi} onClick={() => selectBuilderItem(entry.si, entry.ii)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 4, background: isActive ? 'rgba(34,197,94,0.1)' : 'transparent', cursor: 'pointer' }}>
                   <span style={{ fontSize: 9, fontWeight: 800, color: isActive ? '#22c55e' : C.faint, minWidth: 16 }}>{fi + 1}</span>
-                  <span style={{ fontSize: 9, color: C.muted }}>{entry.item.songId ? <Music size={9} /> : <FileText size={9} />}</span>
+                  <span style={{ fontSize: 9, color: C.muted, display: 'flex' }}><ItemIcon size={9} /></span>
                   <span style={{ flex: 1, fontSize: 10, fontWeight: isActive ? 700 : 500, color: isActive ? C.text : C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.item.title}</span>
                   <span style={{ fontSize: 9, color: C.faint }}>{entry.c}s</span>
                 </div>

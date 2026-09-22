@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, dialog, protocol, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, dialog, protocol, shell, session } from 'electron';
 import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import electronLog from 'electron-log';
@@ -36,7 +36,10 @@ import {
   getPresentationDetails,
   savePresentation,
   deletePresentation,
-  getBuiltinVideosDir
+  getBuiltinVideosDir,
+  getBuiltinPhotosDir,
+  getBuiltinVideoAssets,
+  getBuiltinPhotoAssets
 } from './database.js';
 
 dotenv.config();
@@ -45,6 +48,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 app.setPath('userData', path.join(app.getPath('appData'), 'kog-worship'));
+
+// Local Font Access API (window.queryLocalFonts) — must be enabled before ready.
+app.commandLine.appendSwitch('enable-local-font-access');
 
 // Load the Gemini key in packaged builds too: cwd/.env (dev) is not shipped,
 // so also look in resources/.env (bundled) and userData/.env (per-machine override).
@@ -119,10 +125,13 @@ function serveFileProtocol(rootDir, request) {
 function serveMediaProtocol() {
   fs.mkdirSync(MEDIA_DIR, { recursive: true });
   const builtinDir = getBuiltinVideosDir();
+  const builtinPhotosDir = getBuiltinPhotosDir();
   protocol.handle('media', async (request) => {
     try {
-      // Bundled backgrounds are served under media://kog-media/builtin/...
+      // Bundled backgrounds are served under media://kog-media/builtin/... (videos)
+      // and media://kog-media/builtin-photos/... (photos).
       const url = new URL(request.url);
+      if (url.pathname.startsWith('/builtin-photos/')) return serveFileProtocol(builtinPhotosDir, request);
       if (url.pathname.startsWith('/builtin/')) return serveFileProtocol(builtinDir, request);
       return serveFileProtocol(MEDIA_DIR, request);
     } catch (e) {
@@ -192,6 +201,10 @@ autoUpdater.logger.transports.file.level = 'info';
 autoUpdater.autoDownload = false;
 
 app.whenReady().then(() => {
+  // Auto-grant localFontAccess (and everything else this local app needs).
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    callback(true);
+  });
   serveMediaProtocol();
   createWindow();
   screen.on('display-added', notifyDisplaysChanged);
@@ -707,6 +720,12 @@ ipcMain.handle('db-toggle-favorite', (event, id) => toggleFavorite(id));
 ipcMain.handle('db-set-song-bg', (event, id, bgType, bgValue) => setSongBackground(id, bgType, bgValue));
 ipcMain.handle('db-set-song-audio', (event, id, audioUrl) => setSongAudio(id, audioUrl));
 ipcMain.handle('db-get-media', () => getMediaLibrary());
+// Bundled stock backgrounds (videos + photos) so the renderer can seed the
+// scripture background picker on first run.
+ipcMain.handle('list-builtin-assets', () => ({
+  videos: getBuiltinVideoAssets(),
+  photos: getBuiltinPhotoAssets()
+}));
 ipcMain.handle('db-delete-media', (event, fileUrl) => {
   try {
     deleteMediaAsset(fileUrl);
@@ -1394,11 +1413,14 @@ function localizedBookName(langCode, nr) {
 
 // `file` points at a Beblia XML; `size` is an offline estimate shown before download.
 const BEBLIA_CATALOG = [
+  { abbrev: 'esv', source: 'beblia', file: 'EnglishESVBible.xml', name: 'English Standard Version (ESV)', lang: 'English', langCode: 'en', code: 'ESV', size: '4.7 MB', copyright: '© Crossway' },
+  { abbrev: 'niv', source: 'beblia', file: 'EnglishNIVBible.xml', name: 'New International Version (NIV)', lang: 'English', langCode: 'en', code: 'NIV', size: '4.8 MB', copyright: '© Biblica, Inc' },
+  { abbrev: 'nkjv', source: 'beblia', file: 'EnglishNKJBible.xml', name: 'New King James Version (NKJV)', lang: 'English', langCode: 'en', code: 'NKJV', size: '4.9 MB', copyright: '© Thomas Nelson' },
   { abbrev: 'ceb1917', source: 'beblia', file: 'CebuanoBible.xml', name: 'Cebuano Ang Biblia (1917)', lang: 'Cebuano', langCode: 'ceb', code: 'CBV', size: '5.8 MB', copyright: 'Public domain' },
   { abbrev: 'cebrcpv', source: 'beblia', file: 'CebuanoRCPVBible.xml', name: 'Cebuano Ang Bag-ong Maayong Balita Biblia (RCPV, 1999)', lang: 'Cebuano', langCode: 'ceb', code: 'RCPV', size: '5.1 MB', copyright: '© 1999 Philippine Bible Society' },
   { abbrev: 'ceb99', source: 'beblia', file: 'Cebuano1999Bible.xml', name: 'Cebuano Maayong Balita Biblia (1999)', lang: 'Cebuano', langCode: 'ceb', code: 'MBBCEB99', size: '5.1 MB', copyright: '© 1999 Philippine Bible Society' },
   { abbrev: 'ceb2011', source: 'beblia', file: 'Cebuano2011Bible.xml', name: 'Cebuano Ang Biblia (2011)', lang: 'Cebuano', langCode: 'ceb', code: 'ABCEB', size: '5.5 MB', copyright: '© 2011 Philippine Bible Society' },
-  { abbrev: 'cebapsd', source: 'beblia', file: 'CebuanoAPSDBible.xml', name: 'Cebuano Ang Pulong sa Dios (APSD)', lang: 'Cebuano', langCode: 'ceb', code: 'APD', size: '5.4 MB', copyright: '© Biblica, Inc' },
+  { abbrev: 'cebapsd', source: 'beblia', file: 'CebuanoAPSDBible.xml', name: 'Cebuano Ang Pulong sa Dios (APD/APSD)', lang: 'Cebuano', langCode: 'ceb', code: 'APD', size: '5.4 MB', copyright: '© Biblica, Inc' },
   { abbrev: 'tgl1905', source: 'beblia', file: 'TagalogBible.xml', name: 'Tagalog Ang Biblia (1905/1982)', lang: 'Tagalog', langCode: 'tl', code: 'TLAB', size: '5.7 MB', copyright: '© Philippine Bible Society, 1982' },
   { abbrev: 'tgl2001', source: 'beblia', file: 'Tagalog2001Bible.xml', name: 'Tagalog Ang Biblia (2001)', lang: 'Tagalog', langCode: 'tl', code: 'ABTAG01', size: '5.5 MB', copyright: '© Philippine Bible Society, 2001' },
   { abbrev: 'tglmbb05', source: 'beblia', file: 'Tagalog2005Bible.xml', name: 'Tagalog Magandang Balita Biblia (2005)', lang: 'Tagalog', langCode: 'tl', code: 'MBB', size: '5.0 MB', copyright: '© 2005 Philippine Bible Society' },
@@ -1410,7 +1432,7 @@ const BEBLIA_CATALOG = [
   { abbrev: 'ilo1973', source: 'beblia', file: 'Ilokano1973Bible.xml', name: 'Ilokano Ti Biblia (1973)', lang: 'Ilokano', langCode: 'ilo', code: 'ILO73', size: '5.4 MB', copyright: '© 1973 Philippine Bible Society' },
   { abbrev: 'hil1982', source: 'beblia', file: 'IlonggoBible.xml', name: 'Hiligaynon Ang Biblia (1982)', lang: 'Hiligaynon', langCode: 'hil', code: 'HLG', size: '5.5 MB', copyright: '© 1982 Philippine Bible Society' },
   { abbrev: 'hil2012', source: 'beblia', file: 'Ilonggo2012Bible.xml', name: 'Hiligaynon Maayong Balita nga Biblia (2012)', lang: 'Hiligaynon', langCode: 'hil', code: 'MBBHIL', size: '5.5 MB', copyright: '© 2012 Philippine Bible Society' },
-  { abbrev: 'hilapd', source: 'beblia', file: 'IlonggoAPDBible.xml', name: 'Hiligaynon Ang Pulong Sang Dios (APD, 2022)', lang: 'Hiligaynon', langCode: 'hil', code: 'APD', size: '5.5 MB', copyright: '© Biblica, Inc' },
+  { abbrev: 'hilapd', source: 'beblia', file: 'IlonggoAPDBible.xml', name: 'Hiligaynon Ang Pulong sa Dios (APD)', lang: 'Hiligaynon', langCode: 'hil', code: 'APD', size: '5.5 MB', copyright: '© Biblica, Inc' },
   { abbrev: 'pampanga94', source: 'beblia', file: 'PampangaBible.xml', name: 'Kapampangan Ing Mayap a Balita Biblia (1994)', lang: 'Kapampangan', langCode: 'pam', code: 'PMPV', size: '5.2 MB', copyright: '© Philippine Bible Society' },
   { abbrev: 'waray84', source: 'beblia', file: 'WarayBible.xml', name: 'Waray Baraan nga Biblia (1984)', lang: 'Waray', langCode: 'war', code: 'MBBSAM', size: '5.5 MB', copyright: '© Philippine Bible Society, 1984' }
 ];

@@ -40,12 +40,14 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS service_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     service_id INTEGER,
-    item_type TEXT NOT NULL, -- 'song', 'section_header', 'custom_slide'
+    item_type TEXT NOT NULL, -- 'song', 'section_header', 'custom_slide', 'media'
     title TEXT NOT NULL,
     subtitle TEXT,
     content TEXT, -- JSON payload or text blocks / song_id reference
     sort_order INTEGER,
     duration INTEGER DEFAULT 0,
+    media_url TEXT,
+    media_type TEXT DEFAULT 'image',
     FOREIGN KEY(service_id) REFERENCES services(id) ON DELETE CASCADE
   );
 
@@ -77,6 +79,8 @@ try { db.exec(`ALTER TABLE cues ADD COLUMN bg_type TEXT DEFAULT 'color';`); } ca
 try { db.exec(`ALTER TABLE cues ADD COLUMN bg_value TEXT DEFAULT '#000000';`); } catch (_) {}
 try { db.exec(`ALTER TABLE cues ADD COLUMN duration INTEGER DEFAULT 0;`); } catch (_) {}
 try { db.exec(`ALTER TABLE service_items ADD COLUMN duration INTEGER DEFAULT 0;`); } catch (_) {}
+try { db.exec(`ALTER TABLE service_items ADD COLUMN media_url TEXT;`); } catch (_) {}
+try { db.exec(`ALTER TABLE service_items ADD COLUMN media_type TEXT DEFAULT 'image';`); } catch (_) {}
 // Song-level background so a background set on one song applies to ALL of its slides
 try { db.exec(`ALTER TABLE songs ADD COLUMN bg_type TEXT DEFAULT 'color';`); } catch (_) {}
 try { db.exec(`ALTER TABLE songs ADD COLUMN bg_value TEXT DEFAULT '#000000';`); } catch (_) {}
@@ -86,6 +90,23 @@ try { db.exec(`ALTER TABLE songs ADD COLUMN audio_url TEXT;`); } catch (_) {}
 try { db.exec(`ALTER TABLE services ADD COLUMN category TEXT DEFAULT 'Worship';`); } catch (_) {}
 try { db.exec(`ALTER TABLE services ADD COLUMN ratio TEXT DEFAULT '16:9';`); } catch (_) {}
 try { db.exec(`ALTER TABLE services ADD COLUMN resolution TEXT DEFAULT '1920x1080';`); } catch (_) {}
+// Per-cue style (box position/scale, font, size, color, align, animation, ...)
+// stored as JSON so editor adjustments survive save/reload.
+try { db.exec(`ALTER TABLE cues ADD COLUMN style_json TEXT;`); } catch (_) {}
+// Editable title slide (box, font, size, color, ...) stored on the song.
+try { db.exec(`ALTER TABLE songs ADD COLUMN title_cue_json TEXT;`); } catch (_) {}
+
+const safeParse = (raw) => { try { return raw ? JSON.parse(raw) : null; } catch (_) { return null; } };
+// Cue columns that live in their own columns; everything else belongs in style_json.
+const CUE_COLUMN_KEYS = ['id', 'song_id', 'label', 'text', 'sequence_order', 'bg_type', 'bg_value', 'duration'];
+const cueStyleJson = (cue) => {
+  if (!cue) return null;
+  const style = {};
+  for (const k of Object.keys(cue)) {
+    if (!CUE_COLUMN_KEYS.includes(k) && cue[k] !== undefined) style[k] = cue[k];
+  }
+  return Object.keys(style).length ? JSON.stringify(style) : null;
+};
 
 // Seed default data if table is empty
 const songCount = db.prepare('SELECT COUNT(*) as count FROM songs').get().count;
@@ -124,24 +145,30 @@ export function getSongDetails(songId) {
   const song = db.prepare('SELECT * FROM songs WHERE id = ?').get(songId);
   if (!song) return null;
   const cues = db.prepare('SELECT * FROM cues WHERE song_id = ? ORDER BY sequence_order ASC').all(songId);
-  return { ...song, cues };
+  const { title_cue_json, ...songRest } = song;
+  const parsedCues = cues.map((row) => {
+    const { style_json, ...rest } = row;
+    return { ...(safeParse(style_json) || {}), ...rest };
+  });
+  return { ...songRest, title_cue: safeParse(title_cue_json) || undefined, cues: parsedCues };
 }
 
 export function saveSong(songData) {
-  const { id, title, artist, category, cues, bg_type, bg_value, audio_url } = songData;
-  const insertCue = db.prepare('INSERT INTO cues (song_id, label, text, sequence_order, bg_type, bg_value, duration) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  const { id, title, artist, category, cues, bg_type, bg_value, audio_url, title_cue } = songData;
+  const titleCueJson = title_cue ? JSON.stringify(title_cue) : null;
+  const insertCue = db.prepare('INSERT INTO cues (song_id, label, text, sequence_order, bg_type, bg_value, duration, style_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
   if (id) {
-    db.prepare('UPDATE songs SET title = ?, artist = ?, category = ?, bg_type = ?, bg_value = ?, audio_url = ? WHERE id = ?').run(title, artist, category, bg_type || 'color', bg_value || '#000000', audio_url || null, id);
+    db.prepare('UPDATE songs SET title = ?, artist = ?, category = ?, bg_type = ?, bg_value = ?, audio_url = ?, title_cue_json = ? WHERE id = ?').run(title, artist, category, bg_type || 'color', bg_value || '#000000', audio_url || null, titleCueJson, id);
     db.prepare('DELETE FROM cues WHERE song_id = ?').run(id);
     cues.forEach((cue, index) => {
-      insertCue.run(id, cue.label, cue.text, index + 1, cue.bg_type || 'color', cue.bg_value || '#000000', cue.duration || 0);
+      insertCue.run(id, cue.label, cue.text, index + 1, cue.bg_type || 'color', cue.bg_value || '#000000', cue.duration || 0, cueStyleJson(cue));
     });
     return id;
   } else {
-    const result = db.prepare('INSERT INTO songs (title, artist, category, bg_type, bg_value, audio_url) VALUES (?, ?, ?, ?, ?, ?)').run(title, artist, category || 'Worship', bg_type || 'color', bg_value || '#000000', audio_url || null);
+    const result = db.prepare('INSERT INTO songs (title, artist, category, bg_type, bg_value, audio_url, title_cue_json) VALUES (?, ?, ?, ?, ?, ?, ?)').run(title, artist, category || 'Worship', bg_type || 'color', bg_value || '#000000', audio_url || null, titleCueJson);
     const songId = result.lastInsertRowid;
     cues.forEach((cue, index) => {
-      insertCue.run(songId, cue.label, cue.text, index + 1, cue.bg_type || 'color', cue.bg_value || '#000000', cue.duration || 0);
+      insertCue.run(songId, cue.label, cue.text, index + 1, cue.bg_type || 'color', cue.bg_value || '#000000', cue.duration || 0, cueStyleJson(cue));
     });
     return songId;
   }
@@ -183,8 +210,9 @@ export function getMediaLibrary() {
     seen.add(r.url);
     list.push({ url: r.url, kind: r.kind || 'image' });
   }
-  // Bundled video backgrounds ship with the installer so they exist on every machine.
-  for (const b of getBuiltinVideoAssets()) {
+  // Bundled video + photo backgrounds ship with the installer so they exist on
+  // every machine, with or without the original folders on disk.
+  for (const b of [...getBuiltinVideoAssets(), ...getBuiltinPhotoAssets()]) {
     if (seen.has(b.url)) continue;
     seen.add(b.url);
     list.push(b);
@@ -212,6 +240,30 @@ export function getBuiltinVideoAssets() {
     const base = fileName.replace(/\.[^.]+$/, '');
     const title = base.replace(/[\-_]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Video Background';
     return { url: `media://kog-media/builtin/${encodeURIComponent(fileName)}`, kind: 'video', builtin: true, name: title };
+  });
+}
+
+// Bundled photo backgrounds: packaged builds read <resources>/builtin-photos,
+// dev/unpackaged builds read ./Photos at the project root. Same contract as
+// the videos above, served under media://kog-media/builtin-photos/...
+export function getBuiltinPhotosDir() {
+  const candidates = [];
+  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'builtin-photos'));
+  candidates.push(path.join(process.cwd(), 'Photos'));
+  for (const dir of candidates) {
+    try { if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) return dir; } catch (_) {}
+  }
+  return candidates[0];
+}
+
+export function getBuiltinPhotoAssets() {
+  const dir = getBuiltinPhotosDir();
+  let names = [];
+  try { names = fs.readdirSync(dir).filter(n => /\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(n)); } catch (_) { return []; }
+  return names.sort().map((fileName) => {
+    const base = fileName.replace(/\.[^.]+$/, '');
+    const title = base.replace(/[\-_]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Photo Background';
+    return { url: `media://kog-media/builtin-photos/${encodeURIComponent(fileName)}`, kind: 'image', builtin: true, name: title };
   });
 }
 
@@ -252,7 +304,21 @@ export function getServiceDetails(serviceId) {
   const service = db.prepare('SELECT * FROM services WHERE id = ?').get(serviceId);
   if (!service) return null;
   const items = db.prepare('SELECT * FROM service_items WHERE service_id = ? ORDER BY sort_order ASC').all(serviceId);
-  return { ...service, items };
+  // Hydrate media items: older saves only kept title/subtitle; recover URL/type from content JSON if present.
+  const hydrated = items.map((item) => {
+    if (item.item_type !== 'media') return item;
+    if (item.media_url) return item;
+    if (item.content && item.content.trim().startsWith('{')) {
+      try {
+        const meta = JSON.parse(item.content);
+        if (meta && meta.media_url) {
+          return { ...item, media_url: meta.media_url, media_type: meta.media_type || item.media_type || 'image', content: '' };
+        }
+      } catch (_) {}
+    }
+    return item;
+  });
+  return { ...service, items: hydrated };
 }
 
 export function saveServicePlan(serviceData) {
@@ -260,20 +326,29 @@ export function saveServicePlan(serviceData) {
   const category = serviceData.category || 'Worship';
   const ratio = serviceData.ratio || '16:9';
   const resolution = serviceData.resolution || '1920x1080';
-  const insertItem = db.prepare('INSERT INTO service_items (service_id, item_type, title, subtitle, content, sort_order, duration) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  const insertItem = db.prepare('INSERT INTO service_items (service_id, item_type, title, subtitle, content, sort_order, duration, media_url, media_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  const runInsert = (serviceId, item, idx) => insertItem.run(
+    serviceId,
+    item.item_type,
+    item.title,
+    item.subtitle || '',
+    item.item_type === 'media'
+      ? JSON.stringify({ media_url: item.media_url || null, media_type: item.media_type || 'image' })
+      : (item.content || ''),
+    idx + 1,
+    item.duration || 0,
+    item.media_url || null,
+    item.media_type || null
+  );
   if (id) {
     db.prepare('UPDATE services SET name = ?, date = ?, category = ?, ratio = ?, resolution = ? WHERE id = ?').run(name, date, category, ratio, resolution, id);
     db.prepare('DELETE FROM service_items WHERE service_id = ?').run(id);
-    items.forEach((item, idx) => {
-      insertItem.run(id, item.item_type, item.title, item.subtitle || '', item.content || '', idx + 1, item.duration || 0);
-    });
+    items.forEach((item, idx) => { runInsert(id, item, idx); });
     return id;
   } else {
     const res = db.prepare('INSERT INTO services (name, date, category, ratio, resolution) VALUES (?, ?, ?, ?, ?)').run(name, date || new Date().toISOString().split('T')[0], category, ratio, resolution);
     const serviceId = res.lastInsertRowid;
-    items.forEach((item, idx) => {
-      insertItem.run(serviceId, item.item_type, item.title, item.subtitle || '', item.content || '', idx + 1, item.duration || 0);
-    });
+    items.forEach((item, idx) => { runInsert(serviceId, item, idx); });
     return serviceId;
   }
 }
@@ -285,26 +360,33 @@ export function deleteService(serviceId) {
 
 export function exportLibrary() {
   const songs = db.prepare('SELECT * FROM songs').all();
-  const fullLibrary = songs.map(song => ({
-    ...song,
-    cues: db.prepare('SELECT label, text, sequence_order, bg_type, bg_value, duration FROM cues WHERE song_id = ?').all(song.id)
-  }));
+  const fullLibrary = songs.map(song => {
+    const { title_cue_json, ...songRest } = song;
+    return {
+      ...songRest,
+      title_cue: safeParse(title_cue_json) || undefined,
+      cues: db.prepare('SELECT label, text, sequence_order, bg_type, bg_value, duration, style_json FROM cues WHERE song_id = ? ORDER BY sequence_order ASC').all(song.id).map((row) => {
+        const { style_json, ...rest } = row;
+        return { ...(safeParse(style_json) || {}), ...rest };
+      })
+    };
+  });
   return JSON.stringify(fullLibrary, null, 2);
 }
 
 export function importLibrary(jsonData) {
   try {
     const library = JSON.parse(jsonData);
-    const insertSong = db.prepare('INSERT INTO songs (title, artist, category, is_favorite) VALUES (?, ?, ?, ?)');
-    const insertCue = db.prepare('INSERT INTO cues (song_id, label, text, sequence_order, bg_type, bg_value, duration) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insertSong = db.prepare('INSERT INTO songs (title, artist, category, is_favorite, bg_type, bg_value, audio_url, title_cue_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    const insertCue = db.prepare('INSERT INTO cues (song_id, label, text, sequence_order, bg_type, bg_value, duration, style_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
 
     db.transaction(() => {
       for (const song of library) {
-        const res = insertSong.run(song.title, song.artist || 'Unknown', song.category || 'Worship', song.is_favorite || 0);
+        const res = insertSong.run(song.title, song.artist || 'Unknown', song.category || 'Worship', song.is_favorite || 0, song.bg_type || 'color', song.bg_value || '#000000', song.audio_url || null, song.title_cue ? JSON.stringify(song.title_cue) : null);
         const songId = res.lastInsertRowid;
         if (song.cues) {
           song.cues.forEach((cue, idx) => {
-            insertCue.run(songId, cue.label, cue.text, cue.sequence_order || idx + 1, cue.bg_type || 'color', cue.bg_value || '#000000', cue.duration || 0);
+            insertCue.run(songId, cue.label, cue.text, cue.sequence_order || idx + 1, cue.bg_type || 'color', cue.bg_value || '#000000', cue.duration || 0, cueStyleJson(cue));
           });
         }
       }

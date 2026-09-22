@@ -1,5 +1,5 @@
-import React from 'react';
-import { Square, SkipBack, SkipForward, Image as ImageIcon, Video } from 'lucide-react';
+import React, { useCallback, useState } from 'react';
+import { Square, SkipBack, SkipForward, Image as ImageIcon, Video, Zap } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatCountdown } from '../lib/constants';
 import { stubTap, iconBtnTap } from '../lib/anim';
@@ -28,8 +28,17 @@ export default function LiveOutputPanel({
   selectBibleMediaLive,
   importBibleMedia,
   dockTab,
+  fireBibleSelectionLive,
+  bibleSelCount = 0,
 }) {
   const isLive = activeCue?.id !== 'clear' && activeCue !== null;
+  // Uploads whose file has been moved/deleted render as a black tile — drop
+  // them from the grid entirely instead of showing a dead thumbnail.
+  const [missingUploads, setMissingUploads] = useState(() => new Set());
+  const markUploadMissing = useCallback((value) => {
+    setMissingUploads(prev => (prev.has(value) ? prev : new Set(prev).add(value)));
+  }, []);
+  const visibleUploads = (scriptureBgLibrary || []).filter(a => !missingUploads.has(a.value));
   return (
     <motion.div className="right-panel-shell" initial={{ x: 64, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ type: 'spring', stiffness: 260, damping: 28, delay: 0.3 }} style={{ flex: '0 1 340px', minWidth: 280, maxWidth: '35vw', background: C.panel, borderLeft: '1px solid #1F2937', flexDirection: 'column', display: 'flex' }}>
       <div style={{ padding: '12px 12px 6px 12px', borderBottom: '1px solid ' + C.border, flexShrink: 0 }}>
@@ -64,6 +73,41 @@ export default function LiveOutputPanel({
         <div style={{ marginBottom: 8 }}>
           {renderOutputPreview()}
         </div>
+        {/* SCRIPTURE: explicit push — verse clicks only select locally */}
+        {dockTab === 'scripture' && (
+          <div style={{ marginBottom: 8 }}>
+            <motion.button
+              {...stubTap}
+              onClick={() => fireBibleSelectionLive?.()}
+              title="Send the selected scripture verses to the projector"
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 7,
+                background: 'linear-gradient(180deg, #3B82F6, #2563EB)',
+                border: 'none',
+                color: '#FFFFFF',
+                padding: '9px 14px',
+                borderRadius: 9,
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '0 0 0 1px rgba(37,99,235,0.5), 0 8px 24px rgba(37,99,235,0.3)',
+              }}
+            >
+              <Zap size={13} />
+              Push to Display
+              {bibleSelCount > 0 ? ` (${bibleSelCount})` : ''}
+            </motion.button>
+            <div style={{ fontSize: 9.5, color: C.faint, marginTop: 4 }}>
+              {bibleSelCount > 0
+                ? `${bibleSelCount} verse${bibleSelCount === 1 ? '' : 's'} selected — pushes as one slide`
+                : 'Select verses, then push them to the output'}
+            </div>
+          </div>
+        )}
         {/* SCRIPTURE BACKGROUND (shown when the Scripture dock button is active; applies only to scripture) */}
         {dockTab === 'scripture' && (
         <div style={{ marginBottom: 8 }}>
@@ -78,17 +122,17 @@ export default function LiveOutputPanel({
             <motion.label {...stubTap} style={{ background: C.elevated, color: C.text2, border: '1px solid #2b2b44', padding: '4px 8px', borderRadius: 6, fontSize: 10, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}><ImageIcon size={10} /> Image<input type="file" accept="image/*" onChange={(e) => { importBibleMedia(e); e.target.value = ''; }} style={{ display: 'none' }} /></motion.label>
             <motion.label {...stubTap} style={{ background: C.elevated, color: C.text2, border: '1px solid #2b2b44', padding: '4px 8px', borderRadius: 6, fontSize: 10, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Video size={10} /> Video<input type="file" accept="video/mp4,video/webm" onChange={(e) => { importBibleMedia(e); e.target.value = ''; }} style={{ display: 'none' }} /></motion.label>
           </div>
-          {(scriptureBgLibrary || []).length > 0 && (
+          {visibleUploads.length > 0 && (
             <div style={{ marginTop: 6 }}>
               <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Your Uploads</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
-                {(scriptureBgLibrary || []).map(a => {
+                {visibleUploads.map(a => {
                   const active = bibleMedia && bibleMedia.value === a.value;
                   return (
                     <motion.div key={a.value} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', stiffness: 400, damping: 26 }} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.92 }} onClick={() => selectBibleMediaLive(a.type, a.value, a.name)} title={a.name || a.type} style={{ position: 'relative', aspectRatio: '16 / 10', borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: active ? '2px solid #3B82F6' : '1px solid #2b2b44', background: '#000' }}>
                       {a.type === 'image'
-                        ? <img src={a.value} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                        : <video src={a.value} autoPlay loop muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                        ? <img src={a.value} alt="" onError={() => markUploadMissing(a.value)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        : <video src={a.value} autoPlay loop muted playsInline preload="metadata" onError={() => markUploadMissing(a.value)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
                     </motion.div>
                   );
                 })}

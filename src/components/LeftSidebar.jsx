@@ -1,5 +1,5 @@
-import React from 'react';
-import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, PanelLeftClose, Music, MonitorPlay } from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, PanelLeftClose, Music, MonitorPlay, Pencil } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap, iconBtnTap } from '../lib/anim';
@@ -30,6 +30,9 @@ export default function LeftSidebar() {
     setServiceAddMenu,
     serviceSongQuery,
     setServiceSongQuery,
+    serviceTargetTitle,
+    setServiceTargetTitle,
+    serviceSectionTitles,
     serviceDragOver,
     setServiceDragOver,
     mediaLibrary,
@@ -54,9 +57,11 @@ export default function LeftSidebar() {
     selectSong,
     editSong,
     moveServiceBlock,
+    renameServiceHeader,
     toggleServiceCollapse,
     removeServiceItem,
     fireServiceItemLive,
+    stopServiceItemLive,
     handleToggleFavorite,
     handleDeleteSong,
     setEditingSong,
@@ -93,6 +98,21 @@ export default function LeftSidebar() {
     deletePresentationDeck,
     presentDeck
   } = app;
+
+  const [sectionRenameIdx, setSectionRenameIdx] = useState(null);
+  const [sectionRenameTitle, setSectionRenameTitle] = useState('');
+
+  const beginRenameSection = (idx, title) => {
+    setSectionRenameIdx(idx);
+    setSectionRenameTitle(title || '');
+  };
+
+  const commitRenameSection = () => {
+    if (sectionRenameIdx == null) return;
+    renameServiceHeader(sectionRenameIdx, sectionRenameTitle.trim() || 'Section');
+    setSectionRenameIdx(null);
+    setSectionRenameTitle('');
+  };
 
   return (
     <motion.div
@@ -173,6 +193,20 @@ export default function LeftSidebar() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 4, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
+                  <span style={{ fontSize: 9, fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.8, whiteSpace: 'nowrap' }}>Add to</span>
+                  <select
+                    value={serviceTargetTitle || ''}
+                    onChange={(e) => setServiceTargetTitle(e.target.value || null)}
+                    title="Section that new songs, media, and slides go into"
+                    style={{ flex: 1, minWidth: 0, background: 'rgba(37,99,235,0.10)', border: '1px solid rgba(59,130,246,0.55)', borderRadius: 7, padding: '4px 6px', color: '#93C5FD', fontSize: 10.5, fontWeight: 700, outline: 'none', cursor: 'pointer' }}
+                  >
+                    <option value="">End of order</option>
+                    {serviceSectionTitles().map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
                 <button onClick={() => setServiceAddMenu(serviceAddMenu === 'song' ? null : 'song')} title="Add Song" style={{ background: serviceAddMenu === 'song' ? 'rgba(37,99,235,0.18)' : 'rgba(255,255,255,0.04)', border: serviceAddMenu === 'song' ? '1px solid #3B82F6' : '1px solid #1F2937', color: serviceAddMenu === 'song' ? '#93C5FD' : '#CBD5E1', padding: '4px 9px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Music size={12} /> Add Song</button>
                 <button onClick={() => setServiceAddMenu(serviceAddMenu === 'media' ? null : 'media')} title="Add Media" style={{ background: serviceAddMenu === 'media' ? 'rgba(37,99,235,0.18)' : 'rgba(255,255,255,0.04)', border: serviceAddMenu === 'media' ? '1px solid #3B82F6' : '1px solid #1F2937', color: serviceAddMenu === 'media' ? '#93C5FD' : '#CBD5E1', padding: '4px 9px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><ImageIcon size={12} /> Add Media</button>
                 <button onClick={() => { const el = document.getElementById('service-media-input'); if (el) el.click(); }} title="Local Media" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid #1F2937', color: '#CBD5E1', padding: '4px 9px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Folder size={12} /> Local Media</button>
@@ -232,9 +266,38 @@ export default function LeftSidebar() {
                       return out;
                     })();
                     return (
-                      <div key={`h-${ri}`} onDragOver={(e) => { e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); try { const data = JSON.parse(e.dataTransfer.getData('text/plain')); if (data && data.kind === 'reorder') moveServiceBlock(Number(data.from), row.idx); } catch (_) {} }} draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onClick={() => toggleServiceCollapse(row.item.title)} title="Drag to move section; click to collapse/expand" style={{ cursor: 'grab', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 10, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 1.3, padding: '7px 6px 5px 6px', borderBottom: '1px solid #1F2937' }}>
-                        {collapsed ? <ChevronRight size={12} color="#64748B" /> : <ChevronDown size={12} color="#64748B" />}
-                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 190 }}>{row.item.title}</span>
+                      <div key={`h-${ri}`} onDragOver={(e) => { e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); try { const data = JSON.parse(e.dataTransfer.getData('text/plain')); if (data && data.kind === 'reorder') moveServiceBlock(Number(data.from), row.idx); } catch (_) {} }} draggable={sectionRenameIdx !== row.idx} onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onClick={() => { if (sectionRenameIdx === row.idx) return; setServiceTargetTitle(row.item.title); toggleServiceCollapse(row.item.title); }} onDoubleClick={(e) => { e.stopPropagation(); beginRenameSection(row.idx, row.item.title); }} title="Click = target + collapse/expand · Double-click = rename section" style={{ cursor: sectionRenameIdx === row.idx ? 'default' : 'grab', userSelect: sectionRenameIdx === row.idx ? 'text' : 'none', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 10, color: serviceTargetTitle === row.item.title ? '#93C5FD' : '#94A3B8', textTransform: 'uppercase', letterSpacing: 1.3, padding: '7px 6px 5px 6px', borderBottom: '1px solid #1F2937', background: serviceTargetTitle === row.item.title ? 'rgba(37,99,235,0.08)' : 'transparent' }}>
+                        {sectionRenameIdx === row.idx ? null : (collapsed ? <ChevronRight size={12} color="#64748B" /> : <ChevronDown size={12} color="#64748B" />)}
+                        {sectionRenameIdx === row.idx ? (
+                          <input
+                            autoFocus
+                            value={sectionRenameTitle}
+                            onChange={(e) => setSectionRenameTitle(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                              if (e.key === 'Enter') commitRenameSection();
+                              if (e.key === 'Escape') { setSectionRenameIdx(null); setSectionRenameTitle(''); }
+                            }}
+                            onBlur={commitRenameSection}
+                            placeholder="Section name"
+                            style={{ flex: 1, minWidth: 0, background: 'rgba(37,99,235,0.12)', border: 'none', borderBottom: '1px dashed #3B82F6', borderRadius: 0, color: '#F8FAFC', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.3, outline: 'none', padding: '2px 0' }}
+                          />
+                        ) : (
+                          <>
+                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{row.item.title}</span>
+                            {serviceTargetTitle === row.item.title && <span style={{ flexShrink: 0, fontSize: 8, fontWeight: 800, color: '#93C5FD', border: '1px solid rgba(59,130,246,0.5)', borderRadius: 4, padding: '0 4px', letterSpacing: 0 }}>ADD TO</span>}
+                          </>
+                        )}
+                        {sectionRenameIdx !== row.idx && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); beginRenameSection(row.idx, row.item.title); }}
+                            title="Rename section"
+                            style={{ background: 'transparent', border: 'none', color: '#64748B', cursor: 'pointer', padding: 1, display: 'flex', flexShrink: 0 }}
+                          >
+                            <Pencil size={11} />
+                          </button>
+                        )}
                         <span style={{ marginLeft: 'auto', fontSize: 9, color: '#64748B', fontWeight: 700, letterSpacing: 0, whiteSpace: 'nowrap' }}>{groupItems.length} item{groupItems.length === 1 ? '' : 's'}</span>
                       </div>
                     );
@@ -246,7 +309,7 @@ export default function LeftSidebar() {
                   const icon = row.item.item_type === 'song' ? <Music size={11} /> : row.item.item_type === 'media' ? <ImageIcon size={11} /> : row.item.item_type === 'presentation' ? <MonitorPlay size={11} /> : <FileText size={11} />;
                   const iconColor = row.item.item_type === 'song' ? '#3B82F6' : '#94A3B8';
                   return (
-                    <div key={`i-${ri}`} draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); try { const data = JSON.parse(e.dataTransfer.getData('text/plain')); if (data && data.kind === 'reorder') moveServiceBlock(Number(data.from), row.idx); } catch (_) {} }} onClick={() => { if (row.item.item_type === 'song') selectSong(row.item.content); else fireServiceItemLive(row.item); }} title="Drag to reorder; click to go live" style={{ position: 'relative', background: isLive ? 'rgba(34,197,94,0.10)' : (row.item.item_type === 'song' && Number(row.item.content) === activeSong?.id) || (row.item.item_type === 'custom_slide' && activeCue?.id === row.item.id) ? 'rgba(37,99,235,0.12)' : '#161B22', border: isLive ? '1px solid rgba(34,197,94,0.55)' : '1px solid #1F2937', borderRadius: 10, padding: '6px 8px', cursor: 'grab', display: 'grid', gridTemplateColumns: '14px 20px 18px 1fr auto', gap: 6, alignItems: 'center' }}>
+                    <div key={`i-${ri}`} draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); try { const data = JSON.parse(e.dataTransfer.getData('text/plain')); if (data && data.kind === 'reorder') moveServiceBlock(Number(data.from), row.idx); } catch (_) {} }}onClick={() => { if (row.item.item_type === 'song') selectSong(row.item.content); else if (isLive) return; else fireServiceItemLive(row.item); }} title="Drag to reorder; click to go live" style={{ position: 'relative', background: isLive ? 'rgba(34,197,94,0.10)' : (row.item.item_type === 'song' && Number(row.item.content) === activeSong?.id) || (row.item.item_type === 'custom_slide' && activeCue?.id === row.item.id) ? 'rgba(37,99,235,0.12)' : '#161B22', border: isLive ? '1px solid rgba(34,197,94,0.55)' : '1px solid #1F2937', borderRadius: 10, padding: '6px 8px', cursor: 'grab', display: 'grid', gridTemplateColumns: '14px 20px 18px 1fr auto', gap: 6, alignItems: 'center' }}>
                       {isLive && <div style={{ position: 'absolute', left: 0, top: 4, bottom: 4, width: 3, borderRadius: 3, background: '#22c55e', boxShadow: '0 0 8px rgba(34,197,94,0.8)' }} />}
                       <GripVertical size={12} color="#475569" />
                       <span style={{ fontSize: 10, fontWeight: 800, color: isLive ? '#22c55e' : '#64748B', fontFamily: 'monospace' }}>{isLive ? '▶' : itemNum}</span>
@@ -259,7 +322,11 @@ export default function LeftSidebar() {
                         <span style={{ fontSize: 10, color: '#64748B', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.item.subtitle || (row.item.item_type === 'song' ? 'Song' : row.item.item_type === 'media' ? 'Media' : 'Slide')}</span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
-                        <button onClick={(e) => { e.stopPropagation(); fireServiceItemLive(row.item); }} title="Go live" style={{ background: isLive ? 'rgba(34,197,94,0.18)' : '#2563EB', border: isLive ? '1px solid rgba(34,197,94,0.5)' : '1px solid #2563EB', color: isLive ? '#22c55e' : '#FFFFFF', borderRadius: 6, fontSize: 9.5, fontWeight: 700, padding: '3px 8px', cursor: 'pointer' }}>{isLive ? 'LIVE' : 'Go'}</button>
+                        {isLive ? (
+                          <button onClick={(e) => { e.stopPropagation(); stopServiceItemLive(row.item); }} title="Stop — take this item off air" style={{ background: 'rgba(239,68,68,0.18)', border: '1px solid rgba(239,68,68,0.55)', color: '#F87171', borderRadius: 6, fontSize: 9.5, fontWeight: 700, padding: '3px 8px', cursor: 'pointer' }}>■ Stop</button>
+                        ) : (
+                          <button onClick={(e) => { e.stopPropagation(); fireServiceItemLive(row.item); }} title="Go live" style={{ background: '#2563EB', border: '1px solid #2563EB', color: '#FFFFFF', borderRadius: 6, fontSize: 9.5, fontWeight: 700, padding: '3px 8px', cursor: 'pointer' }}>Go</button>
+                        )}
                         <Trash2 size={12} color="#64748B" onClick={(e) => { e.stopPropagation(); removeServiceItem(row.idx); }} style={{ cursor: 'pointer' }} />
                       </div>
                     </div>
@@ -279,7 +346,7 @@ export default function LeftSidebar() {
                 {songsCollapsed ? <ChevronRight size={13} color="#64748B" /> : <ChevronDown size={13} color="#64748B" />} Songs
                 <span style={{ color: '#475569', fontWeight: 700, letterSpacing: 0 }}>({songs.length})</span>
               </span>
-              <button onClick={(e) => { e.stopPropagation(); setEditingSong({ id: null, title: '', artist: '', category: 'Worship', cues: [{ label: 'Verse 1', text: '' }] }); setEditorMode('manual'); setRawPasteText(''); setIsEditorOpen(true); }} title="New song" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid #1F2937', color: '#CBD5E1', padding: '4px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}><Plus size={12} /> New</button>
+              <button onClick={(e) => { e.stopPropagation(); setEditingSong({ id: null, title: '', artist: '', category: 'Worship', cues: [{ label: 'Verse 1', text: '', box: { x: 80, y: 100, w: 1120, h: 480 }, locked: false }] }); setEditorMode('manual'); setRawPasteText(''); setIsEditorOpen(true); }} title="New song" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid #1F2937', color: '#CBD5E1', padding: '4px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}><Plus size={12} /> New</button>
             </div>
             {!songsCollapsed && (
               <>

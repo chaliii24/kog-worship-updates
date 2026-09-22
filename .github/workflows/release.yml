@@ -34,6 +34,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify bundled backgrounds are present
+        run: |
+          if (-not (Test-Path "VideBackground")) { Write-Error "VideBackground folder missing — builtin videos would not ship"; exit 1 }
+          if (-not (Test-Path "Photos")) { Write-Error "Photos folder missing — builtin photos would not ship"; exit 1 }
+          $v = (Get-ChildItem "VideBackground" -File | Measure-Object).Count
+          $p = (Get-ChildItem "Photos" -File | Measure-Object).Count
+          Write-Host "Bundled backgrounds: $v videos, $p photos"
+          if ($v -eq 0 -or $p -eq 0) { Write-Error "One of the background folders is empty"; exit 1 }
+
       - name: Build & Package
         run: npm run dist
         env:
@@ -45,6 +54,16 @@ jobs:
           dir release\
           echo "---- latest.yml ----"
           type release\latest.yml
+
+      - name: Verify installer embeds the backgrounds
+        run: |
+          $out = Get-ChildItem "release\win-unpacked\resources" -ErrorAction SilentlyContinue
+          if (-not $out) { Write-Host "win-unpacked not present (ok for publish-only runs)"; exit 0 }
+          foreach ($d in @("builtin-videos", "builtin-photos")) {
+            if (-not (Test-Path "release\win-unpacked\resources\$d")) { Write-Error "$d was NOT embedded in the package"; exit 1 }
+            $n = (Get-ChildItem "release\win-unpacked\resources\$d" -File | Measure-Object).Count
+            Write-Host "Embedded $d: $n file(s)"
+          }
 
       - name: Delete old release if exists
         env:
