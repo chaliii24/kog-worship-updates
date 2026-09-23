@@ -68,7 +68,10 @@ jobs:
       - name: Delete old release if exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release delete ${{ github.ref_name }} --yes --cleanup-tag 2>$null; if ($LASTEXITCODE -ne 0) { echo "No existing release to delete" }
+        run: |
+          gh release delete ${{ github.ref_name }} --yes --cleanup-tag 2>$null
+          if ($LASTEXITCODE -ne 0) { Write-Host "No existing release to delete" }
+          exit 0
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
