@@ -34,6 +34,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Bundle Gemini API key into .env (AI parser in installer)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          $k = ("$env:GEMINI_API_KEY").Trim()
+          if ([string]::IsNullOrEmpty($k)) {
+            Write-Host "::warning::GEMINI_API_KEY secret is not set - the installer's AI parser will fall back to offline regex. Add it under Settings > Secrets and variables > Actions."
+          } else {
+            [System.IO.File]::WriteAllText("$PWD\.env", "GEMINI_API_KEY=$k")
+            Write-Host "Bundled GEMINI_API_KEY into .env for packaging."
+          }
+          exit 0
+
       - name: Verify bundled backgrounds are present
         run: |
           if (-not (Test-Path "VideBackground")) { Write-Error "VideBackground folder missing — builtin videos would not ship"; exit 1 }

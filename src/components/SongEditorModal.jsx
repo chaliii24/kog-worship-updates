@@ -232,7 +232,7 @@ export default function SongEditorModal() {
                 <Cpu size={13} color={C.accLine} />
                 <select value={selectedAiModel} onChange={(e) => setSelectedAiModel(e.target.value)} style={{ background: 'transparent', color: C.text, border: 'none', fontSize: 11, fontWeight: 700, outline: 'none', cursor: 'pointer' }}>
                   <option value="gemini-1.5-flash" style={{ background: C.input }}>Gemini 3.6 Flash (Online)</option>
-                  <option value="gemini-1.5-pro" style={{ background: C.input }}>Gemini 3.6 Pro (Online)</option>
+                  <option value="gemini-1.5-pro" style={{ background: C.input }}>Gemini Pro (Online)</option>
                   <option value="ollama" style={{ background: C.input }}>Local Ollama (Offline)</option>
                 </select>
               </div>

@@ -610,16 +610,21 @@ ipcMain.handle('ai-parse-chord-chart', async (event, payload) => {
   };
 
   // 1. Try Gemini Online Mode
-  // 1. Try Gemini Online Mode
-  if (process.env.GEMINI_API_KEY && requestedModel !== 'ollama') {
+  const hasGeminiKey = Boolean(String(process.env.GEMINI_API_KEY || '').trim());
+  const wantsGemini = requestedModel !== 'ollama';
+  let geminiError = null;
+  let ollamaError = null;
+
+  if (hasGeminiKey && wantsGemini) {
     try {
       const cleanKey = process.env.GEMINI_API_KEY.trim().replace(/^["']|["']$/g, '');
       const ai = new GoogleGenAI({ apiKey: cleanKey });
       
-      // Update model string identifiers to gemini-3.6
+      // Flash uses the pinned 3.6 model; "Pro" maps to the live pro alias
+      // (gemini-3.6-pro does not exist and 404s).
       let targetModel = 'gemini-3.6-flash';
       if (requestedModel.includes('pro')) {
-        targetModel = 'gemini-3.6-pro';
+        targetModel = 'gemini-pro-latest';
       }
 
       const response = await ai.models.generateContent({
@@ -633,10 +638,11 @@ ipcMain.handle('ai-parse-chord-chart', async (event, payload) => {
       const cuesArray = extractCuesArray(parsedObj);
 
       if (cuesArray.length > 0) {
-        const displayModel = targetModel.includes('pro') ? 'Gemini 3.6 Pro (Online)' : 'Gemini 3.6 Flash (Online)';
+        const displayModel = requestedModel.includes('pro') ? 'Gemini Pro (Online)' : 'Gemini 3.6 Flash (Online)';
         return { cues: cuesArray, modelUsed: displayModel };
       }
     } catch (onlineError) {
+      geminiError = onlineError;
       console.log('Gemini API Error:', onlineError.message, '-> Switching to local Ollama fallback...');
     }
   }
@@ -660,6 +666,7 @@ ipcMain.handle('ai-parse-chord-chart', async (event, payload) => {
       return { cues: cuesArray, modelUsed: 'Ollama (llama3.2:3b - Offline)' };
     }
   } catch (offlineError) {
+    ollamaError = offlineError;
     console.log('Ollama failed or returned unparseable structure. Switching to Local Regex Parser...');
   }
 
@@ -704,9 +711,15 @@ ipcMain.handle('ai-parse-chord-chart', async (event, payload) => {
   }
   flushCurrentSection();
 
+  // Make the badge say WHY the AI was skipped, so "offline" is diagnosable.
+  let fallbackLabel = 'Local Regex (Offline)';
+  if (wantsGemini && !hasGeminiKey) fallbackLabel = 'No API Key - Local Regex (Offline)';
+  else if (geminiError) fallbackLabel = 'Gemini Failed - Local Regex (Offline)';
+  else if (ollamaError && requestedModel === 'ollama') fallbackLabel = 'Ollama Unavailable - Local Regex (Offline)';
+
   return {
     cues: rawParsedCues.length > 0 ? rawParsedCues : [{ label: 'Verse 1', text: rawText }],
-    modelUsed: 'Local Fast Regex (Offline)'
+    modelUsed: fallbackLabel
   };
 });
 // -------------------------------------------------------------
