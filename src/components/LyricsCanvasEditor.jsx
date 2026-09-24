@@ -367,7 +367,7 @@ export default function LyricsCanvasEditor({
   const pillTop = box.y >= 34 ? box.y - 26 : box.y + box.h + 4;
 
   return (
-    <div ref={wrapRef} style={{ width: '100%', aspectRatio: '16 / 9', position: 'relative', overflow: 'hidden', borderRadius: 12, boxShadow: '0 12px 44px rgba(0,0,0,0.45)', border: '1px solid #2d2d3f' }}>
+    <div ref={wrapRef} style={{ width: '100%', aspectRatio: '16 / 9', position: 'relative', overflow: 'hidden', borderRadius: 12, boxShadow: '0 12px 44px rgba(0,0,0,0.45)', border: '1px solid var(--ui-border2)' }}>
       {/* z0 — background layer */}
       {bgType === 'color' && (
         <div style={{ position: 'absolute', inset: 0, backgroundColor: bgValue || '#000000', zIndex: 0 }} />

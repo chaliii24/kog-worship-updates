@@ -11,7 +11,7 @@ function Word({ C, size = 2.5 }) {
           initial={{ opacity: 0, y: 26, filter: 'blur(10px)' }}
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
           transition={{ delay: 0.15 + i * 0.05, type: 'spring', stiffness: 320, damping: 26 }}
-          style={{ display: 'inline-block', color: i < 3 ? '#ffffff' : C.accLine, willChange: 'transform' }}
+          style={{ display: 'inline-block', color: i < 3 ? 'var(--ui-text)' : C.accLine, willChange: 'transform' }}
         >
           {c}
         </motion.span>
@@ -47,14 +47,14 @@ function FlashButton({ children, onClick, variant = 'primary', icon }) {
       ...base,
       border: '1px solid rgba(129,140,248,0.35)',
       background: 'rgba(129,140,248,0.05)',
-      color: '#e5e7eb',
+      color: 'var(--ui-text2)',
       boxShadow: 'none',
     },
     muted: {
       ...base,
-      border: '1px solid rgba(255,255,255,0.08)',
+      border: '1px solid var(--ui-blight)',
       background: 'transparent',
-      color: '#9ca3af',
+      color: 'var(--ui-muted)',
       boxShadow: 'none',
     },
   };
@@ -95,7 +95,7 @@ export default function WelcomeScreen({ services, C, PINK, ACCENT, logoImage, on
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
       onMouseMove={handleMove}
-      style={{ position: 'fixed', inset: 0, background: '#050509', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', zIndex: 9998, fontFamily: 'system-ui, sans-serif', color: C.text, overflowY: 'auto', padding: 24, boxSizing: 'border-box' }}
+      style={{ position: 'fixed', inset: 0, background: 'var(--ui-bg)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', zIndex: 9998, fontFamily: 'system-ui, sans-serif', color: C.text, overflowY: 'auto', padding: 24, boxSizing: 'border-box' }}
     >
       {/* Ambient top glow */}
       <div style={{ position: 'absolute', top: -180, left: '50%', width: 760, height: 420, transform: 'translateX(-50%)', background: `radial-gradient(closest-side, ${C.accLine}1f, transparent 70%)`, filter: 'blur(44px)', pointerEvents: 'none', zIndex: 0 }} />
@@ -131,7 +131,7 @@ export default function WelcomeScreen({ services, C, PINK, ACCENT, logoImage, on
                   transition={{ delay: 1.1 + recentShows.indexOf(svc) * 0.06, duration: 0.4 }}
                   whileHover={{ x: 4, backgroundColor: 'rgba(129,140,248,0.08)' }}
                   onClick={() => onOpenRecent(svc.id)}
-                  style={{ textAlign: 'left', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', color: C.text, padding: '10px 13px', borderRadius: 10, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, transition: 'backgroundColor 0.2s ease' }}
+                  style={{ textAlign: 'left', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--ui-blight)', color: C.text, padding: '10px 13px', borderRadius: 10, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, transition: 'backgroundColor 0.2s ease' }}
                 >
                   <span style={{ minWidth: 0 }}>
                     <span style={{ fontWeight: 700, fontSize: 12.5, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{svc.name}</span>

@@ -46,7 +46,7 @@ export default function ConfirmModal({ C, ACCENT, mode = 'confirm', title, messa
       <motion.div
         {...modalPanel}
         onClick={(e) => e.stopPropagation()}
-        style={{ background: C.panel, border: '1px solid #2d2d3f', borderRadius: '14px', width: '420px', maxWidth: '92vw', padding: '22px', boxSizing: 'border-box' }}
+        style={{ background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: '14px', width: '420px', maxWidth: '92vw', padding: '22px', boxSizing: 'border-box' }}
       >
         <h2 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Icon size={16} color={isConfirm ? C.accLine || ACCENT : '#F59E0B'} />
@@ -61,7 +61,7 @@ export default function ConfirmModal({ C, ACCENT, mode = 'confirm', title, messa
               {...stubTap}
               ref={cancelRef => { if (cancelRef && !confirmRef.current) { /* keep order */ } }}
               onClick={onCancel}
-              style={{ background: C.border || '#1F2937', border: 'none', color: C.text, padding: '10px 16px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}
+              style={{ background: C.border || 'var(--ui-border)', border: 'none', color: C.text, padding: '10px 16px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}
             >
               {cancelLabel}
             </motion.button>

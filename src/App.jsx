@@ -47,7 +47,25 @@ export default function App() {
   const [currentSlide, setCurrentSlide] = useState({ title: "KOG Worship", text: "", style: {}, timestamp: Date.now() });
 
   const [activeTab, setActiveTab] = useState('library'); // 'library' or 'service'
-  const [themeDark, setThemeDark] = useState(true);
+  const [themeDark, setThemeDark] = useState(() => {
+    // Read + apply synchronously so there's no dark flash on boot for
+    // light-mode users; the effect below keeps it in sync afterwards.
+    let dark = true;
+    try {
+      const saved = localStorage.getItem('kog-theme');
+      if (saved) dark = saved === 'dark';
+    } catch { /* keep default */ }
+    try {
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+    } catch { /* non-browser context */ }
+    return dark;
+  });
+  useEffect(() => {
+    try { localStorage.setItem('kog-theme', themeDark ? 'dark' : 'light'); } catch { /* ignore */ }
+    document.documentElement.dataset.theme = themeDark ? 'dark' : 'light';
+    document.documentElement.style.colorScheme = themeDark ? 'dark' : 'light';
+  }, [themeDark]);
   const [songs, setSongs] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showsQuery, setShowsQuery] = useState('');
@@ -1831,7 +1849,7 @@ export default function App() {
   const endBoxDrag = () => setBoxDrag(null);
 
   const ToolbarBtn = ({ children, danger, active, title, onClick }) => (
-    <button title={title} onClick={onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: active ? 'rgba(34,197,94,0.15)' : C.elevated, border: '1px solid ' + (active ? 'rgba(34,197,94,0.5)' : '#2d2d3f'), color: danger ? '#f87171' : C.text2, borderRadius: 7, padding: '6px 9px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{children}</button>
+    <button title={title} onClick={onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: active ? 'rgba(34,197,94,0.15)' : C.elevated, border: '1px solid ' + (active ? 'rgba(34,197,94,0.5)' : 'var(--ui-border2)'), color: danger ? '#f87171' : C.text2, borderRadius: 7, padding: '6px 9px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{children}</button>
   );
 
   const fitStageFont = (text) => {
@@ -2040,7 +2058,7 @@ export default function App() {
     const isLive = activeCue != null && activeCue.id !== 'clear' && ((isTitle && activeCue.id === 'title-card') || (!isTitle && cue && activeCue.id === cue.id));
     const hasMedia = !!mediaLayer;
     return (
-      <div style={{ position: 'relative', height, borderRadius: radius, overflow: 'hidden', background: faceBg, border: isLive ? `2px solid ${PINK}` : '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', boxShadow: isLive ? `0 0 0 2px rgba(255,79,163,0.25), 0 8px 24px rgba(0,0,0,0.45)` : '0 4px 14px rgba(0,0,0,0.35)', boxSizing: 'border-box' }}>
+      <div style={{ position: 'relative', height, borderRadius: radius, overflow: 'hidden', background: faceBg, border: isLive ? `2px solid ${PINK}` : '1px solid var(--ui-blight)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', boxShadow: isLive ? `0 0 0 2px rgba(255,79,163,0.25), 0 8px 24px rgba(0,0,0,0.45)` : '0 4px 14px rgba(0,0,0,0.35)', boxSizing: 'border-box' }}>
         {mediaLayer && (
           mediaLayer.type === 'image' ? (
             <img key={`bgimg-${mediaLayer.url}`} src={mediaLayer.url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }} />
@@ -2765,8 +2783,8 @@ export default function App() {
       
       <style>{`
         ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #0a0a0a; }
-        ::-webkit-scrollbar-thumb { background: #2d2d3f; border-radius: 4px; }
+        ::-webkit-scrollbar-track { background: var(--ui-scroll-track); }
+        ::-webkit-scrollbar-thumb { background: var(--ui-scroll-thumb); border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: ${ACCENT}; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
@@ -2804,6 +2822,8 @@ export default function App() {
         toggleDevProjectorWindow={toggleDevProjectorWindow}
         toggleStageWindow={toggleStageWindow}
         openNewShow={openNewShow}
+        themeDark={themeDark}
+        toggleTheme={() => setThemeDark(v => !v)}
       />
 
       {/* ===== MAIN WORKSPACE ===== */}

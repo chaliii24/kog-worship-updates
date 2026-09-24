@@ -27,7 +27,7 @@ function useContainerScale() {
 
 function SlideThumb({ slide, w = 154, h = 87, active }) {
   return (
-    <div style={{ width: w, height: h, overflow: 'hidden', position: 'relative', background: '#000', borderRadius: 6, outline: active ? '2px solid #3B82F6' : '1px solid #2d2d3f', outlineOffset: active ? 1 : 0 }}>
+    <div style={{ width: w, height: h, overflow: 'hidden', position: 'relative', background: '#000', borderRadius: 6, outline: active ? '2px solid #3B82F6' : '1px solid var(--ui-border2)', outlineOffset: active ? 1 : 0 }}>
       <div style={{ width: 1280, height: 720, transform: 'scale(' + (w / 1280) + ')', transformOrigin: 'top left' }}>
         <PresentationSlide slide={slide} />
       </div>
@@ -151,18 +151,18 @@ export default function PresentationModal() {
   };
 
   const headerBtn = (onClick, Icon, label, opts = {}) => (
-    <button onClick={onClick} disabled={opts.disabled} style={{ background: opts.bg || '#161B22', border: '1px solid ' + (opts.border || '#2d2d3f'), color: opts.color || C.text, padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: opts.disabled ? 0.5 : 1 }}>
+    <button onClick={onClick} disabled={opts.disabled} style={{ background: opts.bg || 'var(--ui-elev2)', border: '1px solid ' + (opts.border || 'var(--ui-border2)'), color: opts.color || C.text, padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: opts.disabled ? 0.5 : 1 }}>
       {opts.busy ? <Loader2 size={13} /> : <Icon size={13} />} {label}
     </button>
   );
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.86)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}>
-      <motion.div initial={{ opacity: 0, scale: 0.97, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.18 }} style={{ background: C.panel, border: '1px solid #2d2d3f', borderRadius: 14, width: 'min(1600px, 98vw)', height: 'min(95vh, 980px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.75)', position: 'relative', boxSizing: 'border-box' }}>
+      <motion.div initial={{ opacity: 0, scale: 0.97, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.18 }} style={{ background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: 14, width: 'min(1600px, 98vw)', height: 'min(95vh, 980px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.75)', position: 'relative', boxSizing: 'border-box' }}>
 
-        <div style={{ padding: '10px 16px', borderBottom: '1px solid #262639', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, flexWrap: 'wrap' }}>
+        <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--ui-border2)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, flexWrap: 'wrap' }}>
           <Layers size={17} color={ACCENT} />
-          <input value={deck.title} onChange={(e) => patchDeck({ title: e.target.value })} placeholder="Presentation title" style={{ flex: '0 1 300px', minWidth: 150, background: '#0d1117', border: '1px solid #2d2d3f', borderRadius: 8, padding: '7px 10px', color: C.text, fontSize: 13, fontWeight: 700, outline: 'none' }} />
+          <input value={deck.title} onChange={(e) => patchDeck({ title: e.target.value })} placeholder="Presentation title" style={{ flex: '0 1 300px', minWidth: 150, background: 'var(--ui-input)', border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '7px 10px', color: C.text, fontSize: 13, fontWeight: 700, outline: 'none' }} />
           <div style={{ flex: 1, minWidth: 20 }} />
           {status && <div style={{ fontSize: 11.5, color: ACCENT, fontWeight: 700, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={status}>{status}</div>}
           {headerBtn(() => setShowOutline(s => !s), Wand2, 'Import Outline')}
@@ -174,14 +174,14 @@ export default function PresentationModal() {
         </div>
 
         {showOutline && (
-          <div style={{ padding: 12, borderBottom: '1px solid #262639', background: '#0d1117', display: 'flex', gap: 10 }}>
-            <textarea value={outline} onChange={(e) => setOutline(e.target.value)} rows={4} placeholder={'Paste your sermon outline or script.\n\nBlank line = new slide.\nFirst line = slide title, following lines = bullets.'} style={{ flex: 1, background: '#050509', border: '1px solid #2d2d3f', borderRadius: 8, padding: 10, color: C.text, fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit' }} />
+          <div style={{ padding: 12, borderBottom: '1px solid var(--ui-border2)', background: 'var(--ui-input)', display: 'flex', gap: 10 }}>
+            <textarea value={outline} onChange={(e) => setOutline(e.target.value)} rows={4} placeholder={'Paste your sermon outline or script.\n\nBlank line = new slide.\nFirst line = slide title, following lines = bullets.'} style={{ flex: 1, background: 'var(--ui-bg)', border: '1px solid var(--ui-border2)', borderRadius: 8, padding: 10, color: C.text, fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit' }} />
             <button onClick={genFromOutline} style={{ background: ACCENT, border: 'none', color: '#fff', padding: '0 18px', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Generate Slides</button>
           </div>
         )}
 
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-          <div style={{ flex: '0 0 200px', minWidth: 160, borderRight: '1px solid #262639', overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ flex: '0 0 200px', minWidth: 160, borderRight: '1px solid var(--ui-border2)', overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <button onClick={addSlide} style={{ background: 'rgba(59,130,246,0.14)', border: '1px dashed ' + ACCENT, color: ACCENT, borderRadius: 8, padding: '8px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Plus size={13} /> New Slide</button>
             {deck.slides.map((s, i) => (
               <div key={s.id || i} onClick={() => setIdx(i)} style={{ cursor: 'pointer', display: 'grid', gap: 4 }}>
@@ -199,9 +199,9 @@ export default function PresentationModal() {
             ))}
           </div>
 
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: '#050509', padding: 18 }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--ui-bg)', padding: 18 }}>
             <div ref={canvasRef} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-              <div style={{ position: 'relative', width: 1280 * canvasScale, height: 720 * canvasScale, overflow: 'hidden', borderRadius: 10, boxShadow: '0 12px 40px rgba(0,0,0,0.6)', outline: '1px solid #2d2d3f' }}>
+              <div style={{ position: 'relative', width: 1280 * canvasScale, height: 720 * canvasScale, overflow: 'hidden', borderRadius: 10, boxShadow: '0 12px 40px rgba(0,0,0,0.6)', outline: '1px solid var(--ui-border2)' }}>
                 <div style={{ width: 1280, height: 720, transform: 'scale(' + canvasScale + ')', transformOrigin: 'top left' }}>
                   <PresentationSlide slide={slide} />
                 </div>
@@ -210,9 +210,9 @@ export default function PresentationModal() {
             </div>
             <div style={{ textAlign: 'center', fontSize: 10.5, color: C.muted, paddingTop: 8, opacity: 0.8 }}>Drag any text box on the slide to move it • drag its corner handle to resize • use “Reset Positions” to restore defaults</div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 8, fontSize: 11.5, color: C.muted, fontWeight: 700 }}>
-              <button onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={idx === 0} style={{ background: '#161B22', border: '1px solid #2d2d3f', color: C.text, borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Prev</button>
+              <button onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={idx === 0} style={{ background: 'var(--ui-elev2)', border: '1px solid var(--ui-border2)', color: C.text, borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Prev</button>
               Slide {idx + 1} / {deck.slides.length}
-              <button onClick={() => setIdx(i => Math.min(deck.slides.length - 1, i + 1))} disabled={idx === deck.slides.length - 1} style={{ background: '#161B22', border: '1px solid #2d2d3f', color: C.text, borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Next</button>
+              <button onClick={() => setIdx(i => Math.min(deck.slides.length - 1, i + 1))} disabled={idx === deck.slides.length - 1} style={{ background: 'var(--ui-elev2)', border: '1px solid var(--ui-border2)', color: C.text, borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Next</button>
               <button onClick={resetPositions} title="Restore default text positions for this slide" style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.5)', color: '#93C5FD', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Reset Positions</button>
             </div>
           </div>

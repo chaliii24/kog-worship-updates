@@ -25,7 +25,7 @@ function formatSpeed(bytesPerSec) {
 export default function AboutModal({ C, ACCENT, PINK, version, status, updateReady, updateProgress, onCheckUpdates, onDownloadUpdate, onInstallUpdate, onOpenGuide, onClose }) {
   return (
     <motion.div {...modalOverlay} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }} onClick={onClose}>
-      <motion.div {...modalPanel} onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: '1px solid #2d2d3f', borderRadius: '14px', width: '540px', maxWidth: '92vw', maxHeight: 'calc(100vh - 80px)', overflowY: 'auto', padding: '24px', boxSizing: 'border-box' }}>
+      <motion.div {...modalPanel} onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: '14px', width: '540px', maxWidth: '92vw', maxHeight: 'calc(100vh - 80px)', overflowY: 'auto', padding: '24px', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <img src={logoImage} alt="KOGWorship" style={{ width: 44, height: 44, objectFit: 'contain', borderRadius: '9px' }} />
           <div>
@@ -41,7 +41,7 @@ export default function AboutModal({ C, ACCENT, PINK, version, status, updateRea
         <h3 style={{ fontSize: '11.5px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.2, color: C.accLine, margin: '22px 0 10px 0' }}>Core Features</h3>
         <div style={{ display: 'grid', gap: '8px' }}>
           {FEATURES.map(([title, desc]) => (
-            <div key={title} style={{ background: C.elevated2, border: '1px solid #2d2d3f', borderRadius: '8px', padding: '10px 14px' }}>
+            <div key={title} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: '8px', padding: '10px 14px' }}>
               <div style={{ fontSize: '12.5px', fontWeight: 800 }}>{title}</div>
               <div style={{ fontSize: '12px', color: C.text2, marginTop: 3, lineHeight: 1.6 }}>{desc}</div>
             </div>
@@ -86,10 +86,10 @@ export default function AboutModal({ C, ACCENT, PINK, version, status, updateRea
               <Download size={13} /> Download Update
             </motion.button>
           )}
-          <motion.button {...stubTap} onClick={onCheckUpdates} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid #2d2d3f', color: C.text, padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+          <motion.button {...stubTap} onClick={onCheckUpdates} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
             <RefreshCw size={13} /> Check for Updates
           </motion.button>
-          <motion.button {...stubTap} onClick={onOpenGuide} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid #2d2d3f', color: C.text, padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+          <motion.button {...stubTap} onClick={onOpenGuide} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
             <BookOpen size={13} /> User Guide
           </motion.button>
           <motion.button {...stubTap} onClick={onClose} style={{ background: ACCENT, border: 'none', color: '#fff', padding: '10px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>Close</motion.button>

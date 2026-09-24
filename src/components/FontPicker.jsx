@@ -70,7 +70,7 @@ export default function FontPicker({ value, choices, onChange, C }) {
   const system = choices.filter(o => !FONT_OPTIONS.some(p => p.value === o.value)).filter(keep);
 
   const SectionLabel = ({ children }) => (
-    <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, padding: '10px 10px 4px 10px', position: 'sticky', top: 0, background: C.panel === '#000' ? '#12141c' : (C.elevated || '#12141c'), zIndex: 1 }}>{children}</div>
+    <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, padding: '10px 10px 4px 10px', position: 'sticky', top: 0, background: C.panel === '#000' ? 'var(--ui-elev)' : (C.elevated || 'var(--ui-elev)'), zIndex: 1 }}>{children}</div>
   );
 
   const Row = ({ o }) => {
@@ -103,7 +103,7 @@ export default function FontPicker({ value, choices, onChange, C }) {
         ref={btnRef}
         type="button"
         onClick={() => setOpen(o => !o)}
-        style={{ width: '100%', background: C.input, color: C.text, border: open ? `1px solid ${C.accLine || '#3B82F6'}` : '1px solid #2d2d3f', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
+        style={{ width: '100%', background: C.input, color: C.text, border: open ? `1px solid ${C.accLine || '#3B82F6'}` : '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
       >
         <span style={{ fontFamily: value, fontSize: 13, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}>{current.label}</span>
         <span style={{ color: C.faint, fontSize: 10, flexShrink: 0 }}>▾</span>
@@ -114,7 +114,7 @@ export default function FontPicker({ value, choices, onChange, C }) {
           ref={popRef}
           style={{
             position: 'fixed', left: pos.left, top: pos.top, width: pos.width, height: pos.height,
-            background: C.elevated || '#12141c', border: '1px solid #3d3d52', borderRadius: 8,
+            background: C.elevated || 'var(--ui-elev)', border: '1px solid var(--ui-border2)', borderRadius: 8,
             boxShadow: '0 14px 40px rgba(0,0,0,0.55)', zIndex: 10000,
             display: 'flex', flexDirection: 'column', overflow: 'hidden',
           }}
@@ -124,7 +124,7 @@ export default function FontPicker({ value, choices, onChange, C }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search fonts…"
-            style={{ flexShrink: 0, margin: 8, padding: '7px 9px', background: C.input || '#0c0e14', color: C.text, border: '1px solid #2d2d3f', borderRadius: 6, fontSize: 12, outline: 'none' }}
+            style={{ flexShrink: 0, margin: 8, padding: '7px 9px', background: C.input || 'var(--ui-input)', color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, fontSize: 12, outline: 'none' }}
           />
           <div ref={listRef} style={{ flex: 1, overflowY: 'auto', paddingBottom: 6 }} onMouseLeave={() => setHovered(null)}>
             {presets.length > 0 && <SectionLabel>Presets</SectionLabel>}

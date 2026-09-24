@@ -36,7 +36,7 @@ function PresentationTile({ slide, num, isLive, onClick, PINK, C }) {
           borderRadius: 10,
           overflow: 'hidden',
           background: '#000',
-          border: isLive ? `2px solid ${PINK}` : '1px solid rgba(255,255,255,0.08)',
+          border: isLive ? `2px solid ${PINK}` : '1px solid var(--ui-blight)',
           boxShadow: isLive ? `0 0 0 2px rgba(255,79,163,0.25), 0 8px 24px rgba(0,0,0,0.45)` : '0 4px 14px rgba(0,0,0,0.35)',
           boxSizing: 'border-box'
         }}
@@ -79,7 +79,7 @@ export default function PresentationWorkspace() {
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -26 }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#050509', height: '100%' }}
+      style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-bg)', height: '100%' }}
     >
       <div style={{ padding: '12px 18px 8px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexShrink: 0 }}>
         <div style={{ minWidth: 0 }}>
@@ -89,13 +89,13 @@ export default function PresentationWorkspace() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
           {activePresentation ? (
             <>
-              <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, background: C.elevated2, border: '1px solid #2b2b44', borderRadius: 999, padding: '4px 10px' }}>Slide {liveIndex + 1}/{slides.length}</span>
-              <motion.button {...stubTap} onClick={() => go(liveIndex - 1)} disabled={liveIndex <= 0} title="Previous slide (or ←)" style={{ width: 30, height: 30, background: C.elevated2, border: '1px solid #2b2b44', color: liveIndex <= 0 ? '#475569' : C.text2, borderRadius: 8, cursor: liveIndex <= 0 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={14} /></motion.button>
-              <motion.button {...stubTap} onClick={() => go(liveIndex + 1)} disabled={liveIndex >= slides.length - 1} title="Next slide (or →)" style={{ width: 30, height: 30, background: C.elevated2, border: '1px solid #2b2b44', color: liveIndex >= slides.length - 1 ? '#475569' : C.text2, borderRadius: 8, cursor: liveIndex >= slides.length - 1 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChevronRight size={14} /></motion.button>
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '4px 10px' }}>Slide {liveIndex + 1}/{slides.length}</span>
+              <motion.button {...stubTap} onClick={() => go(liveIndex - 1)} disabled={liveIndex <= 0} title="Previous slide (or ←)" style={{ width: 30, height: 30, background: C.elevated2, border: '1px solid var(--ui-border2)', color: liveIndex <= 0 ? 'var(--ui-faint)' : C.text2, borderRadius: 8, cursor: liveIndex <= 0 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChevronLeft size={14} /></motion.button>
+              <motion.button {...stubTap} onClick={() => go(liveIndex + 1)} disabled={liveIndex >= slides.length - 1} title="Next slide (or →)" style={{ width: 30, height: 30, background: C.elevated2, border: '1px solid var(--ui-border2)', color: liveIndex >= slides.length - 1 ? 'var(--ui-faint)' : C.text2, borderRadius: 8, cursor: liveIndex >= slides.length - 1 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChevronRight size={14} /></motion.button>
               <motion.button {...stubTap} onClick={stopPresentation} title="Stop navigating this presentation (live output stays until you send something else)" style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#F87171', padding: '6px 11px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}><Square size={11} /> Stop</motion.button>
             </>
           ) : null}
-          <motion.button {...stubTap} onClick={() => openPresentationEditor(deck)} style={{ background: C.elevated2, border: '1px solid #2b2b44', color: C.text2, padding: '6px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Edit3 size={12} /> {deck ? 'Edit' : 'New'}</motion.button>
+          <motion.button {...stubTap} onClick={() => openPresentationEditor(deck)} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '6px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Edit3 size={12} /> {deck ? 'Edit' : 'New'}</motion.button>
         </div>
       </div>
 
@@ -108,7 +108,7 @@ export default function PresentationWorkspace() {
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: C.faint2, borderRadius: 14, minHeight: '100%' }}>
-            <div style={{ width: '100%', maxWidth: 720, aspectRatio: '16 / 9', background: '#000', border: '1px solid #1e1e2e', borderRadius: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24, boxSizing: 'border-box' }}>
+            <div style={{ width: '100%', maxWidth: 720, aspectRatio: '16 / 9', background: '#000', border: '1px solid var(--ui-border2)', borderRadius: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24, boxSizing: 'border-box' }}>
               <div style={{ width: 58, height: 58, borderRadius: 16, background: 'radial-gradient(140% 140% at 30% 20%, #3b1d6e, #1a0c30)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><MonitorPlay size={28} color={PINK} /></div>
               <div style={{ fontSize: 14, fontWeight: 700, color: C.muted }}>No presentation is live</div>
               <div style={{ fontSize: 12, textAlign: 'center', maxWidth: 380, lineHeight: 1.5, color: C.faint2 }}>Press <b style={{ color: C.text }}>Present</b> on a deck in the list, or start a new presentation — its slides appear here to navigate like lyrics.</div>

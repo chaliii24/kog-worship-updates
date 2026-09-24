@@ -58,7 +58,64 @@
 @font-face { font-family: 'CMG Sans Backslant'; src: url('./assets/fonts/cmg/CMGSans-BoldBackslant.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
 
 :root {
+  color-scheme: dark;
   --font-sans: 'CMG Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+
+  /* =====================================================================
+     Theme tokens — dark is the default. ALL chrome-side colors (panels,
+     borders, text, modals, dropdowns, sidebars) reference these via
+     var(--ui-*), so the dark/light toggle repaints the whole UI from one
+     place. Slide/projector content colors (lyrics, previews, output
+     windows) intentionally do NOT use these — projected content keeps its
+     designed look. App.jsx sets <html data-theme> + color-scheme so
+     native controls (scrollbars, selects, color pickers) follow too.
+     ===================================================================== */
+  --ui-bg: #050509;
+  --ui-panel: #0b0b10;
+  --ui-elev: #12121a;
+  --ui-elev2: #16161f;
+  --ui-input: #12121a;
+  --ui-border: #1f1f30;
+  --ui-border2: #2b2b44;
+  --ui-blight: rgba(255, 255, 255, 0.06);
+  --ui-text: #ffffff;
+  --ui-text2: #e5e7eb;
+  --ui-muted: #9ca3af;
+  --ui-faint: #6b7280;
+  --ui-dock-idle: #8b8b9e;
+  --ui-dock-hover: #e2e8f0;
+  --ui-dock-active: #dbeafe;
+  --ui-hover-bg: rgba(255, 255, 255, 0.05);
+  --ui-hover-border: rgba(148, 163, 184, 0.22);
+  --ui-tip-bg: #1e293b;
+  --ui-tip-text: #f1f5f9;
+  --ui-scroll-track: #0a0a0a;
+  --ui-scroll-thumb: #2d2d3f;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --ui-bg: #e9ecf2;
+  --ui-panel: #ffffff;
+  --ui-elev: #f6f8fb;
+  --ui-elev2: #eef1f6;
+  --ui-input: #ffffff;
+  --ui-border: #dfe3ea;
+  --ui-border2: #c7cedb;
+  --ui-blight: rgba(15, 23, 42, 0.08);
+  --ui-text: #0f172a;
+  --ui-text2: #334155;
+  --ui-muted: #5b6b81;
+  --ui-faint: #7c8798;
+  --ui-dock-idle: #64748b;
+  --ui-dock-hover: #0f172a;
+  --ui-dock-active: #1d4ed8;
+  --ui-hover-bg: rgba(15, 23, 42, 0.05);
+  --ui-hover-border: rgba(100, 116, 139, 0.3);
+  --ui-tip-bg: #ffffff;
+  --ui-tip-text: #0f172a;
+  --ui-scroll-track: #eef1f6;
+  --ui-scroll-thumb: #c7cedb;
 }
 
 /* NOTE: no `*` font-family rule here on purpose — see the warning at the
@@ -147,7 +204,7 @@ textarea {
   position: relative;
   background: transparent;
   border: 1px solid transparent;
-  color: #8b8b9e;
+  color: var(--ui-dock-idle);
   box-shadow: none;
   transition:
     background 160ms ease,
@@ -171,9 +228,9 @@ textarea {
 }
 
 .dock-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(148, 163, 184, 0.22);
-  color: #e2e8f0;
+  background: var(--ui-hover-bg);
+  border-color: var(--ui-hover-border);
+  color: var(--ui-dock-hover);
 }
 
 .dock-btn:hover::after {
@@ -189,7 +246,7 @@ textarea {
 .dock-btn[data-active='1'] {
   background: rgba(59, 130, 246, 0.10);
   border-color: rgba(96, 165, 250, 0.55);
-  color: #dbeafe;
+  color: var(--ui-dock-active);
   box-shadow:
     0 0 0 1px rgba(96, 165, 250, 0.18),
     0 0 16px rgba(59, 130, 246, 0.38),
@@ -260,8 +317,8 @@ textarea {
   bottom: calc(100% + 10px);
   left: 50%;
   transform: translateX(-50%);
-  background: #1e293b;
-  color: #f1f5f9;
+  background: var(--ui-tip-bg);
+  color: var(--ui-tip-text);
   font-size: 11px;
   font-weight: 600;
   padding: 4px 8px;

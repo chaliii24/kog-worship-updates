@@ -60,7 +60,7 @@ export default function BottomDock({ C, PINK, dockItems, dockTab, onSelect, onNe
         height: 56,
         flexShrink: 0,
         background: C.panel,
-        borderTop: '1px solid #23233a',
+        borderTop: '1px solid var(--ui-border2)',
         display: 'flex',
         alignItems: 'center',
         padding: '0 8px',

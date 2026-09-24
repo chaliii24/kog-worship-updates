@@ -4,9 +4,9 @@ import {
 } from 'lucide-react';
 import { GRADIENT_PACK, PRESENTATION_FONTS, PRESENTATION_TRANSITIONS, PRESENTATION_LAYOUTS as LAYOUTS } from '../lib/backgrounds';
 
-const SECTION = { fontSize: 10, fontWeight: 800, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 1.3, margin: '2px 0 6px 0' };
-const FIELD = { width: '100%', background: '#0d1117', border: '1px solid #2d2d3f', borderRadius: 7, padding: '7px 8px', color: '#F8FAFC', fontSize: 12, outline: 'none', boxSizing: 'border-box' };
-const LBL = { fontSize: 10, color: '#64748B', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 };
+const SECTION = { fontSize: 10, fontWeight: 800, color: 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.3, margin: '2px 0 6px 0' };
+const FIELD = { width: '100%', background: 'var(--ui-input)', border: '1px solid var(--ui-border2)', borderRadius: 7, padding: '7px 8px', color: 'var(--ui-text)', fontSize: 12, outline: 'none', boxSizing: 'border-box' };
+const LBL = { fontSize: 10, color: 'var(--ui-faint)', fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 };
 
 function SearchBox({ C, ACCENT, searchQ, setSearchQ, runSearch, busy, searchResults, onPick, status }) {
   return (
@@ -20,14 +20,14 @@ function SearchBox({ C, ACCENT, searchQ, setSearchQ, runSearch, busy, searchResu
       {searchResults.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, maxHeight: 220, overflowY: 'auto' }}>
           {searchResults.map(r => (
-            <button key={r.id} onClick={() => onPick(r)} title={r.title} style={{ position: 'relative', border: '1px solid #2d2d3f', borderRadius: 7, overflow: 'hidden', padding: 0, cursor: busy === 'dl-' + r.id ? 'wait' : 'pointer', background: '#000', height: 62 }}>
+            <button key={r.id} onClick={() => onPick(r)} title={r.title} style={{ position: 'relative', border: '1px solid var(--ui-border2)', borderRadius: 7, overflow: 'hidden', padding: 0, cursor: busy === 'dl-' + r.id ? 'wait' : 'pointer', background: '#000', height: 62 }}>
               <img src={r.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               {busy === 'dl-' + r.id && <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' }}><Loader2 size={16} color="#fff" /></span>}
             </button>
           ))}
         </div>
       )}
-      <div style={{ fontSize: 10, color: '#475569' }}>Online results are Creative Commons photos (Openverse). Downloading saves the image into your library.</div>
+      <div style={{ fontSize: 10, color: 'var(--ui-faint)' }}>Online results are Creative Commons photos (Openverse). Downloading saves the image into your library.</div>
     </div>
   );
 }
@@ -57,13 +57,13 @@ export default function PresentationInspector({
   const applyOnline = (r) => downloadBg(r);
 
   const tabBtn = (id, label, Icon) => (
-    <button onClick={() => setTab(id)} style={{ flex: 1, background: tab === id ? 'rgba(59,130,246,0.18)' : 'transparent', border: tab === id ? '1px solid ' + ACCENT : '1px solid #2d2d3f', color: tab === id ? C.heading : C.muted, padding: '6px 4px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+    <button onClick={() => setTab(id)} style={{ flex: 1, background: tab === id ? 'rgba(59,130,246,0.18)' : 'transparent', border: tab === id ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)', color: tab === id ? C.heading : C.muted, padding: '6px 4px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
       <Icon size={12} /> {label}
     </button>
   );
 
   return (
-    <div style={{ flex: '0 1 330px', minWidth: 250, borderLeft: '1px solid #262639', overflowY: 'auto', padding: 14, display: 'grid', gap: 14, alignContent: 'start' }}>
+    <div style={{ flex: '0 1 330px', minWidth: 250, borderLeft: '1px solid var(--ui-border2)', overflowY: 'auto', padding: 14, display: 'grid', gap: 14, alignContent: 'start' }}>
       <div style={{ display: 'flex', gap: 5 }}>
         {tabBtn('content', 'Text', Type)}
         {tabBtn('background', 'BG', Palette)}
@@ -108,13 +108,13 @@ export default function PresentationInspector({
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <div style={{ flex: 1 }}>
               <span style={LBL}>Text color</span>
-              <input type="color" value={slide.textColor || '#ffffff'} onChange={(e) => patchSlide({ textColor: e.target.value })} style={{ width: '100%', height: 30, background: '#0d1117', border: '1px solid #2d2d3f', borderRadius: 7, cursor: 'pointer' }} />
+              <input type="color" value={slide.textColor || '#ffffff'} onChange={(e) => patchSlide({ textColor: e.target.value })} style={{ width: '100%', height: 30, background: 'var(--ui-input)', border: '1px solid var(--ui-border2)', borderRadius: 7, cursor: 'pointer' }} />
             </div>
             <div style={{ flex: 2 }}>
               <span style={LBL}>Align</span>
               <div style={{ display: 'flex', gap: 4 }}>
                 {[['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight]].map(([a, Icon]) => (
-                  <button key={a} onClick={() => patchSlide({ align: a })} style={{ flex: 1, background: (slide.align || 'left') === a ? ACCENT : '#0d1117', border: '1px solid #2d2d3f', color: '#fff', borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={13} /></button>
+                  <button key={a} onClick={() => patchSlide({ align: a })} style={{ flex: 1, background: (slide.align || 'left') === a ? ACCENT : 'var(--ui-input)', border: '1px solid var(--ui-border2)', color: (slide.align || 'left') === a ? '#fff' : 'var(--ui-text)', borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={13} /></button>
                 ))}
               </div>
             </div>
@@ -136,12 +136,12 @@ export default function PresentationInspector({
         <>
           <div style={{ display: 'flex', gap: 5 }}>
             {[['color', 'Color'], ['gradient', 'Gradient'], ['image', 'Image'], ['video', 'Video']].map(([t, l]) => (
-              <button key={t} onClick={() => patchSlide({ bg: { type: t, value: t === 'color' ? '#0B0F19' : t === 'gradient' ? GRADIENT_PACK[0].css : (t === 'image' ? (imageAssets[0]?.url || '') : (videoAssets[0]?.url || '')) } })} style={{ flex: 1, background: (slide.bg?.type || 'color') === t ? ACCENT : '#0d1117', border: '1px solid #2d2d3f', color: '#fff', borderRadius: 6, padding: '5px 0', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{l}</button>
+              <button key={t} onClick={() => patchSlide({ bg: { type: t, value: t === 'color' ? '#0B0F19' : t === 'gradient' ? GRADIENT_PACK[0].css : (t === 'image' ? (imageAssets[0]?.url || '') : (videoAssets[0]?.url || '')) } })} style={{ flex: 1, background: (slide.bg?.type || 'color') === t ? ACCENT : 'var(--ui-input)', border: '1px solid var(--ui-border2)', color: (slide.bg?.type || 'color') === t ? '#fff' : 'var(--ui-text)', borderRadius: 6, padding: '5px 0', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{l}</button>
             ))}
           </div>
 
           {(slide.bg?.type === 'color' || !slide.bg?.type) && (
-            <input type="color" value={slide.bg?.value || '#0b0f19'} onChange={(e) => patchSlide({ bg: { type: 'color', value: e.target.value } })} style={{ width: '100%', height: 34, background: '#0d1117', border: '1px solid #2d2d3f', borderRadius: 7, cursor: 'pointer' }} />
+            <input type="color" value={slide.bg?.value || '#0b0f19'} onChange={(e) => patchSlide({ bg: { type: 'color', value: e.target.value } })} style={{ width: '100%', height: 34, background: 'var(--ui-input)', border: '1px solid var(--ui-border2)', borderRadius: 7, cursor: 'pointer' }} />
           )}
 
           {slide.bg?.type === 'gradient' && (
@@ -149,7 +149,7 @@ export default function PresentationInspector({
               <span style={SECTION}>Built-in pack (offline)</span>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
                 {GRADIENT_PACK.map(g => (
-                  <button key={g.id} onClick={() => patchSlide({ bg: { type: 'gradient', value: g.css } })} title={g.name} style={{ height: 44, borderRadius: 7, cursor: 'pointer', border: slide.bg?.value === g.css ? '2px solid ' + ACCENT : '1px solid #2d2d3f', backgroundImage: g.css }} />
+                  <button key={g.id} onClick={() => patchSlide({ bg: { type: 'gradient', value: g.css } })} title={g.name} style={{ height: 44, borderRadius: 7, cursor: 'pointer', border: slide.bg?.value === g.css ? '2px solid ' + ACCENT : '1px solid var(--ui-border2)', backgroundImage: g.css }} />
                 ))}
               </div>
             </div>
@@ -157,7 +157,7 @@ export default function PresentationInspector({
 
           {(slide.bg?.type === 'image' || slide.bg?.type === 'video') && (
             <>
-              <label style={{ background: '#161B22', border: '1px solid #2d2d3f', color: C.text2, padding: '7px 10px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <label style={{ background: 'var(--ui-elev2)', border: '1px solid var(--ui-border2)', color: C.text2, padding: '7px 10px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Upload size={12} /> Upload from computer
                 <input type="file" accept={slide.bg?.type === 'video' ? 'video/*' : 'image/*'} onChange={(e) => uploadImage(e, 'bg')} style={{ display: 'none' }} />
               </label>
@@ -165,7 +165,7 @@ export default function PresentationInspector({
                 <span style={SECTION}>Library</span>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
                   {(slide.bg?.type === 'video' ? videoAssets : imageAssets).map(a => (
-                    <button key={a.url} onClick={() => patchSlide({ bg: { type: a.kind, value: a.url } })} style={{ border: slide.bg?.value === a.url ? '2px solid ' + ACCENT : '1px solid #2d2d3f', borderRadius: 7, overflow: 'hidden', padding: 0, height: 50, cursor: 'pointer', background: '#000' }}>
+                    <button key={a.url} onClick={() => patchSlide({ bg: { type: a.kind, value: a.url } })} style={{ border: slide.bg?.value === a.url ? '2px solid ' + ACCENT : '1px solid var(--ui-border2)', borderRadius: 7, overflow: 'hidden', padding: 0, height: 50, cursor: 'pointer', background: '#000' }}>
                       <img src={a.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     </button>
                   ))}
@@ -182,7 +182,7 @@ export default function PresentationInspector({
 
       {tab === 'image' && (
         <>
-          <label style={{ background: '#161B22', border: '1px solid #2d2d3f', color: C.text2, padding: '7px 10px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <label style={{ background: 'var(--ui-elev2)', border: '1px solid var(--ui-border2)', color: C.text2, padding: '7px 10px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Upload size={12} /> Upload image
             <input type="file" accept="image/*" onChange={(e) => uploadImage(e, 'image')} style={{ display: 'none' }} />
           </label>
@@ -190,7 +190,7 @@ export default function PresentationInspector({
             <span style={SECTION}>Library</span>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
               {imageAssets.map(a => (
-                <button key={a.url} onClick={() => patchSlide({ image: a.url })} style={{ border: slide.image === a.url ? '2px solid ' + ACCENT : '1px solid #2d2d3f', borderRadius: 7, overflow: 'hidden', padding: 0, height: 50, cursor: 'pointer', background: '#000' }}>
+                <button key={a.url} onClick={() => patchSlide({ image: a.url })} style={{ border: slide.image === a.url ? '2px solid ' + ACCENT : '1px solid var(--ui-border2)', borderRadius: 7, overflow: 'hidden', padding: 0, height: 50, cursor: 'pointer', background: '#000' }}>
                   <img src={a.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 </button>
               ))}
@@ -210,7 +210,7 @@ export default function PresentationInspector({
         <span style={SECTION}>Layout</span>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 5 }}>
           {LAYOUTS.map(l => (
-            <button key={l.id} onClick={() => patchSlide({ layout: l.id, pos: {} })} style={{ background: slide.layout === l.id ? 'rgba(59,130,246,0.18)' : '#0d1117', border: slide.layout === l.id ? '1px solid ' + ACCENT : '1px solid #2d2d3f', color: slide.layout === l.id ? C.heading : C.muted, borderRadius: 7, padding: '7px 4px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button key={l.id} onClick={() => patchSlide({ layout: l.id, pos: {} })} style={{ background: slide.layout === l.id ? 'rgba(59,130,246,0.18)' : 'var(--ui-input)', border: slide.layout === l.id ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)', color: slide.layout === l.id ? C.heading : C.muted, borderRadius: 7, padding: '7px 4px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 13 }}>{l.icon}</span> {l.name}
             </button>
           ))}

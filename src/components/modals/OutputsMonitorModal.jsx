@@ -91,9 +91,9 @@ export default function OutputsMonitorModal({
 
   return (
     <motion.div {...modalOverlay} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }} onClick={onClose}>
-      <motion.div {...panelLg} onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: '1px solid #2d2d3f', borderRadius: 14, width: 'min(860px, 94vw)', maxHeight: 'calc(100vh - 70px)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
+      <motion.div {...panelLg} onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: 14, width: 'min(860px, 94vw)', maxHeight: 'calc(100vh - 70px)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #23233a', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--ui-border2)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Monitor size={18} color={PINK} />
             <div>
@@ -108,7 +108,7 @@ export default function OutputsMonitorModal({
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div style={{ fontSize: 10.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.4 }}>Outputs</div>
-            <motion.button {...stubTap} onClick={addOutput} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid #2d2d3f', color: C.text, padding: '6px 11px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
+            <motion.button {...stubTap} onClick={addOutput} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '6px 11px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
               <Plus size={13} /> Add Output
             </motion.button>
           </div>
@@ -122,7 +122,7 @@ export default function OutputsMonitorModal({
               const thumb = thumbs[out.id];
               const removable = out.id !== 'projector' && out.id !== 'stage';
               return (
-                <div key={out.id} style={{ background: C.elevated2, border: '1px solid #2d2d3f', borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                <div key={out.id} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                   <div style={{ position: 'relative', aspectRatio: '16 / 9', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {isOpen && thumb ? (
                       <img src={thumb} alt={`${out.name} live preview`} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
@@ -154,7 +154,7 @@ export default function OutputsMonitorModal({
                     <select
                       value={out.role}
                       onChange={(e) => updateOutput(out.id, { role: e.target.value })}
-                      style={{ width: '100%', background: C.elevated, border: '1px solid #2b2b44', borderRadius: 8, color: C.text2, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', cursor: 'pointer', outline: 'none' }}
+                      style={{ width: '100%', background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 8, color: C.text2, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', cursor: 'pointer', outline: 'none' }}
                     >
                       {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                     </select>
@@ -164,7 +164,7 @@ export default function OutputsMonitorModal({
                       <select
                         value={out.resolution || 'native'}
                         onChange={(e) => updateOutput(out.id, { resolution: e.target.value })}
-                        style={{ width: '100%', background: C.elevated, border: '1px solid #2b2b44', borderRadius: 8, color: C.text2, fontSize: 11, fontWeight: 600, padding: '5px 8px', cursor: 'pointer', outline: 'none' }}
+                        style={{ width: '100%', background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 8, color: C.text2, fontSize: 11, fontWeight: 600, padding: '5px 8px', cursor: 'pointer', outline: 'none' }}
                       >
                         {RESOLUTION_OPTIONS.map(o => o.group ? (
                           <optgroup key={o.group} label={o.group}>{o.options.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}</optgroup>
@@ -178,7 +178,7 @@ export default function OutputsMonitorModal({
                       <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>Aspect Ratio</div>
                       <div style={{ display: 'flex', gap: 3 }}>
                         {ASPECT_OPTIONS.map(a => (
-                          <motion.button key={a} {...stubTap} onClick={() => updateOutput(out.id, { aspect: a })} style={{ flex: 1, background: (out.aspect || '16:9') === a ? 'rgba(255,79,163,0.14)' : C.elevated, border: (out.aspect || '16:9') === a ? `1px solid ${PINK}` : '1px solid #2b2b44', color: (out.aspect || '16:9') === a ? PINK : C.muted, borderRadius: 6, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>{a}</motion.button>
+                          <motion.button key={a} {...stubTap} onClick={() => updateOutput(out.id, { aspect: a })} style={{ flex: 1, background: (out.aspect || '16:9') === a ? 'rgba(255,79,163,0.14)' : C.elevated, border: (out.aspect || '16:9') === a ? `1px solid ${PINK}` : '1px solid var(--ui-border2)', color: (out.aspect || '16:9') === a ? PINK : C.muted, borderRadius: 6, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>{a}</motion.button>
                         ))}
                       </div>
                     </div>
@@ -188,7 +188,7 @@ export default function OutputsMonitorModal({
                       onChange={(e) => changeDisplay(out.id, e.target.value)}
                       disabled={!hasDisplays}
                       title="Choose which display this output appears on"
-                      style={{ width: '100%', background: C.elevated, border: '1px solid #2b2b44', borderRadius: 8, color: C.text2, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', cursor: hasDisplays ? 'pointer' : 'not-allowed', outline: 'none' }}
+                      style={{ width: '100%', background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 8, color: C.text2, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', cursor: hasDisplays ? 'pointer' : 'not-allowed', outline: 'none' }}
                     >
                       <option value="">Off — no output window</option>
                       {(outputDisplays || []).map(d => (
@@ -219,7 +219,7 @@ export default function OutputsMonitorModal({
 
           <div style={{ fontSize: 10.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.4, margin: '22px 0 10px 0' }}>Connected Displays</div>
           {!hasDisplays ? (
-            <div style={{ fontSize: 12.5, color: C.faint2, padding: 14, background: C.elevated2, border: '1px dashed #2d2d3f', borderRadius: 10 }}>
+            <div style={{ fontSize: 12.5, color: C.faint2, padding: 14, background: C.elevated2, border: '1px dashed var(--ui-border2)', borderRadius: 10 }}>
               No external display detected. Connect a projector, LED processor, or second monitor.
             </div>
           ) : (
@@ -227,7 +227,7 @@ export default function OutputsMonitorModal({
               {outputDisplays.map(d => {
                 const inUse = assignedDisplayIds.includes(d.id);
                 return (
-                  <div key={d.id} style={{ background: C.elevated2, border: inUse ? `1px solid ${PINK}` : '1px solid #2d2d3f', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div key={d.id} style={{ background: C.elevated2, border: inUse ? `1px solid ${PINK}` : '1px solid var(--ui-border2)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e', flexShrink: 0 }} />
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
