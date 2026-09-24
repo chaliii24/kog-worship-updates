@@ -465,6 +465,9 @@ export default function LyricsCanvasEditor({
                   fontWeight: bold !== false ? 700 : 400,
                   fontStyle: italic ? 'italic' : 'normal',
                   textDecoration: deco,
+                  // Display-only transform so the textbox shows the same case
+                  // as the canvas preview; the stored text stays as typed.
+                  textTransform: caseMode === 'upper' ? 'uppercase' : caseMode === 'title' ? 'capitalize' : 'none',
                   letterSpacing: letterSpacing ? `${letterSpacing}px` : undefined,
                   lineHeight: lineHeight || 1.05,
                   textAlign: textAlign || 'center',
