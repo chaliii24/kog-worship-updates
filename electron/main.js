@@ -11,6 +11,7 @@ import ollama from 'ollama';
 import PptxGenJS from 'pptxgenjs';
 import dotenv from 'dotenv';
 import { parseSongBlocks, sanitizeCues } from './songParse.js';
+import { parseReference, matchBook } from './bibleResolve.js';
 import { 
   getSongs, 
   getSongDetails, 
@@ -1697,7 +1698,10 @@ ipcMain.handle('scripture-search', async (event, abbrev, query, limit = 40) => {
   return { results };
 });
 
-// Parse a direct reference like "John 3:16" or "Psalm 23" against an installed translation
+// Parse a direct reference like "John 3:16", "Psalm 23" or "1 Peter 1:5"
+// against an installed translation. Numbered books (1–3 …) parse correctly;
+// anything that is not a reference returns an error so the renderer can
+// fall back to the keyword search.
 ipcMain.handle('scripture-resolve', async (event, abbrev, reference) => {
   const bible = loadBibleTranslation(abbrev);
   if (!bible) return { error: 'Translation not installed. Download it first.' };
@@ -1705,21 +1709,15 @@ ipcMain.handle('scripture-resolve', async (event, abbrev, reference) => {
   const lang = entry && entry.source === 'beblia' ? entry.langCode : null;
   const nameOf = (b) => (lang ? localizedBookName(lang, b.nr) : b.name);
   const raw = String(reference || '').trim();
-  const m = raw.match(/^([a-zA-Z ]+?)\s*(\d+)?\s*:?\s*(\d+)?$/);
-  if (!m) return { error: 'Enter a reference like John 3:16 or Psalm 23.' };
-  const namePart = m[1].trim().toLowerCase();
-  const chapter = m[2] ? Number(m[2]) : null;
-  const verse = m[3] ? Number(m[3]) : null;
-  const book = bible.books.find(b => {
-    const names = [nameOf(b), b.name, BIBLE_BOOK_NAMES[b.nr - 1]];
-    return names.some(n => { const s = String(n || '').toLowerCase(); return s === namePart || s.startsWith(namePart); });
-  });
-  if (!book) return { error: `Book "${m[1].trim()}" not found.` };
+  const parsed = parseReference(raw);
+  if (!parsed) return { error: 'Enter a reference like John 3:16 or Psalm 23.' };
+  const book = bible.books.find(b => matchBook([nameOf(b), b.name, BIBLE_BOOK_NAMES[b.nr - 1]], parsed));
+  if (!book) return { error: `Book "${raw}" not found.` };
   return {
     bookIndex: book.nr,
     book: nameOf(book),
-    chapter: chapter || 1,
-    verse: verse || null,
+    chapter: parsed.chapter || 1,
+    verse: parsed.verse || null,
     totalChapters: (book.chapters || []).length
   };
 });

@@ -2370,12 +2370,14 @@ export default function App() {
   const resolveBibleReference = async () => {
     if (!window.require || !bibleRef.trim()) return;
     const { ipcRenderer } = window.require('electron');
-    const parts = bibleRef.trim().split(/\s+/);
-    if (/\d/.test(parts[0]) || (parts.length > 1 && !/\d/.test(parts[1]))) {
-      const res = await ipcRenderer.invoke('scripture-search', bibleTrans, bibleRef.trim());
-      setBibleSearchResults(res && res.results ? res.results : []);
-      return;
-    }
+    // Always try to parse it as a reference first — the resolver now
+    // understands numbered books ("1 peter", "2 chronicles 7") as well as
+    // "john 3:16". Anything that is not a reference (keyword phrases)
+    // falls through to the full-text search below.
+    // NOTE: the old pre-filter routed any input whose FIRST token had a
+    // digit straight to keyword search, so 1–2 Samuel / 1–3 Chronicles /
+    // 1–3 John / 1–2 Peter could never be quick-jumped to ("1 peter"
+    // searched for those literal words in verse text → no matches).
     const res = await ipcRenderer.invoke('scripture-resolve', bibleTrans, bibleRef.trim());
     if (res && res.error) {
       const sres = await ipcRenderer.invoke('scripture-search', bibleTrans, bibleRef.trim());
