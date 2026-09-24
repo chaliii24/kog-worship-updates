@@ -2827,7 +2827,6 @@ export default function App() {
         dockTab={dockTab}
         activeId={showOutputMonitor ? 'outputs' : undefined}
         onSelect={handleDockSelect}
-        onNewSong={handleNewSong}
       />
 
       {/* CUSTOM SLIDE MODAL */}

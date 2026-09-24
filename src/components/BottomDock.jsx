@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, ListVideo, Presentation, Radio, Film, Music, BookOpen, Monitor, Settings } from 'lucide-react';
+import { ListVideo, Presentation, Radio, Film, Music, BookOpen, Monitor, Settings } from 'lucide-react';
 import { motion } from 'motion/react';
 
 const ICON_MAP = {
@@ -48,7 +48,7 @@ function DockTooltip({ label, children }) {
   );
 }
 
-export default function BottomDock({ C, PINK, dockItems, dockTab, onSelect, onNewSong, activeId }) {
+export default function BottomDock({ C, PINK, dockItems, dockTab, onSelect, activeId }) {
   const currentId = activeId ?? dockTab;
   return (
     <motion.div
@@ -98,32 +98,6 @@ export default function BottomDock({ C, PINK, dockItems, dockTab, onSelect, onNe
         );
       })}
       <div style={{ flex: 1 }} />
-      <DockTooltip label="New Song">
-        <motion.button
-          whileHover={{ scale: 1.03, y: -2 }}
-          whileTap={{ scale: 0.96 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 32 }}
-          onClick={onNewSong}
-          className="dock-cta"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            background: 'rgba(59,130,246,0.08)',
-            border: '1px solid rgba(96,165,250,0.55)',
-            color: '#93C5FD',
-            borderRadius: 8,
-            padding: '7px 14px',
-            fontSize: 11.5,
-            fontWeight: 700,
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            boxShadow: '0 0 14px rgba(59,130,246,0.22)',
-          }}
-        >
-          <Plus size={14} strokeWidth={2.5} /> New Song
-        </motion.button>
-      </DockTooltip>
     </motion.div>
   );
 }
