@@ -3,8 +3,9 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Layers, Plus, Search, Star, Clock, Folder, Download, Upload, Trash2, Edit3, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, Sparkles, CheckSquare, Square, Wand2, Monitor, Calendar, ArrowUp, ArrowDown, FileText, SkipBack, SkipForward, Cpu, LayoutGrid, Link2, Save, Copy, ChevronUp, ChevronDown, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, HelpCircle, Network, Menu, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack, CornerUpLeft, MonitorPlay, Zap } from 'lucide-react';
 import logoImage from './assets/logo.png';
 import { getTheme } from './lib/theme';
-import { formatCountdown, TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, cssSpeed } from './lib/constants';
+import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, cssSpeed } from './lib/constants';
 import { emphasisLine, applyCaseTransform, renderLyricsLayout, FONT_SIZE_MAX } from './lib/lyrics';
+import { LiveBadge } from './lib/perf';
 import SplashScreen from './components/SplashScreen';
 import WelcomeScreen from './components/WelcomeScreen';
 import StageDisplay from './components/StageDisplay';
@@ -499,6 +500,8 @@ export default function App() {
     };
   }, [isOutputWindow]);
  
+  // Full refresh when the category changes or the splash clears. Services /
+  // templates / presentations don't depend on the search box at all.
   useEffect(() => {
     if (!isProjector && !showSplash && !isStage && !isOutputWindow) {
       fetchSongs();
@@ -507,7 +510,15 @@ export default function App() {
       fetchPresentations();
       fetchAppInfo();
     }
-  }, [searchQuery, activeCategory, showSplash]);
+  }, [activeCategory, showSplash]);
+
+  // Debounced search: ONE IPC + SQLite round-trip after typing pauses instead
+  // of one per keystroke (previously 5 IPC calls fired on every key press).
+  useEffect(() => {
+    if (isProjector || showSplash || isStage || isOutputWindow) return;
+    const t = setTimeout(fetchSongs, 180);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
   useEffect(() => {
     try { localStorage.setItem('scriptureBgLibrary', JSON.stringify(scriptureBgLibrary.filter(p => !p.builtin))); } catch {}
@@ -1000,14 +1011,10 @@ export default function App() {
     }
   };
 
-  // Ticking clock for the per-slide live timer chip
-  useEffect(() => {
-    if (!slideTimer.start) return;
-    const id = setInterval(() => {
-      setSlideTimer(prev => prev.start ? { ...prev, elapsed: Math.floor((Date.now() - prev.start) / 1000) } : prev);
-    }, 500);
-    return () => clearInterval(id);
-  }, [slideTimer.start]);
+  // NOTE: the live-timer clock no longer ticks App state. A 500ms interval
+  // here used to re-render this entire component while any slide was live.
+  // The clock now ticks inside the tiny display components (LiveBadge /
+  // TimerReadout in src/lib/perf.jsx) so only a <span> updates per tick.
 
   const fireCueLive = (cue) => {
     liveBibleRef.current = null;
@@ -2015,11 +2022,7 @@ export default function App() {
         )}
         {mediaLayer && <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: 'rgba(0,0,0,0.18)' }} />}
         <div style={{ position: 'absolute', top: 6, left: 8, display: 'flex', alignItems: 'center', gap: 6, zIndex: 2 }}>
-          {isLive && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: PINK, color: C.text, borderRadius: '999px', padding: '1px 8px', fontSize: '9px', fontWeight: '800', letterSpacing: '0.5px' }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.text }} />{slideTimer.start ? formatCountdown(slideTimer.elapsed) : 'LIVE'}
-            </span>
-          )}
+          {isLive && <LiveBadge start={slideTimer.start} C={C} PINK={PINK} />}
         </div>
         <div style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, background: 'rgba(0,0,0,0.45)', color: isLive ? PINK : C.heading, borderRadius: 6, padding: '1px 6px', fontSize: 9, fontWeight: 800 }}>
           {isTitle ? '♬' : `#${tile.num}`}

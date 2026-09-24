@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { Square, SkipBack, SkipForward, Image as ImageIcon, Video, Zap } from 'lucide-react';
 import { motion } from 'motion/react';
-import { formatCountdown } from '../lib/constants';
+import { TimerReadout } from '../lib/perf';
 import { stubTap, iconBtnTap } from '../lib/anim';
 
 export default function LiveOutputPanel({
@@ -177,9 +177,7 @@ export default function LiveOutputPanel({
             <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Slide Timer</div>
             <div style={{ background: C.elevated, border: '1px solid #2b2b44', borderRadius: 10, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 11, color: C.muted }}>{slideTimer.start ? 'Running' : 'Idle'}</span>
-              <span style={{ fontSize: 20, fontWeight: 800, fontFamily: 'monospace', color: slideTimer.duration > 0 && slideTimer.elapsed > slideTimer.duration ? '#ef4444' : (slideTimer.start ? PINK : C.faint) }}>
-                {formatCountdown(slideTimer.elapsed)}{slideTimer.duration > 0 ? ` / ${formatCountdown(slideTimer.duration)}` : ''}
-              </span>
+              <TimerReadout start={slideTimer.start} duration={slideTimer.duration} C={C} PINK={PINK} />
             </div>
             <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginTop: 4 }}>Current Output Media</div>
             <div style={{ background: C.elevated, border: '1px solid #2b2b44', borderRadius: 10, padding: '10px 12px', fontSize: 12, color: C.text2 }}>
