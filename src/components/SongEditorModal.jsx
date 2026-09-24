@@ -131,6 +131,7 @@ export default function SongEditorModal() {
     updateCue,
     updateCueThrottled,
     applyFontToAllCues,
+    applyPatchToAllCues,
     baseGroupLabel,
     splitCueAtTextareaCaret,
     applyAlignToAll,
@@ -391,6 +392,7 @@ export default function SongEditorModal() {
                   <button key={m} onClick={() => updateCue(editorCueIdx, { case: m })} style={{ flex: 1, background: (editorCue?.case || 'none') === m ? ACCENT : C.elevated2, border: '1px solid #2d2d3f', color: (editorCue?.case || 'none') === m ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{m === 'title' ? 'Tt' : lbl}</button>
                 ))}
               </div>
+              <button onClick={() => applyPatchToAllCues({ case: editorCue?.case || 'none' })} title="Set this letter case on every slide of the song" style={{ width: '100%', marginTop: 6, background: C.elevated2, border: '1px dashed #2d2d3f', color: C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>Apply case to all slides</button>
             </div>
 
             {/* TEXT STYLE */}
@@ -467,6 +469,7 @@ export default function SongEditorModal() {
                   <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.hlOpacity ?? 40}%</span>
                 </div>
               )}
+              <button onClick={() => applyPatchToAllCues({ color: editorCue?.color || '#ffffff', shadow: !!editorCue?.shadow, shadowColor: editorCue?.shadowColor || '#000000', shadowBlur: editorCue?.shadowBlur ?? 14, shadowOffsetX: editorCue?.shadowOffsetX ?? 0, shadowOffsetY: editorCue?.shadowOffsetY ?? 4, outline: !!editorCue?.outline, strokeColor: editorCue?.strokeColor || '#000000', strokeWidth: editorCue?.strokeWidth ?? 1.5, gradient: !!editorCue?.gradient, gradientColor1: editorCue?.gradientColor1 || '#f5f5f4', gradientColor2: editorCue?.gradientColor2 || '#93c5fd', gradientAngle: editorCue?.gradientAngle ?? 180, highlight: !!editorCue?.highlight, hlOpacity: editorCue?.hlOpacity ?? 40 })} title="Copy this slide's color, shadow, outline, gradient and highlight settings to every slide" style={{ width: '100%', marginTop: 6, background: C.elevated2, border: '1px dashed #2d2d3f', color: C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>Apply style to all slides</button>
             </div>
 
             {/* TRANSITIONS */}

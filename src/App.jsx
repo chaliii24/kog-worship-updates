@@ -1734,14 +1734,19 @@ export default function App() {
     q.timer = setTimeout(() => { q.timer = null; if (q.idx != null) updateCue(q.idx, q.patch); }, 120);
   };
 
-  // One click: apply the current font to every slide (title slide included).
-  const applyFontToAllCues = (font) => {
-    if (!font) return;
+  // One click: merge a patch into every slide (title slide included).
+  const applyPatchToAllCues = (patch) => {
+    if (!patch) return;
     setEditingSong(prev => ({
       ...prev,
-      title_cue: { ...(prev.title_cue || { ...defaultTitleCue, text: prev.title || defaultTitleCue.text }), font },
-      cues: (prev.cues || []).map(c => ({ ...c, font })),
+      title_cue: { ...(prev.title_cue || { ...defaultTitleCue, text: prev.title || defaultTitleCue.text }), ...patch },
+      cues: (prev.cues || []).map(c => ({ ...c, ...patch })),
     }));
+  };
+
+  // One click: apply the current font to every slide (title slide included).
+  const applyFontToAllCues = (font) => {
+    if (font) applyPatchToAllCues({ font });
   };
 
   const baseGroupLabel = (label = '') => label.replace(/\s*\(Part\s+\d+\)\s*$/i, '').replace(/[a-z]$/i, '') || 'Slides';
@@ -2739,7 +2744,7 @@ export default function App() {
     openPresentationEditor, closePresentationEditor, openPresentation, savePresentationDeck, deletePresentationDeck,
     presentDeck, firePresentationSlide, addPresentationToService, activePresentation, stopPresentation,
     processAutoPaste, fetchSongFromUrl, moveCue, duplicateCue, setCueBackground, cueFileToBackground, setSongBackground,
-    songBgFileToBackground, clearCueBackground, splitCuesToLines, clampNum, editorCue, editorBox, updateCue, updateCueThrottled, applyFontToAllCues,
+    songBgFileToBackground, clearCueBackground, splitCuesToLines, clampNum, editorCue, editorBox, updateCue, updateCueThrottled, applyFontToAllCues, applyPatchToAllCues,
     baseGroupLabel, nextSuffixLetter, splitCueAtTextareaCaret, applyAlignToAll, applyAnimToAll, reorderCues,
     startBoxDrag, onStagePointerMove, endBoxDrag, ToolbarBtn, fitStageFont, cueLyricStyle, handleSaveSong,
     previewAnimation,
