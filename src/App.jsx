@@ -235,6 +235,7 @@ export default function App() {
   const [serviceAddMenu, setServiceAddMenu] = useState(null); // null | 'song' | 'media' | 'local'
   const [serviceTargetTitle, setServiceTargetTitle] = useState(null); // section header title that Add* inserts into
   const [serviceSongQuery, setServiceSongQuery] = useState('');
+  const [serviceMediaPicker, setServiceMediaPicker] = useState(false); // browse media already in the app instead of re-uploading
   const canvasWrapRef = useRef(null);
   const editAreaRef = useRef(null);
   const [outputAspectState, setOutputAspectState] = useState(() => { try { return localStorage.getItem('kog_output_aspect') || '16:9'; } catch { return '16:9'; } });
@@ -1425,6 +1426,19 @@ export default function App() {
     insertServiceItem(newItem);
     if (e.target) e.target.value = '';
     setServiceAddMenu(null);
+  };
+  // Add an image/video that is ALREADY in the app's media library to the
+  // service order — no file dialog, no duplicate copy on disk.
+  const addExistingMediaToService = (asset) => {
+    if (!asset || (asset.kind !== 'image' && asset.kind !== 'video')) return;
+    let title = asset.name || '';
+    if (!title) {
+      try { title = decodeURIComponent(String(asset.url).split('/').pop().split('?')[0]).replace(/\.[^.]+$/, ''); } catch (_) { title = ''; }
+    }
+    const newItem = { item_type: 'media', title: title || 'Media', subtitle: asset.kind === 'video' ? 'Video' : 'Image', content: '', media_type: asset.kind, media_url: asset.url };
+    insertServiceItem(newItem);
+    setServiceAddMenu(null);
+    setServiceMediaPicker(false);
   };
   const fireServiceMediaLive = (item) => {
     if (!item || item.item_type !== 'media') return;
@@ -2680,6 +2694,7 @@ export default function App() {
     editorCueIdx, setEditorCueIdx, canvasEdit, setCanvasEdit, boxDrag, setBoxDrag, canvasScale, setCanvasScale,
     dragFrom, setDragFrom, showSlideProps, setShowSlideProps, serviceCollapsed, setServiceCollapsed,
     serviceAddMenu, setServiceAddMenu, serviceSongQuery, setServiceSongQuery, serviceTargetTitle, setServiceTargetTitle, serviceSectionTitles,
+    serviceMediaPicker, setServiceMediaPicker,
     previewScale, setPreviewScale, outputAspect, setOutputAspect, selectedAiModel, setSelectedAiModel, aiStatus, setAiStatus,
     stageStyle, setStageStyle, displays, setDisplays, targetedDisplays, setTargetedDisplays,
     outputDisplays, outputs, updateOutput, addOutput, removeOutput, setOutputRunning, selectOutputDisplay, selectStageDisplay, showOutputMonitor, setShowOutputMonitor,
@@ -2696,7 +2711,7 @@ export default function App() {
     toggleDevProjectorWindow, toggleStageWindow, addSongToService, addHeaderToService, renameServiceHeader, addCustomSlideToService,
     reorderServiceItem, moveServiceBlock, moveServiceItem, removeServiceItem, serviceOrderCount, serviceSlideCount,
     serviceStatusIcon, serviceItemIsLive, toggleServiceCollapse, expandAllServiceSections, collapseAllServiceSections,
-    clearServiceOrder, addMediaItemToService, fireServiceMediaLive, stopServiceItemLive, saveCurrentService, loadService, queueShowIntoService,
+    clearServiceOrder, addMediaItemToService, addExistingMediaToService, fireServiceMediaLive, stopServiceItemLive, saveCurrentService, loadService, queueShowIntoService,
     presentations, setPresentations, fetchPresentations, isPresentationOpen, editingDeck, setEditingDeck,
     openPresentationEditor, closePresentationEditor, openPresentation, savePresentationDeck, deletePresentationDeck,
     presentDeck, firePresentationSlide, addPresentationToService, activePresentation, stopPresentation,

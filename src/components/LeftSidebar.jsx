@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, PanelLeftClose, Music, MonitorPlay, Pencil } from 'lucide-react';
+import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, Images, PanelLeftClose, Music, MonitorPlay, Pencil } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap, iconBtnTap } from '../lib/anim';
@@ -92,6 +92,10 @@ export default function LeftSidebar() {
     setActiveService,
     serviceCollapsed,
     addMediaItemToService,
+    addExistingMediaToService,
+    serviceMediaPicker,
+    setServiceMediaPicker,
+    fetchMediaLibrary,
     presentations,
     openPresentationEditor,
     openPresentation,
@@ -208,7 +212,7 @@ export default function LeftSidebar() {
                   </select>
                 </div>
                 <button onClick={() => setServiceAddMenu(serviceAddMenu === 'song' ? null : 'song')} title="Add Song" style={{ background: serviceAddMenu === 'song' ? 'rgba(37,99,235,0.18)' : 'rgba(255,255,255,0.04)', border: serviceAddMenu === 'song' ? '1px solid #3B82F6' : '1px solid var(--ui-border)', color: serviceAddMenu === 'song' ? '#93C5FD' : 'var(--ui-text2)', padding: '4px 9px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Music size={12} /> Add Song</button>
-                <button onClick={() => setServiceAddMenu(serviceAddMenu === 'media' ? null : 'media')} title="Add Media" style={{ background: serviceAddMenu === 'media' ? 'rgba(37,99,235,0.18)' : 'rgba(255,255,255,0.04)', border: serviceAddMenu === 'media' ? '1px solid #3B82F6' : '1px solid var(--ui-border)', color: serviceAddMenu === 'media' ? '#93C5FD' : 'var(--ui-text2)', padding: '4px 9px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><ImageIcon size={12} /> Add Media</button>
+                <button onClick={() => { const open = serviceAddMenu !== 'media'; setServiceAddMenu(open ? 'media' : null); if (open) fetchMediaLibrary(); }} title="Add Media" style={{ background: serviceAddMenu === 'media' ? 'rgba(37,99,235,0.18)' : 'rgba(255,255,255,0.04)', border: serviceAddMenu === 'media' ? '1px solid #3B82F6' : '1px solid var(--ui-border)', color: serviceAddMenu === 'media' ? '#93C5FD' : 'var(--ui-text2)', padding: '4px 9px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><ImageIcon size={12} /> Add Media</button>
                 <button onClick={() => { const el = document.getElementById('service-media-input'); if (el) el.click(); }} title="Local Media" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '4px 9px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Folder size={12} /> Local Media</button>
               </div>
               <input type="file" id="service-media-input" accept="image/*,video/*" style={{ display: 'none' }} onChange={addMediaItemToService} />
@@ -227,13 +231,36 @@ export default function LeftSidebar() {
               {serviceAddMenu === 'media' && (
                 <div style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 4 }}>
                   <div style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 1 }}>Add Media</div>
+                  <button onClick={() => { const open = !serviceMediaPicker; setServiceMediaPicker(open); if (open) fetchMediaLibrary(); }} title="Choose an image or video that is already in the app — nothing is re-uploaded" style={{ textAlign: 'left', background: serviceMediaPicker ? 'rgba(37,99,235,0.14)' : 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 700 }}><Images size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Existing Media</span>
+                    <span style={{ fontSize: 10, color: serviceMediaPicker ? '#93C5FD' : 'var(--ui-faint)' }}>{serviceMediaPicker ? 'Hide' : `${mediaLibrary.filter(a => a.kind === 'image' || a.kind === 'video').length} in app`}</span>
+                  </button>
+                  {serviceMediaPicker && (mediaLibrary.filter(a => a.kind === 'image' || a.kind === 'video').length === 0 ? (
+                    <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', border: '1px dashed var(--ui-border)', borderRadius: 7, padding: '8px', textAlign: 'center', lineHeight: 1.5 }}>
+                      No images/videos in the app yet — use Image or Video below to upload one.
+                    </div>
+                  ) : (
+                    <div style={{ maxHeight: 170, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 5, padding: 2 }}>
+                      {mediaLibrary.filter(a => a.kind === 'image' || a.kind === 'video').map((asset, i) => {
+                        const label = asset.name || (() => { try { return decodeURIComponent(asset.url.split('/').pop().split('?')[0]); } catch (_) { return 'Media'; } })();
+                        return (
+                          <button key={asset.url + i} onClick={() => addExistingMediaToService(asset)} title={`Add "${label}" to the service order — already in the app, no upload`} style={{ position: 'relative', padding: 0, height: 46, borderRadius: 7, overflow: 'hidden', border: '1px solid var(--ui-border)', background: '#000', cursor: 'pointer' }}>
+                            {asset.kind === 'image'
+                              ? <img src={asset.url} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                              : <video src={asset.url} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                            <span style={{ position: 'absolute', right: 3, bottom: 3, display: 'flex', alignItems: 'center', gap: 2, background: 'rgba(0,0,0,0.72)', borderRadius: 3, padding: '1px 3px', color: '#fff' }}>{asset.kind === 'video' ? <Video size={8} /> : <ImageIcon size={8} />}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
                   <button onClick={() => { const el = document.getElementById('service-media-input'); if (el) el.click(); }} style={{ textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontWeight: 700 }}><ImageIcon size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Image</span>
-                    <span style={{ fontSize: 10, color: 'var(--ui-faint)' }}>+ Add</span>
+                    <span style={{ fontSize: 10, color: 'var(--ui-faint)' }}>+ Upload</span>
                   </button>
                   <button onClick={() => { const el = document.getElementById('service-media-input'); if (el) el.click(); }} style={{ textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontWeight: 700 }}><Video size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Video / Loop</span>
-                    <span style={{ fontSize: 10, color: 'var(--ui-faint)' }}>+ Add</span>
+                    <span style={{ fontSize: 10, color: 'var(--ui-faint)' }}>+ Upload</span>
                   </button>
                   <button onClick={() => { setCustomSlideModal(true); setServiceAddMenu(null); }} style={{ textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontWeight: 700 }}><FileText size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Announcement</span>
