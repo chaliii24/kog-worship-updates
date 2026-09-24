@@ -26,6 +26,8 @@ export const PRESENTATION_LAYOUTS = [
 ];
 
 export const PRESENTATION_FONTS = [
+  { label: 'CMG Sans', value: "'CMG Sans', system-ui, sans-serif" },
+  { label: 'CMG Sans Condensed', value: "'CMG Sans Condensed', 'CMG Sans', sans-serif" },
   { label: 'Poppins', value: "'Poppins', system-ui, sans-serif" },
   { label: 'Montserrat', value: "'Montserrat', system-ui, sans-serif" },
   { label: 'Barlow', value: "'Barlow', system-ui, sans-serif" },

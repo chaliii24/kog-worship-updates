@@ -92,7 +92,9 @@ export const FALLBACK_SYSTEM_FONTS = [
 ];
 
 export const FONT_OPTIONS = [
-  { label: 'Geist Sans (Default)', value: '"Geist Variable", "Geist", system-ui, sans-serif' },
+  { label: 'CMG Sans (Default)', value: '"CMG Sans", system-ui, sans-serif' },
+  { label: 'CMG Sans Condensed', value: '"CMG Sans Condensed", "CMG Sans", sans-serif' },
+  { label: 'Geist Sans', value: '"Geist Variable", "Geist", system-ui, sans-serif' },
   { label: 'Montserrat (Modern)', value: '"Montserrat", system-ui, sans-serif' },
   { label: 'Poppins (Modern)', value: '"Poppins", system-ui, sans-serif' },
   { label: 'Plus Jakarta Sans', value: '"Plus Jakarta Sans", system-ui, sans-serif' },

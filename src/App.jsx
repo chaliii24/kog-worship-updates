@@ -1705,7 +1705,9 @@ export default function App() {
   const editorBox = editorCue?.box || DEFAULT_BOX;
 
   const updateCue = (idx, patch) => {
-    if (idx == null) return;
+    if (idx == null) { console.warn('[KOG] updateCue DROPPED — no cue index:', patch && Object.keys(patch)); return; }
+    // TEMP diagnostic for the font-apply bug: remove after it's confirmed fixed.
+    if (patch && 'font' in patch) console.log(`[KOG] font write → cue ${idx}:`, patch.font);
     if (idx === -1) {
       setEditingSong(prev => {
         const cur = prev.title_cue || { ...defaultTitleCue, text: prev.title || defaultTitleCue.text };
@@ -2733,7 +2735,7 @@ export default function App() {
 
   return (
     <AppProvider value={appValue}>
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: C.bg, color: C.text, fontFamily: 'system-ui, sans-serif', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: C.bg, color: C.text, fontFamily: 'var(--font-sans)', overflow: 'hidden' }}>
       
       <style>{`
         ::-webkit-scrollbar { width: 6px; height: 6px; }

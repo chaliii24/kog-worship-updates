@@ -16,8 +16,18 @@
 @import '@fontsource/nunito-sans/latin-600.css';
 @import '@fontsource/nunito-sans/latin-700.css';
 
+/* ---- CMG Sans — primary app + lyrics typeface (CMG Sans pack, OFL/Apache) ---- */
+@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-Italic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-Medium.ttf') format('truetype'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-SemiBold.ttf') format('truetype'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-BoldItalic.ttf') format('truetype'); font-weight: 700; font-style: italic; font-display: swap; }
+@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSans-RegularCn.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSans-BoldCn.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+
 :root {
-  --font-sans: 'Geist Variable', 'Geist', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-sans: 'CMG Sans', 'Geist Variable', 'Geist', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
 *,
