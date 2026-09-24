@@ -5,6 +5,7 @@ import logoImage from './assets/logo.png';
 import { getTheme } from './lib/theme';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, cssSpeed } from './lib/constants';
 import { emphasisLine, applyCaseTransform, renderLyricsLayout, FONT_SIZE_MAX } from './lib/lyrics';
+import { parseSongBlocks, splitCuesByLines } from '../electron/songParse.js';
 import { LiveBadge, TileVideo } from './lib/perf';
 import SplashScreen from './components/SplashScreen';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -1500,140 +1501,59 @@ export default function App() {
   };
 
   // --- HYBRID AI / FALLBACK SMART AUTO-PASTE PARSER ---
+  // Works for chord charts AND plain lyrics — with or without section
+  // markers. The AI gets first shot; whatever comes back (AI, IPC failsafe
+  // or the local fallback) is normalised and split to linesPerSlide through
+  // the shared parser in electron/songParse.js, so a lyrics-site paste with
+  // no [Verse]/Chorus labels still builds real blocks.
   const processAutoPaste = async (textOverride) => {
     const text = (typeof textOverride === 'string') ? textOverride : rawPasteText;
-    console.log("1. Executing processAutoPaste with text length:", text.length);
     if (!text || !text.trim()) {
-      await appAlert("Please paste a chord chart or lyrics first!");
+      await appAlert("Please paste lyrics or a chord chart first!");
       return;
     }
 
     if (selectedAiModel === 'ollama' && text.length > 5000) {
-      await appAlert("Text is too long for local Ollama! Please trim your text or switch to Gemini 1.5 Flash.");
+      await appAlert("Text is too long for local Ollama! Please trim your text or switch to Gemini 3.6 Flash.");
       return;
     }
 
     setIsParsing(true);
     try {
+      let cues = null;
       try {
         if (window.require) {
           const { ipcRenderer } = window.require('electron');
-          console.log("2. Invoking IPC 'ai-parse-chord-chart' with model:", selectedAiModel);
-
-          const result = await ipcRenderer.invoke('ai-parse-chord-chart', { text, model: selectedAiModel });
-          console.log("3. IPC result received:", result);
-
-          // Ensures array exists AND is not empty before applying
+          const result = await ipcRenderer.invoke('ai-parse-chord-chart', { text, model: selectedAiModel, linesPerSlide });
           if (result && Array.isArray(result.cues) && result.cues.length > 0) {
-            setEditingSong(prev => ({ ...prev, cues: result.cues }));
+            cues = splitCuesByLines(result.cues, linesPerSlide);
             setAiStatus(result.modelUsed);
-            return result.cues;
           }
         }
       } catch (err) {
-        console.log('AI Parser IPC failed, falling back to local regex parser...', err);
+        console.log('AI Parser IPC failed, falling back to the local parser...', err);
       }
 
-    // Fallback Local Regex Parser
-    console.log("4. AI returned 0 blocks or failed. Running client-side regex fallback...");
-    const lines = text.split('\n');
-    let rawParsedCues = [];
-    let currentLabel = 'Verse 1';
-    let currentTextLines = [];
-    
-    const chordRegex = /^[A-G][#b]?(?:m|min|maj|dim|aug|sus)?[0-9]*(?:\/[A-G][#b]?)?$/i;
-
-    const isChordOnlyLine = (line) => {
-      const trimmed = line.trim();
-      if (!trimmed) return false;
-      const tokens = trimmed.replace(/[|/\-_]/g, ' ').split(/\s+/).filter(Boolean);
-      if (tokens.length === 0) return true;
-      const chordCount = tokens.filter(token => chordRegex.test(token)).length;
-      return (chordCount / tokens.length) >= 0.5;
-    };
-
-    const flushCurrentSection = () => {
-      if (currentTextLines.length > 0) {
-        while (currentTextLines.length > 0 && currentTextLines[0].trim() === '') currentTextLines.shift();
-        while (currentTextLines.length > 0 && currentTextLines[currentTextLines.length - 1].trim() === '') currentTextLines.pop();
-        if (currentTextLines.length > 0) {
-          rawParsedCues.push({ label: currentLabel, text: currentTextLines.join('\n') });
-        }
-        currentTextLines = [];
+      // No AI/IPC result? Build the blocks locally — same parser the main
+      // process uses, so pure lyrics behave identically offline.
+      if (!cues || cues.length === 0) {
+        cues = splitCuesByLines(parseSongBlocks(text, linesPerSlide), linesPerSlide);
+        setAiStatus('Local Parser (Offline)');
       }
-    };
+      if (cues.length === 0) cues = [{ label: 'Verse 1', text }];
 
-    for (let rawLine of lines) {
-      let line = rawLine.trim();
-      
-      const normalizedHeaderCheck = line.replace(/[\[\]:]/g, '').trim();
-      if (/^(verse|chorus|bridge|intro|outro|pre-chorus|interlude|ending)\s*\d*$/i.test(normalizedHeaderCheck)) {
-        flushCurrentSection();
-        currentLabel = normalizedHeaderCheck.charAt(0).toUpperCase() + normalizedHeaderCheck.slice(1).toLowerCase();
-        continue;
-      }
-      
-      if ((line.startsWith('[') && line.endsWith(']')) || (line.endsWith(':') && line.length < 25)) {
-        flushCurrentSection();
-        currentLabel = line.replace(/[\[\]:]/g, '').trim();
-        currentLabel = currentLabel.charAt(0).toUpperCase() + currentLabel.slice(1).toLowerCase();
-        if (currentLabel === '') currentLabel = 'Verse';
-        continue;
-      }
-
-      if (isChordOnlyLine(rawLine)) continue;
-
-      if (/^[a-g]?[\|*]?[\s\-0-9\|]{4,}$/.test(line)) continue;
-
-      let cleanLine = rawLine
-        .replace(/\|/g, '')
-        .replace(/\[[A-G][#b]?(?:m|min|maj|dim|aug|sus)?[0-9]*(?:\/[A-G][#b]?)?\]/gi, '')
-        .replace(/\([A-G][#b]?(?:m|min|maj|dim|aug|sus)?[0-9]*(?:\/[A-G][#b]?)?\)/gi, '');
-
-      const words = cleanLine.split(/\s+/);
-      const filteredWords = words.filter(word => !chordRegex.test(word));
-      
-      if (filteredWords.length > 0 && words.length - filteredWords.length > 3) {
-        continue;
-      }
-
-      let finalCleanLine = filteredWords.join(' ').trim();
-      if (finalCleanLine !== '') {
-        currentTextLines.push(finalCleanLine);
-      }
-    }
-    flushCurrentSection();
-
-    if (rawParsedCues.length === 0) {
-      rawParsedCues.push({ label: 'Verse 1', text });
-    }
-
-    let finalParsedCues = [];
-    const splitN = Math.max(1, Math.floor(Number(linesPerSlide) || 4));
-    rawParsedCues.forEach(cue => {
-      const cueLines = (cue.text || '').split('\n').filter(l => l.trim() !== '');
-      if (cueLines.length === 0 || cueLines.length <= splitN) {
-        finalParsedCues.push(cue);
-        return;
-      }
-      for (let i = 0; i < cueLines.length; i += splitN) {
-        const part = Math.floor(i / splitN) + 1;
-        finalParsedCues.push({ label: `${cue.label} (Part ${part})`, text: cueLines.slice(i, i + splitN).join('\n') });
-      }
-    });
-
-    setEditingSong(prev => ({ ...prev, cues: finalParsedCues }));
-    setAiStatus('Local Regex Fallback (Offline)');
-    return finalParsedCues;
+      setEditingSong(prev => ({ ...prev, cues }));
+      return cues;
     } finally {
       setIsParsing(false);
     }
   };
+
   // ----------------------------------------------------
 
   // --- WEB SONG IMPORT: fetch chord chart/lyrics from a URL then parse ---
   const fetchSongFromUrl = async () => {
-    if (!importUrl.trim()) { await appAlert('Paste a chord chart or lyrics URL first.'); return; }
+    if (!importUrl.trim()) { await appAlert('Paste a song URL first — lyric sites and chord charts both work.'); return; }
     setImportUrlStatus('Fetching page…');
     setIsFetching(true);
     try {

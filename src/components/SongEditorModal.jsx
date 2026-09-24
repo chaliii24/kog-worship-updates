@@ -217,7 +217,7 @@ export default function SongEditorModal() {
           <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.9, ease: 'linear' }} style={{ width: 52, height: 52, borderRadius: '50%', border: '3px solid rgba(59,130,246,0.22)', borderTopColor: ACCENT, boxSizing: 'border-box' }} />
           <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>{isParsing ? 'Parsing lyrics & building blocks…' : 'Fetching & preparing page…'}</div>
           <div style={{ fontSize: 12, color: C.faint, maxWidth: 440, textAlign: 'center', lineHeight: 1.55 }}>
-            {isParsing ? 'Stripping chords and splitting your song into slides. This can take a few seconds.' : 'Downloading the page, then extracting the lyrics and sections.'}
+            {isParsing ? 'Detecting sections and splitting your song into slides. This can take a few seconds.' : 'Downloading the page, then extracting the lyrics and sections.'}
           </div>
         </motion.div>
       )}
@@ -230,7 +230,7 @@ export default function SongEditorModal() {
         <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 10, flexWrap: 'wrap' }}>
             <label style={{ fontSize: 13, fontWeight: 700, color: C.accLine, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Wand2 size={14} /> Paste Ultimate Guitar / Chord Chart
+              <Wand2 size={14} /> Paste lyrics or a chord chart
             </label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.input, border: '1px solid var(--ui-border2)', padding: '4px 8px', borderRadius: 8 }}>
@@ -246,16 +246,16 @@ export default function SongEditorModal() {
               )}
             </div>
           </div>
-          <p style={{ fontSize: 12, color: C.faint, margin: '0 0 12px 0' }}>Smart Paste strips chords, Google Docs styling and web formatting, then maps song sections automatically using your chosen engine.</p>
+          <p style={{ fontSize: 12, color: C.faint, margin: '0 0 12px 0' }}>Plain lyrics or chord charts both work: chords are stripped only when the text is a chart, Google Docs and web formatting get cleaned up, and sections map into blocks using your chosen engine. Lyrics with no labels split into Verse/Chorus blocks automatically.</p>
           <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'center' }}>
             <Link2 size={13} color={C.accLine} />
-            <input type="text" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} placeholder="Paste chord chart URL (Ultimate Guitar, etc.)…" style={{ flex: 1, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '8px 10px', color: C.text, fontSize: 12, outline: 'none' }} />
+            <input type="text" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} placeholder="Paste any song link — Ultimate Guitar, Genius, AZLyrics…" style={{ flex: 1, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '8px 10px', color: C.text, fontSize: 12, outline: 'none' }} />
             <button onClick={fetchSongFromUrl} disabled={isParsing || isFetching} style={{ background: C.input, border: '1px solid ' + ACCENT, color: C.accLine, padding: '8px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: (isParsing || isFetching) ? 'wait' : 'pointer', whiteSpace: 'nowrap', opacity: (isParsing || isFetching) ? 0.6 : 1 }}>{isFetching && !isParsing ? 'Fetching…' : 'Fetch & Parse'}</button>
           </div>
           {importUrlStatus && (
             <div style={{ fontSize: 11, color: importUrlStatus.includes('✓') ? '#4ade80' : importUrlStatus.includes('failed') || importUrlStatus.includes('Invalid') || importUrlStatus.includes('Could') ? '#ef4444' : '#60a5fa', margin: '0 0 10px 0', fontWeight: 600, whiteSpace: 'pre-wrap' }}>{importUrlStatus}</div>
           )}
-          <textarea rows={10} value={rawPasteText} onChange={(e) => setRawPasteText(e.target.value)} placeholder="[Verse 1]&#10;C#m     A     E&#10;You are here..." style={{ width: '100%', background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: 12, color: C.text, fontSize: 13, fontFamily: 'monospace', outline: 'none', resize: 'vertical' }} />
+          <textarea rows={10} value={rawPasteText} onChange={(e) => setRawPasteText(e.target.value)} placeholder="[Verse 1] or plain lyrics&#10;Paste chords (auto-stripped) or copy/paste from a lyrics site — sections are detected for you." style={{ width: '100%', background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: 12, color: C.text, fontSize: 13, fontFamily: 'monospace', outline: 'none', resize: 'vertical' }} />
           <button onClick={() => processAutoPaste()} disabled={isParsing || isFetching} style={{ marginTop: 12, background: ACCENT, border: 'none', color: C.text, padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: (isParsing || isFetching) ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: (isParsing || isFetching) ? 0.6 : 1 }}><Wand2 size={14} /> {isParsing ? 'Parsing…' : 'Parse & Build Blocks'}</button>
           {editingSong.cues && editingSong.cues.length > 0 && (
             <div style={{ marginTop: 16, borderTop: '1px solid var(--ui-border2)', paddingTop: 16 }}>

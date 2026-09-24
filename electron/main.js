@@ -10,6 +10,7 @@ import { GoogleGenAI } from '@google/genai';
 import ollama from 'ollama';
 import PptxGenJS from 'pptxgenjs';
 import dotenv from 'dotenv';
+import { parseSongBlocks, sanitizeCues } from './songParse.js';
 import { 
   getSongs, 
   getSongDetails, 
@@ -578,17 +579,17 @@ ipcMain.on('monitor-stop', () => {
 });
 
 // --- HYBRID AI PARSER HANDLER (GEMINI / OLLAMA / REGEX FAILSAFE) ---
-const promptInstruction = `You are an expert worship presentation software assistant. Parse the following raw song text/chord chart. 
-1. Completely strip out all guitar chords (e.g., C#m, A, E, D/F#) and structural tab markers.
-2. Keep only the clean lyrics.
-3. Organize them into logical sections (e.g., Verse 1, Chorus, Bridge, etc.).
-4. Return ONLY a valid JSON array of objects, where each object has a "label" (string) and "text" (string of lyrics). Do not include markdown formatting blocks like \`\`\`json, just the raw JSON string.
-5. NEVER invent, guess, translate, paraphrase, or rewrite lyrics. Use ONLY words that appear in the provided text.
-6. If the provided text does not contain actual song lyrics (for example it is website navigation, menus, comments, ads, or unrelated content), return exactly [].`;
+const promptInstruction = `You are an expert worship presentation software assistant. Parse the raw song text below — it may be plain lyrics (no chords) or a guitar chord chart.
+1. If it is a chord chart, completely strip out all guitar chords (e.g., C#m, A, E, D/F#), capo/transpose markers and structural tab markers, keeping only the clean lyrics. If it is plain lyrics with no chords, keep every word exactly as written — do NOT remove words that merely look like chords (such as "A" or "am").
+2. Organize the lyrics into logical sections (Verse 1, Chorus, Bridge, etc.). Use explicit markers such as [Verse 1], "Chorus:" or (Bridge) when the text has them. If the text has NO section markers, split it by blank-line stanzas and label them "Verse 1", "Verse 2", … in order of first appearance; when the same stanza repeats (the chorus), label EVERY occurrence of that repeated stanza "Chorus".
+3. Return ONLY a valid JSON array of objects, where each object has a "label" (string) and "text" (string of lyrics). Do not include markdown formatting blocks like \`\`\`json, just the raw JSON string.
+4. NEVER invent, guess, translate, paraphrase, or rewrite lyrics. Use ONLY words that appear in the provided text.
+5. If the provided text does not contain actual song lyrics (for example it is website navigation, menus, comments, ads, or unrelated content), return exactly [].`;
 
 ipcMain.handle('ai-parse-chord-chart', async (event, payload) => {
   const rawText = typeof payload === 'object' ? payload.text : payload;
   const requestedModel = typeof payload === 'object' ? payload.model : 'gemini-1.5-flash';
+  const linesPerSlide = (typeof payload === 'object' && payload && Number(payload.linesPerSlide)) || 4;
 
   if (!rawText || !rawText.trim()) {
     return { cues: [], modelUsed: 'None' };
@@ -635,7 +636,7 @@ ipcMain.handle('ai-parse-chord-chart', async (event, payload) => {
       const rawResponseText = response.text || (response.response && response.response.text ? response.response.text() : '');
       let cleanJsonString = rawResponseText.trim().replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
       const parsedObj = JSON.parse(cleanJsonString);
-      const cuesArray = extractCuesArray(parsedObj);
+      const cuesArray = sanitizeCues(extractCuesArray(parsedObj));
 
       if (cuesArray.length > 0) {
         const displayModel = requestedModel.includes('pro') ? 'Gemini Pro (Online)' : 'Gemini 3.6 Flash (Online)';
@@ -660,65 +661,29 @@ ipcMain.handle('ai-parse-chord-chart', async (event, payload) => {
 
     let localJsonString = ollamaResponse.message.content.trim().replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
     const parsedObj = JSON.parse(localJsonString);
-    const cuesArray = extractCuesArray(parsedObj);
+    const cuesArray = sanitizeCues(extractCuesArray(parsedObj));
 
     if (cuesArray.length > 0) {
       return { cues: cuesArray, modelUsed: 'Ollama (llama3.2:3b - Offline)' };
     }
   } catch (offlineError) {
     ollamaError = offlineError;
-    console.log('Ollama failed or returned unparseable structure. Switching to Local Regex Parser...');
+    console.log('Ollama failed or returned unparseable structure. Switching to the Local Parser...');
   }
 
-  // 3. Guarantee Failsafe Local Regex Parser (Never returns empty Array)
-  const lines = rawText.split('\n');
-  let rawParsedCues = [];
-  let currentLabel = 'Verse 1';
-  let currentTextLines = [];
-  const chordRegex = /^[A-G][#b]?(?:m|min|maj|dim|aug|sus)?[0-9]*(?:\/[A-G][#b]?)?$/i;
-
-  const flushCurrentSection = () => {
-    if (currentTextLines.length > 0) {
-      rawParsedCues.push({ label: currentLabel, text: currentTextLines.join('\n').trim() });
-      currentTextLines = [];
-    }
-  };
-
-  for (let rawLine of lines) {
-    let line = rawLine.trim();
-    if (!line) continue;
-
-    const normalizedHeaderCheck = line.replace(/[\[\]:]/g, '').trim();
-    if (/^(verse|chorus|bridge|intro|outro|pre-chorus|ending)\s*\d*$/i.test(normalizedHeaderCheck)) {
-      flushCurrentSection();
-      currentLabel = normalizedHeaderCheck.charAt(0).toUpperCase() + normalizedHeaderCheck.slice(1).toLowerCase();
-      continue;
-    }
-
-    const tokens = line.split(/\s+/);
-    const chordTokens = tokens.filter(t => chordRegex.test(t));
-    if (tokens.length > 0 && chordTokens.length / tokens.length >= 0.5) continue;
-
-    if (/^[a-g]?[\|*]?[\s\-0-9\|]{4,}$/.test(line)) continue;
-
-    let cleanLine = line
-      .replace(/\|/g, '')
-      .replace(/\[[A-G][#b]?(?:m|min|maj|dim|aug|sus)?[0-9]*(?:\/[A-G][#b]?)?\]/gi, '')
-      .replace(/\([A-G][#b]?(?:m|min|maj|dim|aug|sus)?[0-9]*(?:\/[A-G][#b]?)?\)/gi, '')
-      .trim();
-
-    if (cleanLine) currentTextLines.push(cleanLine);
-  }
-  flushCurrentSection();
+  // 3. Guarantee Failsafe Local Parser (Never returns empty). Shared with
+  //    the renderer fallback in App.jsx so chord charts, marker-driven
+  //    lyrics AND plain lyrics with no markers all build real blocks.
+  const sections = parseSongBlocks(rawText, linesPerSlide);
 
   // Make the badge say WHY the AI was skipped, so "offline" is diagnosable.
-  let fallbackLabel = 'Local Regex (Offline)';
-  if (wantsGemini && !hasGeminiKey) fallbackLabel = 'No API Key - Local Regex (Offline)';
-  else if (geminiError) fallbackLabel = 'Gemini Failed - Local Regex (Offline)';
-  else if (ollamaError && requestedModel === 'ollama') fallbackLabel = 'Ollama Unavailable - Local Regex (Offline)';
+  let fallbackLabel = 'Local Parser (Offline)';
+  if (wantsGemini && !hasGeminiKey) fallbackLabel = 'No API Key - Local Parser (Offline)';
+  else if (geminiError) fallbackLabel = 'Gemini Failed - Local Parser (Offline)';
+  else if (ollamaError && requestedModel === 'ollama') fallbackLabel = 'Ollama Unavailable - Local Parser (Offline)';
 
   return {
-    cues: rawParsedCues.length > 0 ? rawParsedCues : [{ label: 'Verse 1', text: rawText }],
+    cues: sections,
     modelUsed: fallbackLabel
   };
 });
@@ -994,15 +959,23 @@ const JUNK_LINES = [
   /^\s*[\w'’-]+(?:\s+[\w'’-]+){0,6}\s+lyrics\s*$/i,
 ];
 
-const cleanSongLines = (text) => text
-  .split('\n')
-  .map(l => l.trim())
-  .filter(Boolean)
-  .filter(l => !/^[a-g]?[\|*]?[\s\-0-9\|]{4,}$/.test(l))
-  .filter(l => !JUNK_LINES.some(r => r.test(l)))
-  .filter(l => !/^[\s│|·•*_=+#~-]{3,}$/.test(l))
-  .filter(l => !/^https?:\/\/\S+$/i.test(l))
-  .join('\n');
+// Same line filters as before, but paragraph breaks survive: stanza
+// detection in songParse.js splits plain lyrics into blocks on blank
+// lines, and the old .filter(Boolean) welded every verse into one wall.
+const cleanSongLines = (text) => {
+  const out = [];
+  for (const rawLine of String(text || '').split('\n')) {
+    const l = rawLine.trim();
+    if (!l) { if (out.length && out[out.length - 1] !== '') out.push(''); continue; }
+    if (/^[a-g]?[\|*]?[\s\-0-9\|]{4,}$/.test(l)) continue;
+    if (JUNK_LINES.some(r => r.test(l))) continue;
+    if (/^[\s│|·•*_=+#~-]{3,}$/.test(l)) continue;
+    if (!/^https?:\/\/\S+$/i.test(l)) out.push(l);
+  }
+  while (out.length && out[0] === '') out.shift();
+  while (out.length && out[out.length - 1] === '') out.pop();
+  return out.join('\n');
+};
 
 // Return the inner HTML of a balanced <tag>...</tag> block starting at openIdx
 function balancedTagContent(str, openIdx, tag = 'div') {
@@ -1249,7 +1222,7 @@ ipcMain.handle('fetch-song-url', async (event, url) => {
         const inner = balancedTagContent(html, gMatch.index, 'div');
         if (inner) { const t = cleanSongLines(htmlToText(inner)); if (t) parts.push(t); }
       }
-      if (parts.length) { text = parts.join('\n'); source = 'Genius'; }
+      if (parts.length) { text = parts.join('\n\n'); source = 'Genius'; }
     }
     if (!text && /azlyrics\.com$/i.test(host)) {
       const s = html.indexOf('<!-- start of lyrics -->');
