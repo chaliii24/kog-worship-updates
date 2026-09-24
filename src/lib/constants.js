@@ -91,18 +91,22 @@ export const FALLBACK_SYSTEM_FONTS = [
   'Trebuchet MS', 'Verdana', 'Yu Gothic'
 ];
 
+// CMG Sans pack only — every entry maps to an @font-face in src/index.css.
 export const FONT_OPTIONS = [
   { label: 'CMG Sans (Default)', value: '"CMG Sans", system-ui, sans-serif' },
   { label: 'CMG Sans Condensed', value: '"CMG Sans Condensed", "CMG Sans", sans-serif' },
-  { label: 'Geist Sans', value: '"Geist Variable", "Geist", system-ui, sans-serif' },
-  { label: 'Montserrat (Modern)', value: '"Montserrat", system-ui, sans-serif' },
-  { label: 'Poppins (Modern)', value: '"Poppins", system-ui, sans-serif' },
-  { label: 'Plus Jakarta Sans', value: '"Plus Jakarta Sans", system-ui, sans-serif' },
-  { label: 'Barlow (Condensed)', value: '"Barlow", system-ui, sans-serif' },
-  { label: 'Nunito Sans', value: '"Nunito Sans", system-ui, sans-serif' },
-  { label: 'System UI', value: 'system-ui, sans-serif' },
-  { label: 'Georgia (Serif)', value: 'Georgia, "Times New Roman", serif' },
-  { label: 'Times (Serif)', value: '"Times New Roman", serif' },
-  { label: 'Courier (Mono)', value: '"Courier New", monospace' },
-  { label: 'Trebuchet', value: '"Trebuchet MS", sans-serif' },
+  { label: 'CMG Sans Thin', value: '"CMG Sans Thin", "CMG Sans", sans-serif' },
+  { label: 'CMG Sans ExtraLight', value: '"CMG Sans ExtraLight", "CMG Sans", sans-serif' },
+  { label: 'CMG Sans Light', value: '"CMG Sans Light", "CMG Sans", sans-serif' },
+  { label: 'CMG Sans ExtraBold', value: '"CMG Sans ExtraBold", "CMG Sans", sans-serif' },
+  { label: 'CMG Sans Black', value: '"CMG Sans Black", "CMG Sans", sans-serif' },
+  { label: 'CMG Sans CAPS', value: '"CMG Sans CAPS", "CMG Sans", sans-serif' },
+  { label: 'CMG Sans CAPS Condensed', value: '"CMG Sans CAPS Condensed", "CMG Sans", sans-serif' },
+  { label: 'CMG Sans Rounded', value: '"CMG Sans Rounded", "CMG Sans", sans-serif' },
+  { label: 'CMG Sans Slab', value: '"CMG Sans Slab", "CMG Sans", sans-serif' },
+  { label: 'CMG Sans Outline', value: '"CMG Sans Outline", "CMG Sans", sans-serif' },
+  { label: 'CMG Sans Wide', value: '"CMG Sans Wide", "CMG Sans", sans-serif' },
+  { label: 'CMG Sans Wide Outline', value: '"CMG Sans Wide Outline", "CMG Sans", sans-serif' },
+  { label: 'CMG Sans Mono Digits', value: '"CMG Sans Mono Digits", "CMG Sans", sans-serif' },
+  { label: 'CMG Sans Backslant', value: '"CMG Sans Backslant", "CMG Sans", sans-serif' },
 ];

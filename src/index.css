@@ -1,41 +1,69 @@
-@import '@fontsource-variable/geist';
-@import '@fontsource/montserrat/latin-400.css';
-@import '@fontsource/montserrat/latin-600.css';
-@import '@fontsource/montserrat/latin-700.css';
-@import '@fontsource/poppins/latin-400.css';
-@import '@fontsource/poppins/latin-500.css';
-@import '@fontsource/poppins/latin-600.css';
-@import '@fontsource/poppins/latin-700.css';
-@import '@fontsource/plus-jakarta-sans/latin-400.css';
-@import '@fontsource/plus-jakarta-sans/latin-600.css';
-@import '@fontsource/plus-jakarta-sans/latin-700.css';
-@import '@fontsource/barlow/latin-400.css';
-@import '@fontsource/barlow/latin-600.css';
-@import '@fontsource/barlow/latin-700.css';
-@import '@fontsource/nunito-sans/latin-400.css';
-@import '@fontsource/nunito-sans/latin-600.css';
-@import '@fontsource/nunito-sans/latin-700.css';
+/* =====================================================================
+   CMG Sans — the app's ONLY bundled typeface (CMG Sans pack, OFL/Apache).
+   Every lyric/presentation font option maps to a family declared here.
 
-/* ---- CMG Sans — primary app + lyrics typeface (CMG Sans pack, OFL/Apache) ---- */
+   ⚠ REGRESSION TRAP: never add a `*, *::before, *::after { font-family }`
+   rule. It overrides CSS inheritance, so the lyric line divs' inline
+   font-family never reaches the <span> that holds the actual text —
+   every picked font silently renders as the UI font ("font doesn't
+   change on the canvas").
+   ===================================================================== */
+
+/* -- family: CMG Sans (the default UI + lyric face) -- */
 @font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
 @font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-Italic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
 @font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-Medium.ttf') format('truetype'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-MediumItalic.ttf') format('truetype'); font-weight: 500; font-style: italic; font-display: swap; }
 @font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-SemiBold.ttf') format('truetype'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-SemiBoldItalic.ttf') format('truetype'); font-weight: 600; font-style: italic; font-display: swap; }
 @font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
 @font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-BoldItalic.ttf') format('truetype'); font-weight: 700; font-style: italic; font-display: swap; }
+
+/* -- family: CMG Sans Condensed -- */
 @font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSans-RegularCn.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSansCn-Italic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSans-MediumCn.ttf') format('truetype'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSansMediumCn-Italic.ttf') format('truetype'); font-weight: 500; font-style: italic; font-display: swap; }
+@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSans-SemiBoldCn.ttf') format('truetype'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSansSemiBoldCn-Italic.ttf') format('truetype'); font-weight: 600; font-style: italic; font-display: swap; }
 @font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSans-BoldCn.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSansCn-BoldItalic.ttf') format('truetype'); font-weight: 700; font-style: italic; font-display: swap; }
+
+/* -- weight showcase families (each pickable in the font list) -- */
+@font-face { font-family: 'CMG Sans Thin'; src: url('./assets/fonts/cmg/CMGSans-Thin.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans Thin'; src: url('./assets/fonts/cmg/CMGSans-ThinItalic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'CMG Sans ExtraLight'; src: url('./assets/fonts/cmg/CMGSans-ExtraLight.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans ExtraLight'; src: url('./assets/fonts/cmg/CMGSans-ExtraLightItalic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'CMG Sans Light'; src: url('./assets/fonts/cmg/CMGSans-Light.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans Light'; src: url('./assets/fonts/cmg/CMGSans-LightItalic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'CMG Sans ExtraBold'; src: url('./assets/fonts/cmg/CMGSans-ExtraBold.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans ExtraBold'; src: url('./assets/fonts/cmg/CMGSans-ExtraBoldItalic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'CMG Sans Black'; src: url('./assets/fonts/cmg/CMGSans-Black.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans Black'; src: url('./assets/fonts/cmg/CMGSans-BlackItalic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
+
+/* -- all-caps display set -- */
+@font-face { font-family: 'CMG Sans CAPS'; src: url('./assets/fonts/cmg/CMGSans-MediumCAPS.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans CAPS'; src: url('./assets/fonts/cmg/CMGSans-SemiBoldCAPS.ttf') format('truetype'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans CAPS'; src: url('./assets/fonts/cmg/CMGSans-BoldCAPS.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans CAPS Condensed'; src: url('./assets/fonts/cmg/CMGSans-MediumCnCAPS.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans CAPS Condensed'; src: url('./assets/fonts/cmg/CMGSans-BoldCnCAPS.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+
+/* -- speciality set (single cut per family: cover every weight request) -- */
+@font-face { font-family: 'CMG Sans Rounded'; src: url('./assets/fonts/cmg/CMGSans-BoldRounded.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans Slab'; src: url('./assets/fonts/cmg/CMGSans-BoldSlab.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans Outline'; src: url('./assets/fonts/cmg/CMGSans-BoldOutline.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans Wide'; src: url('./assets/fonts/cmg/CMGSans-ExtraBoldWide.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans Wide Outline'; src: url('./assets/fonts/cmg/CMGSans-ExtraBoldWideOutline.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans Mono Digits'; src: url('./assets/fonts/cmg/CMGSans-BoldMonoDigits.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: 'CMG Sans Backslant'; src: url('./assets/fonts/cmg/CMGSans-BoldBackslant.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
 
 :root {
-  --font-sans: 'CMG Sans', 'Geist Variable', 'Geist', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-sans: 'CMG Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
-*,
-*::before,
-*::after {
-  font-family: var(--font-sans);
-}
-
+/* NOTE: no `*` font-family rule here on purpose — see the warning at the
+   top of this file. Elements inherit from #root; lyric lines set their
+   own inline font-family which must reach their inner <span>s. */
 html,
 body,
 #root {

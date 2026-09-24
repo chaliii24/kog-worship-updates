@@ -28,14 +28,10 @@ export const PRESENTATION_LAYOUTS = [
 export const PRESENTATION_FONTS = [
   { label: 'CMG Sans', value: "'CMG Sans', system-ui, sans-serif" },
   { label: 'CMG Sans Condensed', value: "'CMG Sans Condensed', 'CMG Sans', sans-serif" },
-  { label: 'Poppins', value: "'Poppins', system-ui, sans-serif" },
-  { label: 'Montserrat', value: "'Montserrat', system-ui, sans-serif" },
-  { label: 'Barlow', value: "'Barlow', system-ui, sans-serif" },
-  { label: 'Plus Jakarta Sans', value: "'Plus Jakarta Sans', system-ui, sans-serif" },
-  { label: 'Nunito Sans', value: "'Nunito Sans', system-ui, sans-serif" },
-  { label: 'Geist', value: "'Geist Variable', system-ui, sans-serif" },
-  { label: 'Serif', value: "Georgia, 'Times New Roman', serif" },
-  { label: 'Monospace', value: "ui-monospace, Menlo, Consolas, monospace" }
+  { label: 'CMG Sans Light', value: "'CMG Sans Light', 'CMG Sans', sans-serif" },
+  { label: 'CMG Sans Black', value: "'CMG Sans Black', 'CMG Sans', sans-serif" },
+  { label: 'CMG Sans Rounded', value: "'CMG Sans Rounded', 'CMG Sans', sans-serif" },
+  { label: 'CMG Sans Slab', value: "'CMG Sans Slab', 'CMG Sans', sans-serif" }
 ];
 
 export const PRESENTATION_TRANSITIONS = [

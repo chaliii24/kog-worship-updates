@@ -13,7 +13,7 @@ export default function PresentationSlide({ slide, width = 1280, height = 720 })
   const bgValue = bg.value || '#0B0F19';
   const textColor = s.textColor || '#FFFFFF';
   const align = s.align || 'left';
-  const font = s.font || "'Poppins', system-ui, sans-serif";
+  const font = s.font || "'CMG Sans', system-ui, sans-serif";
   const bullets = (Array.isArray(s.bullets) ? s.bullets : []).filter(b => String(b).trim() !== '');
   const rects = resolveRects(s);
 
