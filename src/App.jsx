@@ -66,6 +66,25 @@ export default function App() {
     document.documentElement.dataset.theme = themeDark ? 'dark' : 'light';
     document.documentElement.style.colorScheme = themeDark ? 'dark' : 'light';
   }, [themeDark]);
+  // Cross-fade the flip: .theme-fading (index.css) enables a short
+  // background/border/color transition on every element, but ONLY while a
+  // toggle is in flight — zero transition overhead any other time. The
+  // double rAF guarantees the browser paints the transition-enabled style
+  // with the OLD colors first, so the recolor actually animates instead of
+  // snapping (class + value change in one recalc = no transition).
+  const themeFadeTimerRef = useRef(null);
+  const toggleTheme = () => {
+    const root = document.documentElement;
+    if (themeFadeTimerRef.current) { clearTimeout(themeFadeTimerRef.current); themeFadeTimerRef.current = null; }
+    root.classList.add('theme-fading');
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      setThemeDark(v => !v);
+      themeFadeTimerRef.current = setTimeout(() => {
+        root.classList.remove('theme-fading');
+        themeFadeTimerRef.current = null;
+      }, 340);
+    }));
+  };
   const [songs, setSongs] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [showsQuery, setShowsQuery] = useState('');
@@ -2823,7 +2842,7 @@ export default function App() {
         toggleStageWindow={toggleStageWindow}
         openNewShow={openNewShow}
         themeDark={themeDark}
-        toggleTheme={() => setThemeDark(v => !v)}
+        toggleTheme={toggleTheme}
       />
 
       {/* ===== MAIN WORKSPACE ===== */}

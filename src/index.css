@@ -118,6 +118,32 @@
   --ui-scroll-thumb: #c7cedb;
 }
 
+/* Smooth theme flip: App adds .theme-fading to <html> only while a toggle
+   is animating (~340ms), so nothing pays for transitions at any other time
+   and hover/drag animations never fight a global rule. Colors that don't
+   change between themes (previews, tiles, accents, status) don't animate —
+   only surfaces that actually recolor cross-fade. */
+html.theme-fading,
+html.theme-fading *,
+html.theme-fading *::before,
+html.theme-fading *::after {
+  transition:
+    background-color 260ms ease,
+    border-color 260ms ease,
+    color 260ms ease,
+    fill 260ms ease,
+    stroke 260ms ease !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.theme-fading,
+  html.theme-fading *,
+  html.theme-fading *::before,
+  html.theme-fading *::after {
+    transition: none !important;
+  }
+}
+
 /* NOTE: no `*` font-family rule here on purpose — see the warning at the
    top of this file. Elements inherit from #root; lyric lines set their
    own inline font-family which must reach their inner <span>s. */
