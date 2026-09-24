@@ -94,6 +94,37 @@ export default function LyricsCanvasEditor({
   const [editing, setEditing] = useState(false);
   const [trNode, setTrNode] = useState(null);
 
+  // Typing commits to App state on a 150ms trailing edge. Every keystroke used
+  // to round-trip setEditingSong → full-app re-render (plain-object context),
+  // re-rendering the entire song grid underneath — the main typing lag with a
+  // song loaded. The textarea stays local = zero-latency typing.
+  const [taText, setTaText] = useState(text);
+  const taTimerRef = useRef(null);
+  const taPendingRef = useRef(null);
+  const taExpectedRef = useRef(text);
+  const onTextChangeRef = useRef(onTextChange);
+  onTextChangeRef.current = onTextChange;
+  const sendTa = () => {
+    if (taTimerRef.current) { clearTimeout(taTimerRef.current); taTimerRef.current = null; }
+    const v = taPendingRef.current;
+    if (v == null || v === taExpectedRef.current) return;
+    taPendingRef.current = null;
+    taExpectedRef.current = v;
+    onTextChangeRef.current?.(v);
+  };
+  useEffect(() => {
+    // External text change (switched slide, AI rebuild): pending local edits
+    // belong to the OLD text — drop them and adopt the new value. When the
+    // change matches our own last commit, do nothing (keeps newer local text).
+    if (text !== taExpectedRef.current) {
+      if (taTimerRef.current) { clearTimeout(taTimerRef.current); taTimerRef.current = null; }
+      taPendingRef.current = null;
+      taExpectedRef.current = text;
+      setTaText(text);
+    }
+  }, [text]);
+  useEffect(() => () => sendTa(), []);
+
   committedRef.current = box;
 
   const previewing = !!previewAnim && previewAnim !== 'none';
@@ -299,7 +330,7 @@ export default function LyricsCanvasEditor({
 
   // ---- text editing -------------------------------------------------------
   const startEdit = useCallback(() => setEditing(true), []);
-  const endEdit = useCallback(() => setEditing(false), []);
+  const endEdit = useCallback(() => { sendTa(); setEditing(false); }, []);
 
   const syncTaHeight = useCallback(() => {
     const ta = taRef.current;
@@ -430,8 +461,8 @@ export default function LyricsCanvasEditor({
             }}>
               <textarea
                 ref={taRef}
-                value={text}
-                onChange={(e) => onTextChange?.(e.target.value)}
+                value={taText}
+                onChange={(e) => { const v = e.target.value; setTaText(v); taPendingRef.current = v; if (taTimerRef.current) clearTimeout(taTimerRef.current); taTimerRef.current = setTimeout(() => { taTimerRef.current = null; sendTa(); }, 150); }}
                 onBlur={endEdit}
                 onInput={syncTaHeight}
                 onKeyDown={(e) => {

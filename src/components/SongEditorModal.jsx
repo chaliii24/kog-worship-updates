@@ -7,6 +7,7 @@ import { useApp } from '../context/AppContext';
 import { modalOverlay, panelLg, stubTap, iconBtnTap } from '../lib/anim';
 import LyricsCanvasEditor from './LyricsCanvasEditor';
 import FontPicker from './FontPicker';
+import { TileVideo } from '../lib/perf';
 
 let sysFontCache = null;
 
@@ -128,6 +129,8 @@ export default function SongEditorModal() {
     editorCue,
     editorBox,
     updateCue,
+    updateCueThrottled,
+    applyFontToAllCues,
     baseGroupLabel,
     splitCueAtTextareaCaret,
     applyAlignToAll,
@@ -290,7 +293,7 @@ export default function SongEditorModal() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Padding</label>
-                <input type="range" min="0" max="80" step="2" value={editorCue?.pad ?? 10} onChange={(e) => updateCue(editorCueIdx, { pad: Number(e.target.value) })} style={{ flex: 1 }} />
+                <input type="range" min="0" max="80" step="2" value={editorCue?.pad ?? 10} onChange={(e) => updateCueThrottled(editorCueIdx, { pad: Number(e.target.value) })} style={{ flex: 1 }} />
                 <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.pad ?? 10}</span>
               </div>
               <button onClick={applyAlignToAll} style={{ width: '100%', background: 'rgba(59,130,246,0.14)', border: '1px solid ' + ACCENT, color: ACCENT, borderRadius: 7, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Apply Align to All</button>
@@ -316,12 +319,12 @@ export default function SongEditorModal() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid #2d2d3f', borderRadius: 7, padding: 8, marginBottom: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Min</label>
-                    <input type="range" min="14" max="100" step="1" value={editorCue?.fillMin ?? 18} onChange={(e) => updateCue(editorCueIdx, { fillMin: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <input type="range" min="14" max="100" step="1" value={editorCue?.fillMin ?? 18} onChange={(e) => updateCueThrottled(editorCueIdx, { fillMin: Number(e.target.value) })} style={{ flex: 1 }} />
                     <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.fillMin ?? 18}</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Max</label>
-                    <input type="range" min="40" max={FONT_SIZE_MAX} step="5" value={editorCue?.fillMax ?? 165} onChange={(e) => updateCue(editorCueIdx, { fillMax: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <input type="range" min="40" max={FONT_SIZE_MAX} step="5" value={editorCue?.fillMax ?? 165} onChange={(e) => updateCueThrottled(editorCueIdx, { fillMax: Number(e.target.value) })} style={{ flex: 1 }} />
                     <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.fillMax ?? 165}</span>
                   </div>
                 </div>
@@ -336,7 +339,7 @@ export default function SongEditorModal() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid #2d2d3f', borderRadius: 7, padding: 8, marginTop: 6 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1, whiteSpace: 'nowrap' }}>Speed (sec)</label>
-                    <input type="range" min="4" max="90" step="1" value={editorCue?.tickerSpeed ?? 18} onChange={(e) => updateCue(editorCueIdx, { tickerSpeed: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <input type="range" min="4" max="90" step="1" value={editorCue?.tickerSpeed ?? 18} onChange={(e) => updateCueThrottled(editorCueIdx, { tickerSpeed: Number(e.target.value) })} style={{ flex: 1 }} />
                     <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.tickerSpeed ?? 18}</span>
                   </div>
                   <div style={{ display: 'flex', gap: 4 }}>
@@ -353,6 +356,7 @@ export default function SongEditorModal() {
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Typography</div>
               <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Font Family</label>
               <FontPicker value={editorCue?.font || FONT_OPTIONS[0].value} choices={fontChoices} onChange={(v) => updateCue(editorCueIdx, { font: v })} C={C} />
+              <button onClick={() => applyFontToAllCues(editorCue?.font || FONT_OPTIONS[0].value)} title="Set this font on every slide of the song (including the title slide)" style={{ width: '100%', marginTop: 6, background: C.elevated2, border: '1px dashed #2d2d3f', color: C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>Apply font to all slides</button>
               <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
                 {[
                   ['bold', Bold, 'Bold', true],
@@ -378,7 +382,7 @@ export default function SongEditorModal() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
                 <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1, whiteSpace: 'nowrap' }}>Tracking</label>
-                <input type="range" min="-2" max="20" step="0.5" value={editorCue?.letterSpacing || 0} onChange={(e) => updateCue(editorCueIdx, { letterSpacing: Number(e.target.value) })} style={{ flex: 1 }} />
+                <input type="range" min="-2" max="20" step="0.5" value={editorCue?.letterSpacing || 0} onChange={(e) => updateCueThrottled(editorCueIdx, { letterSpacing: Number(e.target.value) })} style={{ flex: 1 }} />
                 <span style={{ fontSize: 11, color: C.muted, width: 32, textAlign: 'right' }}>{editorCue?.letterSpacing || 0}</span>
               </div>
               <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4, marginTop: 8 }}>Letter Case</label>
@@ -407,18 +411,18 @@ export default function SongEditorModal() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Blur</label>
-                    <input type="range" min="0" max="40" step="1" value={editorCue?.shadowBlur ?? 14} onChange={(e) => updateCue(editorCueIdx, { shadowBlur: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <input type="range" min="0" max="40" step="1" value={editorCue?.shadowBlur ?? 14} onChange={(e) => updateCueThrottled(editorCueIdx, { shadowBlur: Number(e.target.value) })} style={{ flex: 1 }} />
                     <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.shadowBlur ?? 14}</span>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
                       <label style={{ fontSize: 10, color: C.faint, fontWeight: 700 }}>X</label>
-                      <input type="range" min="-30" max="30" step="1" value={editorCue?.shadowOffsetX ?? 0} onChange={(e) => updateCue(editorCueIdx, { shadowOffsetX: Number(e.target.value) })} style={{ flex: 1 }} />
+                      <input type="range" min="-30" max="30" step="1" value={editorCue?.shadowOffsetX ?? 0} onChange={(e) => updateCueThrottled(editorCueIdx, { shadowOffsetX: Number(e.target.value) })} style={{ flex: 1 }} />
                       <span style={{ fontSize: 11, color: C.muted, width: 24, textAlign: 'right' }}>{editorCue?.shadowOffsetX ?? 0}</span>
                     </div>
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
                       <label style={{ fontSize: 10, color: C.faint, fontWeight: 700 }}>Y</label>
-                      <input type="range" min="-30" max="30" step="1" value={editorCue?.shadowOffsetY ?? 4} onChange={(e) => updateCue(editorCueIdx, { shadowOffsetY: Number(e.target.value) })} style={{ flex: 1 }} />
+                      <input type="range" min="-30" max="30" step="1" value={editorCue?.shadowOffsetY ?? 4} onChange={(e) => updateCueThrottled(editorCueIdx, { shadowOffsetY: Number(e.target.value) })} style={{ flex: 1 }} />
                       <span style={{ fontSize: 11, color: C.muted, width: 24, textAlign: 'right' }}>{editorCue?.shadowOffsetY ?? 4}</span>
                     </div>
                   </div>
@@ -432,7 +436,7 @@ export default function SongEditorModal() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Width</label>
-                    <input type="range" min="0" max="8" step="0.5" value={editorCue?.strokeWidth ?? 1.5} onChange={(e) => updateCue(editorCueIdx, { strokeWidth: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <input type="range" min="0" max="8" step="0.5" value={editorCue?.strokeWidth ?? 1.5} onChange={(e) => updateCueThrottled(editorCueIdx, { strokeWidth: Number(e.target.value) })} style={{ flex: 1 }} />
                     <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.strokeWidth ?? 1.5}</span>
                   </div>
                 </div>
@@ -451,7 +455,7 @@ export default function SongEditorModal() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Angle</label>
-                    <input type="range" min="0" max="360" step="5" value={editorCue?.gradientAngle ?? 180} onChange={(e) => updateCue(editorCueIdx, { gradientAngle: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <input type="range" min="0" max="360" step="5" value={editorCue?.gradientAngle ?? 180} onChange={(e) => updateCueThrottled(editorCueIdx, { gradientAngle: Number(e.target.value) })} style={{ flex: 1 }} />
                     <span style={{ fontSize: 11, color: C.muted, width: 36, textAlign: 'right' }}>{editorCue?.gradientAngle ?? 180}°</span>
                   </div>
                 </div>
@@ -459,7 +463,7 @@ export default function SongEditorModal() {
               {editorCue?.highlight && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Opacity</label>
-                  <input type="range" min="10" max="90" value={editorCue?.hlOpacity ?? 40} onChange={(e) => updateCue(editorCueIdx, { hlOpacity: Number(e.target.value) })} style={{ flex: 1 }} />
+                  <input type="range" min="10" max="90" value={editorCue?.hlOpacity ?? 40} onChange={(e) => updateCueThrottled(editorCueIdx, { hlOpacity: Number(e.target.value) })} style={{ flex: 1 }} />
                   <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.hlOpacity ?? 40}%</span>
                 </div>
               )}
@@ -645,7 +649,7 @@ export default function SongEditorModal() {
                       <img src={editingSong.bg_value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                     )}
                     {editingSong.bg_type === 'video' && editingSong.bg_value && (
-                      <video src={editingSong.bg_value} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <TileVideo src={editingSong.bg_value} animate={editorCueIdx === -1} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                     )}
                     <div style={{ position: 'relative', zIndex: 2, color: '#f5f5f4', fontSize: 10, fontWeight: 800, textAlign: 'center', padding: '0 6px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{editingSong.title || 'Song Title'}</div>
                   </div>
@@ -675,7 +679,7 @@ export default function SongEditorModal() {
                                 <img key={`tb-${resolveBg(c, editingSong).value}`} src={resolveBg(c, editingSong).value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                               )}
                               {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'video' && (
-                                <video key={`tb-${resolveBg(c, editingSong).value}`} src={resolveBg(c, editingSong).value} autoPlay loop muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                                <TileVideo key={`tb-${resolveBg(c, editingSong).value}`} src={resolveBg(c, editingSong).value} animate={i === editorCueIdx} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                               )}
                               <div style={{ position: 'relative', zIndex: 2, color: c.color || '#f5f5f4', fontFamily: c.font || 'system-ui, sans-serif', fontSize: 9.5, fontWeight: 700, textAlign: 'center', padding: '0 6px', lineHeight: 1.25, textShadow: '0 1px 3px rgba(0,0,0,0.8)', maxWidth: '100%' }}>{(applyCaseTransform(c.text || '', c.case || 'none')).split('\n').slice(0, 3).join(' ')}</div>
                               <div style={{ position: 'absolute', top: 3, left: 4, fontSize: 8, fontWeight: 800, color: 'rgba(255,255,255,0.85)', background: 'rgba(0,0,0,0.45)', borderRadius: 3, padding: '0 4px' }}>{gi + 1}.{li}</div>
@@ -736,7 +740,7 @@ export default function SongEditorModal() {
                         <div key={a.url} onClick={() => setSongBackground(a.kind, a.url)} title={a.url.split('/').pop() || a.url} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: active ? '2px solid #22c55e' : '1px solid #2d2d3f', background: '#000' }}>
                           {a.kind === 'image'
                             ? <img src={a.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                            : <video src={a.url} autoPlay loop muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                            : <TileVideo src={a.url} animate={active} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
                           <span style={{ position: 'absolute', bottom: 2, right: 3, fontSize: 7, fontWeight: 800, color: '#fff', background: 'rgba(0,0,0,0.55)', borderRadius: 3, padding: '0 3px' }}>{a.kind}</span>
                         </div>
                       );
@@ -771,7 +775,7 @@ export default function SongEditorModal() {
                           <div key={a.url} onClick={() => setCueBackground(editorCueIdx, a.kind, a.url)} title={a.url.split('/').pop() || a.url} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: active ? '2px solid #22c55e' : '1px solid #2d2d3f', background: '#000' }}>
                             {a.kind === 'image'
                               ? <img src={a.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                              : <video src={a.url} autoPlay loop muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                              : <TileVideo src={a.url} animate={active} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
                             <span style={{ position: 'absolute', bottom: 2, right: 3, fontSize: 7, fontWeight: 800, color: '#fff', background: 'rgba(0,0,0,0.55)', borderRadius: 3, padding: '0 3px' }}>{a.kind}</span>
                           </div>
                         );

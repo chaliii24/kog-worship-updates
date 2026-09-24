@@ -1706,8 +1706,6 @@ export default function App() {
 
   const updateCue = (idx, patch) => {
     if (idx == null) { console.warn('[KOG] updateCue DROPPED — no cue index:', patch && Object.keys(patch)); return; }
-    // TEMP diagnostic for the font-apply bug: remove after it's confirmed fixed.
-    if (patch && 'font' in patch) console.log(`[KOG] font write → cue ${idx}:`, patch.font);
     if (idx === -1) {
       setEditingSong(prev => {
         const cur = prev.title_cue || { ...defaultTitleCue, text: prev.title || defaultTitleCue.text };
@@ -1721,6 +1719,29 @@ export default function App() {
       newCues[idx] = { ...newCues[idx], ...patch };
       return { ...prev, cues: newCues };
     });
+  };
+
+  // Slider drags fire an input event per mousemove; each used to round-trip
+  // setEditingSong → full-app re-render (plain-object context), re-rendering
+  // the whole song grid at drag rate. Leading edge keeps the canvas preview
+  // instant; the trailing edge lands the final value 120ms after movement stops.
+  const cueThrottleRef = useRef({ timer: null, idx: null, patch: null });
+  const updateCueThrottled = (idx, patch) => {
+    const q = cueThrottleRef.current;
+    q.idx = idx; q.patch = patch;
+    if (q.timer) return;
+    updateCue(idx, patch);
+    q.timer = setTimeout(() => { q.timer = null; if (q.idx != null) updateCue(q.idx, q.patch); }, 120);
+  };
+
+  // One click: apply the current font to every slide (title slide included).
+  const applyFontToAllCues = (font) => {
+    if (!font) return;
+    setEditingSong(prev => ({
+      ...prev,
+      title_cue: { ...(prev.title_cue || { ...defaultTitleCue, text: prev.title || defaultTitleCue.text }), font },
+      cues: (prev.cues || []).map(c => ({ ...c, font })),
+    }));
   };
 
   const baseGroupLabel = (label = '') => label.replace(/\s*\(Part\s+\d+\)\s*$/i, '').replace(/[a-z]$/i, '') || 'Slides';
@@ -2718,7 +2739,7 @@ export default function App() {
     openPresentationEditor, closePresentationEditor, openPresentation, savePresentationDeck, deletePresentationDeck,
     presentDeck, firePresentationSlide, addPresentationToService, activePresentation, stopPresentation,
     processAutoPaste, fetchSongFromUrl, moveCue, duplicateCue, setCueBackground, cueFileToBackground, setSongBackground,
-    songBgFileToBackground, clearCueBackground, splitCuesToLines, clampNum, editorCue, editorBox, updateCue,
+    songBgFileToBackground, clearCueBackground, splitCuesToLines, clampNum, editorCue, editorBox, updateCue, updateCueThrottled, applyFontToAllCues,
     baseGroupLabel, nextSuffixLetter, splitCueAtTextareaCaret, applyAlignToAll, applyAnimToAll, reorderCues,
     startBoxDrag, onStagePointerMove, endBoxDrag, ToolbarBtn, fitStageFont, cueLyricStyle, handleSaveSong,
     previewAnimation,

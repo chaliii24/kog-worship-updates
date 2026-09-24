@@ -87,7 +87,10 @@ export const renderLyricsLayout = (text, st, box) => {
   const gradOn = !!st.gradient;
   const gradAngle = Number(st.gradientAngle);
   const gradSpanStyle = gradOn ? {
-    background: `linear-gradient(${Number.isFinite(gradAngle) ? gradAngle : 180}deg, ${st.gradientColor1 || '#f5f5f4'}, ${st.gradientColor2 || '#93c5fd'})`,
+    // backgroundImage (longhand) NOT `background`: the shorthand resets
+    // background-clip when React patches it on rerender, which unclips the
+    // gradient off the text (React warns background vs backgroundClip too).
+    backgroundImage: `linear-gradient(${Number.isFinite(gradAngle) ? gradAngle : 180}deg, ${st.gradientColor1 || '#f5f5f4'}, ${st.gradientColor2 || '#93c5fd'})`,
     WebkitBackgroundClip: 'text',
     backgroundClip: 'text',
     WebkitTextFillColor: 'transparent',
