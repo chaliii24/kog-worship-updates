@@ -6,6 +6,7 @@ import { applyCaseTransform, renderLyricsLayout, FONT_SIZE_MIN, FONT_SIZE_MAX } 
 import { useApp } from '../context/AppContext';
 import { modalOverlay, panelLg, stubTap, iconBtnTap } from '../lib/anim';
 import LyricsCanvasEditor from './LyricsCanvasEditor';
+import FontPicker from './FontPicker';
 
 let sysFontCache = null;
 
@@ -351,19 +352,7 @@ export default function SongEditorModal() {
             <div style={{ background: C.elevated, border: '1px solid #2d2d3f', borderRadius: 10, padding: 10 }}>
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Typography</div>
               <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Font Family</label>
-              <select value={editorCue?.font || FONT_OPTIONS[0].value} onChange={(e) => updateCue(editorCueIdx, { font: e.target.value })} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid #2d2d3f', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none' }}>
-                <optgroup label="Presets">
-                  {FONT_OPTIONS.map(f => <option key={f.value} value={f.value} style={{ background: C.input }}>{f.label}</option>)}
-                </optgroup>
-                <optgroup label="System Fonts">
-                  {fontChoices.filter(o => !FONT_OPTIONS.some(p => p.value === o.value)).map(o => (
-                    <option key={o.value} value={o.value} style={{ background: C.input }}>{o.label}</option>
-                  ))}
-                </optgroup>
-                {!fontChoices.some(o => o.value === (editorCue?.font || FONT_OPTIONS[0].value)) && (
-                  <option value={editorCue?.font} style={{ background: C.input }}>{editorCue?.font}</option>
-                )}
-              </select>
+              <FontPicker value={editorCue?.font || FONT_OPTIONS[0].value} choices={fontChoices} onChange={(v) => updateCue(editorCueIdx, { font: v })} C={C} />
               <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
                 {[
                   ['bold', Bold, 'Bold', true],

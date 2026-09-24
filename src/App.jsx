@@ -5,7 +5,7 @@ import logoImage from './assets/logo.png';
 import { getTheme } from './lib/theme';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, cssSpeed } from './lib/constants';
 import { emphasisLine, applyCaseTransform, renderLyricsLayout, FONT_SIZE_MAX } from './lib/lyrics';
-import { LiveBadge } from './lib/perf';
+import { LiveBadge, TileVideo } from './lib/perf';
 import SplashScreen from './components/SplashScreen';
 import WelcomeScreen from './components/WelcomeScreen';
 import StageDisplay from './components/StageDisplay';
@@ -2017,7 +2017,7 @@ export default function App() {
           mediaLayer.type === 'image' ? (
             <img key={`bgimg-${mediaLayer.url}`} src={mediaLayer.url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }} />
           ) : (
-            <video key={`bgvid-${mediaLayer.url}`} src={mediaLayer.url} autoPlay loop muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }} />
+            <TileVideo key={`bgvid-${mediaLayer.url}`} src={mediaLayer.url} animate={isLive} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }} />
           )
         )}
         {mediaLayer && <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: 'rgba(0,0,0,0.18)' }} />}

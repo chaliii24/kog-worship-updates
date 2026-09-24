@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { formatCountdown } from './constants';
 
 // Ticks only inside the tiny components that actually show the clock.
@@ -91,4 +91,26 @@ export function installVideoGuard() {
 
   if (document.body) start();
   else document.addEventListener('DOMContentLoaded', start, { once: true });
+}
+
+// Slide-grid thumbnail video: only the LIVE tile keeps animating — every
+// other tile shows a still frame. A background loop decodes at its NATIVE
+// resolution no matter how small the tile is (a 4K loop decodes 4K frames
+// per tile!), so a song with video backgrounds had a dozen full-res decodes
+// running at once — the single biggest CPU drain with a song loaded.
+export function TileVideo({ src, animate, ...rest }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    if (animate) { v.play().catch(() => {}); return; }
+    const freeze = () => {
+      try { v.currentTime = Math.min(1, Math.max(0.05, (v.duration || 2) * 0.15)); } catch {}
+      v.pause();
+    };
+    if (v.readyState >= 1) freeze();
+    else v.addEventListener('loadedmetadata', freeze, { once: true });
+    return () => v.removeEventListener('loadedmetadata', freeze);
+  }, [src, animate]);
+  return <video ref={ref} src={src} muted playsInline preload="metadata" autoPlay={animate} loop={animate} {...rest} />;
 }
