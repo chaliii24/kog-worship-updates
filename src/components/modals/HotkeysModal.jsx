@@ -6,7 +6,8 @@ import { modalOverlay, modalPanel, stubTap } from '../../lib/anim';
 const SHORTCUTS = [
   ['Space / →', 'Advance to the next slide'],
   ['←', 'Go to previous slide (or song title card)'],
-  ['B', 'Blackout the screen'],
+  ['L', 'Clear the lyrics, keep the background'],
+  ['B', 'Clear all output (words and background)'],
   ['?', 'Toggle this shortcut guide'],
   ['Click a slide', 'Send it live to projector'],
   ['★ star', 'Favorite a song for quick access']

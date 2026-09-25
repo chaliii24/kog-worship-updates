@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Square, SkipBack, SkipForward, Image as ImageIcon, Video, Zap } from 'lucide-react';
+import { Square, Type, SkipBack, SkipForward, Image as ImageIcon, Video, Zap } from 'lucide-react';
 import { motion } from 'motion/react';
 import { TimerReadout } from '../lib/perf';
 import { stubTap, iconBtnTap } from '../lib/anim';
@@ -15,6 +15,7 @@ export default function LiveOutputPanel({
   selectOutputDisplay,
   activeCue,
   fireCueLive,
+  clearLyrics,
   handlePrevCue,
   handleNextCue,
   rightTab,
@@ -145,7 +146,8 @@ export default function LiveOutputPanel({
         </div>
         )}
         <div style={{ display: 'flex', gap: 6, marginTop: 8, flexShrink: 0 }}>
-          <motion.button {...stubTap} onClick={() => fireCueLive({ id: 'clear', label: 'Clear', text: '' })} style={{ flex: 1, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171', padding: '7px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><Square size={12} /> Clear All</motion.button>
+          <motion.button {...stubTap} onClick={clearLyrics} title="Take the words off the screen and keep the background running" style={{ flex: 1, minWidth: 0, background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.35)', color: '#93c5fd', padding: '7px 4px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Type size={12} /> Clear Lyrics</motion.button>
+          <motion.button {...stubTap} onClick={() => fireCueLive({ id: 'clear', label: 'Clear', text: '' })} title="Clear everything — words and background" style={{ flex: 1, minWidth: 0, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171', padding: '7px 4px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Square size={12} /> Clear All</motion.button>
           <motion.button {...iconBtnTap} onClick={handlePrevCue} style={{ width: 44, background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><SkipBack size={14} /></motion.button>
           <motion.button {...iconBtnTap} onClick={handleNextCue} style={{ width: 44, background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><SkipForward size={14} /></motion.button>
         </div>

@@ -289,6 +289,10 @@ export default function App() {
   const lastBibleRef = useRef(null);
   const liveBibleRef = useRef(null);
   const liveBibleSrcRef = useRef(null);
+  // The global key handler below is registered once per dependency change, so
+  // it would otherwise capture a stale `clearLyrics` (and with it the last
+  // background it saw). Read it through a ref that every render re-points.
+  const clearLyricsRef = useRef(null);
 
   useEffect(() => {
     if (isOutputWindow || !window.require) return;
@@ -698,7 +702,10 @@ export default function App() {
         if (showBuilder && (e.key === 'ArrowLeft' || e.key === 'ArrowUp')) { e.preventDefault(); builderAdvance(-1); }
         return;
       }
+      // B = clear the whole output (words AND background → black).
+      // L = clear the lyrics only, leaving the background on air running.
       if (e.key === 'b' || e.key === 'B') fireCueLive({ id: 'clear', label: 'Clear', text: '' });
+      if (e.key === 'l' || e.key === 'L') { if (clearLyricsRef.current) clearLyricsRef.current(); }
       if (e.key === ' ') { e.preventDefault(); handleNextCue(); }
       if (e.key === 'ArrowRight') { e.preventDefault(); handleNextCue(); }
       if (e.key === 'ArrowLeft') { e.preventDefault(); handlePrevCue(); }
@@ -1130,6 +1137,61 @@ export default function App() {
       nextCue ? { title: activeSong?.title, label: nextCue.label, text: nextCue.text } : null
     );
   };
+
+  // Clear All blacks the whole output. Clear Lyrics is the softer one: only the
+  // words leave, the background behind them keeps running.
+  //   * the payload reuses the backgroundType/backgroundValue that are on air,
+  //     so ProjectorDisplay's `bgKey` does not change — the background layer
+  //     never remounts and a looping video keeps looping;
+  //   * `activeCue` is deliberately left alone. It is what "which service item
+  //     is live" is derived from, and nothing on screen changed except the
+  //     text — so the row stays lit and Stop still works, and advancing
+  //     afterwards continues from the slide that was showing.
+  // What the lyrics output is showing right now. The operator window never
+  // listens for `render-live-slide`, so its `currentSlide` stays at the initial
+  // placeholder — the payload pushed onto `displays` is the live one there,
+  // while in a projector window `currentSlide` is the authoritative copy.
+  const liveOutputPayload = () => {
+    if (currentSlide && currentSlide.style && currentSlide.style.backgroundType) return currentSlide;
+    const proj = (displays || []).find(d => d.id === 1);
+    if (proj && proj.content) return proj.content;
+    return currentSlide || null;
+  };
+
+  const liveOutputStyle = () => {
+    const live = liveOutputPayload();
+    return (live && live.style && live.style.backgroundType) ? live.style : songBackgroundStyle();
+  };
+
+  const clearLyrics = () => {
+    const live = liveOutputPayload();
+    const cueList = activeSong?.cues || [];
+    const idx = activeCue?.id ? cueList.findIndex(c => c.id === activeCue.id) : -1;
+    const nextCue = idx > -1 ? cueList[idx + 1] : (cueList.length > 0 ? cueList[0] : null);
+    const slidePayload = {
+      title: activeSong?.title || live?.title || '',
+      artist: activeSong?.artist || '',
+      text: '',
+      label: '',
+      style: { ...liveOutputStyle(), transition: 'fade', speed: '600ms' },
+      // A running sermon deck is not lyrics — Clear Lyrics must not take it down.
+      presentation: live?.presentation || null,
+      meta: live?.meta || null,
+      audio: activeSong?.audio_url || null,
+      timestamp: Date.now()
+    };
+    setSlideTimer({ start: null, elapsed: 0, duration: 0 });
+    setDisplays(prev => prev.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
+    if (window.require && targetedDisplays.includes(1)) {
+      const { ipcRenderer } = window.require('electron');
+      ipcRenderer.send('update-live-slide', slidePayload);
+    }
+    sendStageData(
+      { title: slidePayload.title, label: '', text: '', timestamp: slidePayload.timestamp },
+      nextCue ? { title: activeSong?.title, label: nextCue.label, text: nextCue.text } : null
+    );
+  };
+  clearLyricsRef.current = clearLyrics;
 
   const previewAnimation = useCallback((animKey, cueOverride) => {
     const cue = (cueOverride && cueOverride.id && cueOverride.id !== 'clear')
@@ -1853,7 +1915,13 @@ export default function App() {
     if (font) applyPatchToAllCues({ font });
   };
 
-  const baseGroupLabel = (label = '') => label.replace(/\s*\(Part\s+\d+\)\s*$/i, '').replace(/[a-z]$/i, '') || 'Slides';
+  // Group key for the slide filmstrip: "(Part N)" is a chunk of a section, not a
+  // section. The trailing-letter strip is for "Section A/B" / "Verse 1a" style
+  // markers, so it only eats a letter that follows a space or a digit. The old
+  // bare /[a-z]$/i ate the last letter of every plain label instead — "Chorus"
+  // became "Choru", "Bridge" became "Bridg" — and that is what the group header
+  // printed.
+  const baseGroupLabel = (label = '') => label.replace(/\s*\(Part\s+\d+\)\s*$/i, '').replace(/(?<=[\s0-9])[A-Za-z]$/, '').trim() || 'Slides';
 
   const nextSuffixLetter = (labels, base) => {
     const used = labels.filter(l => l.startsWith(base)).map(l => l.slice(base.length).toLowerCase()).filter(x => /^[a-z]$/.test(x));
@@ -2983,6 +3051,7 @@ export default function App() {
           selectOutputDisplay={selectOutputDisplay}
           activeCue={activeCue}
           fireCueLive={fireCueLive}
+          clearLyrics={clearLyrics}
           handlePrevCue={handlePrevCue}
           handleNextCue={handleNextCue}
           rightTab={rightTab}

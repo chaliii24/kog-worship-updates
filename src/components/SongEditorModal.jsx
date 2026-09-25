@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, Cpu, Timer, Clock3, Link2, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack } from 'lucide-react';
+import { Plus, Check, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, Cpu, Timer, Clock3, Link2, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, FALLBACK_SYSTEM_FONTS } from '../lib/constants';
 import { applyCaseTransform, renderLyricsLayout, FONT_SIZE_MIN, FONT_SIZE_MAX } from '../lib/lyrics';
@@ -147,6 +147,146 @@ export default function SongEditorModal() {
   const [hoverAnim, setHoverAnim] = useState(null);
   const [previewTick, setPreviewTick] = useState(0);
   const hoverTimeoutRef = useRef(null);
+
+  // --- inline slide rename -------------------------------------------------
+  // The Label field lives inside Slide Properties, which is collapsed by
+  // default, so a slide you had just added had no obvious place to be named.
+  // Double-click a slide's name to edit it in place; "New Slide" opens the
+  // field straight away so it can be typed before doing anything else.
+  // `renameFrom` keeps the field in the list it was opened from — both lists
+  // show every slide, so two inputs for one slide would fight over focus.
+  const [renameIdx, setRenameIdx] = useState(null);
+  const [renameFrom, setRenameFrom] = useState('strip');
+  const [renameVal, setRenameVal] = useState('');
+  // { i, side } insertion marker for drag-and-drop.
+  const [dropHint, setDropHint] = useState(null);
+  const renameRef = useRef(null);
+  const renameAbortedRef = useRef(false);
+
+  // --- "applied to every slide" confirmation -------------------------------
+  // These buttons rewrite every slide at once and the result looks identical
+  // to doing nothing, so a click gave no sign it had landed. A short toast
+  // names what was just applied.
+  const [applyToast, setApplyToast] = useState(null);
+  const applyToastRef = useRef(null);
+  const confirmApplied = (message) => {
+    setApplyToast(message);
+    clearTimeout(applyToastRef.current);
+    applyToastRef.current = setTimeout(() => setApplyToast(null), 2600);
+  };
+  useEffect(() => () => clearTimeout(applyToastRef.current), []);
+
+  useEffect(() => {
+    if (renameIdx == null) return;
+    const el = renameRef.current;
+    if (!el) return;
+    el.focus();
+    el.select();
+    // The filmstrip scrolls — bring the field you just opened into view.
+    try { el.scrollIntoView({ block: 'nearest' }); } catch (_) { /* older engines */ }
+  }, [renameIdx]);
+
+  const startRename = (i, cue, from) => {
+    if (i == null || i < 0 || !cue) return;
+    renameAbortedRef.current = false;
+    setRenameIdx(i);
+    setRenameVal(cue.label || '');
+    setRenameFrom(from || 'strip');
+    setEditorCueIdx(i);
+  };
+
+  const commitRename = () => {
+    if (renameIdx == null) return;
+    // Escape unmounts the field, which fires blur afterwards — that blur must
+    // not resurrect the edit Escape just threw away.
+    if (renameAbortedRef.current) { renameAbortedRef.current = false; return; }
+    const label = renameVal.trim();
+    const prev = (editingSong.cues || [])[renameIdx];
+    setRenameIdx(null);
+    if (label && prev && label !== (prev.label || '')) updateCue(renameIdx, { label });
+  };
+
+  const cancelRename = () => {
+    renameAbortedRef.current = true;
+    setRenameIdx(null);
+  };
+
+  // --- drag to reorder -----------------------------------------------------
+  // Remove-then-insert shifts every index after the source, so "before/after
+  // the target" has to be resolved against the ORIGINAL indices: dragging down
+  // lands after the target, dragging up lands before it. Either way the result
+  // is stable, which a bare `reorderCues(from, i)` was not.
+  const dropIndexFor = (from, i, side) => {
+    if (from == null || i == null || from === i) return null;
+    return side === 'after' ? (from < i ? i : i + 1) : (from < i ? i - 1 : i);
+  };
+
+  const sectionOf = (label) => String(label || '').replace(/\s*\(Part\s+\d+\)\s*$/i, '').trim();
+
+  // "(Part N)" numbers the chunks of ONE section. When a slide joins another
+  // section it gets the next free number there, so it reads as part of it.
+  const nextPartLabel = (cues, targetLabel) => {
+    const section = sectionOf(targetLabel);
+    if (!section) return targetLabel;
+    let max = 0;
+    let anyPart = false;
+    cues.forEach(c => {
+      if (sectionOf(c.label) !== section) return;
+      const m = /\(Part\s+(\d+)\)\s*$/i.exec(String(c.label || ''));
+      if (m) { anyPart = true; max = Math.max(max, Number(m[1]) || 0); }
+    });
+    return anyPart ? `${section} (Part ${max + 1})` : section;
+  };
+
+  // The filmstrip is grouped by label, so a slide that changes position but
+  // keeps its old section label would visually go nowhere. Dropping into a
+  // different group therefore moves it into that section too.
+  const dropCue = (from, i, side, joinSection = true) => {
+    const cues = [...(editingSong.cues || [])];
+    const to = dropIndexFor(from, i, side);
+    setDragFrom(null);
+    setDropHint(null);
+    if (to == null || !cues[from] || !cues[i]) return;
+    const moved = cues[from];
+    const target = cues[i];
+    cues.splice(from, 1);
+    cues.splice(Math.max(0, Math.min(cues.length, to)), 0, moved);
+    const landed = cues.indexOf(moved);
+    if (joinSection && baseGroupLabel(moved.label) !== baseGroupLabel(target.label)) {
+      cues[landed] = { ...cues[landed], label: nextPartLabel(cues, target.label) };
+    }
+    setEditingSong({ ...editingSong, cues });
+    setEditorCueIdx(landed);
+  };
+
+  const dragStart = (e, i) => {
+    try {
+      e.dataTransfer.setData('text/plain', String(i));
+      e.dataTransfer.effectAllowed = 'move';
+    } catch (_) { /* dataTransfer can be absent in tests */ }
+    setDragFrom(i);
+  };
+
+  // Which half of the tile the pointer is over decides insert-before vs
+  // insert-after, so the last slide in a list can still be dropped behind.
+  // dragover BUBBLES — without stopPropagation the group container underneath
+  // would immediately null out the marker this just set.
+  const dragOverTile = (e, i) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try { e.dataTransfer.dropEffect = 'move'; } catch (_) { /* noop */ }
+    const r = e.currentTarget.getBoundingClientRect();
+    const side = e.clientX < r.left + r.width / 2 ? 'before' : 'after';
+    if (!dropHint || dropHint.i !== i || dropHint.side !== side) setDropHint({ i, side });
+  };
+
+  const dropOnTile = (e, i, joinSection = true) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropCue(dragFrom, i, dropHint && dropHint.i === i ? dropHint.side : 'before', joinSection);
+  };
+
+  const dragEnded = () => { setDragFrom(null); setDropHint(null); };
 
   // System fonts via Local Font Access API (falls back to a curated Windows list).
   const [sysFonts, setSysFonts] = useState(() => sysFontCache || FALLBACK_SYSTEM_FONTS);
@@ -297,7 +437,7 @@ export default function SongEditorModal() {
                 <input type="range" min="0" max="80" step="2" value={editorCue?.pad ?? 10} onChange={(e) => updateCueThrottled(editorCueIdx, { pad: Number(e.target.value) })} style={{ flex: 1 }} />
                 <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.pad ?? 10}</span>
               </div>
-              <button onClick={applyAlignToAll} style={{ width: '100%', background: 'rgba(59,130,246,0.14)', border: '1px solid ' + ACCENT, color: ACCENT, borderRadius: 7, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Apply Align to All</button>
+              <button onClick={() => { applyAlignToAll(); confirmApplied('Alignment applied to every slide'); }} style={{ width: '100%', background: 'rgba(59,130,246,0.14)', border: '1px solid ' + ACCENT, color: ACCENT, borderRadius: 7, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Apply Align to All</button>
             </div>
 
             {/* LAYOUT */}
@@ -357,7 +497,7 @@ export default function SongEditorModal() {
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Typography</div>
               <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Font Family</label>
               <FontPicker value={editorCue?.font || FONT_OPTIONS[0].value} choices={fontChoices} onChange={(v) => updateCue(editorCueIdx, { font: v })} C={C} />
-              <button onClick={() => applyFontToAllCues(editorCue?.font || FONT_OPTIONS[0].value)} title="Set this font on every slide of the song (including the title slide)" style={{ width: '100%', marginTop: 6, background: C.elevated2, border: '1px dashed var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>Apply font to all slides</button>
+              <button onClick={() => { applyFontToAllCues(editorCue?.font || FONT_OPTIONS[0].value); confirmApplied('Font applied to every slide'); }} title="Set this font on every slide of the song (including the title slide)" style={{ width: '100%', marginTop: 6, background: C.elevated2, border: '1px dashed var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>Apply font to all slides</button>
               <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
                 {[
                   ['bold', Bold, 'Bold', true],
@@ -392,7 +532,7 @@ export default function SongEditorModal() {
                   <button key={m} onClick={() => updateCue(editorCueIdx, { case: m })} style={{ flex: 1, background: (editorCue?.case || 'none') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (editorCue?.case || 'none') === m ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{m === 'title' ? 'Tt' : lbl}</button>
                 ))}
               </div>
-              <button onClick={() => applyPatchToAllCues({ case: editorCue?.case || 'none' })} title="Set this letter case on every slide of the song" style={{ width: '100%', marginTop: 6, background: C.elevated2, border: '1px dashed var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>Apply case to all slides</button>
+              <button onClick={() => { applyPatchToAllCues({ case: editorCue?.case || 'none' }); confirmApplied('Letter case applied to every slide'); }} title="Set this letter case on every slide of the song" style={{ width: '100%', marginTop: 6, background: C.elevated2, border: '1px dashed var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>Apply case to all slides</button>
             </div>
 
             {/* TEXT STYLE */}
@@ -469,7 +609,7 @@ export default function SongEditorModal() {
                   <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.hlOpacity ?? 40}%</span>
                 </div>
               )}
-              <button onClick={() => applyPatchToAllCues({ color: editorCue?.color || '#ffffff', shadow: !!editorCue?.shadow, shadowColor: editorCue?.shadowColor || '#000000', shadowBlur: editorCue?.shadowBlur ?? 14, shadowOffsetX: editorCue?.shadowOffsetX ?? 0, shadowOffsetY: editorCue?.shadowOffsetY ?? 4, outline: !!editorCue?.outline, strokeColor: editorCue?.strokeColor || '#000000', strokeWidth: editorCue?.strokeWidth ?? 1.5, gradient: !!editorCue?.gradient, gradientColor1: editorCue?.gradientColor1 || '#f5f5f4', gradientColor2: editorCue?.gradientColor2 || '#93c5fd', gradientAngle: editorCue?.gradientAngle ?? 180, highlight: !!editorCue?.highlight, hlOpacity: editorCue?.hlOpacity ?? 40 })} title="Copy this slide's color, shadow, outline, gradient and highlight settings to every slide" style={{ width: '100%', marginTop: 6, background: C.elevated2, border: '1px dashed var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>Apply style to all slides</button>
+              <button onClick={() => { applyPatchToAllCues({ color: editorCue?.color || '#ffffff', shadow: !!editorCue?.shadow, shadowColor: editorCue?.shadowColor || '#000000', shadowBlur: editorCue?.shadowBlur ?? 14, shadowOffsetX: editorCue?.shadowOffsetX ?? 0, shadowOffsetY: editorCue?.shadowOffsetY ?? 4, outline: !!editorCue?.outline, strokeColor: editorCue?.strokeColor || '#000000', strokeWidth: editorCue?.strokeWidth ?? 1.5, gradient: !!editorCue?.gradient, gradientColor1: editorCue?.gradientColor1 || '#f5f5f4', gradientColor2: editorCue?.gradientColor2 || '#93c5fd', gradientAngle: editorCue?.gradientAngle ?? 180, highlight: !!editorCue?.highlight, hlOpacity: editorCue?.hlOpacity ?? 40 }); confirmApplied('Style applied to every slide'); }} title="Copy this slide's color, shadow, outline, gradient and highlight settings to every slide" style={{ width: '100%', marginTop: 6, background: C.elevated2, border: '1px dashed var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>Apply style to all slides</button>
             </div>
 
             {/* TRANSITIONS */}
@@ -532,7 +672,7 @@ export default function SongEditorModal() {
                 <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, whiteSpace: 'nowrap' }}>Auto Next (sec)</label>
                 <input type="number" min="0" value={editorCue?.autoNext ?? 0} onChange={(e) => updateCue(editorCueIdx, { autoNext: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} style={{ width: 60, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
               </div>
-              <button onClick={applyAnimToAll} style={{ width: '100%', marginTop: 10, background: 'rgba(59,130,246,0.14)', border: '1px solid ' + ACCENT, color: ACCENT, borderRadius: 7, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Apply Anim to All</button>
+              <button onClick={() => { applyAnimToAll(); confirmApplied('Animation applied to every slide'); }} style={{ width: '100%', marginTop: 10, background: 'rgba(59,130,246,0.14)', border: '1px solid ' + ACCENT, color: ACCENT, borderRadius: 7, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Apply Anim to All</button>
             </div>
 
             {/* PRESENTER NOTES */}
@@ -551,7 +691,7 @@ export default function SongEditorModal() {
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: C.bg }}>
             {/* toolbar */}
             <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--ui-border2)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || []), { label: 'Verse 1', text: '', box: DEFAULT_BOX }]; setEditingSong({ ...editingSong, cues }); setEditorCueIdx(cues.length - 1); }} title="Add a new slide"><Plus size={14} /> <span>New Slide</span></ToolbarBtn>
+              <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || []), { label: 'Verse 1', text: '', box: DEFAULT_BOX }]; setEditingSong({ ...editingSong, cues }); startRename(cues.length - 1, cues[cues.length - 1], 'strip'); }} title="Add a new slide"><Plus size={14} /> <span>New Slide</span></ToolbarBtn>
               <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || [])]; if (!cues.length) { cues.push({ label: 'Verse 1', text: '', box: DEFAULT_BOX, locked: false }); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(0); } else if (editorCueIdx >= 0 && cues[editorCueIdx] && !cues[editorCueIdx].box) { cues[editorCueIdx] = { ...cues[editorCueIdx], box: DEFAULT_BOX, locked: false }; setEditingSong({ ...editingSong, cues }); } }} title="Add/edit text box on this slide"><Type size={14} /> <span>Text</span></ToolbarBtn>
               <ToolbarBtn onClick={() => duplicateCue(editorCueIdx)} title="Duplicate slide"><Copy size={14} /></ToolbarBtn>
               <ToolbarBtn danger onClick={() => { if (editorCueIdx < 0) return; const cues = [...(editingSong.cues || [])]; if (!cues.length) return; cues.splice(editorCueIdx, 1); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(Math.min(editorCueIdx, Math.max(0, cues.length - 1))); }} title="Delete slide"><Trash2 size={14} /></ToolbarBtn>
@@ -646,10 +786,10 @@ export default function SongEditorModal() {
               </div>
               <div style={{ display: 'grid', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
                 {/* Title Slide Thumbnail */}
-                <div onClick={() => setEditorCueIdx(-1)} style={{ cursor: 'pointer', position: 'relative', background: editorCueIdx === -1 ? 'rgba(59,130,246,0.16)' : C.elevated, border: editorCueIdx === -1 ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
+                <div onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); dropCue(dragFrom, 0, 'before', false); }} onClick={() => setEditorCueIdx(-1)} style={{ cursor: 'pointer', position: 'relative', background: editorCueIdx === -1 ? 'rgba(59,130,246,0.16)' : C.elevated, border: dragFrom != null ? '1px dashed ' + ACCENT : (editorCueIdx === -1 ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), borderRadius: 8, overflow: 'hidden', padding: 6 }}>
                   <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 5, background: songHasBackground(editingSong) && editingSong.bg_type === 'color' ? editingSong.bg_value : '#0a0a0a', position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {editingSong.bg_type === 'image' && editingSong.bg_value && (
-                      <img src={editingSong.bg_value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <img draggable={false} src={editingSong.bg_value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                     )}
                     {editingSong.bg_type === 'video' && editingSong.bg_value && (
                       <TileVideo src={editingSong.bg_value} animate={editorCueIdx === -1} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -670,16 +810,19 @@ export default function SongEditorModal() {
                     g.items.push({ c, i, li: g.items.length + 1 });
                   });
                   return groups.map((g, gi) => (
-                    <div key={gi}>
+                    <div key={gi} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const first = g.items[0]; if (first) dropCue(dragFrom, first.i, 'before'); }}>
                       <div style={{ fontSize: 10, fontWeight: 800, color: C.accLine, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <span>{g.base}</span><span style={{ color: C.faint, fontWeight: 600, letterSpacing: 0 }}>{g.items.length} slide{g.items.length > 1 ? 's' : ''}</span>
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                         {g.items.map(({ c, i, li }) => (
-                          <div key={i} onClick={() => setEditorCueIdx(i)} style={{ cursor: 'pointer', position: 'relative', background: i === editorCueIdx ? 'rgba(59,130,246,0.16)' : C.elevated, border: i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
+                          <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={() => setEditorCueIdx(i)} style={{ cursor: 'pointer', position: 'relative', background: i === editorCueIdx ? 'rgba(59,130,246,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), borderRadius: 8, overflow: 'hidden', padding: 6 }}>
+                            {dropHint && dropHint.i === i && (
+                              <span style={{ position: 'absolute', top: 0, bottom: 0, [dropHint.side === 'before' ? 'left' : 'right']: 0, width: 3, background: ACCENT, borderRadius: 3, zIndex: 6 }} />
+                            )}
                             <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 5, background: (resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'color' ? resolveBg(c, editingSong).value : '#0a0a0a'), position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'image' && (
-                                <img key={`tb-${resolveBg(c, editingSong).value}`} src={resolveBg(c, editingSong).value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                                <img key={`tb-${resolveBg(c, editingSong).value}`} draggable={false} src={resolveBg(c, editingSong).value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                               )}
                               {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'video' && (
                                 <TileVideo key={`tb-${resolveBg(c, editingSong).value}`} src={resolveBg(c, editingSong).value} animate={i === editorCueIdx} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -688,7 +831,11 @@ export default function SongEditorModal() {
                               <div style={{ position: 'absolute', top: 3, left: 4, fontSize: 8, fontWeight: 800, color: 'rgba(255,255,255,0.85)', background: 'rgba(0,0,0,0.45)', borderRadius: 3, padding: '0 4px' }}>{gi + 1}.{li}</div>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }}>
-                              <span style={{ fontSize: 9.5, fontWeight: 700, color: C.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 84 }}>{c.label}</span>
+                              {(renameIdx === i && renameFrom === 'strip') ? (
+                                <input ref={renameRef} value={renameVal} onChange={(e) => setRenameVal(e.target.value)} onClick={(e) => e.stopPropagation()} onBlur={commitRename} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitRename(); } else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); } }} style={{ flex: 1, minWidth: 0, background: C.input, color: C.text, border: '1px solid ' + ACCENT, borderRadius: 4, padding: '1px 4px', fontSize: 9.5, fontWeight: 700, outline: 'none' }} />
+                              ) : (
+                                <span onDoubleClick={(e) => { e.stopPropagation(); startRename(i, c, 'strip'); }} title="Double-click to rename" style={{ fontSize: 9.5, fontWeight: 700, color: C.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 84, cursor: 'text' }}>{c.label}</span>
+                              )}
                               <div style={{ display: 'flex', gap: 2 }}>
                                 <button onClick={(e) => { e.stopPropagation(); updateCue(i, { hidden: !c.hidden }); }} title={c.hidden ? 'Show' : 'Hide from projection'} style={{ background: 'transparent', border: 'none', color: c.hidden ? '#f87171' : C.faint, cursor: 'pointer', padding: 1 }}>{c.hidden ? <EyeOff size={11} /> : <Eye size={11} />}</button>
                                 <button onClick={(e) => { e.stopPropagation(); updateCue(i, { locked: !c.locked }); }} title={c.locked ? 'Unlock' : 'Lock'} style={{ background: 'transparent', border: 'none', color: c.locked ? '#fbbf24' : C.faint, cursor: 'pointer', padding: 1 }}>{c.locked ? <Lock size={11} /> : <Unlock size={11} />}</button>
@@ -708,11 +855,18 @@ export default function SongEditorModal() {
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Custom Slide Order</div>
               <div style={{ display: 'grid', gap: 5 }}>
                 {(editingSong.cues || []).map((c, i) => (
-                  <div key={i} draggable onDragStart={() => setDragFrom(i)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (dragFrom != null) reorderCues(dragFrom, i); setDragFrom(null); }} onClick={() => setEditorCueIdx(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: i === editorCueIdx ? 'rgba(59,130,246,0.16)' : C.elevated, border: i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)', borderRadius: 8, padding: '6px 8px', cursor: 'grab' }}>
+                  <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={() => setEditorCueIdx(i)} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: i === editorCueIdx ? 'rgba(59,130,246,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), borderRadius: 8, padding: '6px 8px', cursor: 'grab' }}>
+                    {dropHint && dropHint.i === i && (
+                      <span style={{ position: 'absolute', top: 0, bottom: 0, [dropHint.side === 'before' ? 'left' : 'right']: 0, width: 3, background: ACCENT, borderRadius: 3 }} />
+                    )}
                     <GripVertical size={13} color={C.faint2} style={{ flexShrink: 0 }} />
                     <span style={{ fontSize: 10.5, fontWeight: 800, color: C.faint, width: 20 }}>{i + 1}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: C.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.label || 'Slide'}</div>
+                      {(renameIdx === i && renameFrom === 'order') ? (
+                        <input ref={renameRef} value={renameVal} onChange={(e) => setRenameVal(e.target.value)} onClick={(e) => e.stopPropagation()} onBlur={commitRename} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitRename(); } else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); } }} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid ' + ACCENT, borderRadius: 4, padding: '2px 4px', fontSize: 11, fontWeight: 700, outline: 'none' }} />
+                      ) : (
+                        <div onDoubleClick={(e) => { e.stopPropagation(); startRename(i, c, 'order'); }} title="Double-click to rename" style={{ fontSize: 11, fontWeight: 700, color: C.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'text' }}>{c.label || 'Slide'}</div>
+                      )}
                       <div style={{ fontSize: 9.5, color: C.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(c.text || '').split('\n')[0] || 'empty'}</div>
                     </div>
                     <button onClick={(e) => { e.stopPropagation(); moveCue(i, -1); }} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: 2 }}><ChevronUp size={12} /></button>
@@ -808,6 +962,19 @@ export default function SongEditorModal() {
       <motion.button {...stubTap} onClick={handleSaveSong} style={{ background: ACCENT, border: 'none', color: C.text, padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Save Song</motion.button>
     </div>
   </motion.div>
+
+  {/* Confirmation for the "apply to every slide" buttons — they rewrite the
+      whole song at once, which looks exactly like nothing happened. */}
+  <AnimatePresence>
+    {applyToast && (
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 26, display: 'flex', justifyContent: 'center', pointerEvents: 'none', zIndex: 6 }}>
+        <motion.div initial={{ opacity: 0, y: 14, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.97 }} transition={{ type: 'spring', stiffness: 420, damping: 30 }} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(16,185,129,0.16)', border: '1px solid rgba(52,211,153,0.5)', color: '#34d399', padding: '9px 17px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, boxShadow: '0 12px 34px rgba(0,0,0,0.45)', backdropFilter: 'blur(10px)' }}>
+          <Check size={15} />
+          {applyToast}
+        </motion.div>
+      </div>
+    )}
+  </AnimatePresence>
 </motion.div>
   );
 }
