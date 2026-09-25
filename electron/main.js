@@ -54,6 +54,37 @@ app.setPath('userData', path.join(app.getPath('appData'), 'kog-worship'));
 // Local Font Access API (window.queryLocalFonts) — must be enabled before ready.
 app.commandLine.appendSwitch('enable-local-font-access');
 
+// ---------------------------------------------------------------------------
+// Hardware acceleration — explicitly requested, before app.whenReady().
+//
+// Chromium ships GPU compositing ON, but its GPU *blocklist* silently demotes
+// a lot of Intel integrated drivers to software compositing and software video
+// decode. Intel UHD 620 (8th-gen i3, 8 GB — the floor we target) sits right on
+// that edge: on the hardware path a 4K background loop costs a few percent of
+// the GPU, on the software path it pegs every core and every song switch
+// stutters. Nothing below disables acceleration, and app.disableHardwareAcceleration()
+// is never called anywhere in this app — these switches only make sure
+// Chromium does not quietly fall back.
+//
+// Switches are only honoured before ready; after that Chromium has already
+// committed to a GPU path.
+// ---------------------------------------------------------------------------
+app.commandLine.appendSwitch('ignore-gpu-blocklist');      // keep the iGPU on the hardware path
+app.commandLine.appendSwitch('enable-gpu-rasterization');  // raster tiles on the GPU, not the CPU
+app.commandLine.appendSwitch('enable-zero-copy');          // no CPU memcpy of every decoded frame
+app.commandLine.appendSwitch('enable-native-buffers');
+
+// Chrome background services this kiosk never uses still hold threads, sockets
+// and caches for the lifetime of the app. On an 8 GB machine that is memory and
+// CPU we want back for the projector. None of them touch app behaviour or
+// appearance (page fetches, the Gemini calls and the updater are unaffected —
+// they run in the main process, not through Chromium's background services).
+app.commandLine.appendSwitch('disable-background-networking');
+app.commandLine.appendSwitch('disable-component-update');
+app.commandLine.appendSwitch('disable-client-side-phishing-detection');
+app.commandLine.appendSwitch('no-first-run');
+app.commandLine.appendSwitch('disable-features', 'MediaRouter,OptimizationHints,Translate');
+
 // Load the Gemini key in packaged builds too: cwd/.env (dev) is not shipped,
 // so also look in resources/.env (bundled) and userData/.env (per-machine override).
 if (!process.env.GEMINI_API_KEY) {
@@ -97,10 +128,15 @@ function serveFileProtocol(rootDir, request) {
   const fileName = decodeURIComponent(new URL(request.url).pathname.split('/').pop() || '');
   if (!fileName || path.isAbsolute(fileName)) return new Response(null, { status: 404 });
   const filePath = path.join(rootDir, fileName);
-  if (!filePath.startsWith(rootDir) || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-    return new Response(null, { status: 404 });
-  }
-  const size = fs.statSync(filePath).size;
+  if (!filePath.startsWith(rootDir)) return new Response(null, { status: 404 });
+  // One stat, not three: this runs on the MAIN process for every range request
+  // the tiles and the projector issue, and a song switch fires dozens of them in
+  // the same frame. Every sync syscall here is time the IPC that drives the
+  // output window is not being serviced.
+  let info;
+  try { info = fs.statSync(filePath); } catch (e) { info = null; }
+  if (!info || info.isDirectory()) return new Response(null, { status: 404 });
+  const size = info.size;
   const mime = mediaMime(fileName);
   const rangeHeader = request.headers.get('Range');
   if (rangeHeader) {
@@ -209,6 +245,19 @@ app.whenReady().then(() => {
   });
   serveMediaProtocol();
   createWindow();
+
+  // Record which path Chromium actually took. `gpu_compositing` / `video_decode`
+  // reading "hardware" vs "software" is the difference between smooth and
+  // stuttering on a low-end laptop, so make it visible in the log instead of a
+  // mystery. Deferred because the GPU process answers asynchronously.
+  setTimeout(() => {
+    try {
+      if (typeof app.getGPUFeatureStatus === 'function') {
+        electronLog.info('[gpu] feature status', JSON.stringify(app.getGPUFeatureStatus()));
+      }
+    } catch (e) { /* diagnostics only — never block startup */ }
+  }, 5000);
+
   screen.on('display-added', notifyDisplaysChanged);
   screen.on('display-removed', notifyDisplaysChanged);
   screen.on('display-metrics-changed', notifyDisplaysChanged);
@@ -291,7 +340,7 @@ function createOutputWindow(output) {
       minimizable: false,
       movable: false,
       autoHideMenuBar: true,
-      webPreferences: { nodeIntegration: true, contextIsolation: false }
+      webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
     });
   } else {
     const [w, h] = preset;
@@ -305,7 +354,7 @@ function createOutputWindow(output) {
       alwaysOnTop: true,
       minimizable: false,
       fullscreen: false,
-      webPreferences: { nodeIntegration: true, contextIsolation: false }
+      webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
     });
   }
 
