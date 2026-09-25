@@ -1,7 +1,7 @@
 {
   "name": "kog-worship",
   "private": true,
-  "version": "1.1.9",
+  "version": "1.1.10",
   "description": "KOG Worship presentation suite",
   "author": "Charles Arradaza",
   "type": "module",
