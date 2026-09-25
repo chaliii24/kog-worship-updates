@@ -68,6 +68,7 @@ export default function LeftSidebar() {
     setEditorMode,
     setRawPasteText,
     setIsEditorOpen,
+    handleNewSong,
     toggleDevProjectorWindow,
     toggleStageWindow,
     addNewDisplay,
@@ -373,7 +374,7 @@ export default function LeftSidebar() {
                 {songsCollapsed ? <ChevronRight size={13} color="var(--ui-faint)" /> : <ChevronDown size={13} color="var(--ui-faint)" />} Songs
                 <span style={{ color: 'var(--ui-faint)', fontWeight: 700, letterSpacing: 0 }}>({songs.length})</span>
               </span>
-              <button onClick={(e) => { e.stopPropagation(); setEditingSong({ id: null, title: '', artist: '', category: 'Worship', cues: [{ label: 'Verse 1', text: '', box: { x: 80, y: 100, w: 1120, h: 480 }, locked: false }] }); setEditorMode('manual'); setRawPasteText(''); setIsEditorOpen(true); }} title="New song" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '4px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}><Plus size={12} /> New</button>
+              <button onClick={(e) => { e.stopPropagation(); handleNewSong(); }} title="New song" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '4px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}><Plus size={12} /> New</button>
             </div>
             {!songsCollapsed && (
               <>

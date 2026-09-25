@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 
 function Brand({ C, size = 4.6 }) {
   return (
-    <span style={{ fontFamily: 'system-ui, sans-serif', fontSize: `${size}rem`, fontWeight: 900, letterSpacing: '-0.03em', display: 'inline-block', lineHeight: 1.05 }}>
+    <span style={{ fontFamily: 'var(--font-sans)', fontSize: `${size}rem`, fontWeight: 900, letterSpacing: '-0.03em', display: 'inline-block', lineHeight: 1.05 }}>
       {'KOGWorship'.split('').map((c, i) => (
         <motion.span
           key={i}
@@ -25,7 +25,7 @@ export default function SplashScreen({ C, logoImage }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
-      style={{ position: 'fixed', inset: 0, background: '#050509', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', zIndex: 9999, fontFamily: 'system-ui, sans-serif', color: C.text, overflow: 'hidden' }}
+      style={{ position: 'fixed', inset: 0, background: '#050509', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', zIndex: 9999, fontFamily: 'var(--font-sans)', color: C.text, overflow: 'hidden' }}
     >
       {/* Pulsing ambient flash behind the brand */}
       <motion.div

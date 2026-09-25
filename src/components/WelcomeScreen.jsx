@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 
 function Word({ C, size = 2.5 }) {
   return (
-    <span style={{ fontFamily: 'system-ui, sans-serif', fontSize: `${size}rem`, fontWeight: 900, letterSpacing: '-0.03em', display: 'inline-block', lineHeight: 1.05 }}>
+    <span style={{ fontFamily: 'var(--font-sans)', fontSize: `${size}rem`, fontWeight: 900, letterSpacing: '-0.03em', display: 'inline-block', lineHeight: 1.05 }}>
       {'KOGWorship'.split('').map((c, i) => (
         <motion.span
           key={i}
@@ -95,7 +95,7 @@ export default function WelcomeScreen({ services, C, PINK, ACCENT, logoImage, on
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
       onMouseMove={handleMove}
-      style={{ position: 'fixed', inset: 0, background: 'var(--ui-bg)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', zIndex: 9998, fontFamily: 'system-ui, sans-serif', color: C.text, overflowY: 'auto', padding: 24, boxSizing: 'border-box' }}
+      style={{ position: 'fixed', inset: 0, background: 'var(--ui-bg)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', zIndex: 9998, fontFamily: 'var(--font-sans)', color: C.text, overflowY: 'auto', padding: 24, boxSizing: 'border-box' }}
     >
       {/* Ambient top glow */}
       <div style={{ position: 'absolute', top: -180, left: '50%', width: 760, height: 420, transform: 'translateX(-50%)', background: `radial-gradient(closest-side, ${C.accLine}1f, transparent 70%)`, filter: 'blur(44px)', pointerEvents: 'none', zIndex: 0 }} />

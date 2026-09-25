@@ -92,8 +92,13 @@ export const FALLBACK_SYSTEM_FONTS = [
 ];
 
 // CMG Sans pack only — every entry maps to an @font-face in src/index.css.
+// Entry 0 is the DEFAULT song/lyric font — applied wherever a cue has no
+// font stored (new songs, legacy songs): CMG Sans Wide (ExtraBoldWide).
+// App chrome uses Inter instead (--font-sans in index.css); lyrics never
+// inherit it.
 export const FONT_OPTIONS = [
-  { label: 'CMG Sans (Default)', value: '"CMG Sans", system-ui, sans-serif' },
+  { label: 'CMG Sans Wide (Default)', value: '"CMG Sans Wide", "CMG Sans", sans-serif' },
+  { label: 'CMG Sans', value: '"CMG Sans", system-ui, sans-serif' },
   { label: 'CMG Sans Condensed', value: '"CMG Sans Condensed", "CMG Sans", sans-serif' },
   { label: 'CMG Sans Thin', value: '"CMG Sans Thin", "CMG Sans", sans-serif' },
   { label: 'CMG Sans ExtraLight', value: '"CMG Sans ExtraLight", "CMG Sans", sans-serif' },
@@ -105,7 +110,6 @@ export const FONT_OPTIONS = [
   { label: 'CMG Sans Rounded', value: '"CMG Sans Rounded", "CMG Sans", sans-serif' },
   { label: 'CMG Sans Slab', value: '"CMG Sans Slab", "CMG Sans", sans-serif' },
   { label: 'CMG Sans Outline', value: '"CMG Sans Outline", "CMG Sans", sans-serif' },
-  { label: 'CMG Sans Wide', value: '"CMG Sans Wide", "CMG Sans", sans-serif' },
   { label: 'CMG Sans Wide Outline', value: '"CMG Sans Wide Outline", "CMG Sans", sans-serif' },
   { label: 'CMG Sans Mono Digits', value: '"CMG Sans Mono Digits", "CMG Sans", sans-serif' },
   { label: 'CMG Sans Backslant', value: '"CMG Sans Backslant", "CMG Sans", sans-serif' },

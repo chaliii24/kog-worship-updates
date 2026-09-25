@@ -17,6 +17,7 @@ import LiveOutputPanel from './components/LiveOutputPanel';
 import LeftSidebar from './components/LeftSidebar';
 import CenterWorkspace from './components/CenterWorkspace';
 import SongEditorModal from './components/SongEditorModal';
+import NewSongPrompt from './components/NewSongPrompt';
 import PresentationModal from './components/PresentationModal';
 import PresentationSlide from './components/PresentationSlide';
 import ShowBuilderModal from './components/ShowBuilderModal';
@@ -216,6 +217,7 @@ export default function App() {
 
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState('manual');
+  const [newSongPromptOpen, setNewSongPromptOpen] = useState(false);
   const [rawPasteText, setRawPasteText] = useState('');
   const [importUrl, setImportUrl] = useState('');
   const [importUrlStatus, setImportUrlStatus] = useState(null);
@@ -2522,15 +2524,30 @@ export default function App() {
     if (item.id === 'live') { setRightOpen(true); } else { setScheduleView(item.id === 'shows' ? scheduleView : 'schedule'); }
   };
 
+  // New Song flow, step 1: ask HOW to start (Manual Builder vs Smart
+  // Paste) before any editor state is created. The sidebar "+ New" button
+  // calls this; startNewSong() below opens the editor once picked.
   const handleNewSong = () => {
-    setDockTab('shows');
-    setLeftOpen(true);
-    setScheduleView(scheduleView === 'schedule' ? 'schedule' : scheduleView);
+    setNewSongPromptOpen(true);
+  };
+
+  // New Song flow, step 2 — mode: 'manual' (canvas builder) or
+  // 'auto' (Smart Auto-Paste tab). Editing an existing song never goes
+  // through the prompt.
+  const startNewSong = (mode) => {
     setEditingSong({ id: null, title: '', artist: '', category: 'Worship', cues: [{ label: 'Verse 1', text: '', box: DEFAULT_BOX, locked: false }] });
-    setEditorMode('manual');
+    setEditorMode(mode);
     setRawPasteText('');
+    setNewSongPromptOpen(false);
     setIsEditorOpen(true);
   };
+
+  // Safety: if the editor opens through another path (edit buttons, menus)
+  // while the prompt is up, dismiss the prompt so it can't reappear after
+  // the editor closes.
+  useEffect(() => {
+    if (isEditorOpen) setNewSongPromptOpen(false);
+  }, [isEditorOpen]);
 
   const leftContent = dockTab;
 
@@ -2847,6 +2864,11 @@ export default function App() {
 
       {/* SONG EDITOR MODAL */}
       <AnimatePresence>
+      {/* NEW SONG PROMPT — pick Manual Builder vs Smart Paste first */}
+      {newSongPromptOpen && !isEditorOpen && (
+        <NewSongPrompt onChoose={startNewSong} onCancel={() => setNewSongPromptOpen(false)} />
+      )}
+
       {isEditorOpen && (
         <SongEditorModal />
       )}

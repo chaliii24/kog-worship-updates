@@ -628,7 +628,7 @@ export default function SongEditorModal() {
                   onSizeChange={(s) => updateCue(editorCueIdx, { size: s })}
                 />
               ) : (
-                <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 12, boxShadow: '0 12px 44px rgba(0,0,0,0.45)', border: '1px solid var(--ui-border2)', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.55)', fontSize: 18, fontWeight: 700, fontFamily: 'system-ui, sans-serif' }}>Add a text box to begin</div>
+                <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 12, boxShadow: '0 12px 44px rgba(0,0,0,0.45)', border: '1px solid var(--ui-border2)', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.55)', fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-sans)' }}>Add a text box to begin</div>
               )}
             </div>
           </div>
@@ -684,7 +684,7 @@ export default function SongEditorModal() {
                               {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'video' && (
                                 <TileVideo key={`tb-${resolveBg(c, editingSong).value}`} src={resolveBg(c, editingSong).value} animate={i === editorCueIdx} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                               )}
-                              <div style={{ position: 'relative', zIndex: 2, color: c.color || '#f5f5f4', fontFamily: c.font || 'system-ui, sans-serif', fontSize: 9.5, fontWeight: 700, textAlign: 'center', padding: '0 6px', lineHeight: 1.25, textShadow: '0 1px 3px rgba(0,0,0,0.8)', maxWidth: '100%' }}>{(applyCaseTransform(c.text || '', c.case || 'none')).split('\n').slice(0, 3).join(' ')}</div>
+                              <div style={{ position: 'relative', zIndex: 2, color: c.color || '#f5f5f4', fontFamily: c.font || FONT_OPTIONS[0].value, fontSize: 9.5, fontWeight: 700, textAlign: 'center', padding: '0 6px', lineHeight: 1.25, textShadow: '0 1px 3px rgba(0,0,0,0.8)', maxWidth: '100%' }}>{(applyCaseTransform(c.text || '', c.case || 'none')).split('\n').slice(0, 3).join(' ')}</div>
                               <div style={{ position: 'absolute', top: 3, left: 4, fontSize: 8, fontWeight: 800, color: 'rgba(255,255,255,0.85)', background: 'rgba(0,0,0,0.45)', borderRadius: 3, padding: '0 4px' }}>{gi + 1}.{li}</div>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }}>

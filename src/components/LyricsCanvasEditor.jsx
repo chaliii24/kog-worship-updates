@@ -32,7 +32,7 @@ const DEFAULT_BOX = { x: 80, y: 100, w: 1120, h: 480 };
  */
 export default function LyricsCanvasEditor({
   text = '',
-  fontFamily = '"CMG Sans", system-ui, sans-serif',
+  fontFamily = '"CMG Sans Wide", "CMG Sans", sans-serif',
   fontSize = 110,
   fontColor = '#ffffff',
   textAlign = 'center',
