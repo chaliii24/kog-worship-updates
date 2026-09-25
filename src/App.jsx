@@ -474,6 +474,20 @@ export default function App() {
   useEffect(() => {
     const hash = window.location.hash;
     const outputMatch = hash.match(/#\/output\/([^?]+)(?:\?role=([^&]+))?/);
+    // Output windows are separate windows: they only ever see a slide when
+    // the operator pushes a change. If one opens while a cue is already
+    // live it would stay black until the next cue click — so after wiring
+    // the listeners, pull the cached live state from main immediately.
+    const pullLiveState = (wantStage) => {
+      if (!window.require) return;
+      const { ipcRenderer } = window.require('electron');
+      ipcRenderer.invoke('get-live-state')
+        .then((state) => {
+          const payload = wantStage ? state?.stage : state?.slide;
+          if (payload) setCurrentSlide(payload);
+        })
+        .catch(() => {});
+    };
     if (hash.includes('/stage')) {
       setIsStage(true);
       setIsProjector(false);
@@ -483,6 +497,7 @@ export default function App() {
           setCurrentSlide(stageData);
         });
       }
+      pullLiveState(true);
     } else if (outputMatch) {
       setIsOutput(true);
       setOutputRole(decodeURIComponent(outputMatch[2] || 'lyrics'));
@@ -495,6 +510,7 @@ export default function App() {
           setCurrentSlide(stageData);
         });
       }
+      pullLiveState(decodeURIComponent(outputMatch[2] || 'lyrics') === 'stage');
     } else if (hash.includes('/projector')) {
       setIsProjector(true);
       if (window.require) {
@@ -503,6 +519,7 @@ export default function App() {
           setCurrentSlide(slideData);
         });
       }
+      pullLiveState(false);
     } else {
       const timer = setTimeout(() => setShowSplash(false), 5000);
       return () => clearTimeout(timer);

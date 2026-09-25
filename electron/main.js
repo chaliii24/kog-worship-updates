@@ -394,17 +394,30 @@ ipcMain.on('outputs-save', (event, outputs) => {
 });
 
 // Content routing: by role (lyrics / stage) or by explicit output id.
+// The last payloads are cached so an output window opened AFTER a cue was
+// fired can show the currently live slide immediately — without this, a
+// freshly started output stayed black until the operator re-clicked a cue.
+let lastLiveSlide = null;
+let lastLiveStage = null;
+
 ipcMain.on('update-live-slide', (event, slideData) => {
+  lastLiveSlide = slideData || null;
   for (const { win, role } of outputWindows.values()) {
     if (role === 'lyrics' && win && !win.isDestroyed()) win.webContents.send('render-live-slide', slideData);
   }
 });
 
 ipcMain.on('update-live-stage', (event, stageData) => {
+  lastLiveStage = stageData || null;
   for (const { win, role } of outputWindows.values()) {
     if (role === 'stage' && win && !win.isDestroyed()) win.webContents.send('render-live-stage', stageData);
   }
 });
+
+// Pulled by an output window once its render listeners are registered, so
+// there is no load-order race (a push on did-finish-load could arrive
+// before the window is listening and be lost).
+ipcMain.handle('get-live-state', () => ({ slide: lastLiveSlide, stage: lastLiveStage }));
 
 ipcMain.on('update-output-aspect', (event, aspect) => {
   for (const [id, { win }] of outputWindows) {
