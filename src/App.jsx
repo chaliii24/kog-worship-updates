@@ -6,7 +6,7 @@ import { getTheme } from './lib/theme';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, cssSpeed } from './lib/constants';
 import { emphasisLine, applyCaseTransform, renderLyricsLayout, FONT_SIZE_MAX } from './lib/lyrics';
 import { parseSongBlocks, splitCuesByLines } from '../electron/songParse.js';
-import { LiveBadge, TileVideo } from './lib/perf';
+import { LiveBadge, TileVideo, BackgroundVideo } from './lib/perf';
 import SplashScreen from './components/SplashScreen';
 import WelcomeScreen from './components/WelcomeScreen';
 import StageDisplay from './components/StageDisplay';
@@ -450,10 +450,17 @@ export default function App() {
     }
   };
 
+  // Latest click wins. Selecting a song and staging a song's background both
+  // fetch details over IPC, so a fast operator can start a second request
+  // before the first lands — discard any result that isn't the newest one.
+  const songLoadSeqRef = useRef(0);
+
   const selectSong = async (id) => {
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
+      const seq = ++songLoadSeqRef.current;
       const details = await ipcRenderer.invoke('db-get-song-details', id);
+      if (seq !== songLoadSeqRef.current) return; // a newer click won
       setActiveSong(details);
     }
   };
@@ -636,6 +643,13 @@ export default function App() {
     if (activePresentation) { presentationNextRef.current && presentationNextRef.current(1); return; }
     if (!activeSong?.cues) return;
     const currentIndex = activeSong.cues.findIndex(c => c.id === activeCue?.id);
+    if (currentIndex === -1 && activeCue?.id !== 'title-card') {
+      // Nothing from this song is on air yet — Service Order standby, a cleared
+      // output, or a cue left over from the previous song. Start at the title
+      // instead of jumping straight to verse 1.
+      fireTitleLive();
+      return;
+    }
     if (currentIndex < activeSong.cues.length - 1) {
       fireCueLive(activeSong.cues[currentIndex + 1]);
     }
@@ -744,6 +758,14 @@ export default function App() {
   };
 
   const resolutionStyle = (cue) => {
+    // Clear / Stop always lands on black and always DISSOLVES there. A clear
+    // cue has no background of its own, so it used to inherit the live song's
+    // background (or plain stageStyle) and inherit its transition — stopping
+    // could cut straight to black instead of fading. Now it is explicit: black,
+    // fading, 600ms to match the background crossfade.
+    if (cue && cue.id === 'clear') {
+      return { ...stageStyle, backgroundType: 'color', backgroundValue: '#000000', transition: 'fade', speed: '600ms' };
+    }
     const base = cueHasBackground(cue)
       ? { ...stageStyle, backgroundType: cue.bg_type || 'color', backgroundValue: cue.bg_value || '#000000' }
       : songBackgroundStyle();
@@ -1145,7 +1167,11 @@ export default function App() {
       artist: activeSong.artist || '',
       text: titleCue.text || activeSong.title,
       label: 'Song Title',
-      style: effectiveStyle,
+      // resolutionStyle keeps the global cue default at 'none' so ordinary
+      // lyrics stay a crisp cut. Titles are a different moment — coming out of
+      // Service Order standby they must dissolve in, not pop. Same rule the
+      // Show Builder already uses (builderGoLive).
+      style: { ...effectiveStyle, transition: titleCue.anim || 'fade' },
       audio: activeSong.audio_url || null,
       timestamp: Date.now() 
     };
@@ -1205,11 +1231,76 @@ export default function App() {
     if (next !== cur.index) firePresentationSlide(cur.deck, next);
   };
 
+  // --- SERVICE ORDER: GO ON A SONG → BACKGROUND-FIRST STANDBY ---
+  // Go on a song while something is already on air must not hard-cut straight
+  // to the new song's title. Stage the new song's BACKGROUND only — no title,
+  // no lyrics — so the operator's next move (the title slide) is what reveals
+  // the song. The payload carries a fade so the output dissolves into standby
+  // instead of cutting; the background layer crossfades on its own key.
+  const stageSongBackground = async (id) => {
+    if (!window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    const cueOnAir = activeCue; // frozen at click time; the await below can outlive this render
+    const seq = ++songLoadSeqRef.current;
+    const details = await ipcRenderer.invoke('db-get-song-details', id);
+    if (!details || seq !== songLoadSeqRef.current) return; // a newer click won
+    setActiveSong(details);
+    // Browsing rows re-points activeSong without touching the output, so the
+    // cue on air can belong to this song even though activeSong pointed
+    // elsewhere. If this song's own slide is already showing there is nothing
+    // to stage — just select it.
+    if ((details.cues || []).some(c => c.id === cueOnAir?.id)) return;
+    // The output is being taken over by this song — if a sermon deck thought
+    // it was live, releasing it keeps keyboard advancing in sync with what's
+    // actually on screen.
+    setActivePresentation(null);
+    // Synthetic cue: makes the "is the output live" guards treat standby as
+    // on-air, while highlighting no slide-grid tile (isLive only matches cue
+    // ids / 'title-card').
+    setActiveCue({ id: 'standby', label: 'Standby', text: '' });
+    setSlideTimer({ start: null, elapsed: 0, duration: 0 });
+    const bg = songHasBackground(details)
+      ? { backgroundType: details.bg_type || 'color', backgroundValue: details.bg_value || '#000000' }
+      : { backgroundType: stageStyle.backgroundType, backgroundValue: stageStyle.backgroundValue };
+    const slidePayload = {
+      title: details.title || '',
+      artist: details.artist || '',
+      text: '',
+      label: '',
+      style: { ...stageStyle, ...bg, transition: 'fade', speed: '600ms' },
+      audio: null, // stops the outgoing song's looping pad on the switch
+      standby: true,
+      timestamp: Date.now()
+    };
+    // Functional update: the await above can outlive this render's copy of
+    // `displays`, and a stale array here would drop a concurrent push.
+    setDisplays(prev => prev.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
+    if (targetedDisplays.includes(1)) ipcRenderer.send('update-live-slide', slidePayload);
+    // Stage feed: singers get the upcoming song as "current", not "Blackout".
+    const firstCue = (details.cues || [])[0] || null;
+    sendStageData(
+      { title: details.title || '', label: 'Song Title', text: details.title || '', timestamp: slidePayload.timestamp },
+      firstCue ? { title: details.title, label: firstCue.label, text: firstCue.text } : null
+    );
+  };
+
+  // Service rows are recognised by id (that is what `activeCue.id` is compared
+  // against). Rows created before a plan is saved carry none — and
+  // `undefined === undefined` would light up every id-less row at once.
+  const genServiceItemId = () => `si-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
   const fireServiceItemLive = (item) => {
+    if (item && item.id == null) item.id = genServiceItemId();
     liveBibleRef.current = (item.meta && item.meta.kind === 'bible') ? item : null;
     liveBibleSrcRef.current = (item.meta && item.meta.kind === 'bible') ? (item.meta.source || null) : null;
     if (item.item_type === 'song') {
-      selectSong(item.content); 
+      if (activeCue && activeCue.id !== 'clear') {
+        // Output already shows something: stage this song's background first.
+        // A black/cleared output just loads the song, as before.
+        stageSongBackground(item.content);
+      } else {
+        selectSong(item.content);
+      }
     } else if (item.item_type === 'media') {
       if (activeCue?.id === item.id) return;
       fireServiceMediaLive(item);
@@ -1286,6 +1377,7 @@ export default function App() {
   // Insert a non-header item after the last item of the target section
   // (or append when no target / target missing).
   const insertServiceItem = (newItem) => {
+    if (newItem && newItem.id == null) newItem.id = genServiceItemId();
     setActiveService(prev => {
       const items = [...(prev?.items || [])];
       const target = serviceTargetTitle;
@@ -1418,12 +1510,34 @@ export default function App() {
     if (item.item_type === 'presentation') return '▦';
     return '▤';
   };
+  // --- ONE service item on air at a time ---------------------------------
+  // Songs are tracked by `activeSong` while every other type is tracked by
+  // `activeCue`, so the two never knew about each other: fire a song, then an
+  // image, and BOTH rows lit up "Stop" even though only one thing was on the
+  // screen. The row state has to be derived from what the output is actually
+  // showing, so exactly one item can ever win. A cue id that belongs to a
+  // service item names that item outright; otherwise only the selected song
+  // counts, and only while the output is still showing that song (its title,
+  // a verse, or the standby background) rather than something else.
+  const liveServiceItem = (() => {
+    const items = (activeService?.items || []).filter(Boolean);
+    if (!items.length || !activeCue || activeCue.id === 'clear') return null;
+    const songRow = () => (activeSong
+      ? items.find(i => i.item_type === 'song' && Number(i.content) === activeSong.id)
+      : null) || null;
+    // Standby / title slide only ever come from a song.
+    if (activeCue.id === 'standby' || activeCue.id === 'title-card') return songRow();
+    const byCue = items.find(i => i.id != null && i.id === activeCue.id);
+    if (byCue) return byCue;
+    // A song's own verse is on air: still that song's row, not nothing.
+    if (activeSong && (activeSong.cues || []).some(c => c.id === activeCue.id)) return songRow();
+    return null;
+  })();
+
   const serviceItemIsLive = (item) => {
-    if (item.item_type === 'song') return Number(item.content) === activeSong?.id;
-    if (item.item_type === 'custom_slide') return activeCue?.id === item.id;
-    if (item.item_type === 'media') return activeCue?.id === item.id;
-    if (item.item_type === 'presentation') return activeCue?.id === item.id;
-    return false;
+    if (!item || !liveServiceItem) return false;
+    if (liveServiceItem === item) return true;
+    return liveServiceItem.id != null && item.id != null && liveServiceItem.id === item.id;
   };
   const toggleServiceCollapse = (title) => {
     setServiceCollapsed(prev => prev.includes(title) ? prev.filter(t => t !== title) : [...prev, title]);
@@ -1491,7 +1605,7 @@ export default function App() {
       setActiveSong(null);
       setActiveCue({ id: 'clear', label: 'Clear', text: '' });
       setSlideTimer({ start: null, elapsed: 0, duration: 0 });
-      const slidePayload = { title: '', artist: '', text: '', label: 'Clear', style: { ...stageStyle, backgroundType: 'color', backgroundValue: '#000000' }, audio: null, timestamp: Date.now() };
+      const slidePayload = { title: '', artist: '', text: '', label: 'Clear', style: { ...stageStyle, backgroundType: 'color', backgroundValue: '#000000', transition: 'fade', speed: '600ms' }, audio: null, timestamp: Date.now() };
       setDisplays(displays.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
       if (window.require && targetedDisplays.includes(1)) {
         const { ipcRenderer } = window.require('electron');
@@ -2574,7 +2688,15 @@ export default function App() {
     const st = monitorContent?.style || {};
     const isMediaStyle = (st.backgroundType === 'image' || st.backgroundType === 'video') && !!st.backgroundValue;
     const hasMediaBg = !!monitorContent && isMediaStyle;
-    const valid = monitorContent && (monitorContent.text || monitorContent.presentation?.slide || hasMediaBg);
+    // Service Order standby can sit on a plain-colour background (a song with
+    // no media bg). Only a genuinely black one means "nothing on screen",
+    // otherwise the monitor labels a live standby as BLACKOUT.
+    const bgHex = String(st.backgroundValue || '').toLowerCase();
+    const isBlackColor = st.backgroundType === 'color' && (!bgHex || bgHex === '#000000' || bgHex === '#000' || bgHex === 'black');
+    const hasColorBg = !!monitorContent && st.backgroundType === 'color' && !isBlackColor;
+    const valid = monitorContent && (monitorContent.text || monitorContent.presentation?.slide || hasMediaBg || hasColorBg);
+    // Incoming slide is blank (standby / clear) → the outgoing lyrics dissolve.
+    const blankOut = !!monitorContent && !monitorContent.text && !monitorContent.presentation;
     const transitionSpeed = cssSpeed(st.speed);
     const msNum = parseInt(transitionSpeed) || 400;
     const trans = st.transition || 'none';
@@ -2608,10 +2730,17 @@ export default function App() {
       <div ref={setPreviewWrapRef} style={{ pointerEvents: 'none', position: 'relative', width: '100%', aspectRatio: outputAspect.replace(':', ' / '), borderRadius: 12, overflow: 'hidden', background: '#000', border: 'none', boxSizing: 'border-box' }}>
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
           <div style={{ width: 1280 * previewScale, height: 720 * previewScale, position: 'relative', overflow: 'hidden' }}>
+            {/* Background layer keyed on the background ONLY — never on
+                `timestamp`. Every slide carries a fresh timestamp, so including
+                it tore the layer down on every single cue: the preview video was
+                restarted from frame 0 (and re-decoded) each time a slide fired,
+                and the background re-crossfaded against itself. ProjectorDisplay
+                keys the same way, so preview and projector now swap
+                backgrounds at exactly the same moments. */}
             {monitorContent && !monitorContent.presentation && (
               <AnimatePresence>
                 <motion.div
-                  key={`monBg-${monitorContent.timestamp}-${st.backgroundType}-${st.backgroundValue}`}
+                  key={`monBg-${st.backgroundType || 'color'}:${st.backgroundValue || '#000'}`}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
@@ -2622,7 +2751,7 @@ export default function App() {
                     <div style={{ position: 'absolute', inset: 0, background: `url(${st.backgroundValue}) center/cover no-repeat` }} />
                   )}
                   {st.backgroundType === 'video' && (
-                    <video src={st.backgroundValue} autoPlay loop muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <BackgroundVideo src={st.backgroundValue} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                   )}
                   {st.backgroundType === 'color' && st.backgroundValue && (
                     <div style={{ position: 'absolute', inset: 0, background: st.backgroundValue }} />
@@ -2633,32 +2762,49 @@ export default function App() {
             {/* Scale on outer, animation on inner — same split as ProjectorDisplay */}
             <div style={{ width: 1280, height: 720, position: 'relative', overflow: 'hidden' }}>
               <div style={{ width: 1280, height: 720, position: 'absolute', inset: 0, transform: `scale(${previewScale})`, transformOrigin: 'top left' }}>
-                <div key={monitorContent?.timestamp} style={{ width: '100%', height: '100%', position: 'relative', animation: monitorContent && !monitorContent.presentation ? (animCSS || undefined) : undefined }}>
-                  {monitorContent && monitorContent.presentation?.slide ? (
-                    <PresentationSlide slide={monitorContent.presentation.slide} />
-                  ) : monitorContent && monitorContent.text ? (
-                    (() => {
-                      const isTitleSlide = monitorContent.label === 'Song Title';
-                      const lst = st.lyric || { font: st.fontFamily || 'system-ui, sans-serif', size: 110, lineHeight: 1.05, align: st.textAlign || 'center', color: st.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
-                      lst.isTitle = isTitleSlide;
-                      const box = lst.box || { x: 80, y: isTitleSlide ? 140 : 100, w: 1120, h: isTitleSlide ? 440 : 480 };
-                      return (
-                        <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
-                          {renderLyricsLayout(monitorContent.text, lst, box)}
-                        </div>
-                      );
-                    })()
-                  ) : null}
-                </div>
+                {/* Mirror the projector: lyrics dissolve out only when the
+                    incoming slide is blank, so the monitor matches what the
+                    audience sees on a song switch. */}
+                <AnimatePresence custom={blankOut} initial={false}>
+                  <motion.div
+                    key={monitorContent?.timestamp}
+                    exit="out"
+                    variants={{ out: (fadeOut) => ({ opacity: 0, transition: { duration: fadeOut ? 0.6 : 0 } }) }}
+                    style={{ position: 'absolute', inset: 0 }}
+                  >
+                    <div style={{ width: '100%', height: '100%', position: 'relative', animation: monitorContent && !monitorContent.presentation ? (animCSS || undefined) : undefined }}>
+                      {monitorContent && monitorContent.presentation?.slide ? (
+                        <PresentationSlide slide={monitorContent.presentation.slide} />
+                      ) : monitorContent && monitorContent.text ? (
+                        (() => {
+                          const isTitleSlide = monitorContent.label === 'Song Title';
+                          const lst = st.lyric || { font: st.fontFamily || 'system-ui, sans-serif', size: 110, lineHeight: 1.05, align: st.textAlign || 'center', color: st.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
+                          lst.isTitle = isTitleSlide;
+                          const box = lst.box || { x: 80, y: isTitleSlide ? 140 : 100, w: 1120, h: isTitleSlide ? 440 : 480 };
+                          return (
+                            <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+                              {renderLyricsLayout(monitorContent.text, lst, box)}
+                            </div>
+                          );
+                        })()
+                      ) : null}
+                    </div>
+                  </motion.div>
+                </AnimatePresence>
               </div>
             </div>
           </div>
         </div>
         {!valid && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: monitorContent ? 'rgba(0,0,0,0.55)' : 'transparent', color: C.faint2, fontSize: 11, fontWeight: 800, letterSpacing: 2 }}>BLACKOUT</div>
+          <>
+            {/* Stop / Clear puts the monitor into blackout: fade the label in
+                over the same 600ms the projector takes to dissolve, instead of
+                popping a dim over the frame the instant the button is clicked. */}
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: monitorContent ? 'rgba(0,0,0,0.55)' : 'transparent', color: C.faint2, fontSize: 11, fontWeight: 800, letterSpacing: 2, animation: 'fadeIn 0.6s ease-in-out' }}>BLACKOUT</div>
+          </>
         )}
         {monitorContent && (
-          <div style={{ position: 'absolute', bottom: 6, left: 8, zIndex: 2, background: 'rgba(0,0,0,0.45)', color: '#d4d4d8', borderRadius: 4, padding: '1px 6px', fontSize: 8.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5 }}>{monitorContent.label || 'Slide'}</div>
+          <div style={{ position: 'absolute', bottom: 6, left: 8, zIndex: 2, background: monitorContent.standby ? 'rgba(37,99,235,0.72)' : 'rgba(0,0,0,0.45)', color: '#d4d4d8', borderRadius: 4, padding: '1px 6px', fontSize: 8.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5 }}>{monitorContent.standby ? 'Standby' : (monitorContent.label || 'Slide')}</div>
         )}
       </div>
     );

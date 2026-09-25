@@ -2,15 +2,30 @@ import React, { useState, useEffect } from 'react';
 import { renderLyricsLayout } from '../lib/lyrics';
 import { cssSpeed } from '../lib/constants';
 import PresentationSlide from './PresentationSlide';
+import { BackgroundVideo } from '../lib/perf';
 import { AnimatePresence, motion } from 'motion/react';
 
 export default function ProjectorDisplay({ currentSlide, C, aspect }) {
   const [win, setWin] = useState({ w: window.innerWidth, h: window.innerHeight });
 
+  // rAF-throttled: while a windowed output is dragged, resize fires ~60x/s and
+  // each one re-ran the whole lyrics layout. On an i3 that is a visible stutter
+  // for the duration of the drag; collapsing to one measurement per frame costs
+  // nothing visually (the scale updates on the next paint anyway).
   useEffect(() => {
-    const onResize = () => setWin({ w: window.innerWidth, h: window.innerHeight });
+    let raf = 0;
+    const onResize = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        setWin({ w: window.innerWidth, h: window.innerHeight });
+      });
+    };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
 
   const slideStyle = currentSlide.style || {};
@@ -54,6 +69,8 @@ export default function ProjectorDisplay({ currentSlide, C, aspect }) {
   const bgValue = slideStyle.backgroundValue || '#000';
   const bgKey = `${bgType}:${bgValue}`;
   const bgFade = 0.6;
+  // Standby / clear: the incoming slide has no lyrics and no deck on it.
+  const blankSlide = !currentSlide.text && !currentSlide.presentation;
 
   // 1:1 projection: the 1280x720 design canvas (background + lyrics together)
   // is scaled uniformly to CONTAIN the window and centered. Letterbox bars fall
@@ -134,7 +151,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect }) {
             <div style={{ position: 'absolute', inset: 0, background: `url(${slideStyle.backgroundValue}) center/cover no-repeat` }} />
           )}
           {slideStyle.backgroundType === 'video' && (
-            <video src={slideStyle.backgroundValue} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            <BackgroundVideo src={slideStyle.backgroundValue} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
           )}
           {slideStyle.backgroundType === 'color' && (
             <div style={{ position: 'absolute', inset: 0, background: slideStyle.backgroundValue || '#000' }} />
@@ -154,31 +171,48 @@ export default function ProjectorDisplay({ currentSlide, C, aspect }) {
           transform: `scale(${s})`,
           transformOrigin: 'top left'
         }}>
-          <div key={currentSlide.timestamp} style={{ width: '100%', height: '100%', position: 'relative', ...animStyle }}>
-            {currentSlide.presentation && currentSlide.presentation.slide ? (
-              <PresentationSlide slide={currentSlide.presentation.slide} />
-            ) : currentSlide.text ? (
-              (() => {
-                const isTitleSlide = currentSlide.label === 'Song Title';
-                const st = slideStyle.lyric || { font: slideStyle.fontFamily || 'system-ui, sans-serif', size: 110, lineHeight: 1.05, align: slideStyle.textAlign || 'center', color: slideStyle.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
-                st.isTitle = isTitleSlide;
-                const box = st.box || { x: 80, y: isTitleSlide ? 140 : 100, w: 1120, h: isTitleSlide ? 440 : 480 };
-                const artist = currentSlide.artist || '';
-                return (
-                  <>
-                    <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
-                      {renderLyricsLayout(currentSlide.text, st, box)}
-                    </div>
-                    {isTitleSlide && artist && (
-                      <div style={{ position: 'absolute', bottom: 20, right: 24, fontFamily: st.font, fontSize: 24, fontWeight: 600, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.03em', textShadow: '0 2px 8px rgba(0,0,0,0.8)', whiteSpace: 'nowrap' }}>
-                        Song By: {artist}
-                      </div>
-                    )}
-                  </>
-                );
-              })()
-            ) : null}
-          </div>
+          {/* Lyrics/deck layer. Dissolve the outgoing layer ONLY when the
+              incoming slide carries no text (Service Order standby, clear) —
+              that's what turns a song switch into a crossfade instead of a
+              hard cut. When new text is coming in the old layer leaves at
+              once, so cue-to-cue stays crisp with no two layouts ghosting
+              over each other. The exit lives on this motion wrapper while
+              animStyle (CSS keyframes) stays on the inner div, so nothing
+              drives opacity twice on the same element. */}
+          <AnimatePresence custom={blankSlide} initial={false}>
+            <motion.div
+              key={currentSlide.timestamp}
+              exit="out"
+              variants={{ out: (fadeOut) => ({ opacity: 0, transition: { duration: fadeOut ? 0.6 : 0 } }) }}
+              style={{ position: 'absolute', inset: 0 }}
+            >
+              <div style={{ width: '100%', height: '100%', position: 'relative', ...animStyle }}>
+                {currentSlide.presentation && currentSlide.presentation.slide ? (
+                  <PresentationSlide slide={currentSlide.presentation.slide} />
+                ) : currentSlide.text ? (
+                  (() => {
+                    const isTitleSlide = currentSlide.label === 'Song Title';
+                    const st = slideStyle.lyric || { font: slideStyle.fontFamily || 'system-ui, sans-serif', size: 110, lineHeight: 1.05, align: slideStyle.textAlign || 'center', color: slideStyle.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
+                    st.isTitle = isTitleSlide;
+                    const box = st.box || { x: 80, y: isTitleSlide ? 140 : 100, w: 1120, h: isTitleSlide ? 440 : 480 };
+                    const artist = currentSlide.artist || '';
+                    return (
+                      <>
+                        <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+                          {renderLyricsLayout(currentSlide.text, st, box)}
+                        </div>
+                        {isTitleSlide && artist && (
+                          <div style={{ position: 'absolute', bottom: 20, right: 24, fontFamily: st.font, fontSize: 24, fontWeight: 600, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.03em', textShadow: '0 2px 8px rgba(0,0,0,0.8)', whiteSpace: 'nowrap' }}>
+                            Song By: {artist}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()
+                ) : null}
+              </div>
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
     </div>
