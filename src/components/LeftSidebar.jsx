@@ -119,6 +119,13 @@ export default function LeftSidebar() {
     setSectionRenameTitle('');
   };
 
+  // Shows-card item count. The plan you have OPEN may have unsaved adds, so it
+  // reads its live length; every other saved show reads the count getServices()
+  // computes from service_items. Both exclude section headers, so the card and
+  // the "N total items" readout above the Service Order always agree.
+  const showItemCount = (svc) =>
+    (activeService && activeService.id === svc.id) ? serviceOrderCount() : (svc.item_count || 0);
+
   return (
     <motion.div
       animate={{ width: leftOpen ? 340 : 0, opacity: leftOpen ? 1 : 0 }}
@@ -165,7 +172,7 @@ export default function LeftSidebar() {
                     <div key={svc.id} draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'show', id: svc.id })); e.dataTransfer.effectAllowed = 'copy'; }} onClick={() => loadService(svc.id)} title="Drag into Service Plan or click to load" style={{ background: activeService?.id === svc.id ? 'rgba(37,99,235,0.15)' : 'var(--ui-elev2)', border: activeService?.id === svc.id ? '1px solid rgba(59,130,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '8px 10px', cursor: 'grab', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                       <div style={{ minWidth: 0 }}>
                         <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--ui-text)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{svc.name}</span>
-                        <span style={{ fontSize: 10, color: 'var(--ui-faint)', display: 'block' }}>{svc.category || 'Worship'} • {svc.ratio || '16:9'} • {svc.items?.length || 0} items</span>
+                        <span style={{ fontSize: 10, color: 'var(--ui-faint)', display: 'block' }}>{svc.category || 'Worship'} • {svc.ratio || '16:9'} • {showItemCount(svc)} items</span>
                       </div>
                       <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                         <button onClick={(e) => { e.stopPropagation(); queueShowIntoService(svc.id); }} title="Add to Service Plan" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: '#93C5FD', padding: '3px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Plan</button>

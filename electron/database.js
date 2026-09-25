@@ -297,7 +297,18 @@ export function getLibraryStats() {
 
 // SERVICE PLAN DATABASE FUNCTIONS
 export function getServices() {
-  return db.prepare('SELECT * FROM services ORDER BY id DESC').all();
+  // A `services` row holds no items of its own — they live in `service_items`
+  // — so the Shows card reading `svc.items?.length` always resolved to
+  // undefined and printed "0 items" no matter what was in the plan. Count them
+  // here instead. Section headers are excluded so this number matches the
+  // "N total items" readout above the Service Order.
+  return db.prepare(`
+    SELECT s.*,
+           (SELECT COUNT(*) FROM service_items si
+             WHERE si.service_id = s.id AND si.item_type != 'section_header') AS item_count
+    FROM services s
+    ORDER BY s.id DESC
+  `).all();
 }
 
 export function getServiceDetails(serviceId) {
