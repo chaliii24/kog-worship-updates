@@ -293,6 +293,15 @@ export default function App() {
   // it would otherwise capture a stale `clearLyrics` (and with it the last
   // background it saw). Read it through a ref that every render re-points.
   const clearLyricsRef = useRef(null);
+  // Phone (LAN remote) bridge: the command listener registers once, so it reads
+  // the current handlers through a ref that every render re-points. Same idea,
+  // for the same reason.
+  const mobileCmdsRef = useRef({});
+  // Last stage payload sent to the stage window, reused for the singer view.
+  const stageSnapshotRef = useRef(null);
+  // Lets main.js ask for a fresh snapshot when the LAN server (re)starts,
+  // instead of phones waiting for the next cue to happen.
+  const pushMobileRef = useRef(null);
 
   useEffect(() => {
     if (isOutputWindow || !window.require) return;
@@ -736,18 +745,22 @@ export default function App() {
 
 // --- STAGE DISPLAY FEED ---
   const sendStageData = (currentPayload, nextPayload) => {
+    const payload = {
+      current: {
+        title: currentPayload.title || '',
+        label: currentPayload.label || '',
+        text: currentPayload.text || '',
+        timestamp: currentPayload.timestamp || Date.now()
+      },
+      next: nextPayload ? { title: nextPayload.title, label: nextPayload.label, text: nextPayload.text } : null,
+      timestamp: Date.now()
+    };
+    // Keep the exact object that went to the stage window so the phone's
+    // singer view renders the same current/next without recomputing it.
+    stageSnapshotRef.current = payload;
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
-      ipcRenderer.send('update-live-stage', {
-        current: {
-          title: currentPayload.title || '',
-          label: currentPayload.label || '',
-          text: currentPayload.text || '',
-          timestamp: currentPayload.timestamp || Date.now()
-        },
-        next: nextPayload ? { title: nextPayload.title, label: nextPayload.label, text: nextPayload.text } : null,
-        timestamp: Date.now()
-      });
+      ipcRenderer.send('update-live-stage', payload);
     }
   };
 
@@ -2161,6 +2174,118 @@ export default function App() {
     return sections;
   };
 
+  // --- LAN REMOTE BRIDGE ---------------------------------------------------
+  // A phone is a *remote*, not a second brain: it never mutates output state.
+  // Commands arrive on `mobile-command` (main.js just forwards them) and land
+  // in the exact same handlers the desktop buttons call, then the desktop
+  // pushes a fresh snapshot — so both screens always agree.
+  //
+  // Re-pointed after every commit so the once-registered listener never holds
+  // a stale closure.
+  useEffect(() => {
+    mobileCmdsRef.current = {
+      next: () => handleNextCue(),
+      prev: () => handlePrevCue(),
+      clearLyrics: () => clearLyrics(),
+      clearAll: () => fireCueLive({ id: 'clear', label: 'Clear', text: '' }),
+      // "It went black, put it back" — re-fires whatever is already on air.
+      reassert: () => { if (activeCue && activeCue.id !== 'clear') fireCueLive(activeCue); },
+      cue: ({ id }) => {
+        const cue = (activeSong?.cues || []).find(x => x.id === id);
+        if (!cue) return false;
+        fireCueLive(cue);
+        return true;
+      },
+      serviceGo: ({ id }) => {
+        const item = (activeService?.items || []).find(i => i.id === id);
+        if (!item) return false;
+        fireServiceItemLive(item);
+        return true;
+      },
+      serviceStop: ({ id }) => {
+        const item = (activeService?.items || []).find(i => i.id === id);
+        if (!item) return false;
+        stopServiceItemLive(item);
+        return true;
+      },
+    };
+  });
+
+  useEffect(() => {
+    if (isOutputWindow || !window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    const onCommand = (event, msg) => {
+      if (!msg || !msg.cmd) return;
+      const fn = mobileCmdsRef.current[msg.cmd];
+      if (typeof fn !== 'function') return;
+      try { fn(msg.payload || {}); } catch (e) { console.warn('[remote] command failed:', msg.cmd, e); }
+    };
+    ipcRenderer.on('mobile-command', onCommand);
+    return () => ipcRenderer.removeListener('mobile-command', onCommand);
+  }, [isOutputWindow]);
+
+  // Publish what phones render. Sent only when a control-relevant value
+  // changes; main.js stores the last one and hands it to any socket that
+  // connects later, which is what removes the load-order race.
+  const pushMobileState = () => {
+    if (isOutputWindow || !window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    const live = liveOutputPayload();
+    const liveId = liveServiceItem ? liveServiceItem.id : null;
+    const snap = {
+      v: 1,
+      at: Date.now(),
+      themeDark: !!themeDark,
+      live: live ? {
+        title: live.title || '',
+        label: live.label || '',
+        text: live.text || '',
+        timestamp: live.timestamp || 0,
+        presentation: live.presentation || null,
+        meta: live.meta || null,
+      } : null,
+      stage: stageSnapshotRef.current || null,
+      song: activeSong ? {
+        id: activeSong.id,
+        title: activeSong.title || '',
+        artist: activeSong.artist || '',
+        cues: (activeSong.cues || []).map(c => ({ id: c.id, label: c.label || '', text: c.text || '' })),
+      } : null,
+      activeCueId: activeCue ? activeCue.id : null,
+      liveItemId: liveId,
+      service: {
+        name: activeService?.name || activeService?.title || '',
+        sections: serviceSections().map(s => ({
+          title: s.title,
+          items: s.items.map(i => ({
+            id: i.id,
+            item_type: i.item_type,
+            title: i.title || '',
+            subtitle: i.subtitle || '',
+            live: i.id != null && i.id === liveId,
+          })),
+        })),
+      },
+      timer: {
+        start: slideTimer?.start ?? null,
+        elapsed: slideTimer?.elapsed ?? 0,
+        duration: slideTimer?.duration ?? 0,
+      },
+    };
+    ipcRenderer.send('mobile-state', snap);
+  };
+  pushMobileRef.current = pushMobileState;
+
+  useEffect(() => { pushMobileState(); }, [currentSlide, displays, activeSong, activeCue, activeService, slideTimer, themeDark, targetedDisplays]);
+
+  useEffect(() => {
+    if (isOutputWindow || !window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    const onRefresh = () => { if (pushMobileRef.current) pushMobileRef.current(); };
+    ipcRenderer.on('mobile-refresh', onRefresh);
+    return () => ipcRenderer.removeListener('mobile-refresh', onRefresh);
+  }, [isOutputWindow]);
+
   const thumbBg = (cue) => {
     if (cueHasBackground(cue)) return cue.bg_type === 'color' ? cue.bg_value : NEBULA;
     if (songHasBackground(activeSong)) return activeSong.bg_type === 'color' ? activeSong.bg_value : NEBULA;
@@ -3028,6 +3153,7 @@ export default function App() {
         openNewShow={openNewShow}
         themeDark={themeDark}
         toggleTheme={toggleTheme}
+        ACCENT={ACCENT}
       />
 
       {/* ===== MAIN WORKSPACE ===== */}

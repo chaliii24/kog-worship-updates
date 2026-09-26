@@ -43,6 +43,7 @@ import {
   getBuiltinVideoAssets,
   getBuiltinPhotoAssets
 } from './database.js';
+import { createLanServer } from './lanServer.js';
 
 dotenv.config();
 
@@ -50,6 +51,20 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 app.setPath('userData', path.join(app.getPath('appData'), 'kog-worship'));
+
+// --- LAN REMOTE (phones on the same WiFi) ---
+// Created here rather than at startup so it can read/write the pairing file
+// inside userData. Started once the window exists (see app.whenReady).
+const lan = createLanServer({ userDataDir: app.getPath('userData'), dev: !app.isPackaged });
+let lanQrCache = { url: '', data: '' };
+const lanInfoWithQr = async () => {
+  const info = lan.info();
+  if (lanQrCache.url !== info.controlUrl) {
+    const data = await lan.qr(info.controlUrl);
+    lanQrCache = { url: info.controlUrl, data };
+  }
+  return { ...info, qr: lanQrCache.data };
+};
 
 // Local Font Access API (window.queryLocalFonts) — must be enabled before ready.
 app.commandLine.appendSwitch('enable-local-font-access');
@@ -238,6 +253,34 @@ autoUpdater.logger = electronLog;
 autoUpdater.logger.transports.file.level = 'info';
 autoUpdater.autoDownload = false;
 
+// --- LAN remote: one place that knows how to (re)start the server ----------
+// The command port is the only path from a phone into the renderer. Main
+// forwards the message and returns "yes I forwarded it" — it never changes
+// app state itself, so the desktop remains the single source of truth and the
+// phone screen can only ever show what the desktop already decided.
+const lanCommandPort = ({ cmd, payload }) => {
+  if (!operatorWindow || operatorWindow.isDestroyed()) return false;
+  operatorWindow.webContents.send('mobile-command', { cmd, payload, at: Date.now() });
+  return true;
+};
+
+const startLan = async () => {
+  let info = null;
+  try {
+    info = await lan.start({ onCommand: lanCommandPort });
+  } catch (e) {
+    electronLog.warn('[lan] start failed:', e.message);
+    return null;
+  }
+  // The renderer may have pushed its snapshot before the server existed (or
+  // while it was switched off) — ask for a fresh one so a phone that just
+  // connected sees the current slide instead of waiting for the next cue.
+  if (info && operatorWindow && !operatorWindow.isDestroyed()) {
+    operatorWindow.webContents.send('mobile-refresh');
+  }
+  return info;
+};
+
 app.whenReady().then(() => {
   // Auto-grant localFontAccess (and everything else this local app needs).
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
@@ -245,6 +288,17 @@ app.whenReady().then(() => {
   });
   serveMediaProtocol();
   createWindow();
+
+  // Phones on the same WiFi talk to this. The command port is the ONLY way a
+  // phone reaches the renderer — main forwards and never mutates app state
+  // itself, so the desktop stays the single source of truth.
+  startLan().then((i) => {
+    if (!i) return;
+    if (i.running) electronLog.info('[lan] ready —', i.controlUrl);
+    else electronLog.warn('[lan] not running (port', i.port, 'unavailable)');
+  }).catch(() => {});
+
+  app.on('before-quit', () => { try { lan.stop(); } catch { /* noop */ } });
 
   // Record which path Chromium actually took. `gpu_compositing` / `video_decode`
   // reading "hardware" vs "software" is the difference between smooth and
@@ -454,6 +508,13 @@ ipcMain.on('update-live-slide', (event, slideData) => {
   for (const { win, role } of outputWindows.values()) {
     if (role === 'lyrics' && win && !win.isDestroyed()) win.webContents.send('render-live-slide', slideData);
   }
+});
+
+// The operator window owns everything a phone needs to render (live slide,
+// song cues, service order, timer, theme). It pushes a snapshot when those
+// change; main only stores it and fans it out to sockets.
+ipcMain.on('mobile-state', (event, snap) => {
+  lan.setState(snap);
 });
 
 ipcMain.on('update-live-stage', (event, stageData) => {
@@ -1792,6 +1853,13 @@ ipcMain.handle('app-info', () => ({
 }));
 
 ipcMain.handle('open-data-folder', () => shell.openPath(app.getPath('userData')));
+
+// --- LAN REMOTE IPC ---
+ipcMain.handle('lan-info', () => lanInfoWithQr());
+ipcMain.handle('lan-start', async () => { await startLan(); return lanInfoWithQr(); });
+ipcMain.handle('lan-stop', async () => { lan.stop(); return lanInfoWithQr(); });
+ipcMain.handle('lan-new-pin', async () => { lan.regeneratePin(); return lanInfoWithQr(); });
+ipcMain.handle('lan-revoke', async () => { lan.revokeAll(); return lanInfoWithQr(); });
 
 ipcMain.handle('db-export', async () => {
   const data = exportLibrary();

@@ -1,11 +1,14 @@
-import React from 'react';
-import { Plus, Monitor, Network, Sun, Moon } from 'lucide-react';
-import { motion } from 'motion/react';
+import React, { useState } from 'react';
+import { Plus, Monitor, Network, Sun, Moon, Smartphone } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { stubTap, iconBtnTap } from '../lib/anim';
+import RemoteMenu from './modals/RemoteMenu';
 import logoImage from '../assets/logo.png';
 
-export default function TopHeader({ C, PINK, activeMenu, setActiveMenu, menuItems, activeCue, toggleDevProjectorWindow, toggleStageWindow, openNewShow, themeDark, toggleTheme }) {
+export default function TopHeader({ C, PINK, activeMenu, setActiveMenu, menuItems, activeCue, toggleDevProjectorWindow, toggleStageWindow, openNewShow, themeDark, toggleTheme, ACCENT }) {
   const isLive = activeCue?.id !== 'clear' && activeCue !== null;
+  const [remoteOpen, setRemoteOpen] = useState(false);
+  const acc = ACCENT || C.heading;
   return (
     <motion.div initial={{ y: -16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ type: 'spring', stiffness: 280, damping: 26, delay: 0.05 }} style={{ background: C.panel, padding: '0 14px', height: 54, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--ui-border2)', gap: 12, flexShrink: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -41,6 +44,15 @@ export default function TopHeader({ C, PINK, activeMenu, setActiveMenu, menuItem
         <motion.button {...stubTap} onClick={toggleStageWindow} title="Stage display" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.heading, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
           <Network size={13} /> Stage
         </motion.button>
+        <div style={{ position: 'relative' }}>
+          <motion.button {...stubTap} onClick={() => setRemoteOpen(v => !v)} title="Phone remote (LAN)" style={{ background: remoteOpen ? C.elevated : C.elevated2, border: `1px solid ${remoteOpen ? acc : C.border2}`, color: remoteOpen ? acc : C.heading, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <Smartphone size={13} /> Remote
+          </motion.button>
+          {remoteOpen && <div onClick={() => setRemoteOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 399 }} />}
+          <AnimatePresence>
+            {remoteOpen && <RemoteMenu key="remote" C={C} ACCENT={acc} onClose={() => setRemoteOpen(false)} />}
+          </AnimatePresence>
+        </div>
         <motion.button {...stubTap} onClick={toggleTheme} title={themeDark ? 'Switch to light mode' : 'Switch to dark mode'} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.heading, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
           {themeDark ? <Sun size={13} /> : <Moon size={13} />}
         </motion.button>

@@ -26,9 +26,11 @@
     "motion": "^13.4.0",
     "ollama": "^0.6.3",
     "pptxgenjs": "^4.0.1",
+    "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-konva": "^19.3.0"
+    "react-konva": "^19.3.0",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
