@@ -34,18 +34,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Bundle Gemini API key into .env (AI parser in installer)
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          $k = ("$env:GEMINI_API_KEY").Trim()
-          if ([string]::IsNullOrEmpty($k)) {
-            Write-Host "::warning::GEMINI_API_KEY secret is not set - the installer's AI parser will fall back to offline regex. Add it under Settings > Secrets and variables > Actions."
-          } else {
-            [System.IO.File]::WriteAllText("$PWD\.env", "GEMINI_API_KEY=$k")
-            Write-Host "Bundled GEMINI_API_KEY into .env for packaging."
-          }
-          exit 0
+      # NOTE: no step bundles GEMINI_API_KEY into the installer, and
+      # package.json must never list .env in extraResources. The installer is
+      # published as a public release asset, so any secret packed inside it is
+      # readable by anyone who downloads it. Smart Paste instead reads the
+      # operator's own key from userData\.env (set in the song editor) and
+      # falls back to local Ollama / regex when none is set.
 
       - name: Verify bundled backgrounds are present
         run: |

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Plus, Check, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, Cpu, Timer, Clock3, Link2, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack } from 'lucide-react';
+import { Plus, Check, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, Cpu, KeyRound, Timer, Clock3, Link2, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, FALLBACK_SYSTEM_FONTS } from '../lib/constants';
 import { applyCaseTransform, renderLyricsLayout, FONT_SIZE_MIN, FONT_SIZE_MAX } from '../lib/lyrics';
@@ -17,6 +17,18 @@ const quoteFont = (family) => {
   if (f.startsWith('"') || f.startsWith("'")) return f;
   return /\s/.test(f) ? `"${f}"` : f;
 };
+
+const aiKeyBtn = (C) => ({
+  background: C.panel,
+  border: '1px solid var(--ui-border2)',
+  color: C.accLine,
+  borderRadius: 7,
+  padding: '6px 11px',
+  fontSize: 10.5,
+  fontWeight: 700,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+});
 
 // Numeric field that lets you type freely. The raw text lives in local state
 // while the field is focused, so clearing it shows an empty box (not a snapped
@@ -175,6 +187,78 @@ export default function SongEditorModal() {
     applyToastRef.current = setTimeout(() => setApplyToast(null), 2600);
   };
   useEffect(() => () => clearTimeout(applyToastRef.current), []);
+
+  // --- bring-your-own Gemini key -------------------------------------------
+  // The installer ships no key (a secret packed into a public release asset is
+  // public), so the operator supplies their own. With no key, Smart Paste
+  // falls back to the local parser — that is the intended default, not an
+  // error, so this panel explains it instead of leaving a silent surprise.
+  const geminiIpc = (typeof window !== 'undefined' && window.require)
+    ? window.require('electron').ipcRenderer
+    : null;
+  const [aiKey, setAiKey] = useState(null);        // { hasKey, masked } | null = loading
+  const [aiKeyInput, setAiKeyInput] = useState('');
+  const [aiKeyMsg, setAiKeyMsg] = useState(null);  // { ok, text }
+  const [aiKeyBusy, setAiKeyBusy] = useState(false);
+  const aiKeyMsgRef = useRef(null);
+
+  // Errors stay put so they can be read; success fades like the apply toast.
+  const setAiKeyNote = (msg) => {
+    setAiKeyMsg(msg);
+    clearTimeout(aiKeyMsgRef.current);
+    if (msg && msg.ok) aiKeyMsgRef.current = setTimeout(() => setAiKeyMsg(null), 3200);
+  };
+  useEffect(() => () => clearTimeout(aiKeyMsgRef.current), []);
+
+  const refreshAiKey = async () => {
+    if (!geminiIpc) return;
+    try { setAiKey(await geminiIpc.invoke('gemini-status')); } catch { /* main not ready */ }
+  };
+  useEffect(() => { refreshAiKey(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveAiKey = async () => {
+    if (!geminiIpc || aiKeyBusy) return;
+    const value = aiKeyInput.trim();
+    if (!value) return;
+    setAiKeyBusy(true);
+    setAiKeyMsg(null);
+    try {
+      const res = await geminiIpc.invoke('gemini-set-key', value);
+      setAiKey(res);
+      if (res.error) setAiKeyNote({ ok: false, text: res.error });
+      else { setAiKeyInput(''); setAiKeyNote({ ok: true, text: 'Key saved on this computer.' }); }
+    } catch { setAiKeyNote({ ok: false, text: 'Could not reach the app.' }); }
+    setAiKeyBusy(false);
+  };
+
+  const clearAiKey = async () => {
+    if (!geminiIpc || aiKeyBusy) return;
+    setAiKeyBusy(true);
+    setAiKeyMsg(null);
+    try {
+      const res = await geminiIpc.invoke('gemini-clear-key');
+      setAiKey(res);
+      setAiKeyNote({ ok: true, text: 'Key removed — Smart Paste now uses the local parser.' });
+    } catch { setAiKeyNote({ ok: false, text: 'Could not reach the app.' }); }
+    setAiKeyBusy(false);
+  };
+
+  const testAiKey = async () => {
+    if (!geminiIpc || aiKeyBusy) return;
+    setAiKeyBusy(true);
+    setAiKeyMsg(null);
+    try {
+      const res = await geminiIpc.invoke('gemini-test-key');
+      setAiKeyNote(res.ok
+        ? { ok: true, text: 'Key works — Gemini answered.' }
+        : { ok: false, text: res.error || 'Gemini did not accept that key.' });
+    } catch { setAiKeyNote({ ok: false, text: 'Could not reach the app.' }); }
+    setAiKeyBusy(false);
+  };
+
+  const openKeyPage = () => {
+    try { window.require('electron').shell.openExternal('https://aistudio.google.com/apikey'); } catch { /* noop */ }
+  };
 
   useEffect(() => {
     if (renameIdx == null) return;
@@ -386,6 +470,44 @@ export default function SongEditorModal() {
               )}
             </div>
           </div>
+          {selectedAiModel !== 'ollama' && (
+            <div style={{ background: C.input, border: `1px solid ${aiKey && aiKey.hasKey ? 'rgba(34,197,94,0.35)' : 'var(--ui-border2)'}`, borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <KeyRound size={13} color={aiKey && aiKey.hasKey ? '#4ade80' : C.accLine} />
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: C.text }}>
+                  {aiKey === null ? 'Checking for a saved key…' : aiKey.hasKey ? `Gemini key saved · ${aiKey.masked}` : 'Online parsing needs your own Gemini key'}
+                </span>
+                {aiKey && aiKey.hasKey && (
+                  <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                    <button onClick={testAiKey} disabled={aiKeyBusy} style={aiKeyBtn(C)}>{aiKeyBusy ? '…' : 'Test'}</button>
+                    <button onClick={clearAiKey} disabled={aiKeyBusy} style={{ ...aiKeyBtn(C), color: '#f87171', borderColor: 'rgba(239,68,68,0.45)' }}>Remove</button>
+                  </span>
+                )}
+              </div>
+              {aiKey && !aiKey.hasKey && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 9 }}>
+                  <input
+                    type="password"
+                    value={aiKeyInput}
+                    onChange={(e) => setAiKeyInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') saveAiKey(); }}
+                    placeholder="Paste your Gemini API key"
+                    spellCheck={false}
+                    autoComplete="off"
+                    style={{ flex: 1, minWidth: 0, background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: '8px 10px', color: C.text, fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                  />
+                  <button onClick={saveAiKey} disabled={aiKeyBusy || !aiKeyInput.trim()} style={{ ...aiKeyBtn(C), color: '#fff', background: (aiKeyBusy || !aiKeyInput.trim()) ? C.faint : ACCENT, borderColor: 'transparent' }}>Save</button>
+                </div>
+              )}
+              <div style={{ fontSize: 10.5, color: C.faint, marginTop: 8, lineHeight: 1.55 }}>
+                Saved only in this computer's app data — never bundled into the app, and sent to no one but Google.{' '}
+                <span onClick={openKeyPage} style={{ color: C.accLine, cursor: 'pointer', fontWeight: 700 }}>Get a free key →</span>
+              </div>
+              {aiKeyMsg && (
+                <div style={{ fontSize: 11, marginTop: 6, fontWeight: 700, color: aiKeyMsg.ok ? '#4ade80' : '#f87171' }}>{aiKeyMsg.text}</div>
+              )}
+            </div>
+          )}
           <p style={{ fontSize: 12, color: C.faint, margin: '0 0 12px 0' }}>Plain lyrics or chord charts both work: chords are stripped only when the text is a chart, Google Docs and web formatting get cleaned up, and sections map into blocks using your chosen engine. Lyrics with no labels split into Verse/Chorus blocks automatically.</p>
           <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'center' }}>
             <Link2 size={13} color={C.accLine} />

@@ -100,8 +100,11 @@ app.commandLine.appendSwitch('disable-client-side-phishing-detection');
 app.commandLine.appendSwitch('no-first-run');
 app.commandLine.appendSwitch('disable-features', 'MediaRouter,OptimizationHints,Translate');
 
-// Load the Gemini key in packaged builds too: cwd/.env (dev) is not shipped,
-// so also look in resources/.env (bundled) and userData/.env (per-machine override).
+// Load the Gemini key. Releases ship NO key on purpose: the installer is a
+// public release asset, so anything packed into it is readable by anyone who
+// downloads it (see release.yml and build.extraResources). The operator's own
+// key is written to userData/.env by the song editor's AI key control; a
+// local .env is only used for development.
 if (!process.env.GEMINI_API_KEY) {
   const envCandidates = [
     path.join(process.resourcesPath || '', '.env'),
@@ -1860,6 +1863,88 @@ ipcMain.handle('lan-start', async () => { await startLan(); return lanInfoWithQr
 ipcMain.handle('lan-stop', async () => { lan.stop(); return lanInfoWithQr(); });
 ipcMain.handle('lan-new-pin', async () => { lan.regeneratePin(); return lanInfoWithQr(); });
 ipcMain.handle('lan-revoke', async () => { lan.revokeAll(); return lanInfoWithQr(); });
+
+// --- GEMINI KEY: bring your own ------------------------------------------
+// The key never ships in the installer (it would be public). It lives in
+// userData\.env, which the startup loader at the top of this file reads.
+const GEMINI_KEY_NAME = 'GEMINI_API_KEY';
+const userEnvPath = () => path.join(app.getPath('userData'), '.env');
+
+const readUserEnv = () => {
+  try {
+    if (!fs.existsSync(userEnvPath())) return {};
+    const out = {};
+    for (const line of fs.readFileSync(userEnvPath(), 'utf8').split(/\r?\n/)) {
+      const i = line.indexOf('=');
+      if (i > 0) out[line.slice(0, i).trim()] = line.slice(i + 1);
+    }
+    return out;
+  } catch { return {}; }
+};
+
+const writeUserEnv = (vars) => {
+  try {
+    const current = readUserEnv();
+    Object.assign(current, vars);
+    fs.mkdirSync(path.dirname(userEnvPath()), { recursive: true });
+    fs.writeFileSync(userEnvPath(), Object.entries(current).map(([k, v]) => `${k}=${v}`).join('\n') + '\n');
+    return true;
+  } catch (e) {
+    electronLog.warn('[gemini] could not write userData/.env:', e.message);
+    return false;
+  }
+};
+
+const rawGeminiKey = () =>
+  String(process.env[GEMINI_KEY_NAME] || '').trim().replace(/^["']|["']$/g, '');
+
+const geminiStatus = () => {
+  const raw = rawGeminiKey();
+  return { hasKey: raw.length >= 20, masked: raw ? `${raw.slice(0, 6)}…${raw.slice(-4)}` : '' };
+};
+
+ipcMain.handle('gemini-status', () => geminiStatus());
+
+ipcMain.handle('gemini-set-key', async (event, key) => {
+  const clean = String(key || '').trim().replace(/^["']|["']$/g, '');
+  if (clean.length < 20 || /\s/.test(clean)) {
+    return { ...geminiStatus(), error: 'That does not look like an API key.' };
+  }
+  // Save to disk first, then update the live env so it takes effect without
+  // restarting the app.
+  if (!writeUserEnv({ [GEMINI_KEY_NAME]: clean })) {
+    return { ...geminiStatus(), error: 'Could not save to the app data folder.' };
+  }
+  process.env[GEMINI_KEY_NAME] = clean;
+  return geminiStatus();
+});
+
+ipcMain.handle('gemini-clear-key', async () => {
+  // Writing an EMPTY value instead of deleting the file is deliberate: the
+  // startup loader reads userData/.env before the local dev .env, and dotenv
+  // never overwrites a key that already exists — so an empty value also
+  // suppresses a dev .env, meaning "cleared" actually stays cleared.
+  writeUserEnv({ [GEMINI_KEY_NAME]: '' });
+  delete process.env[GEMINI_KEY_NAME];
+  return geminiStatus();
+});
+
+ipcMain.handle('gemini-test-key', async () => {
+  const raw = rawGeminiKey();
+  if (raw.length < 20) return { ok: false, error: 'No API key set.' };
+  try {
+    const ai = new GoogleGenAI({ apiKey: raw });
+    const r = await ai.models.generateContent({
+      model: 'gemini-3.6-flash',
+      contents: 'Reply with the single word OK.',
+    });
+    const text = String(r.text || '').trim();
+    return { ok: !!text, error: text ? '' : 'The key returned nothing — check that it is active.' };
+  } catch (e) {
+    const msg = String((e && e.message) || 'Request failed.').slice(0, 220);
+    return { ok: false, error: msg };
+  }
+});
 
 ipcMain.handle('db-export', async () => {
   const data = exportLibrary();
