@@ -1083,22 +1083,37 @@ export default function App() {
     return null;
   })();
 
+  // Drop a media item into the section the builder is targeting. Falls back to
+  // the first section, which is what the "Add to" picker in the modal shows
+  // when nothing has been chosen yet — so an upload right after opening the
+  // builder no longer fails with "Add a section first".
+  const pushBuilderMedia = async (item) => {
+    const secId = builderTargetSectionId || (showBuilder.sections || [])[0]?.id;
+    if (!secId) { await appAlert('Add a section first, then try again.'); return; }
+    setShowBuilder(prev => ({
+      ...prev,
+      sections: prev.sections.map(s => s.id === secId ? { ...s, items: [...s.items, item] } : s)
+    }));
+  };
+
   const addShowBuilderMedia = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const url = await persistMediaFile(file);
     if (!url) { await appAlert('Could not copy that media file. Try another image or video.'); if (e.target) e.target.value = ''; return; }
-    const kind = file.type.startsWith('video/') ? 'video' : 'image';
-    const secId = builderTargetSectionId;
-    if (secId) {
-      setShowBuilder(prev => ({
-        ...prev,
-        sections: prev.sections.map(s => s.id === secId ? { ...s, items: [...s.items, { title: file.name.replace(/\.[^.]+$/, ''), content: '', duration: 0, media_type: kind, media_url: url }] } : s)
-      }));
-    } else {
-      await appAlert('Add a section first, then try again.');
-    }
+    await pushBuilderMedia({ title: file.name.replace(/\.[^.]+$/, ''), content: '', duration: 0, media_type: file.type.startsWith('video/') ? 'video' : 'image', media_url: url });
     if (e.target) e.target.value = '';
+  };
+
+  // Same item, but picked from media already inside the app — nothing is
+  // re-uploaded and no copy of the file is made.
+  const addShowBuilderExistingMedia = (asset) => {
+    if (!asset?.url) return;
+    let name = asset.name || '';
+    if (!name) {
+      try { name = decodeURIComponent(String(asset.url).split('/').pop().split('?')[0]); } catch (_) { name = 'Media'; }
+    }
+    pushBuilderMedia({ title: name.replace(/\.[^.]+$/, ''), content: '', duration: 0, media_type: asset.kind === 'video' ? 'video' : 'image', media_url: asset.url });
   };
 
   const addShowBuilderPlaceholder = (label) => {
@@ -1923,11 +1938,6 @@ export default function App() {
     }));
   };
 
-  // One click: apply the current font to every slide (title slide included).
-  const applyFontToAllCues = (font) => {
-    if (font) applyPatchToAllCues({ font });
-  };
-
   // Group key for the slide filmstrip: "(Part N)" is a chunk of a section, not a
   // section. The trailing-letter strip is for "Section A/B" / "Verse 1a" style
   // markers, so it only eats a letter that follows a space or a digit. The old
@@ -1960,16 +1970,6 @@ export default function App() {
     setEditingSong({ ...editingSong, cues: newCues });
     setEditorCueIdx(editorCueIdx + 1);
     setTimeout(() => setCanvasEdit(true), 0);
-  };
-
-  const applyAlignToAll = () => {
-    const align = editorCue?.align || 'center';
-    setEditingSong(s => ({ ...s, cues: (s.cues || []).map(c => ({ ...c, align })) }));
-  };
-
-  const applyAnimToAll = () => {
-    const src = editorCue || {};
-    setEditingSong(s => ({ ...s, cues: (s.cues || []).map(c => ({ ...c, anim: src.anim || c.anim, speed: src.speed != null ? src.speed : c.speed, autoNext: src.autoNext != null ? src.autoNext : c.autoNext })) }));
   };
 
   const reorderCues = (from, to) => {
@@ -3082,7 +3082,7 @@ export default function App() {
     addSongToSection, addSlideToSection, updateShowItem, removeShowItem, addShowSection, renameShowSection,
     removeShowSection, moveShowSection, showTotalSeconds, createShow, selectBuilderItem, builderItemSlideCount,
     builderFlatItems, builderTotalSlides, builderCurrentEntry, builderGoLive, builderAdvance, builderUpNext,
-    addShowBuilderMedia, addShowBuilderPlaceholder, fireCueLive, fireTitleLive, fireServiceItemLive,
+    addShowBuilderMedia, addShowBuilderExistingMedia, addShowBuilderPlaceholder, fireCueLive, fireTitleLive, fireServiceItemLive,
     toggleDevProjectorWindow, toggleStageWindow, addSongToService, addHeaderToService, renameServiceHeader, addCustomSlideToService,
     reorderServiceItem, moveServiceBlock, moveServiceItem, removeServiceItem, serviceOrderCount, serviceSlideCount,
     serviceStatusIcon, serviceItemIsLive, toggleServiceCollapse, expandAllServiceSections, collapseAllServiceSections,
@@ -3091,8 +3091,8 @@ export default function App() {
     openPresentationEditor, closePresentationEditor, openPresentation, savePresentationDeck, deletePresentationDeck,
     presentDeck, firePresentationSlide, addPresentationToService, activePresentation, stopPresentation,
     processAutoPaste, fetchSongFromUrl, moveCue, duplicateCue, setCueBackground, cueFileToBackground, setSongBackground,
-    songBgFileToBackground, clearCueBackground, splitCuesToLines, clampNum, editorCue, editorBox, updateCue, updateCueThrottled, applyFontToAllCues, applyPatchToAllCues,
-    baseGroupLabel, nextSuffixLetter, splitCueAtTextareaCaret, applyAlignToAll, applyAnimToAll, reorderCues,
+    songBgFileToBackground, clearCueBackground, splitCuesToLines, clampNum, editorCue, editorBox, updateCue, updateCueThrottled, applyPatchToAllCues,
+    baseGroupLabel, nextSuffixLetter, splitCueAtTextareaCaret, reorderCues,
     startBoxDrag, onStagePointerMove, endBoxDrag, ToolbarBtn, fitStageFont, cueLyricStyle, handleSaveSong,
     previewAnimation,
     handleDeleteSong, handleToggleFavorite, handleExport, handleImport, serviceSections, thumbBg, resolveBg,

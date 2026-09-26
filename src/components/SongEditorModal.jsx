@@ -142,12 +142,9 @@ export default function SongEditorModal() {
     editorBox,
     updateCue,
     updateCueThrottled,
-    applyFontToAllCues,
     applyPatchToAllCues,
     baseGroupLabel,
     splitCueAtTextareaCaret,
-    applyAlignToAll,
-    applyAnimToAll,
     reorderCues,
     ToolbarBtn,
     cueLyricStyle,
@@ -187,6 +184,49 @@ export default function SongEditorModal() {
     applyToastRef.current = setTimeout(() => setApplyToast(null), 2600);
   };
   useEffect(() => () => clearTimeout(applyToastRef.current), []);
+
+  // --- one apply-to-all ----------------------------------------------------
+  // There used to be five separate buttons (align, font, case, style, anim),
+  // one per panel, so nothing — not even a font-size change — could reach the
+  // rest of the song from a single place. One button now copies every visual
+  // setting the sidebar controls onto the title slide and every cue.
+  // Layout/resize mode, padding, timing and notes are deliberately left out:
+  // those vary slide to slide instead of being a look.
+  const applyTypographyToAll = () => {
+    const c = editorCue;
+    if (!c) return;
+    applyPatchToAllCues({
+      font: c.font || FONT_OPTIONS[0].value,
+      size: c.size || 92,
+      lineHeight: c.lineHeight || 1.05,
+      letterSpacing: c.letterSpacing || 0,
+      bold: c.bold !== false,
+      italic: !!c.italic,
+      underline: !!c.underline,
+      strike: !!c.strike,
+      case: c.case || 'none',
+      align: c.align || 'center',
+      valign: c.valign || 'middle',
+      color: c.color || '#ffffff',
+      shadow: !!c.shadow,
+      shadowColor: c.shadowColor || '#000000',
+      shadowBlur: c.shadowBlur ?? 14,
+      shadowOffsetX: c.shadowOffsetX ?? 0,
+      shadowOffsetY: c.shadowOffsetY ?? 4,
+      outline: !!c.outline,
+      strokeColor: c.strokeColor || '#000000',
+      strokeWidth: c.strokeWidth ?? 1.5,
+      gradient: !!c.gradient,
+      gradientColor1: c.gradientColor1 || '#f5f5f4',
+      gradientColor2: c.gradientColor2 || '#93c5fd',
+      gradientAngle: c.gradientAngle ?? 180,
+      highlight: !!c.highlight,
+      hlOpacity: c.hlOpacity ?? 40,
+      anim: c.anim || 'none',
+      speed: c.speed ?? 0.5,
+    });
+    confirmApplied('Typography applied to every slide');
+  };
 
   // --- bring-your-own Gemini key -------------------------------------------
   // The installer ships no key (a secret packed into a public release asset is
@@ -559,7 +599,6 @@ export default function SongEditorModal() {
                 <input type="range" min="0" max="80" step="2" value={editorCue?.pad ?? 10} onChange={(e) => updateCueThrottled(editorCueIdx, { pad: Number(e.target.value) })} style={{ flex: 1 }} />
                 <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.pad ?? 10}</span>
               </div>
-              <button onClick={() => { applyAlignToAll(); confirmApplied('Alignment applied to every slide'); }} style={{ width: '100%', background: 'rgba(59,130,246,0.14)', border: '1px solid ' + ACCENT, color: ACCENT, borderRadius: 7, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Apply Align to All</button>
             </div>
 
             {/* LAYOUT */}
@@ -619,7 +658,6 @@ export default function SongEditorModal() {
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Typography</div>
               <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Font Family</label>
               <FontPicker value={editorCue?.font || FONT_OPTIONS[0].value} choices={fontChoices} onChange={(v) => updateCue(editorCueIdx, { font: v })} C={C} />
-              <button onClick={() => { applyFontToAllCues(editorCue?.font || FONT_OPTIONS[0].value); confirmApplied('Font applied to every slide'); }} title="Set this font on every slide of the song (including the title slide)" style={{ width: '100%', marginTop: 6, background: C.elevated2, border: '1px dashed var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>Apply font to all slides</button>
               <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
                 {[
                   ['bold', Bold, 'Bold', true],
@@ -654,7 +692,6 @@ export default function SongEditorModal() {
                   <button key={m} onClick={() => updateCue(editorCueIdx, { case: m })} style={{ flex: 1, background: (editorCue?.case || 'none') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (editorCue?.case || 'none') === m ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{m === 'title' ? 'Tt' : lbl}</button>
                 ))}
               </div>
-              <button onClick={() => { applyPatchToAllCues({ case: editorCue?.case || 'none' }); confirmApplied('Letter case applied to every slide'); }} title="Set this letter case on every slide of the song" style={{ width: '100%', marginTop: 6, background: C.elevated2, border: '1px dashed var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>Apply case to all slides</button>
             </div>
 
             {/* TEXT STYLE */}
@@ -731,7 +768,6 @@ export default function SongEditorModal() {
                   <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.hlOpacity ?? 40}%</span>
                 </div>
               )}
-              <button onClick={() => { applyPatchToAllCues({ color: editorCue?.color || '#ffffff', shadow: !!editorCue?.shadow, shadowColor: editorCue?.shadowColor || '#000000', shadowBlur: editorCue?.shadowBlur ?? 14, shadowOffsetX: editorCue?.shadowOffsetX ?? 0, shadowOffsetY: editorCue?.shadowOffsetY ?? 4, outline: !!editorCue?.outline, strokeColor: editorCue?.strokeColor || '#000000', strokeWidth: editorCue?.strokeWidth ?? 1.5, gradient: !!editorCue?.gradient, gradientColor1: editorCue?.gradientColor1 || '#f5f5f4', gradientColor2: editorCue?.gradientColor2 || '#93c5fd', gradientAngle: editorCue?.gradientAngle ?? 180, highlight: !!editorCue?.highlight, hlOpacity: editorCue?.hlOpacity ?? 40 }); confirmApplied('Style applied to every slide'); }} title="Copy this slide's color, shadow, outline, gradient and highlight settings to every slide" style={{ width: '100%', marginTop: 6, background: C.elevated2, border: '1px dashed var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>Apply style to all slides</button>
             </div>
 
             {/* TRANSITIONS */}
@@ -794,7 +830,13 @@ export default function SongEditorModal() {
                 <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, whiteSpace: 'nowrap' }}>Auto Next (sec)</label>
                 <input type="number" min="0" value={editorCue?.autoNext ?? 0} onChange={(e) => updateCue(editorCueIdx, { autoNext: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} style={{ width: 60, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
               </div>
-              <button onClick={() => { applyAnimToAll(); confirmApplied('Animation applied to every slide'); }} style={{ width: '100%', marginTop: 10, background: 'rgba(59,130,246,0.14)', border: '1px solid ' + ACCENT, color: ACCENT, borderRadius: 7, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Apply Anim to All</button>
+            </div>
+
+            {/* ONE apply-to-all. Sticky so it stays reachable however far the
+                sidebar has been scrolled. */}
+            <div style={{ position: 'sticky', bottom: 0, zIndex: 3, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10, boxShadow: '0 -10px 22px rgba(0,0,0,0.35)' }}>
+              <button onClick={applyTypographyToAll} title="Copy this slide's font, size, alignment, colour, effects and transition onto every slide of the song, title slide included" style={{ width: '100%', background: ACCENT, border: 'none', color: C.text, borderRadius: 8, padding: '9px 8px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', lineHeight: 1.3 }}>Apply typography changes to all slides</button>
+              <div style={{ fontSize: 9, color: C.faint, marginTop: 5, textAlign: 'center', lineHeight: 1.45 }}>Uses this slide as the source. Layout, padding, timing and notes stay as they are.</div>
             </div>
 
             {/* PRESENTER NOTES */}

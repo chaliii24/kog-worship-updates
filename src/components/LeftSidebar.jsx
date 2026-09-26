@@ -126,6 +126,19 @@ export default function LeftSidebar() {
   const showItemCount = (svc) =>
     (activeService && activeService.id === svc.id) ? serviceOrderCount() : (svc.item_count || 0);
 
+  // Date set in New Show. Stored as "YYYY-MM-DD" (or a full ISO string when the
+  // show already carried one), and a bare date is parsed at midnight so it
+  // cannot render as the day before in timezones west of UTC. Same wording the
+  // Saved panel uses for this field.
+  const fmtShowDate = (d) => {
+    if (!d) return '';
+    const s = String(d);
+    try {
+      return new Date(s.length === 10 ? s + 'T00:00:00' : s)
+        .toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    } catch (_) { return s; }
+  };
+
   return (
     <motion.div
       animate={{ width: leftOpen ? 340 : 0, opacity: leftOpen ? 1 : 0 }}
@@ -172,6 +185,7 @@ export default function LeftSidebar() {
                     <div key={svc.id} draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'show', id: svc.id })); e.dataTransfer.effectAllowed = 'copy'; }} onClick={() => loadService(svc.id)} title="Drag into Service Plan or click to load" style={{ background: activeService?.id === svc.id ? 'rgba(37,99,235,0.15)' : 'var(--ui-elev2)', border: activeService?.id === svc.id ? '1px solid rgba(59,130,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '8px 10px', cursor: 'grab', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                       <div style={{ minWidth: 0 }}>
                         <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--ui-text)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{svc.name}</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: svc.date ? '#f59e0b' : 'var(--ui-faint)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fmtShowDate(svc.date) || 'No date'}</span>
                         <span style={{ fontSize: 10, color: 'var(--ui-faint)', display: 'block' }}>{svc.category || 'Worship'} • {svc.ratio || '16:9'} • {showItemCount(svc)} items</span>
                       </div>
                       <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
@@ -227,13 +241,24 @@ export default function LeftSidebar() {
               {serviceAddMenu === 'song' && (
                 <div style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 4 }}>
                   <input autoFocus value={serviceSongQuery} onChange={(e) => setServiceSongQuery(e.target.value)} placeholder="Search library songs…" style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 7, padding: '5px 8px', color: 'var(--ui-text)', fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
-                  {songs.filter(s => !serviceSongQuery.trim() || (s.title + ' ' + (s.artist || '')).toLowerCase().includes(serviceSongQuery.trim().toLowerCase())).slice(0, 8).map(s => (
-                    <button key={s.id} onClick={() => { addSongToService(s); setServiceSongQuery(''); setServiceAddMenu(null); }} style={{ textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title}</span>
-                      <span style={{ fontSize: 10, color: 'var(--ui-faint)', flexShrink: 0 }}>{s.artist || 'Unknown'} • + Add</span>
-                    </button>
-                  ))}
-                  {songs.length === 0 && <div style={{ fontSize: 11, color: 'var(--ui-faint)', padding: 4 }}>No songs in library yet.</div>}
+                  {/* The list scrolls instead of running off the panel — every
+                      song stays reachable without typing a search. */}
+                  {(() => {
+                    const q = serviceSongQuery.trim().toLowerCase();
+                    const list = songs.filter(s => !q || (s.title + ' ' + (s.artist || '')).toLowerCase().includes(q));
+                    return (
+                      <div style={{ maxHeight: 190, overflowY: 'auto', display: 'grid', gap: 2, paddingRight: 2 }}>
+                        {list.map(s => (
+                          <button key={s.id} onClick={() => { addSongToService(s); setServiceSongQuery(''); setServiceAddMenu(null); }} style={{ textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title}</span>
+                            <span style={{ fontSize: 10, color: 'var(--ui-faint)', flexShrink: 0 }}>{s.artist || 'Unknown'} • + Add</span>
+                          </button>
+                        ))}
+                        {songs.length === 0 && <div style={{ fontSize: 11, color: 'var(--ui-faint)', padding: 4 }}>No songs in library yet.</div>}
+                        {songs.length > 0 && list.length === 0 && <div style={{ fontSize: 11, color: 'var(--ui-faint)', padding: 4 }}>No matches for “{serviceSongQuery}”.</div>}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
               {serviceAddMenu === 'media' && (

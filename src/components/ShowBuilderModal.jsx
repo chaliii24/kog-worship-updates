@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Plus, Search, Trash2, Video, Monitor, LayoutGrid, ChevronDown, ChevronLeft, ChevronRight, Music, FileText, Image as ImageIcon } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatCountdown } from '../lib/constants';
@@ -44,9 +44,17 @@ export default function ShowBuilderModal() {
     builderGoLive,
     builderAdvance,
     addShowBuilderMedia,
+    addShowBuilderExistingMedia,
     addShowBuilderPlaceholder,
-    renderOutputPreview
+    renderOutputPreview,
+    mediaLibrary,
+    fetchMediaLibrary
   } = app;
+
+  // Toggled inside the builder's own Add Media menu. Deliberately local: the
+  // service-order sidebar has its own picker state and this modal sits on top
+  // of it, so sharing one flag would leave the other one open afterwards.
+  const [builderMediaPicker, setBuilderMediaPicker] = useState(false);
 
 const slideCount = (item) => {
   if (item?.songId) { const s = builderSongDetails[item.songId] || songs.find(x => x.id === item.songId); return s ? (s.cues || []).length + 1 : 1; }
@@ -118,27 +126,62 @@ return (
             </select>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            <button onClick={() => setServiceAddMenu(serviceAddMenu === 'builder-song' ? null : 'builder-song')} style={{ fontSize: 10, fontWeight: 700, background: '#1e1b4b', color: C.accLine, border: '1px solid #4338ca', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Song</button>
+            <button onClick={() => setServiceAddMenu(serviceAddMenu === 'builder-song' ? null : 'builder-song')} style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-song' ? '#1e1b4b' : C.elevated2, color: serviceAddMenu === 'builder-song' ? C.accLine : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-song' ? '#4338ca' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Song</button>
             <button onClick={() => { if (targetSecId) addSlideToSection(targetSecId); }} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Slide</button>
-            <button onClick={() => document.getElementById('show-media-input-builder')?.click()} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Media</button>
+            <button onClick={() => { const open = serviceAddMenu !== 'builder-media'; setServiceAddMenu(open ? 'builder-media' : null); if (open) { setBuilderMediaPicker(true); fetchMediaLibrary(); } }} title="Upload a file, or pick media that is already in the app" style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-media' ? 'rgba(37,99,235,0.18)' : C.elevated2, color: serviceAddMenu === 'builder-media' ? '#93C5FD' : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-media' ? '#4338ca' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Media</button>
             <input type="file" id="show-media-input-builder" accept="image/*,video/*" style={{ display: 'none' }} onChange={addShowBuilderMedia} />
             <button onClick={() => addShowBuilderPlaceholder('Announcement')} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Announcement</button>
           </div>
         </div>
-        {/* Song Search Dropdown */}
+        {/* Song picker — the whole list appears on click and scrolls, so
+            browsing without typing still reaches every song. */}
         {serviceAddMenu === 'builder-song' && (
           <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--ui-border)' }}>
-            <input type="text" autoFocus value={builderSrcSongQuery} onChange={(e) => setBuilderSrcSongQuery(e.target.value)} placeholder="Search songs..." style={{ width: '100%', background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px 8px', color: C.text, fontSize: 11, outline: 'none' }} />
-            {builderSrcSongQuery.trim() && (
-              <div style={{ maxHeight: 120, overflowY: 'auto', marginTop: 4 }}>
-                {songs.filter(s => (s.title + ' ' + (s.artist || '')).toLowerCase().includes(builderSrcSongQuery.toLowerCase())).slice(0, 6).map(s => (
-                  <button key={s.id} onClick={() => { if (targetSecId) { addSongToSection(targetSecId, s); setBuilderSrcSongQuery(''); setServiceAddMenu(null); } }} style={{ width: '100%', textAlign: 'left', background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '5px 8px', borderRadius: 5, fontSize: 11, cursor: 'pointer', marginBottom: 2, display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontWeight: 700 }}>{s.title}</span>
-                    <span style={{ fontSize: 10, color: C.accLine }}>+Add</span>
-                  </button>
-                ))}
+            <input type="text" autoFocus value={builderSrcSongQuery} onChange={(e) => setBuilderSrcSongQuery(e.target.value)} placeholder="Search songs..." style={{ width: '100%', boxSizing: 'border-box', background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px 8px', color: C.text, fontSize: 11, outline: 'none' }} />
+            {(() => {
+              const q = builderSrcSongQuery.trim().toLowerCase();
+              const list = songs.filter(s => !q || (s.title + ' ' + (s.artist || '')).toLowerCase().includes(q));
+              return (
+                <div style={{ maxHeight: 176, overflowY: 'auto', marginTop: 4, paddingRight: 2 }}>
+                  {list.map(s => (
+                    <button key={s.id} onClick={() => { if (targetSecId) { addSongToSection(targetSecId, s); setBuilderSrcSongQuery(''); setServiceAddMenu(null); } }} style={{ width: '100%', textAlign: 'left', background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '5px 8px', borderRadius: 5, fontSize: 11, cursor: 'pointer', marginBottom: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title}</span>
+                      <span style={{ fontSize: 9.5, color: C.muted, flexShrink: 0 }}>{s.artist || 'Unknown'} • +Add</span>
+                    </button>
+                  ))}
+                  {songs.length === 0 && <div style={{ fontSize: 10.5, color: C.faint2, padding: 4 }}>No songs in library yet.</div>}
+                  {songs.length > 0 && list.length === 0 && <div style={{ fontSize: 10.5, color: C.faint2, padding: 4 }}>No matches for “{builderSrcSongQuery}”.</div>}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+        {/* Add Media menu — upload a file, or reuse something already in the app */}
+        {serviceAddMenu === 'builder-media' && (
+          <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--ui-border)', display: 'grid', gap: 5 }}>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button onClick={() => { const open = !builderMediaPicker; setBuilderMediaPicker(open); if (open) fetchMediaLibrary(); }} title="Choose an image or video that is already in the app — nothing is re-uploaded" style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 700, background: builderMediaPicker ? 'rgba(37,99,235,0.18)' : C.elevated2, color: builderMediaPicker ? '#93C5FD' : C.text2, border: '1px solid ' + (builderMediaPicker ? '#4338ca' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Existing Media</button>
+              <button onClick={() => document.getElementById('show-media-input-builder')?.click()} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>+ Upload</button>
+            </div>
+            {builderMediaPicker && ((mediaLibrary || []).filter(a => a.kind === 'image' || a.kind === 'video').length === 0 ? (
+              <div style={{ fontSize: 10, color: C.faint2, border: '1px dashed var(--ui-border2)', borderRadius: 7, padding: '8px', textAlign: 'center', lineHeight: 1.5 }}>
+                No images/videos in the app yet — use + Upload to add one.
               </div>
-            )}
+            ) : (
+              <div style={{ maxHeight: 176, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 5, padding: 2 }}>
+                {(mediaLibrary || []).filter(a => a.kind === 'image' || a.kind === 'video').map((asset, i) => {
+                  const label = asset.name || (() => { try { return decodeURIComponent(asset.url.split('/').pop().split('?')[0]); } catch (_) { return 'Media'; } })();
+                  return (
+                    <button key={asset.url + i} onClick={() => addShowBuilderExistingMedia(asset)} title={`Add "${label}" to the show — already in the app, no upload`} style={{ position: 'relative', padding: 0, height: 46, borderRadius: 7, overflow: 'hidden', border: '1px solid var(--ui-border2)', background: '#000', cursor: 'pointer' }}>
+                      {asset.kind === 'image'
+                        ? <img src={asset.url} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        : <video src={asset.url} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                      <span style={{ position: 'absolute', right: 3, bottom: 3, display: 'flex', alignItems: 'center', gap: 2, background: 'rgba(0,0,0,0.72)', borderRadius: 3, padding: '1px 3px', color: '#fff' }}>{asset.kind === 'video' ? <Video size={8} /> : <ImageIcon size={8} />}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         )}
         {/* Sections List */}
