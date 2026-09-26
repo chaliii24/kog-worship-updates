@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { SkipBack, SkipForward, Type, Square, RotateCcw, Music, Image, MonitorPlay, FileText, Smartphone } from 'lucide-react';
+import { SkipBack, SkipForward, Type, Square, RotateCcw, Music, Image, MonitorPlay, FileText, Smartphone, BookOpen } from 'lucide-react';
 import { stubTap } from '../../lib/anim.js';
 
 const clampText = (s, n) => {
@@ -198,7 +198,7 @@ function SectionTitle({ children, C }) {
 
 function ServiceRow({ item, C, ACCENT, onGo }) {
   const isLive = !!item.live;
-  const icon = item.item_type === 'song' ? <Music size={13} /> : item.item_type === 'media' ? <Image size={13} /> : item.item_type === 'presentation' ? <MonitorPlay size={13} /> : <FileText size={13} />;
+  const icon = item.item_type === 'song' ? <Music size={13} /> : item.bible ? <BookOpen size={13} /> : item.item_type === 'media' ? <Image size={13} /> : item.item_type === 'presentation' ? <MonitorPlay size={13} /> : <FileText size={13} />;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 9, background: isLive ? 'rgba(34,197,94,0.10)' : C.elevated, border: `1px solid ${isLive ? 'rgba(34,197,94,0.5)' : C.border2}`, borderRadius: 12, padding: '9px 11px', position: 'relative', overflow: 'hidden' }}>
       {isLive && <span style={{ position: 'absolute', left: 0, top: 4, bottom: 4, width: 3, borderRadius: 3, background: '#22c55e' }} />}

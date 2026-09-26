@@ -48,6 +48,7 @@ db.exec(`
     duration INTEGER DEFAULT 0,
     media_url TEXT,
     media_type TEXT DEFAULT 'image',
+    extra_json TEXT, -- { style, meta }: scripture layout + Bible passage reference
     FOREIGN KEY(service_id) REFERENCES services(id) ON DELETE CASCADE
   );
 
@@ -81,6 +82,7 @@ try { db.exec(`ALTER TABLE cues ADD COLUMN duration INTEGER DEFAULT 0;`); } catc
 try { db.exec(`ALTER TABLE service_items ADD COLUMN duration INTEGER DEFAULT 0;`); } catch (_) {}
 try { db.exec(`ALTER TABLE service_items ADD COLUMN media_url TEXT;`); } catch (_) {}
 try { db.exec(`ALTER TABLE service_items ADD COLUMN media_type TEXT DEFAULT 'image';`); } catch (_) {}
+try { db.exec(`ALTER TABLE service_items ADD COLUMN extra_json TEXT;`); } catch (_) {}
 // Song-level background so a background set on one song applies to ALL of its slides
 try { db.exec(`ALTER TABLE songs ADD COLUMN bg_type TEXT DEFAULT 'color';`); } catch (_) {}
 try { db.exec(`ALTER TABLE songs ADD COLUMN bg_value TEXT DEFAULT '#000000';`); } catch (_) {}
@@ -317,17 +319,23 @@ export function getServiceDetails(serviceId) {
   const items = db.prepare('SELECT * FROM service_items WHERE service_id = ? ORDER BY sort_order ASC').all(serviceId);
   // Hydrate media items: older saves only kept title/subtitle; recover URL/type from content JSON if present.
   const hydrated = items.map((item) => {
-    if (item.item_type !== 'media') return item;
-    if (item.media_url) return item;
-    if (item.content && item.content.trim().startsWith('{')) {
+    // Restore the fields with no column of their own: scripture styling and
+    // the passage reference (book/chapter/verses/translation) travel as one
+    // JSON blob, saved by saveServicePlan.
+    const extra = item.extra_json ? (safeParse(item.extra_json) || {}) : {};
+    const out = { ...item, ...(extra.style ? { style: extra.style } : {}), ...(extra.meta ? { meta: extra.meta } : {}) };
+    delete out.extra_json;
+    if (out.item_type !== 'media') return out;
+    if (out.media_url) return out;
+    if (out.content && out.content.trim().startsWith('{')) {
       try {
-        const meta = JSON.parse(item.content);
+        const meta = JSON.parse(out.content);
         if (meta && meta.media_url) {
-          return { ...item, media_url: meta.media_url, media_type: meta.media_type || item.media_type || 'image', content: '' };
+          return { ...out, media_url: meta.media_url, media_type: meta.media_type || out.media_type || 'image', content: '' };
         }
       } catch (_) {}
     }
-    return item;
+    return out;
   });
   return { ...service, items: hydrated };
 }
@@ -337,7 +345,7 @@ export function saveServicePlan(serviceData) {
   const category = serviceData.category || 'Worship';
   const ratio = serviceData.ratio || '16:9';
   const resolution = serviceData.resolution || '1920x1080';
-  const insertItem = db.prepare('INSERT INTO service_items (service_id, item_type, title, subtitle, content, sort_order, duration, media_url, media_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  const insertItem = db.prepare('INSERT INTO service_items (service_id, item_type, title, subtitle, content, sort_order, duration, media_url, media_type, extra_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   const runInsert = (serviceId, item, idx) => insertItem.run(
     serviceId,
     item.item_type,
@@ -349,7 +357,16 @@ export function saveServicePlan(serviceData) {
     idx + 1,
     item.duration || 0,
     item.media_url || null,
-    item.media_type || null
+    item.media_type || null,
+    // `style` and `meta` carry the scripture layout and the passage itself
+    // (book/chapter/verses/translation). Without them a saved scripture fires
+    // as an ordinary slide on reload, with no Bible data behind it.
+    (item.style || item.meta)
+      ? JSON.stringify({
+          ...(item.style ? { style: item.style } : {}),
+          ...(item.meta ? { meta: item.meta } : {}),
+        })
+      : null
   );
   if (id) {
     db.prepare('UPDATE services SET name = ?, date = ?, category = ?, ratio = ?, resolution = ? WHERE id = ?').run(name, date, category, ratio, resolution, id);

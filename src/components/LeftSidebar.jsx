@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
-import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, Images, PanelLeftClose, Music, MonitorPlay, Pencil } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, Images, PanelLeftClose, Music, MonitorPlay, Pencil, FileUp, BookOpen } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
+import { slidesFromPptx } from '../lib/backgrounds';
 import { stubTap, iconBtnTap } from '../lib/anim';
+import Dropdown from './Dropdown';
 
 export default function LeftSidebar() {
   const app = useApp();
@@ -101,11 +103,71 @@ export default function LeftSidebar() {
     openPresentationEditor,
     openPresentation,
     deletePresentationDeck,
-    presentDeck
+    presentDeck,
+    addPresentationToService,
+    importPowerPoint,
+    savePresentationDeck,
+    bibleBooks,
+    loadBibleBooks,
+    bibleTrans,
+    addScriptureToPlan
   } = app;
 
   const [sectionRenameIdx, setSectionRenameIdx] = useState(null);
+  // Blocks a second click from stacking a second file dialog behind the first.
+  const pptxImportBusy = useRef(false);
+  // The import is not instant (PowerShell + unzip), so the button has to say so.
+  const [pptxImporting, setPptxImporting] = useState(false);
   const [sectionRenameTitle, setSectionRenameTitle] = useState('');
+  // Scripture picker — local on purpose. Nothing here selects a book/chapter in
+  // the Scripture tab, so the operator can add three passages in a row without
+  // the reading pane jumping around under them.
+  const [scBook, setScBook] = useState('');
+  const [scChapter, setScChapter] = useState('');
+  const [scVerses, setScVerses] = useState('');
+  const [scBusy, setScBusy] = useState(false);
+  const [scMsg, setScMsg] = useState(null);
+  // Which presentation is mid-load into the order (avoids double inserts).
+  const [deckBusy, setDeckBusy] = useState(null);
+
+  // The ADD TO row's buttons are styled by the .svc-add class in index.css
+  // (ghost buttons with hover) — CSS, not inline styles, because the hover
+  // state is half the point.
+
+  // Shared control styling for the scripture picker's inputs.
+  const selStyle = {
+    width: '100%',
+    boxSizing: 'border-box',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid var(--ui-border)',
+    borderRadius: 7,
+    padding: '5px 7px',
+    color: 'var(--ui-text)',
+    fontSize: 11,
+    outline: 'none',
+    cursor: 'pointer'
+  };
+
+  const addScriptureNow = async () => {
+    if (scBusy) return;
+    const book = (bibleBooks?.books || []).find(b => String(b.nr) === String(scBook));
+    if (!book) { setScMsg({ err: 'Choose a book.' }); return; }
+    if (!scChapter) { setScMsg({ err: 'Choose a chapter.' }); return; }
+    setScBusy(true);
+    setScMsg(null);
+    try {
+      const res = await addScriptureToPlan({ bookIndex: book.nr, bookName: book.name, chapter: Number(scChapter), verseRange: scVerses });
+      if (res && res.ok) {
+        // Spell out where it landed — the ADD TO section is easy to miss.
+        setScMsg({ ok: `Added ${res.ref} · ${res.count} verse${res.count === 1 ? '' : 's'} → ${res.target || 'end of order'}` });
+        setScVerses('');
+      } else {
+        setScMsg({ err: (res && res.error) || 'Could not add that passage.' });
+      }
+    } finally {
+      setScBusy(false);
+    }
+  };
 
   const beginRenameSection = (idx, title) => {
     setSectionRenameIdx(idx);
@@ -221,21 +283,23 @@ export default function LeftSidebar() {
               <div style={{ display: 'flex', gap: 4, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
                   <span style={{ fontSize: 9, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 0.8, whiteSpace: 'nowrap' }}>Add to</span>
-                  <select
+                  <Dropdown
                     value={serviceTargetTitle || ''}
-                    onChange={(e) => setServiceTargetTitle(e.target.value || null)}
-                    title="Section that new songs, media, and slides go into"
-                    style={{ flex: 1, minWidth: 0, background: 'rgba(37,99,235,0.10)', border: '1px solid rgba(59,130,246,0.55)', borderRadius: 7, padding: '4px 6px', color: '#93C5FD', fontSize: 10.5, fontWeight: 700, outline: 'none', cursor: 'pointer' }}
-                  >
-                    <option value="">End of order</option>
-                    {serviceSectionTitles().map(t => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
+                    onChange={(v) => setServiceTargetTitle(v || null)}
+                    options={[{ value: '', label: 'End of order' }, ...serviceSectionTitles().map(t => ({ value: t, label: t }))]}
+                    placeholder="End of order"
+                    title="Section that songs, media, scripture and presentations go into"
+                    style={{ flex: 1, minWidth: 0 }}
+                  />
                 </div>
-                <button onClick={() => setServiceAddMenu(serviceAddMenu === 'song' ? null : 'song')} title="Add Song" style={{ background: serviceAddMenu === 'song' ? 'rgba(37,99,235,0.18)' : 'rgba(255,255,255,0.04)', border: serviceAddMenu === 'song' ? '1px solid #3B82F6' : '1px solid var(--ui-border)', color: serviceAddMenu === 'song' ? '#93C5FD' : 'var(--ui-text2)', padding: '4px 9px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Music size={12} /> Add Song</button>
-                <button onClick={() => { const open = serviceAddMenu !== 'media'; setServiceAddMenu(open ? 'media' : null); if (open) fetchMediaLibrary(); }} title="Add Media" style={{ background: serviceAddMenu === 'media' ? 'rgba(37,99,235,0.18)' : 'rgba(255,255,255,0.04)', border: serviceAddMenu === 'media' ? '1px solid #3B82F6' : '1px solid var(--ui-border)', color: serviceAddMenu === 'media' ? '#93C5FD' : 'var(--ui-text2)', padding: '4px 9px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><ImageIcon size={12} /> Add Media</button>
-                <button onClick={() => { const el = document.getElementById('service-media-input'); if (el) el.click(); }} title="Local Media" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '4px 9px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Folder size={12} /> Local Media</button>
+                {/* Ghost buttons — no border box at rest, so four actions in a
+                    single row read as one calm line instead of four stacked
+                    chips. Local Media is not repeated here: the Media panel
+                    already carries Image / Video "upload" for local files. */}
+                <button className="svc-add" data-active={serviceAddMenu === 'song' ? '1' : '0'} onClick={() => setServiceAddMenu(serviceAddMenu === 'song' ? null : 'song')} title="Add a song from the library"><Music size={12} /> Add Song</button>
+                <button className="svc-add" data-active={serviceAddMenu === 'scripture' ? '1' : '0'} onClick={() => { const open = serviceAddMenu !== 'scripture'; setServiceAddMenu(open ? 'scripture' : null); setScMsg(null); if (open && !bibleBooks) loadBibleBooks().then(r => { if (!r || !r.books) setScMsg({ err: (r && r.error) || 'Bible books could not be loaded.' }); }); }} title="Add Scripture straight to the section marked ADD TO — no need to open the Scripture tab"><BookOpen size={12} /> Scripture</button>
+                <button className="svc-add" data-active={serviceAddMenu === 'media' ? '1' : '0'} onClick={() => { const open = serviceAddMenu !== 'media'; setServiceAddMenu(open ? 'media' : null); if (open) fetchMediaLibrary(); }} title="Images, video and announcements"><ImageIcon size={12} /> Media</button>
+                <button className="svc-add" data-active={serviceAddMenu === 'deck' ? '1' : '0'} onClick={() => { const open = serviceAddMenu !== 'deck'; setServiceAddMenu(open ? 'deck' : null); setScMsg(null); }} title="Add a presentation to the section marked ADD TO"><Monitor size={12} /> Presentation</button>
               </div>
               <input type="file" id="service-media-input" accept="image/*,video/*" style={{ display: 'none' }} onChange={addMediaItemToService} />
               {serviceAddMenu === 'song' && (
@@ -301,10 +365,86 @@ export default function LeftSidebar() {
                   </button>
                 </div>
               )}
+              {serviceAddMenu === 'scripture' && (
+                <div style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 5 }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 1 }}>Add Scripture · {bibleTrans.toUpperCase()}</div>
+                  {!bibleBooks ? (
+                    <div style={{ fontSize: 10.5, color: scMsg?.err ? '#F87171' : 'var(--ui-faint)', padding: 4, lineHeight: 1.45 }}>{scMsg?.err || 'Loading books…'}</div>
+                  ) : (
+                    <>
+                      <Dropdown
+                        tone="quiet"
+                        value={scBook}
+                        onChange={(v) => { setScBook(v); setScChapter(''); setScMsg(null); }}
+                        options={(bibleBooks.books || []).map(b => ({ value: b.nr, label: b.name }))}
+                        placeholder="Choose a book…"
+                        title="Book"
+                        maxHeight={288}
+                      />
+                      {(() => {
+                        const book = (bibleBooks.books || []).find(b => String(b.nr) === String(scBook));
+                        if (!book) return null;
+                        return (
+                          <div style={{ display: 'flex', gap: 5 }}>
+                            <Dropdown
+                              tone="quiet"
+                              style={{ flex: 1 }}
+                              value={scChapter}
+                              onChange={(v) => { setScChapter(v); setScMsg(null); }}
+                              options={Array.from({ length: book.chapters || 0 }, (_, i) => ({ value: i + 1, label: String(i + 1) }))}
+                              placeholder="Chapter…"
+                              title="Chapter"
+                            />
+                            <input value={scVerses} onChange={(e) => { setScVerses(e.target.value); setScMsg(null); }} placeholder="Verses 16-18" title="Leave blank to add the whole chapter" style={{ ...selStyle, flex: 1.15, cursor: 'text' }} />
+                          </div>
+                        );
+                      })()}
+                    </>
+                  )}
+                  <button onClick={addScriptureNow} disabled={scBusy} title="Insert this passage into the section marked ADD TO" style={{ background: ACCENT, border: 'none', color: '#fff', padding: '7px 9px', borderRadius: 7, fontSize: 11, fontWeight: 800, cursor: scBusy ? 'default' : 'pointer', opacity: scBusy ? 0.7 : 1 }}>
+                    {scBusy ? 'Adding…' : `Add to ${serviceTargetTitle || 'end of order'}`}
+                  </button>
+                  {bibleBooks && scMsg?.err && <div style={{ fontSize: 10.5, color: '#F87171', lineHeight: 1.45 }}>{scMsg.err}</div>}
+                  {scMsg?.ok && <div style={{ fontSize: 10.5, color: '#4ADE80', lineHeight: 1.45 }}>{scMsg.ok}</div>}
+                  <div style={{ fontSize: 9.5, color: 'var(--ui-faint)', lineHeight: 1.45 }}>Blank verses = whole chapter. Lands in the section marked ADD TO.</div>
+                </div>
+              )}
+              {serviceAddMenu === 'deck' && (
+                <div style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 4 }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 1 }}>Add Presentation</div>
+                  {(presentations || []).length === 0 ? (
+                    <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', padding: 4, lineHeight: 1.5 }}>No presentations yet — open Presentations in the dock below, then New Presentation or Import PowerPoint.</div>
+                  ) : (
+                    <div style={{ maxHeight: 190, overflowY: 'auto', display: 'grid', gap: 2, paddingRight: 2 }}>
+                      {presentations.map(p => (
+                        <button
+                          key={p.id}
+                          disabled={!!deckBusy}
+                          onClick={async () => {
+                            if (deckBusy) return;
+                            setDeckBusy(p.id);
+                            try {
+                              const d = window.require ? await window.require('electron').ipcRenderer.invoke('db-get-presentation', p.id) : null;
+                              if (d) { addPresentationToService(d); setServiceAddMenu(null); }
+                            } finally {
+                              setDeckBusy(null);
+                            }
+                          }}
+                          title="Add to Service Plan — goes into the section you are working in"
+                          style={{ textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}
+                        >
+                          <span style={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</span>
+                          <span style={{ fontSize: 10, color: 'var(--ui-faint)', flexShrink: 0 }}>{deckBusy === p.id ? 'Adding…' : `${p.slideCount || 0} slides • + Add`}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setServiceDragOver(true); }} onDragLeave={() => setServiceDragOver(false)} onDrop={(e) => { e.preventDefault(); setServiceDragOver(false); try { const data = JSON.parse(e.dataTransfer.getData('text/plain')); if (data.kind === 'show') queueShowIntoService(data.id); else if (data.kind === 'song') { const song = songs.find(s => s.id === data.id); if (song) addSongToService(song); } } catch (_) {} }} style={{ flex: 1, overflowY: 'auto', padding: '4px 10px 10px 10px', display: 'grid', gap: 8, alignContent: 'start', border: serviceDragOver ? '1px dashed #3B82F6' : '1px dashed transparent', borderRadius: 10, margin: '0 8px', background: serviceDragOver ? 'rgba(37,99,235,0.08)' : 'transparent' }}>
               {(activeService?.items || []).filter(i => i.item_type !== 'section_header').length === 0 && (
-                <div style={{ textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12, padding: 12 }}>Drop shows or songs here, or use + Add Song / + Media above to build the service order.</div>
+                <div style={{ textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12, padding: 12 }}>Drop shows or songs here, or use Add Song / Scripture / Media / Presentation above to build the service order.</div>
               )}
               {(() => {
                 const rows = [];
@@ -366,8 +506,9 @@ export default function LeftSidebar() {
                   itemNum++;
                   const isLive = serviceItemIsLive(row.item);
                   const slideCount = serviceSlideCount(row.item);
-                  const icon = row.item.item_type === 'song' ? <Music size={11} /> : row.item.item_type === 'media' ? <ImageIcon size={11} /> : row.item.item_type === 'presentation' ? <MonitorPlay size={11} /> : <FileText size={11} />;
-                  const iconColor = row.item.item_type === 'song' ? '#3B82F6' : 'var(--ui-muted)';
+                  const isScripture = !!(row.item.meta && row.item.meta.kind === 'bible');
+                  const icon = row.item.item_type === 'song' ? <Music size={11} /> : isScripture ? <BookOpen size={11} /> : row.item.item_type === 'media' ? <ImageIcon size={11} /> : row.item.item_type === 'presentation' ? <MonitorPlay size={11} /> : <FileText size={11} />;
+                  const iconColor = row.item.item_type === 'song' ? '#3B82F6' : isScripture ? '#f59e0b' : 'var(--ui-muted)';
                   return (
                     <div key={`i-${ri}`} draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); try { const data = JSON.parse(e.dataTransfer.getData('text/plain')); if (data && data.kind === 'reorder') moveServiceBlock(Number(data.from), row.idx); } catch (_) {} }}onClick={() => { if (row.item.item_type === 'song') selectSong(row.item.content); else if (isLive) return; else fireServiceItemLive(row.item); }} title="Drag to reorder; click to go live" style={{ position: 'relative', background: isLive ? 'rgba(34,197,94,0.10)' : (row.item.item_type === 'song' && Number(row.item.content) === activeSong?.id) || (row.item.item_type === 'custom_slide' && activeCue?.id === row.item.id) ? 'rgba(37,99,235,0.12)' : 'var(--ui-elev2)', border: isLive ? '1px solid rgba(34,197,94,0.55)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '6px 8px', cursor: 'grab', display: 'grid', gridTemplateColumns: '14px 20px 18px 1fr auto', gap: 6, alignItems: 'center' }}>
                       {isLive && <div style={{ position: 'absolute', left: 0, top: 4, bottom: 4, width: 3, borderRadius: 3, background: '#22c55e', boxShadow: '0 0 8px rgba(34,197,94,0.8)' }} />}
@@ -441,6 +582,34 @@ export default function LeftSidebar() {
       return (
         <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'grid', gap: 10, alignContent: 'start' }}>
           <button onClick={() => openPresentationEditor(null)} style={{ background: ACCENT, border: 'none', color: '#fff', padding: '9px', borderRadius: 9, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><Plus size={14} /> New Presentation</button>
+          <button
+            onClick={async () => {
+              if (pptxImportBusy.current) return;
+              pptxImportBusy.current = true;
+              setPptxImporting(true);
+              try {
+                const res = await importPowerPoint();
+                if (res && !res.canceled && res.ok) {
+                  const slides = slidesFromPptx(res.slides);
+                  if (slides.length) {
+                    // Save straight away. An unsaved deck is invisible here —
+                    // the Presentations list reads from the database, so a
+                    // deck that only exists in editor state never shows up.
+                    const title = res.name || 'Imported Presentation';
+                    const savedId = await savePresentationDeck({ id: null, title, slides });
+                    const done = 'Imported ' + slides.length + ' slide' + (slides.length === 1 ? '' : 's') + ' and saved it to Presentations.';
+                    openPresentationEditor({ id: savedId || null, title, slides, notice: res.reason ? (res.reason + ' ' + done) : done });
+                  }
+                }
+              } finally {
+                pptxImportBusy.current = false;
+                setPptxImporting(false);
+              }
+            }}
+            disabled={pptxImporting}
+            title="Bring in an existing PowerPoint (.pptx) — as exact images or as editable text"
+            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '9px', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: pptxImporting ? 'default' : 'pointer', opacity: pptxImporting ? 0.65 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+          ><FileUp size={14} /> {pptxImporting ? 'Reading PowerPoint…' : 'Import PowerPoint'}</button>
           <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', lineHeight: 1.5 }}>Build sermon slides with text, images, backgrounds and transitions — then export to PowerPoint or send straight to the projector.</div>
           {(presentations || []).length === 0 && <div style={{ textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12, padding: 12, border: '1px dashed var(--ui-border)', borderRadius: 10 }}>No presentations yet. Press "New Presentation" to start.</div>}
           {(presentations || []).map(p => (
@@ -450,6 +619,7 @@ export default function LeftSidebar() {
                 <span style={{ fontSize: 10, color: 'var(--ui-faint)' }}>{p.slideCount || 0} slide{(p.slideCount || 0) === 1 ? '' : 's'} • {String(p.updated_at || '').slice(0, 10)}</span>
               </div>
               <div style={{ display: 'flex', gap: 5 }}>
+                <button onClick={async () => { const d = await (window.require ? window.require('electron').ipcRenderer.invoke('db-get-presentation', p.id) : null); if (d) addPresentationToService(d); }} title="Add to Service Plan — goes into the section you are working in" style={{ flexShrink: 0, background: 'transparent', border: '1px solid var(--ui-border)', color: '#93C5FD', padding: '5px 8px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Plus size={11} /> Plan</button>
                 <button onClick={() => openPresentation(p.id)} title="Edit" style={{ flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '5px 8px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Edit3 size={11} /> Edit</button>
                 <button onClick={async () => { const d = await (window.require ? window.require('electron').ipcRenderer.invoke('db-get-presentation', p.id) : null); if (d) presentDeck(d); else openPresentation(p.id); }} title="Present live" style={{ background: ACCENT, border: 'none', color: '#fff', padding: '5px 10px', borderRadius: 7, fontSize: 10.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Monitor size={11} /> Present</button>
                 <button onClick={() => deletePresentationDeck(p.id)} title="Delete" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.28)', color: '#F87171', cursor: 'pointer', padding: '4px 7px', borderRadius: 7, display: 'flex', alignItems: 'center' }}><Trash2 size={11} /></button>

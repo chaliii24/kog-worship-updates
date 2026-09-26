@@ -1,14 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Plus, Trash2, Copy, ChevronUp, ChevronDown, Save, X, MonitorPlay, Download,
-  Wand2, Layers, Loader2, ListPlus
+  Wand2, Layers, Loader2, ListPlus, FileUp
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import PresentationSlide from './PresentationSlide';
 import PresentationEditableLayer from './PresentationEditableLayer';
 import PresentationInspector from './PresentationInspector';
-import { defaultSlide, parseOutline, resolveRects } from '../lib/backgrounds';
+import { defaultSlide, parseOutline, resolveRects, slidesFromPptx } from '../lib/backgrounds';
 
 function useContainerScale() {
   const ref = useRef(null);
@@ -39,7 +39,7 @@ export default function PresentationModal() {
   const {
     C, ACCENT,
     editingDeck, closePresentationEditor,
-    savePresentationDeck, presentDeck, addPresentationToService,
+    savePresentationDeck, presentDeck, addPresentationToService, importPowerPoint,
     mediaLibrary, fetchMediaLibrary, persistMediaFile
   } = useApp();
 
@@ -60,6 +60,9 @@ export default function PresentationModal() {
     const slides = (editingDeck.slides && editingDeck.slides.length) ? editingDeck.slides : [defaultSlide()];
     setDeck({ id: editingDeck.id || null, title: editingDeck.title || 'Untitled Presentation', slides });
     setIdx(0); setTab('content'); setStatus(null); setSearchResults([]); setShowOutline(false);
+    // A deck can arrive carrying a one-off notice — e.g. "PowerPoint is not
+    // installed, so this was rebuilt as text" — which is worth saying out loud.
+    if (editingDeck.notice) flash(editingDeck.notice, 9000);
   }, [editingDeck]);
 
   const slide = deck.slides[idx];
@@ -150,6 +153,35 @@ export default function PresentationModal() {
     flash('Generated ' + slides.length + ' slide' + (slides.length === 1 ? '' : 's') + ' \u2713');
   };
 
+  // Bring a .pptx in. Image slides become full-bleed picture slides; text
+  // slides become ordinary editable KOG slides. main.js answers with whichever
+  // mode was chosen (and falls back to text when PowerPoint is not installed).
+  const doImport = async () => {
+    if (busy) return;
+    setBusy('import'); setStatus('Waiting for a file…');
+    try {
+      const res = await importPowerPoint();
+      if (!res || res.canceled) {
+        setStatus(null);
+      } else if (!res.ok) {
+        flash('Import failed: ' + (res.error || 'unknown error'), 6000);
+      } else {
+        const imported = slidesFromPptx(res.slides);
+        if (!imported.length) {
+          flash('No slides found in that file.', 6000);
+        } else {
+          setSlides(imported);
+          setIdx(0);
+          if (res.name && (!deck.title || deck.title === 'Untitled Presentation')) patchDeck({ title: res.name });
+          flash('Imported ' + imported.length + ' slide' + (imported.length === 1 ? '' : 's') + (res.fellBack ? ' — ' + (res.reason || 'rebuilt as editable text') : ''), 8000);
+        }
+      }
+    } catch (e) {
+      flash('Import failed: ' + e.message, 6000);
+    }
+    setBusy(null);
+  };
+
   const headerBtn = (onClick, Icon, label, opts = {}) => (
     <button onClick={onClick} disabled={opts.disabled} style={{ background: opts.bg || 'var(--ui-elev2)', border: '1px solid ' + (opts.border || 'var(--ui-border2)'), color: opts.color || C.text, padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: opts.disabled ? 0.5 : 1 }}>
       {opts.busy ? <Loader2 size={13} /> : <Icon size={13} />} {label}
@@ -166,6 +198,7 @@ export default function PresentationModal() {
           <div style={{ flex: 1, minWidth: 20 }} />
           {status && <div style={{ fontSize: 11.5, color: ACCENT, fontWeight: 700, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={status}>{status}</div>}
           {headerBtn(() => setShowOutline(s => !s), Wand2, 'Import Outline')}
+          {headerBtn(doImport, FileUp, busy === 'import' ? 'Importing…' : 'Import .pptx', { busy: busy === 'import' })}
           {headerBtn(doExport, Download, busy === 'export' ? 'Exporting\u2026' : 'Export .pptx', { busy: busy === 'export' })}
           {headerBtn(doSave, Save, busy === 'save' ? 'Saving\u2026' : 'Save', { busy: busy === 'save' })}
           {headerBtn(() => addPresentationToService(deck), ListPlus, 'To Service')}

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 import PresentationWorkspace from './PresentationWorkspace';
+import Dropdown from './Dropdown';
 
 export default function CenterWorkspace() {
   const app = useApp();
@@ -54,6 +55,9 @@ export default function CenterWorkspace() {
     bibleLastVerseRef,
     selectBibleMedia,
     importBibleMedia,
+    scriptureDefault,
+    scriptureDefaultOptions,
+    assignScriptureDefault,
     fireCueLive,
     fireTitleLive,
     activeSlideIndex,
@@ -82,6 +86,12 @@ export default function CenterWorkspace() {
     bibleStep,
     activePresentation
   } = app;
+  // The picker only hands back a URL, so resolve the assigned default back to
+  // its option for the thumbnail and the label.
+  const defaultOpt = (scriptureDefaultOptions || []).find(o => o.value === (scriptureDefault && scriptureDefault.value)) || null;
+  // What the button should advertise: the session override if there is one,
+  // otherwise the assigned default — both mean "scripture has a background".
+  const bgShow = bibleMedia || defaultOpt;
 
   const verseContainerRef = React.useRef(null);
 
@@ -199,7 +209,7 @@ export default function CenterWorkspace() {
             <button onClick={() => setBibleSearchResults(null)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'transparent', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '7px 12px', borderRadius: 10, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}><CornerUpLeft size={12} /> Back</button>
           ) : null}
           {bibleSelVerses.length ? <span style={{ fontSize: 10.5, fontWeight: 700, color: '#3B82F6', whiteSpace: 'nowrap' }}>{bibleSelVerses.length} selected</span> : null}
-          <motion.button {...stubTap} onClick={queueBibleSelection} title="Add selected verses to the service plan" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid var(--ui-border2)', color: 'var(--ui-text2)', padding: '7px 13px', borderRadius: 10, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}><Plus size={12} /> Add to Playlist</motion.button>
+          <motion.button {...stubTap} onClick={queueBibleSelection} title="Add the selected verses to the plan — they land in the section you are working in" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid var(--ui-border2)', color: 'var(--ui-text2)', padding: '7px 13px', borderRadius: 10, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}><Plus size={12} /> Add to Playlist</motion.button>
           <motion.button {...stubTap} onClick={fireBibleSelectionLive} title="Send selected verses to the live output" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(180deg, #3B82F6, #2563EB)', border: 'none', color: '#FFFFFF', padding: '8px 16px', borderRadius: 9, fontSize: 12, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 0 0 1px rgba(37,99,235,0.5), 0 8px 24px rgba(37,99,235,0.35)' }}><Zap size={13} /> Push to Display</motion.button>
         </div>
       </div>
@@ -213,9 +223,9 @@ export default function CenterWorkspace() {
         <motion.button {...stubTap} onClick={() => setBibleFmt(f => ({ ...f, bold: !f.bold }))} title="Toggle bold" style={{ background: bibleFmt.bold ? 'rgba(37,99,235,0.18)' : 'rgba(255,255,255,0.04)', border: bibleFmt.bold ? '1px solid #3B82F6' : '1px solid var(--ui-border)', color: bibleFmt.bold ? '#3B82F6' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 11px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>B</motion.button>
         <motion.button {...stubTap} onClick={() => setBibleFmt(f => ({ ...f, caps: !f.caps }))} title="Uppercase" style={{ background: bibleFmt.caps ? 'rgba(37,99,235,0.18)' : 'rgba(255,255,255,0.04)', border: bibleFmt.caps ? '1px solid #3B82F6' : '1px solid var(--ui-border)', color: bibleFmt.caps ? '#3B82F6' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 11px', fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer' }}>Aa</motion.button>
         <div style={{ position: 'relative' }}>
-          <motion.button {...stubTap} onClick={() => setBibleMediaOpen(o => !o)} title="Background media for scripture slides" style={{ display: 'flex', alignItems: 'center', gap: 6, background: bibleMedia ? 'rgba(37,99,235,0.18)' : 'rgba(255,255,255,0.04)', border: bibleMedia ? '1px solid #3B82F6' : '1px solid var(--ui-border)', color: bibleMedia ? '#3B82F6' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 11px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>
-            {bibleMedia && bibleMedia.type === 'video' ? <Video size={12} /> : <ImageIcon size={12} />}
-            <span style={{ maxWidth: 110, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bibleMedia ? (bibleMedia.name ? String(bibleMedia.name).replace(/\.[^.]+$/, '') : 'Background') : 'Background'}</span>
+          <motion.button {...stubTap} onClick={() => setBibleMediaOpen(o => !o)} title="Background media for scripture slides" style={{ display: 'flex', alignItems: 'center', gap: 6, background: bgShow ? 'rgba(37,99,235,0.18)' : 'rgba(255,255,255,0.04)', border: bgShow ? '1px solid #3B82F6' : '1px solid var(--ui-border)', color: bgShow ? '#3B82F6' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 11px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>
+            {bgShow && bgShow.type === 'video' ? <Video size={12} /> : <ImageIcon size={12} />}
+            <span style={{ maxWidth: 110, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bgShow ? (bgShow.name ? String(bgShow.name).replace(/\.[^.]+$/, '') : (bgShow.type === 'color' ? bgShow.value : 'Background')) : 'Background'}</span>
             <ChevronDown size={12} />
           </motion.button>
           {bibleMediaOpen && (
@@ -224,34 +234,41 @@ export default function CenterWorkspace() {
               <div style={{ position: 'absolute', top: 'calc(100% + 8px)', left: 0, width: 320, maxWidth: 'calc(100vw - 24px)', maxHeight: 400, zIndex: 61, display: 'flex', flexDirection: 'column', background: 'var(--ui-elev)', border: '1px solid var(--ui-border)', borderRadius: 12, boxShadow: '0 20px 50px rgba(0,0,0,0.6)', overflow: 'hidden' }}>
                 <div style={{ padding: '9px 11px', borderBottom: '1px solid var(--ui-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                   <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.2 }}>Scripture Background</span>
-                  <motion.button {...stubTap} onClick={() => { selectBibleMedia(null, null, null); setBibleMediaOpen(false); }} style={{ background: 'transparent', border: 'none', color: bibleMedia ? '#f87171' : 'var(--ui-faint)', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</motion.button>
+                  <motion.button {...stubTap} onClick={() => { selectBibleMedia(null, null, null); setBibleMediaOpen(false); }} title="Drop this session's background and fall back to the default" style={{ background: 'transparent', border: 'none', color: bibleMedia ? '#f87171' : 'var(--ui-faint)', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</motion.button>
                 </div>
                 <div style={{ overflowY: 'auto', overflowX: 'hidden', padding: 10, display: 'grid', gap: 10 }}>
                   <motion.label {...stubTap} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(37,99,235,0.12)', border: '1px dashed rgba(59,130,246,0.5)', color: '#93C5FD', borderRadius: 10, padding: '10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
                     <Upload size={12} /> Upload image or video
                     <input type="file" accept="image/*,video/*" onChange={importBibleMedia} style={{ display: 'none' }} />
                   </motion.label>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 1.2 }}>Your Uploads</div>
-                  {(scriptureBgLibrary || []).length === 0 ? (
-                    <div style={{ fontSize: 11.5, color: 'var(--ui-faint)', lineHeight: 1.6 }}>Upload a background here to build your scripture list.</div>
-                  ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-                      {(scriptureBgLibrary || []).map((asset, i) => {
-                        const active = bibleMedia && bibleMedia.value === asset.value;
-                        return (
-                          <motion.button {...stubTap} key={i} onClick={() => { selectBibleMedia(asset.type, asset.value, asset.name); setBibleMediaOpen(false); }} title={asset.name || asset.type} style={{ position: 'relative', height: 58, padding: 0, borderRadius: 9, overflow: 'hidden', cursor: 'pointer', background: '#0B0E13', border: active ? '2px solid #3B82F6' : '1px solid var(--ui-border)' }}>
-                            {asset.type === 'video' ? (
-                              <video src={asset.value} autoPlay loop muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                            ) : (
-                              <img src={asset.value} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                            )}
-                            {asset.type === 'video' && <span style={{ position: 'absolute', bottom: 3, right: 4, fontSize: 8, fontWeight: 800, background: 'rgba(0,0,0,0.7)', color: '#E2E8F0', borderRadius: 4, padding: '1px 4px' }}>VIDEO</span>}
-                          </motion.button>
-                        );
-                      })}
+                  {/* Replaces the old "Your Uploads" grid: browsing a wall of
+                      thumbnails every visit was the noise. One assigned
+                      default does the job in a single row — and it is exactly
+                      what scripture added to a section carries with it. */}
+                  <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 1.2 }}>Default for new scripture</div>
+                  <Dropdown
+                    tone="quiet"
+                    value={(scriptureDefault && scriptureDefault.value) || ''}
+                    onChange={assignScriptureDefault}
+                    options={scriptureDefaultOptions}
+                    placeholder="Pick from existing media…"
+                    title="Background attached to every scripture you add to a section"
+                    maxHeight={240}
+                  />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {defaultOpt && (
+                      <div style={{ width: 58, height: 33, flexShrink: 0, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--ui-border)', background: '#000' }}>
+                        {defaultOpt.type === 'video'
+                          ? <video src={defaultOpt.value} autoPlay loop muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                          : <img src={defaultOpt.value} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', lineHeight: 1.5 }}>
+                      {defaultOpt
+                        ? 'Attached to every scripture you add to the service plan — no background to pick each time.'
+                        : 'Choose a background so scripture is never added blank.'}
                     </div>
-                  )}
-                  <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', lineHeight: 1.5 }}>Applied to verses you send live or add to the service plan.</div>
+                  </div>
                 </div>
               </div>
             </>

@@ -1,8 +1,9 @@
-import React, { useCallback, useState } from 'react';
+import React from 'react';
 import { Square, Type, SkipBack, SkipForward, Image as ImageIcon, Video, Zap } from 'lucide-react';
 import { motion } from 'motion/react';
 import { TimerReadout } from '../lib/perf';
 import { stubTap, iconBtnTap } from '../lib/anim';
+import Dropdown from './Dropdown';
 
 export default function LiveOutputPanel({
   C,
@@ -28,18 +29,17 @@ export default function LiveOutputPanel({
   bibleMedia,
   selectBibleMediaLive,
   importBibleMedia,
+  scriptureDefault,
+  scriptureDefaultOptions = [],
+  assignScriptureDefault,
   dockTab,
   fireBibleSelectionLive,
   bibleSelCount = 0,
 }) {
   const isLive = activeCue?.id !== 'clear' && activeCue !== null;
-  // Uploads whose file has been moved/deleted render as a black tile — drop
-  // them from the grid entirely instead of showing a dead thumbnail.
-  const [missingUploads, setMissingUploads] = useState(() => new Set());
-  const markUploadMissing = useCallback((value) => {
-    setMissingUploads(prev => (prev.has(value) ? prev : new Set(prev).add(value)));
-  }, []);
-  const visibleUploads = (scriptureBgLibrary || []).filter(a => !missingUploads.has(a.value));
+  // The assigned default, resolved back to its option so the thumbnail and
+  // label stay right even though the picker only hands back a URL.
+  const defaultOpt = scriptureDefaultOptions.find(o => o.value === (scriptureDefault && scriptureDefault.value)) || null;
   return (
     <motion.div className="right-panel-shell" initial={{ x: 64, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ type: 'spring', stiffness: 260, damping: 28, delay: 0.3 }} style={{ flex: '0 1 340px', minWidth: 280, maxWidth: '35vw', background: C.panel, borderLeft: '1px solid var(--ui-border)', flexDirection: 'column', display: 'flex' }}>
       <div style={{ padding: '12px 12px 6px 12px', borderBottom: '1px solid ' + C.border, flexShrink: 0 }}>
@@ -110,9 +110,9 @@ export default function LiveOutputPanel({
           </div>
         )}
         {/* OUTPUT CONTROLS sit directly under Push to Display on purpose: the
-            Scripture Background + Your Uploads block further down is tall, and
-            on a short window it pushed Clear Lyrics / Clear All past the fold
-            where they could not be reached at all. */}
+            Scripture Background block below used to carry a thumbnail grid of
+            every upload, and on a short window it pushed Clear Lyrics / Clear
+            All past the fold where they could not be reached at all. */}
         <div style={{ display: 'flex', gap: 6, marginTop: 8, flexShrink: 0 }}>
           <motion.button {...stubTap} onClick={clearLyrics} title="Take the words off the screen and keep the background running" style={{ flex: 1, minWidth: 0, background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.35)', color: '#93c5fd', padding: '7px 4px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Type size={12} /> Clear Lyrics</motion.button>
           <motion.button {...stubTap} onClick={() => fireCueLive({ id: 'clear', label: 'Clear', text: '' })} title="Clear everything — words and background" style={{ flex: 1, minWidth: 0, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171', padding: '7px 4px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Square size={12} /> Clear All</motion.button>
@@ -125,7 +125,7 @@ export default function LiveOutputPanel({
           <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span>Scripture Background</span>
             {bibleMedia ? (
-              <motion.button {...stubTap} onClick={() => selectBibleMediaLive(null, null, null)} style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</motion.button>
+              <motion.button {...stubTap} onClick={() => selectBibleMediaLive(null, null, null)} title="Drop this session's background and fall back to the default" style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</motion.button>
             ) : null}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -133,26 +133,34 @@ export default function LiveOutputPanel({
             <motion.label {...stubTap} style={{ background: C.elevated, color: C.text2, border: '1px solid var(--ui-border2)', padding: '4px 8px', borderRadius: 6, fontSize: 10, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}><ImageIcon size={10} /> Image<input type="file" accept="image/*" onChange={(e) => { importBibleMedia(e); e.target.value = ''; }} style={{ display: 'none' }} /></motion.label>
             <motion.label {...stubTap} style={{ background: C.elevated, color: C.text2, border: '1px solid var(--ui-border2)', padding: '4px 8px', borderRadius: 6, fontSize: 10, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Video size={10} /> Video<input type="file" accept="video/mp4,video/webm" onChange={(e) => { importBibleMedia(e); e.target.value = ''; }} style={{ display: 'none' }} /></motion.label>
           </div>
-          {visibleUploads.length > 0 && (
-            <div style={{ marginTop: 6 }}>
-              <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Your Uploads</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
-                {visibleUploads.map(a => {
-                  const active = bibleMedia && bibleMedia.value === a.value;
-                  return (
-                    <motion.div key={a.value} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', stiffness: 400, damping: 26 }} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.92 }} onClick={() => selectBibleMediaLive(a.type, a.value, a.name)} title={a.name || a.type} style={{ position: 'relative', aspectRatio: '16 / 10', borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: active ? '2px solid #3B82F6' : '1px solid var(--ui-border2)', background: '#000' }}>
-                      {a.type === 'image'
-                        ? <img src={a.value} alt="" onError={() => markUploadMissing(a.value)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                        : <video src={a.value} autoPlay loop muted playsInline preload="metadata" onError={() => markUploadMissing(a.value)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
-                    </motion.div>
-                  );
-                })}
-              </div>
+          {/* Replaces the old "Your Uploads" thumbnail grid. A grid asks the
+              operator to browse every time; what is actually needed is ONE
+              background assigned once, so scripture always arrives with art. */}
+          <div style={{ marginTop: 7 }}>
+            <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Default for new scripture</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {defaultOpt && (
+                <div style={{ width: 48, height: 27, flexShrink: 0, borderRadius: 5, overflow: 'hidden', border: '1px solid ' + C.border2, background: '#000' }}>
+                  {defaultOpt.type === 'video'
+                    ? <video src={defaultOpt.value} autoPlay loop muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    : <img src={defaultOpt.value} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                </div>
+              )}
+              <Dropdown
+                tone="quiet"
+                style={{ flex: 1, minWidth: 0 }}
+                value={(scriptureDefault && scriptureDefault.value) || ''}
+                onChange={assignScriptureDefault}
+                options={scriptureDefaultOptions}
+                placeholder="Pick from existing media…"
+                title="Background attached to every scripture you add to a section"
+                maxHeight={240}
+              />
             </div>
-          )}
+          </div>
           <div style={{ fontSize: 9.5, color: C.faint, marginTop: 4 }}>{bibleMedia
-            ? `Applied to scripture only · ${bibleMedia.type === 'color' ? bibleMedia.value : (bibleMedia.name ? String(bibleMedia.name).replace(/\.[^.]+$/, '') : bibleMedia.type)}`
-            : 'Not set — scripture uses the global style.'}</div>
+            ? `Live override: ${bibleMedia.type === 'color' ? bibleMedia.value : (bibleMedia.name ? String(bibleMedia.name).replace(/\.[^.]+$/, '') : bibleMedia.type)} · new scripture still uses the default`
+            : defaultOpt ? `No override — scripture runs on “${defaultOpt.label}”.` : 'Assign a default so scripture is never added blank.'}</div>
         </div>
         )}
       </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Layers, Plus, Search, Star, Clock, Folder, Download, Upload, Trash2, Edit3, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, Sparkles, CheckSquare, Square, Wand2, Monitor, Calendar, ArrowUp, ArrowDown, FileText, SkipBack, SkipForward, Cpu, LayoutGrid, Link2, Save, Copy, ChevronUp, ChevronDown, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, HelpCircle, Network, Menu, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack, CornerUpLeft, MonitorPlay, Zap } from 'lucide-react';
 import logoImage from './assets/logo.png';
@@ -171,6 +171,13 @@ export default function App() {
     try { const s = localStorage.getItem('bibleMedia'); return s ? JSON.parse(s) : null; } catch { return null; }
   }); // { type: 'image'|'video', value, name } background for scripture slides
   const [bibleMediaOpen, setBibleMediaOpen] = useState(false);
+  // The background every scripture gets, assigned ONCE from existing media and
+  // remembered across restarts — so a passage added from the sidebar or the
+  // Scripture tab always carries artwork. bibleMedia above is only the live
+  // override for the current session; this is the floor beneath it.
+  const [scriptureDefault, setScriptureDefault] = useState(() => {
+    try { const s = localStorage.getItem('scriptureDefaultMedia'); return s ? JSON.parse(s) : null; } catch { return null; }
+  }); // { type: 'image'|'video', value, name }
   const [bibleTestament, setBibleTestament] = useState('all'); // all | ot | nt
   const [bibleBookQuery, setBibleBookQuery] = useState('');
   const [bibleRef, setBibleRef] = useState('');
@@ -430,6 +437,22 @@ export default function App() {
     await fetchPresentations();
   };
 
+  // PowerPoint import. Two modes, because "look exactly like PowerPoint" and
+  // "keep it editable" are opposite goals: images export each slide through
+  // PowerPoint itself (pixel-perfect, needs Office installed), text unzips the
+  // .pptx and rebuilds the words in KOG styling. main.js falls back to text
+  // automatically when PowerPoint is missing.
+  const importPowerPoint = async (mode) => {
+    if (!window.require) return { ok: false, error: 'Only available inside the app.' };
+    const { ipcRenderer } = window.require('electron');
+    try {
+      // No mode = main asks the user (as images / as text / cancel).
+      return await ipcRenderer.invoke('pptx-import', mode ? { mode } : {});
+    } catch (e) {
+      return { ok: false, error: (e && e.message) || 'Import failed.' };
+    }
+  };
+
   const applyTemplate = async (templateId) => {
     const tpl = templates.find(t => t.id === templateId);
     if (!tpl) return;
@@ -618,6 +641,10 @@ export default function App() {
         const added = builtin.filter(b => !seen.has(b.value));
         return added.length ? [...added, ...prev] : prev;
       });
+      // First run: adopt a bundled photo as the default so the very first
+      // scripture added to a section already has artwork behind it. The picker
+      // can swap it for anything else later.
+      setScriptureDefault(prev => prev || builtin.find(b => b.type === 'image') || builtin[0] || null);
     }).catch(() => {});
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -633,10 +660,44 @@ export default function App() {
   }, [bibleMedia]);
 
   useEffect(() => {
+    try { localStorage.setItem('scriptureDefaultMedia', JSON.stringify(scriptureDefault)); } catch {}
+  }, [scriptureDefault]);
+
+  useEffect(() => {
     if (bibleMediaOpen) fetchMediaLibrary();
   }, [bibleMediaOpen]);
 
   const selectBibleMedia = (type, value, name) => applyScriptureBg(type && value ? { type, value, name } : null);
+
+  // Everything that can be assigned as the default scripture background:
+  // scripture uploads, the bundled stock art, plus whatever is already in the
+  // Media dock — merged and de-duplicated by URL so nothing is offered twice.
+  const scriptureDefaultOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    const push = (a) => {
+      const type = (a && (a.type || a.kind)) || null;
+      const value = (a && (a.value || a.url)) || null;
+      if ((type !== 'image' && type !== 'video') || !value || seen.has(value)) return;
+      seen.add(value);
+      out.push({ value, label: a.name ? String(a.name).replace(/\.[^.]+$/, '') : type, type, name: a.name || null });
+    };
+    (scriptureBgLibrary || []).forEach(push);
+    (mediaLibrary || []).forEach(push);
+    return out;
+  }, [scriptureBgLibrary, mediaLibrary]);
+
+  // Assigning the default from a picker. Stored in the same {type,value,name}
+  // shape buildBiblePayload already consumes, so no conversion happens later.
+  const assignScriptureDefault = (value) => {
+    const hit = scriptureDefaultOptions.find(o => o.value === value);
+    const bg = hit ? { type: hit.type, value: hit.value, name: hit.name } : null;
+    setScriptureDefault(bg);
+    // Apply it as well — the operator picked it to see it, and applyScriptureBg
+    // re-fires a scripture slide that is already live so the output updates in
+    // place instead of on the next push.
+    applyScriptureBg(bg);
+  };
 
   const importBibleMedia = async (e) => {
     const file = e.target.files && e.target.files[0];
@@ -2262,6 +2323,7 @@ export default function App() {
             item_type: i.item_type,
             title: i.title || '',
             subtitle: i.subtitle || '',
+            bible: !!(i.meta && i.meta.kind === 'bible'),
             live: i.id != null && i.id === liveId,
           })),
         })),
@@ -2480,7 +2542,10 @@ export default function App() {
       box: { x: 32, y: 20, w: 1216, h: 680 },
     };
 
-    const effectiveBg = bgOverride || bibleMedia;
+    // Background priority: explicit live override → this session's scripture
+    // background → the assigned default → first bundled stock photo. A passage
+    // is never added to a section with nothing behind it.
+    const effectiveBg = bgOverride || bibleMedia || scriptureDefault || scriptureBgLibrary.find(a => a.builtin) || null;
     const style = {
       ...(effectiveBg
         ? { ...stageStyle, backgroundType: effectiveBg.type, backgroundValue: effectiveBg.value }
@@ -2521,9 +2586,55 @@ export default function App() {
 
   const selectBibleMediaLive = (type, value, name) => applyScriptureBg(type && value ? { type, value, name } : null);
 
+  // Lands at the end of the section the operator is working in (via
+  // insertServiceItem, which honours serviceTargetTitle) instead of piling up
+  // after everything else, so the passage sits where it will be used.
   const queueBibleServiceSlide = (src) => {
-    const item = buildBiblePayload(src);
-    setActiveService(prev => ({ ...prev, items: [...((prev && prev.items) || []), item] }));
+    insertServiceItem(buildBiblePayload(src));
+  };
+
+  // Scripture straight from the left bar's ADD TO panel, so the operator never
+  // has to leave the sidebar to drop a passage into the service. It reads the
+  // chapter through the same IPC the Scripture tab uses and formats it with the
+  // same bibleFmt rules, but deliberately does NOT touch bibleChapter/bibleSel —
+  // whatever the Scripture tab had selected stays exactly as it was.
+  const addScriptureToPlan = async ({ bookIndex, bookName, chapter, verseRange, abbrev }) => {
+    if (!window.require) return { error: 'Not running inside the app.' };
+    const { ipcRenderer } = window.require('electron');
+    const useTrans = abbrev || bibleTrans;
+    let res;
+    try {
+      res = await ipcRenderer.invoke('scripture-chapter', useTrans, Number(bookIndex), Number(chapter));
+    } catch (e) {
+      return { error: 'Could not read that chapter.' };
+    }
+    if (!res || res.error || !Array.isArray(res.verses) || !res.verses.length) {
+      return { error: (res && res.error) || 'That chapter could not be loaded.' };
+    }
+    let verses = res.verses.map(v => ({ verse: v.verse, text: formatBibleVerse(v) }));
+
+    // Optional range: "16", "16-18", "16 – 18". Blank = whole chapter, which is
+    // also what the Scripture tab does with no verses selected.
+    const range = String(verseRange || '').trim();
+    if (range) {
+      const m = range.match(/^(\d+)\s*(?:[-\u2013\u2014]\s*(\d+))?$/);
+      if (!m) return { error: 'Use a verse range like 16 or 16-18.' };
+      const lo = Number(m[1]);
+      const hi = Number(m[2] || m[1]);
+      verses = verses.filter(v => v.verse >= Math.min(lo, hi) && v.verse <= Math.max(lo, hi));
+      if (!verses.length) return { error: `No verses ${lo}${hi !== lo ? '-' + hi : ''} in ${res.book} ${res.chapter}.` };
+    }
+
+    insertServiceItem(buildBiblePayload({ book: res.book || bookName, chapter: res.chapter || chapter, verses }));
+    const first = verses[0].verse;
+    const last = verses[verses.length - 1].verse;
+    return {
+      ok: true,
+      ref: `${res.book || bookName} ${res.chapter || chapter}:${first === last ? first : `${first}-${last}`}`,
+      count: verses.length,
+      translation: useTrans,
+      target: serviceTargetTitle,
+    };
   };
 
   const fireBibleLive = (src) => {
@@ -3052,6 +3163,7 @@ export default function App() {
     bibleLib, setBibleLib, bibleTrans, setBibleTrans, bibleBooks, setBibleBooks, bibleSel, setBibleSel, bibleChapter, setBibleChapter,
     bibleDL, setBibleDL, bibleLibQuery, setBibleLibQuery, bibleLibLoading, setBibleLibLoading, bibleTransOpen, setBibleTransOpen,
     bibleHelpOpen, setBibleHelpOpen, bibleMedia, setBibleMedia, bibleMediaOpen, setBibleMediaOpen, bibleTestament, setBibleTestament,
+    scriptureDefault, setScriptureDefault, scriptureDefaultOptions, assignScriptureDefault,
     bibleBookQuery, setBibleBookQuery, bibleRef, setBibleRef, bibleSearchQuery, setBibleSearchQuery, bibleSearchResults, setBibleSearchResults,
     bibleSelVerses, setBibleSelVerses, bibleFocusedVerse, setBibleFocusedVerse, bibleFmt, setBibleFmt,
     showModalOpen, setShowModalOpen, showBuilder, setShowBuilder,
@@ -3088,7 +3200,7 @@ export default function App() {
     serviceStatusIcon, serviceItemIsLive, toggleServiceCollapse, expandAllServiceSections, collapseAllServiceSections,
     clearServiceOrder, addMediaItemToService, addExistingMediaToService, fireServiceMediaLive, stopServiceItemLive, saveCurrentService, loadService, queueShowIntoService,
     presentations, setPresentations, fetchPresentations, isPresentationOpen, editingDeck, setEditingDeck,
-    openPresentationEditor, closePresentationEditor, openPresentation, savePresentationDeck, deletePresentationDeck,
+    openPresentationEditor, closePresentationEditor, openPresentation, savePresentationDeck, deletePresentationDeck, importPowerPoint,
     presentDeck, firePresentationSlide, addPresentationToService, activePresentation, stopPresentation,
     processAutoPaste, fetchSongFromUrl, moveCue, duplicateCue, setCueBackground, cueFileToBackground, setSongBackground,
     songBgFileToBackground, clearCueBackground, splitCuesToLines, clampNum, editorCue, editorBox, updateCue, updateCueThrottled, applyPatchToAllCues,
@@ -3098,6 +3210,7 @@ export default function App() {
     handleDeleteSong, handleToggleFavorite, handleExport, handleImport, serviceSections, thumbBg, resolveBg,
     activeSlideIndex, groupLabels, slideGrid, renderSlideFace, applyMediaToActiveSong, importMediaAsset, removeMediaAsset,
     toggleAudioPreview, clearSongAudio, refreshBibleLib, formatBibleVerse, buildBiblePayload, queueBibleServiceSlide,
+    addScriptureToPlan,
     fireBibleLive, fireBibleSelectionLive, queueBibleSelection, loadBibleBooks, loadBibleChapter, selectBibleBook,
     selectBibleChapter, handleBibleVerseClick, resetBibleToBooks, resetBibleToBook, openBibleTranslation, downloadBible,
     deleteBibleTranslation, resolveBibleReference, searchBibleKeywords, bibleActiveEntry, bibleInstalledLib,
@@ -3188,6 +3301,9 @@ export default function App() {
           songHasBackground={songHasBackground}
           scriptureBgLibrary={scriptureBgLibrary}
           bibleMedia={bibleMedia}
+          scriptureDefault={scriptureDefault}
+          scriptureDefaultOptions={scriptureDefaultOptions}
+          assignScriptureDefault={assignScriptureDefault}
           selectBibleMediaLive={selectBibleMediaLive}
           importBibleMedia={importBibleMedia}
           dockTab={dockTab}

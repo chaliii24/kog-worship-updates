@@ -11,6 +11,7 @@ import ollama from 'ollama';
 import PptxGenJS from 'pptxgenjs';
 import dotenv from 'dotenv';
 import { parseSongBlocks, sanitizeCues } from './songParse.js';
+import { pptxExportImages, pptxReadText } from './pptxImport.js';
 import { parseReference, matchBook } from './bibleResolve.js';
 import { 
   getSongs, 
@@ -999,6 +1000,106 @@ ipcMain.handle('export-presentation-pptx', async (event, deck) => {
   } catch (e) {
     console.log('pptx export failed:', e.message);
     return { error: e.message };
+  }
+});
+
+// An import failure has to be impossible to miss. The Presentations-list path
+// has no status bar of its own, so returning the error quietly made a failed
+// import look exactly like "nothing happened".
+const failImport = async (win, error) => {
+  electronLog.warn('[pptx] import failed:', error);
+  try {
+    const opts = {
+      type: 'error',
+      title: 'Import failed',
+      message: 'Could not import that PowerPoint.',
+      detail: String(error || 'Unknown error.'),
+      buttons: ['OK'],
+      defaultId: 0,
+    };
+    if (win) await dialog.showMessageBox(win, opts);
+    else await dialog.showMessageBox(opts);
+  } catch (_) {}
+  return { ok: false, error: String(error || 'Unknown error.') };
+};
+
+// Pick a .pptx, ask how to bring it in (exact images / editable text), read it.
+// Image mode needs PowerPoint installed; without it we fall back to text and
+// tell the caller, rather than failing the whole import.
+ipcMain.handle('pptx-import', async (event, opts) => {
+  let tmpDir = null;
+  let win = null;
+  try {
+    win = BrowserWindow.fromWebContents(event.sender);
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Import PowerPoint',
+      filters: [{ name: 'PowerPoint Presentation', extensions: ['pptx', 'pptm', 'ppsx', 'ppt', 'pps'] }],
+      properties: ['openFile'],
+    });
+    // showOpenDialog resolves with filePaths (array); showSaveDialog is the
+    // one that returns a bare filePath. Reading it as filePath silently
+    // reported every pick as a cancellation.
+    const filePath = filePaths && filePaths[0];
+    if (canceled || !filePath) return { canceled: true };
+    electronLog.info('[pptx] picked:', filePath);
+
+    // Ask how to import only once a file has actually been picked.
+    let wantImages;
+    if (opts && (opts.mode === 'image' || opts.mode === 'text')) {
+      wantImages = opts.mode === 'image';
+    } else {
+      const choice = await dialog.showMessageBox(win, {
+        type: 'question',
+        title: 'Import PowerPoint',
+        message: 'How should these slides be imported?',
+        detail: 'As images keeps the PowerPoint design exactly as it appears, but the text cannot be edited afterwards.\n\nAs text rebuilds the slides in KOG styling so you can keep editing them — PowerPoint fonts and layout are not kept.\n\nIf PowerPoint is not installed, image import falls back to text automatically.',
+        buttons: ['As images (exact)', 'As text (editable)', 'Cancel'],
+        defaultId: 0,
+        cancelId: 2,
+      });
+      if (choice.response === 2) return { canceled: true };
+      wantImages = choice.response === 0;
+    }
+    electronLog.info('[pptx] mode:', wantImages ? 'images' : 'text');
+
+    tmpDir = path.join(app.getPath('temp'), `kog-pptx-${Date.now()}`);
+    const name = path.basename(filePath).replace(/\.[^.]+$/, '');
+
+    if (wantImages) {
+      const img = await pptxExportImages(filePath, tmpDir);
+      electronLog.info('[pptx] image export:', img.missing ? 'PowerPoint not installed' : img.error ? ('failed - ' + img.error) : (img.files.length + ' slides'));
+      if (img.missing || img.error) {
+        // Any image failure degrades to text rather than dead-ending — as long
+        // as text can actually read the file.
+        const t = await pptxReadText(filePath, tmpDir);
+        if (t.ok) {
+          electronLog.info('[pptx] fell back to text:', t.slides.length, 'slides');
+          return { ok: true, mode: 'text', fellBack: true, name, slides: t.slides,
+            reason: img.missing
+              ? 'PowerPoint is not installed on this computer, so the slides were rebuilt as editable text.'
+              : 'PowerPoint could not export those slides (' + String(img.error).slice(0, 160) + '), so they were rebuilt as editable text.' };
+        }
+        return failImport(win, img.error || t.error);
+      }
+      fs.mkdirSync(MEDIA_DIR, { recursive: true });
+      const slides = [];
+      for (let i = 0; i < img.files.length; i++) {
+        const fileName = `pptx-${Date.now()}-${String(i + 1).padStart(3, '0')}.png`;
+        fs.copyFileSync(path.join(tmpDir, img.files[i]), path.join(MEDIA_DIR, fileName));
+        slides.push({ image: `media://kog-media/${encodeURIComponent(fileName)}` });
+      }
+      electronLog.info('[pptx] image slides:', slides.length);
+      return { ok: true, mode: 'image', name, slides };
+    }
+
+    const t = await pptxReadText(filePath, tmpDir);
+    if (!t.ok) return failImport(win, t.error);
+    electronLog.info('[pptx] text slides:', t.slides.length);
+    return { ok: true, mode: 'text', name, slides: t.slides };
+  } catch (e) {
+    return failImport(win, (e && e.message) || 'Import failed.');
+  } finally {
+    if (tmpDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {} }
   }
 });
 

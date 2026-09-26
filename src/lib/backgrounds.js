@@ -90,6 +90,20 @@ export function parseOutline(text) {
   });
 }
 
+// A .pptx import result becomes deck slides: pictures become full-bleed image
+// slides, extracted words become ordinary editable slides. Shared by the
+// editor's Import button and the Presentations list so both behave the same.
+export function slidesFromPptx(rows = []) {
+  return rows.map((sl) => (sl.image
+    ? defaultSlide({ layout: 'full-image', image: sl.image, title: '', subtitle: '', body: '', bullets: [''] })
+    : defaultSlide({
+        layout: (sl.bullets || []).length ? 'title-bullets' : 'title',
+        title: sl.title || '',
+        subtitle: '',
+        bullets: (sl.bullets || []).length ? sl.bullets : [''],
+      })));
+}
+
 // ---- Free text positioning (design space is always 1280 x 720) ----
 const PAD = 72;
 
