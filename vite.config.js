@@ -17,6 +17,15 @@ export default defineConfig({
     host: true,
     port: 5173,
     strictPort: false,
+    // electron-builder unpacks into `release\win-unpacked.tmp` and then renames
+    // it into place. If the dev watcher follows that tree, its open directory
+    // handles make the rename fail with EPERM on Windows, and every packaged
+    // file that appears hot-reloads the running app. Build output is never
+    // source. Vite merges this into its own ignore list (`.git`, node_modules,
+    // cacheDir, outDir) rather than replacing it.
+    watch: {
+      ignored: ['**/release/**'],
+    },
   },
   preview: {
     host: true,
