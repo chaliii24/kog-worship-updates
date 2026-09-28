@@ -4,7 +4,7 @@ import { Layers, Plus, Search, Star, Clock, Folder, Download, Upload, Trash2, Ed
 import logoImage from './assets/logo.png';
 import { getTheme } from './lib/theme';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, cssSpeed } from './lib/constants';
-import { emphasisLine, applyCaseTransform, renderLyricsLayout, FONT_SIZE_MAX } from './lib/lyrics';
+import { applyCaseTransform, renderLyricsLayout, stripMarkup, FONT_SIZE_MAX } from './lib/lyrics';
 import { parseSongBlocks, splitCuesByLines } from '../electron/songParse.js';
 import { LiveBadge, TileVideo, BackgroundVideo } from './lib/perf';
 import SplashScreen from './components/SplashScreen';
@@ -339,6 +339,18 @@ export default function App() {
     ipcRenderer.send('outputs-sync', outputs);
     if (outputsReadyRef.current) ipcRenderer.send('outputs-save', outputs);
   }, [outputs]);
+
+  // An output can close itself — pressing Esc while a frameless fullscreen
+  // output is covering the console (no monitor to assign it to). Without
+  // this, `enabled` would still read as running, the button would lie, and
+  // the next sync would reopen the window Esc just got the operator out of.
+  useEffect(() => {
+    if (isOutputWindow || !window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    const onClosed = (_e, id) => setOutputs(prev => prev.map(o => (o.id === id ? { ...o, enabled: false } : o)));
+    ipcRenderer.on('output-closed', onClosed);
+    return () => ipcRenderer.removeListener('output-closed', onClosed);
+  }, []);
 
   // Sync projector output's aspect to global state so output windows receive it
   useEffect(() => {
@@ -1608,7 +1620,9 @@ export default function App() {
 
   const moveServiceBlock = (fromIdx, toIdx) => {
     const items = [...(activeService?.items || [])];
-    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= items.length || toIdx >= items.length) return;
+    // toIdx === items.length is legal: it is how a drop past the last row
+    // (or into an empty trailing section) says "append to the end".
+    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= items.length || toIdx > items.length) return;
     const isHeader = items[fromIdx] && items[fromIdx].item_type === 'section_header';
     let end;
     if (isHeader) {
@@ -2076,34 +2090,12 @@ export default function App() {
 
   const endBoxDrag = () => setBoxDrag(null);
 
-  const ToolbarBtn = ({ children, danger, active, title, onClick }) => (
-    <button title={title} onClick={onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: active ? 'rgba(34,197,94,0.15)' : C.elevated, border: '1px solid ' + (active ? 'rgba(34,197,94,0.5)' : 'var(--ui-border2)'), color: danger ? '#f87171' : C.text2, borderRadius: 7, padding: '6px 9px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{children}</button>
+  // `disabled` uses aria-disabled rather than the attribute: a truly disabled
+  // button swallows hover in Chromium, so its tooltip — which is the only
+  // explanation of WHY it is grey — would never show.
+  const ToolbarBtn = ({ children, danger, active, disabled, title, onClick }) => (
+    <button title={title} aria-disabled={disabled || undefined} onClick={disabled ? undefined : onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: active ? 'rgba(34,197,94,0.15)' : C.elevated, border: '1px solid ' + (active ? 'rgba(34,197,94,0.5)' : 'var(--ui-border2)'), color: danger ? '#f87171' : C.text2, borderRadius: 7, padding: '6px 9px', fontSize: 11, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1 }}>{children}</button>
   );
-
-  const fitStageFont = (text) => {
-    const lines = (text || '').split('\n');
-    const lh = editorCue?.lineHeight || 1.05;
-    const boxW = Math.max(200, (editorBox.w || 800) - 40);
-    const boxH = editorBox.h || 340;
-    const baseSize = Math.max(18, Math.min(Number(editorCue?.size) || 110, FONT_SIZE_MAX));
-    const scaleFor = (isEmph) => (isEmph ? 1.24 : 0.84);
-    const caps = lines.filter(l => l.trim().length > 1 && l.trim() === l.trim().toUpperCase());
-    const key = caps.length ? caps[0] : (lines.slice().sort((a, b) => b.trim().length - a.trim().length)[0] || '');
-    const totalHeight = (base) => lines.reduce((h, l) => {
-      if (!l.trim()) return h + base * lh * 0.7;
-      const f = base * scaleFor(l.trim() === key);
-      const cpl = Math.max(6, boxW / (f * 0.55));
-      const wrapped = Math.max(1, Math.ceil(l.length / cpl));
-      return h + wrapped * f * lh;
-    }, 0);
-    let fs = baseSize;
-    for (let i = 0; i < 5; i++) {
-      const actual = totalHeight(fs);
-      if (!actual) break;
-      fs = Math.max(14, Math.min(baseSize, fs * ((boxH * 0.92) / actual)));
-    }
-    return Math.round(fs);
-  };
 
   const cueLyricStyle = (cue) => ({
     font: cue?.font || FONT_OPTIONS[0].value,
@@ -2383,7 +2375,7 @@ export default function App() {
   const renderSlideFace = (tile, { height = '150px', fontSize = '15px', radius = '10px', bg, media } = {}) => {
     const cue = tile.cue;
     const isTitle = tile.isTitle;
-    const text = isTitle ? (activeSong.title || '') : (cue?.text || '');
+    const text = isTitle ? (activeSong.title || '') : stripMarkup(cue?.text || '');
     const label = isTitle ? 'Title' : (cue?.label || 'Slide');
     const bgInfo = (() => {
       if (isTitle) {
@@ -3099,6 +3091,16 @@ export default function App() {
             </div>
           </div>
         </div>
+        {/* ASPECT BADGE — the composition guides were pulled back out of the
+            monitor: over live lyrics they were noise, not help. Only the ratio
+            chip stays, so the operator can still confirm 16:9 vs 4:3 at a
+            glance. Operator chrome only: this layer lives in the preview window
+            and never reaches the projector. */}
+        {valid && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 3, pointerEvents: 'none' }}>
+            <div className="pv-badge" style={{ top: 6, right: 6 }}>{outputAspect}</div>
+          </div>
+        )}
         {!valid && (
           <>
             {/* Stop / Clear puts the monitor into blackout: fade the label in
@@ -3205,7 +3207,7 @@ export default function App() {
     processAutoPaste, fetchSongFromUrl, moveCue, duplicateCue, setCueBackground, cueFileToBackground, setSongBackground,
     songBgFileToBackground, clearCueBackground, splitCuesToLines, clampNum, editorCue, editorBox, updateCue, updateCueThrottled, applyPatchToAllCues,
     baseGroupLabel, nextSuffixLetter, splitCueAtTextareaCaret, reorderCues,
-    startBoxDrag, onStagePointerMove, endBoxDrag, ToolbarBtn, fitStageFont, cueLyricStyle, handleSaveSong,
+    startBoxDrag, onStagePointerMove, endBoxDrag, ToolbarBtn, cueLyricStyle, handleSaveSong,
     previewAnimation,
     handleDeleteSong, handleToggleFavorite, handleExport, handleImport, serviceSections, thumbBg, resolveBg,
     activeSlideIndex, groupLabels, slideGrid, renderSlideFace, applyMediaToActiveSong, importMediaAsset, removeMediaAsset,

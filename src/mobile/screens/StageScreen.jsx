@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Smartphone } from 'lucide-react';
+import { stripMarkup } from '../../lib/lyrics';
 
 // A phone-sized mirror of the physical stage display: same content, same
 // viewport-relative sizing, so a singer reads it from 2-3 m just like they
@@ -55,7 +56,7 @@ export default function StageScreen({ C, state, status, onSwitchRole }) {
           </p>
         ) : (
           <p style={{ margin: 0, fontSize: `${curSize}px`, lineHeight: 1.3, fontWeight: 800, whiteSpace: 'pre-line', overflow: 'hidden', textShadow: '0 2px 18px rgba(99,102,241,0.22)' }}>
-            {current?.text}
+            {stripMarkup(current?.text)}
           </p>
         )}
       </div>
@@ -68,7 +69,7 @@ export default function StageScreen({ C, state, status, onSwitchRole }) {
             <div style={{ fontSize: '1.4vh', fontWeight: 900, color: C.accLine, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: '0.7vh' }}>
               {next.title ? `${next.title} · ` : ''}{next.label}
             </div>
-            <p style={{ margin: 0, fontSize: `${nextSize}px`, lineHeight: 1.3, fontWeight: 700, whiteSpace: 'pre-line', color: C.muted, overflow: 'hidden' }}>{next.text}</p>
+            <p style={{ margin: 0, fontSize: `${nextSize}px`, lineHeight: 1.3, fontWeight: 700, whiteSpace: 'pre-line', color: C.muted, overflow: 'hidden' }}>{stripMarkup(next.text)}</p>
           </>
         ) : (
           <p style={{ margin: 0, fontSize: '1.7vh', color: C.faint2 }}>— Nothing queued —</p>

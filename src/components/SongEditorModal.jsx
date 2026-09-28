@@ -1,8 +1,8 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Plus, Check, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, Cpu, KeyRound, Timer, Clock3, Link2, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack } from 'lucide-react';
+import { Plus, Check, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, Cpu, KeyRound, Timer, Clock3, Link2, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack, Undo2, Redo2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, FALLBACK_SYSTEM_FONTS } from '../lib/constants';
-import { applyCaseTransform, renderLyricsLayout, FONT_SIZE_MIN, FONT_SIZE_MAX } from '../lib/lyrics';
+import { applyCaseTransform, renderLyricsLayout, stripMarkup, FONT_SIZE_MIN, FONT_SIZE_MAX, parseSegments, restyleLineScales } from '../lib/lyrics';
 import { useApp } from '../context/AppContext';
 import { modalOverlay, panelLg, stubTap, iconBtnTap } from '../lib/anim';
 import LyricsCanvasEditor from './LyricsCanvasEditor';
@@ -95,6 +95,15 @@ function NumField({ value, onCommit, min = 0, max = Number.MAX_SAFE_INTEGER, dec
   );
 }
 
+// Targets for the footer's APPLY TO control — a picker, not an action; the
+// Apply button beside it is what actually writes. The label for "Selected"
+// gets a live count appended in the footer itself.
+const APPLY_SCOPES = [
+  { k: 'this', label: 'This Slide', tip: 'Leave the change where it is — on the slide you are editing' },
+  { k: 'selected', label: 'Selected', tip: 'Target the slides you Ctrl+click in the list — Ctrl+click again to untick' },
+  { k: 'all', label: 'All Slides', tip: 'Target every slide of the song, title slide included' },
+];
+
 export default function SongEditorModal() {
   const app = useApp();
   const {
@@ -156,6 +165,12 @@ export default function SongEditorModal() {
   const [hoverAnim, setHoverAnim] = useState(null);
   const [previewTick, setPreviewTick] = useState(0);
   const hoverTimeoutRef = useRef(null);
+  // Live view of what the canvas textarea has highlighted. With a highlight,
+  // the Typography toggles below style THAT text instead of the whole slide —
+  // the same buttons, scoped to what the user actually selected.
+  const canvasApiRef = useRef(null);
+  const [canvasSel, setCanvasSel] = useState(null);
+  const selMode = !!canvasSel?.active;
 
   // --- inline slide rename -------------------------------------------------
   // The Label field lives inside Slide Properties, which is collapsed by
@@ -185,6 +200,26 @@ export default function SongEditorModal() {
   };
   useEffect(() => () => clearTimeout(applyToastRef.current), []);
 
+  // --- APPLY TO scope (footer) --------------------------------------------
+  // The footer's three-way control says WHERE this slide's look is pushed:
+  // 'this' is the resting state (the change is already here), 'selected' is
+  // the set ticked with Ctrl/⌘-click in the slide lists (−1 = title slide),
+  // 'all' rewrites the whole song. Session-only — it dies with the modal.
+  const [applyScope, setApplyScope] = useState('this');
+  const [applySel, setApplySel] = useState([]);
+  const [applyHover, setApplyHover] = useState(null);
+  const toggleApplySel = (i) => setApplySel(s => (s.includes(i) ? s.filter(x => x !== i) : [...s, i]));
+  // Plain click opens the slide; Ctrl/⌘-click ticks it for "Selected".
+  const slideClick = (e, i) => {
+    if (e.ctrlKey || e.metaKey) { toggleApplySel(i); return; }
+    setEditorCueIdx(i);
+  };
+  // Adding, deleting, splitting or duplicating slides shifts every index in
+  // applySel, so a stale tick would rewrite the WRONG slide. Any change to the
+  // count throws the set away rather than guessing; reorders clear it in
+  // dropCue / moveCue below for the same reason.
+  useEffect(() => { setApplySel([]); }, [(editingSong.cues || []).length]);
+
   // --- one apply-to-all ----------------------------------------------------
   // There used to be five separate buttons (align, font, case, style, anim),
   // one per panel, so nothing — not even a font-size change — could reach the
@@ -192,40 +227,187 @@ export default function SongEditorModal() {
   // setting the sidebar controls onto the title slide and every cue.
   // Layout/resize mode, padding, timing and notes are deliberately left out:
   // those vary slide to slide instead of being a look.
+  const visualPatchFrom = (c) => ({
+    font: c.font || FONT_OPTIONS[0].value,
+    size: c.size || 92,
+    lineHeight: c.lineHeight || 1.05,
+    letterSpacing: c.letterSpacing || 0,
+    bold: c.bold !== false,
+    italic: !!c.italic,
+    underline: !!c.underline,
+    strike: !!c.strike,
+    case: c.case || 'none',
+    align: c.align || 'center',
+    valign: c.valign || 'middle',
+    color: c.color || '#ffffff',
+    shadow: !!c.shadow,
+    shadowColor: c.shadowColor || '#000000',
+    shadowBlur: c.shadowBlur ?? 14,
+    shadowOffsetX: c.shadowOffsetX ?? 0,
+    shadowOffsetY: c.shadowOffsetY ?? 4,
+    outline: !!c.outline,
+    strokeColor: c.strokeColor || '#000000',
+    strokeWidth: c.strokeWidth ?? 1.5,
+    gradient: !!c.gradient,
+    gradientColor1: c.gradientColor1 || '#f5f5f4',
+    gradientColor2: c.gradientColor2 || '#93c5fd',
+    gradientAngle: c.gradientAngle ?? 180,
+    highlight: !!c.highlight,
+    hlOpacity: c.hlOpacity ?? 40,
+    anim: c.anim || 'none',
+    speed: c.speed ?? 0.5,
+  });
+
+  // --- undo / redo ----------------------------------------------------------
+  // The draft IS editingSong, so a snapshot is just the previous object and
+  // React's immutability means every snapshot SHARES the cues it did not
+  // touch — a whole song's history costs almost nothing. Changes are recorded
+  // as BURSTS, closed by 1.2s of silence: typing and dragging the box fire
+  // dozens of updates a second and one undo step per keystroke helps nobody.
+  // A bulk write (Apply) calls breakHist() first so it lands in a step of its
+  // own and a single Ctrl+Z takes back exactly that and nothing else.
+  const HIST_GAP = 1200;
+  const HIST_MAX = 150;
+  const histRef = useRef({ past: [], future: [], last: null, at: 0, locked: false });
+  const [hist, setHist] = useState({ undo: false, redo: false });
+  const syncHist = () => {
+    const h = histRef.current;
+    const canUndo = h.past.length > 0;
+    const canRedo = h.future.length > 0;
+    setHist((p) => (p.undo === canUndo && p.redo === canRedo ? p : { undo: canUndo, redo: canRedo }));
+  };
+  const breakHist = () => { histRef.current.at = 0; };
+
+  useEffect(() => {
+    const h = histRef.current;
+    // An undo/redo step is not an edit — record nothing and leave the redo
+    // stack alone, or redo would clear itself the moment it is used.
+    if (h.locked) { h.locked = false; h.last = editingSong; return; }
+    if (h.last === editingSong) return;
+    const now = Date.now();
+    if (h.last && now - h.at > HIST_GAP) {
+      h.past.push(h.last);
+      if (h.past.length > HIST_MAX) h.past.shift();
+      h.at = now;
+    }
+    h.last = editingSong;
+    h.future = [];
+    syncHist();
+  }, [editingSong]);
+
+  const jumpTo = (next) => {
+    const h = histRef.current;
+    if (!h.last || !next) return;
+    h.locked = true;
+    h.at = 0;
+    setEditingSong(next);
+    // Undo can take away the very slide that is open.
+    setEditorCueIdx((i) => Math.max(-1, Math.min(i, (next.cues || []).length - 1)));
+    syncHist();
+  };
+
+  const undo = () => {
+    const h = histRef.current;
+    if (!h.past.length || !h.last) return;
+    const prev = h.past.pop();
+    if (!prev) return;
+    h.future.push(h.last);
+    jumpTo(prev);
+  };
+
+  const redo = () => {
+    const h = histRef.current;
+    if (!h.future.length || !h.last) return;
+    const next = h.future.pop();
+    if (!next) return;
+    h.past.push(h.last);
+    jumpTo(next);
+  };
+
+  // Ctrl+Z — plus the two redo spellings every other app accepts. Wired here
+  // instead of left to the textarea, whose native undo only ever steps back
+  // over TEXT: a wrong size or a deleted slide would sit there grinning.
+  // preventDefault() is what hands the key to us.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const k = (e.key || '').toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+      else if (k === 'z' || k === 'y') { e.preventDefault(); redo(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const applyTypographyToAll = () => {
+    breakHist();
     const c = editorCue;
     if (!c) return;
-    applyPatchToAllCues({
-      font: c.font || FONT_OPTIONS[0].value,
-      size: c.size || 92,
-      lineHeight: c.lineHeight || 1.05,
-      letterSpacing: c.letterSpacing || 0,
-      bold: c.bold !== false,
-      italic: !!c.italic,
-      underline: !!c.underline,
-      strike: !!c.strike,
-      case: c.case || 'none',
-      align: c.align || 'center',
-      valign: c.valign || 'middle',
-      color: c.color || '#ffffff',
-      shadow: !!c.shadow,
-      shadowColor: c.shadowColor || '#000000',
-      shadowBlur: c.shadowBlur ?? 14,
-      shadowOffsetX: c.shadowOffsetX ?? 0,
-      shadowOffsetY: c.shadowOffsetY ?? 4,
-      outline: !!c.outline,
-      strokeColor: c.strokeColor || '#000000',
-      strokeWidth: c.strokeWidth ?? 1.5,
-      gradient: !!c.gradient,
-      gradientColor1: c.gradientColor1 || '#f5f5f4',
-      gradientColor2: c.gradientColor2 || '#93c5fd',
-      gradientAngle: c.gradientAngle ?? 180,
-      highlight: !!c.highlight,
-      hlOpacity: c.hlOpacity ?? 40,
-      anim: c.anim || 'none',
-      speed: c.speed ?? 0.5,
-    });
+    applyPatchToAllCues(visualPatchFrom(c));
     confirmApplied('Typography applied to every slide');
+  };
+
+  // Footer APPLY TO: the three segments only CHOOSE the target — they never
+  // rewrite anything by themselves. The Apply button beside them does the
+  // work, and it only exists when there is work to do (scope = "Selected"
+  // with nothing ticked shows it greyed out instead). Cancel still throws the
+  // whole edit away, so a mis-apply is never permanent.
+  //
+  // What travels is the whole LOOK, not just the type: geometry too, because
+  // in Fit mode the box decides how big the words render — copying the font
+  // without the box can never be "the same". The per-line sizes travel line
+  // by line over each target's own words (the lyrics differ, the sizes don't).
+  // What is being copied, by NAME: the source slide's first line. Without it
+  // a toast that only counts slides cannot tell a real copy apart from ticking
+  // the very slide you are already standing on — which changes nothing.
+  const srcName = () => {
+    const first = stripMarkup(editorCue ? editorCue.text || '' : '').split('\n').map((s) => s.trim()).filter(Boolean)[0] || '';
+    const short = first.length > 38 ? `${first.slice(0, 37)}…` : first;
+    return short ? `\u201c${short}\u201d` : 'this slide';
+  };
+
+  const applyToScope = (scope) => {
+    setApplyScope(scope);
+    const c = editorCue;
+    if (!c) return;
+    if (scope === 'this') { confirmApplied('Changes stay on this slide'); return; }
+    const patch = { ...visualPatchFrom(c) };
+    if (c.box) patch.box = c.box;
+    patch.resizeMode = c.resizeMode || 'fit';
+    patch.fillMin = c.fillMin ?? 18;
+    patch.fillMax = c.fillMax ?? 165;
+    patch.pad = c.pad ?? 10;
+
+    const cues = editingSong.cues || [];
+    const sel = scope === 'all' ? cues.map((_, i) => i) : applySel.filter(i => i >= 0 && i < cues.length);
+    const hasTitle = !!editingSong.title_cue && (scope === 'all' || applySel.includes(-1));
+    if (!sel.length && !hasTitle) {
+      confirmApplied(applySel.length ? 'Nothing to apply to — tick a slide below' : 'Ctrl+click slides in the list to select them');
+      return;
+    }
+    const hit = new Set(sel);
+    const srcText = c.text || '';
+    const restyle = (t) => restyleLineScales(srcText, t || '');
+    breakHist(); // one Ctrl+Z takes back the whole Apply, not 1.2s of it
+    setEditingSong({
+      ...editingSong,
+      title_cue: hasTitle ? { ...editingSong.title_cue, ...patch, text: restyle(editingSong.title_cue.text) } : editingSong.title_cue,
+      cues: cues.map((cu, i) => (hit.has(i) ? { ...cu, ...patch, text: restyle(cu.text) } : cu)),
+    });
+    // The ticks have done their job. Leave every slide unchecked so the next
+    // Apply has to be aimed again — otherwise the last selection is still lit
+    // and a second press silently re-applies to it.
+    setApplySel([]);
+    const n = hit.size + (hasTitle ? 1 : 0);
+    const from = srcName();
+    const selfOnly = scope !== 'all' && hit.size === 1 && hit.has(editorCueIdx) && !hasTitle;
+    confirmApplied(
+      selfOnly
+        ? `Nothing changed — ${from} is the slide you\u2019re on`
+        : scope === 'all'
+          ? `Copied ${from} to every slide (${n})`
+          : `Copied ${from} to ${n} slide${n === 1 ? '' : 's'}`,
+    );
   };
 
   // --- bring-your-own Gemini key -------------------------------------------
@@ -381,6 +563,9 @@ export default function SongEditorModal() {
     }
     setEditingSong({ ...editingSong, cues });
     setEditorCueIdx(landed);
+    // Indices in the "Selected" set just moved; start over rather than apply
+    // this slide's look to whichever cue now sits at the old index.
+    setApplySel([]);
   };
 
   const dragStart = (e, i) => {
@@ -568,7 +753,7 @@ export default function SongEditorModal() {
                     <button onClick={() => { setEditingSong({ ...editingSong, cues: editingSong.cues.filter((_, x) => x !== i) }); }} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: 2 }}><Trash2 size={13} /></button>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ fontSize: 10, color: C.accLine, fontWeight: 700, textTransform: 'uppercase' }}>{c.label}</span>
-                      <p style={{ margin: '2px 0 0 0', fontSize: 12, color: C.text2, whiteSpace: 'pre-line' }}>{c.text}</p>
+                      <p style={{ margin: '2px 0 0 0', fontSize: 12, color: C.text2, whiteSpace: 'pre-line' }}>{stripMarkup(c.text)}</p>
                     </div>
                   </div>
                 ))}
@@ -665,12 +850,34 @@ export default function SongEditorModal() {
                   ['underline', Underline, 'Underline', false],
                   ['strike', Strikethrough, 'Strikethrough', false],
                 ].map(([k, Icon, lbl, def]) => {
-                  const active = k === 'bold' ? (editorCue?.bold !== false) : !!(editorCue?.[k]);
+                  // With text highlighted in the canvas these style exactly
+                  // that highlight; with nothing selected they style the whole
+                  // slide, exactly as they always have.
+                  const active = selMode
+                    ? !!canvasSel.attrs[k]
+                    : (k === 'bold' ? (editorCue?.bold !== false) : !!(editorCue?.[k]));
+                  const toggle = () => {
+                    if (selMode) { canvasApiRef.current?.applyStyle({ [k]: !active }); return; }
+                    updateCue(editorCueIdx, { [k]: !active });
+                  };
                   return (
-                    <button key={k} title={lbl} onClick={() => updateCue(editorCueIdx, { [k]: !active })} style={{ flex: 1, background: active ? ACCENT : C.elevated2, border: '1px solid ' + (active ? ACCENT : 'var(--ui-border2)'), color: active ? C.text : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
+                    // preventDefault on mousedown: the highlight only exists
+                    // while the textarea holds focus, and a button taking that
+                    // focus would end edit mode before the click lands.
+                    <button
+                      key={k}
+                      title={selMode ? `${lbl} the selected text` : `${lbl} this slide`}
+                      onMouseDown={(ev) => ev.preventDefault()}
+                      onClick={toggle}
+                      style={{ flex: 1, background: active ? ACCENT : C.elevated2, border: '1px solid ' + (active ? ACCENT : 'var(--ui-border2)'), color: active ? C.text : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
                   );
                 })}
               </div>
+              {selMode && (
+                <div style={{ fontSize: 9.5, fontWeight: 700, color: '#93c5fd', marginTop: 5, letterSpacing: 0.2 }}>
+                  Highlighted text — B / I / U / S style only that; Size and the rest still set the whole slide
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <div style={{ flex: 1 }}>
                   <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Size</label>
@@ -857,6 +1064,10 @@ export default function SongEditorModal() {
             <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--ui-border2)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || []), { label: 'Verse 1', text: '', box: DEFAULT_BOX }]; setEditingSong({ ...editingSong, cues }); startRename(cues.length - 1, cues[cues.length - 1], 'strip'); }} title="Add a new slide"><Plus size={14} /> <span>New Slide</span></ToolbarBtn>
               <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || [])]; if (!cues.length) { cues.push({ label: 'Verse 1', text: '', box: DEFAULT_BOX, locked: false }); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(0); } else if (editorCueIdx >= 0 && cues[editorCueIdx] && !cues[editorCueIdx].box) { cues[editorCueIdx] = { ...cues[editorCueIdx], box: DEFAULT_BOX, locked: false }; setEditingSong({ ...editingSong, cues }); } }} title="Add/edit text box on this slide"><Type size={14} /> <span>Text</span></ToolbarBtn>
+              <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
+              <ToolbarBtn onClick={undo} disabled={!hist.undo} title="Undo — Ctrl+Z. Takes back the last change (typing, sizes, a deleted slide, an Apply)"><Undo2 size={14} /></ToolbarBtn>
+              <ToolbarBtn onClick={redo} disabled={!hist.redo} title="Redo — Ctrl+Shift+Z or Ctrl+Y"><Redo2 size={14} /></ToolbarBtn>
+              <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
               <ToolbarBtn onClick={() => duplicateCue(editorCueIdx)} title="Duplicate slide"><Copy size={14} /></ToolbarBtn>
               <ToolbarBtn danger onClick={() => { if (editorCueIdx < 0) return; const cues = [...(editingSong.cues || [])]; if (!cues.length) return; cues.splice(editorCueIdx, 1); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(Math.min(editorCueIdx, Math.max(0, cues.length - 1))); }} title="Delete slide"><Trash2 size={14} /></ToolbarBtn>
               <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
@@ -930,6 +1141,8 @@ export default function SongEditorModal() {
                   previewSpeed={editorCue?.speed ?? 0.5}                  onTextChange={(t) => updateCue(editorCueIdx, { text: t })}
                   onBoxChange={(b) => updateCue(editorCueIdx, { box: b })}
                   onSizeChange={(s) => updateCue(editorCueIdx, { size: s })}
+                  apiRef={canvasApiRef}
+                  onSelectionChange={setCanvasSel}
                 />
               ) : (
                 <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 12, boxShadow: '0 12px 44px rgba(0,0,0,0.45)', border: '1px solid var(--ui-border2)', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.55)', fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-sans)' }}>Add a text box to begin</div>
@@ -950,7 +1163,7 @@ export default function SongEditorModal() {
               </div>
               <div style={{ display: 'grid', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
                 {/* Title Slide Thumbnail */}
-                <div onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); dropCue(dragFrom, 0, 'before', false); }} onClick={() => setEditorCueIdx(-1)} style={{ cursor: 'pointer', position: 'relative', background: editorCueIdx === -1 ? 'rgba(59,130,246,0.16)' : C.elevated, border: dragFrom != null ? '1px dashed ' + ACCENT : (editorCueIdx === -1 ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), borderRadius: 8, overflow: 'hidden', padding: 6 }}>
+                <div onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); dropCue(dragFrom, 0, 'before', false); }} onClick={(e) => slideClick(e, -1)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: editorCueIdx === -1 ? 'rgba(59,130,246,0.16)' : C.elevated, border: dragFrom != null ? '1px dashed ' + ACCENT : (editorCueIdx === -1 ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(-1) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
                   <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 5, background: songHasBackground(editingSong) && editingSong.bg_type === 'color' ? editingSong.bg_value : '#0a0a0a', position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {editingSong.bg_type === 'image' && editingSong.bg_value && (
                       <img draggable={false} src={editingSong.bg_value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -959,6 +1172,9 @@ export default function SongEditorModal() {
                       <TileVideo src={editingSong.bg_value} animate={editorCueIdx === -1} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                     )}
                     <div style={{ position: 'relative', zIndex: 2, color: '#f5f5f4', fontSize: 10, fontWeight: 800, textAlign: 'center', padding: '0 6px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{editingSong.title || 'Song Title'}</div>
+                    {applySel.includes(-1) && (
+                      <span style={{ position: 'absolute', top: 4, right: 4, zIndex: 4, width: 14, height: 14, borderRadius: '50%', background: ACCENT, color: '#fff', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>✓</span>
+                    )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }}>
                     <span style={{ fontSize: 9.5, fontWeight: 800, color: '#38bdf8' }}>Title Slide</span>
@@ -980,7 +1196,7 @@ export default function SongEditorModal() {
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                         {g.items.map(({ c, i, li }) => (
-                          <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={() => setEditorCueIdx(i)} style={{ cursor: 'pointer', position: 'relative', background: i === editorCueIdx ? 'rgba(59,130,246,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), borderRadius: 8, overflow: 'hidden', padding: 6 }}>
+                          <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: i === editorCueIdx ? 'rgba(59,130,246,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
                             {dropHint && dropHint.i === i && (
                               <span style={{ position: 'absolute', top: 0, bottom: 0, [dropHint.side === 'before' ? 'left' : 'right']: 0, width: 3, background: ACCENT, borderRadius: 3, zIndex: 6 }} />
                             )}
@@ -991,8 +1207,29 @@ export default function SongEditorModal() {
                               {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'video' && (
                                 <TileVideo key={`tb-${resolveBg(c, editingSong).value}`} src={resolveBg(c, editingSong).value} animate={i === editorCueIdx} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                               )}
-                              <div style={{ position: 'relative', zIndex: 2, color: c.color || '#f5f5f4', fontFamily: c.font || FONT_OPTIONS[0].value, fontSize: 9.5, fontWeight: 700, textAlign: 'center', padding: '0 6px', lineHeight: 1.25, textShadow: '0 1px 3px rgba(0,0,0,0.8)', maxWidth: '100%' }}>{(applyCaseTransform(c.text || '', c.case || 'none')).split('\n').slice(0, 3).join(' ')}</div>
+                              <div style={{ position: 'relative', zIndex: 2, color: c.color || '#f5f5f4', fontFamily: c.font || FONT_OPTIONS[0].value, fontSize: 9.5, fontWeight: 700, textAlign: 'center', padding: '0 6px', lineHeight: 1.25, textShadow: '0 1px 3px rgba(0,0,0,0.8)', maxWidth: '100%' }}>
+                                {(() => {
+                                  // One row per line, each RUN at its own
+                                  // size — sizes live on words as often as on
+                                  // whole lines, so the thumb has to show what
+                                  // the projector shows: a small lead-in over
+                                  // a big keyword, never flat text.
+                                  return applyCaseTransform(c.text || '', c.case || 'none').split('\n').slice(0, 3).map((ln, i) => (
+                                    <div key={i}>
+                                      {parseSegments(ln).map((sg, j) => {
+                                        const s = typeof sg.scale === 'number' && sg.scale > 0 ? sg.scale : 1;
+                                        return s === 1
+                                          ? <span key={j}>{sg.t}</span>
+                                          : <span key={j} style={{ fontSize: 9.5 * s }}>{sg.t}</span>;
+                                      })}
+                                    </div>
+                                  ));
+                                })()}
+                              </div>
                               <div style={{ position: 'absolute', top: 3, left: 4, fontSize: 8, fontWeight: 800, color: 'rgba(255,255,255,0.85)', background: 'rgba(0,0,0,0.45)', borderRadius: 3, padding: '0 4px' }}>{gi + 1}.{li}</div>
+                              {applySel.includes(i) && (
+                                <span style={{ position: 'absolute', top: 3, right: 4, zIndex: 5, width: 14, height: 14, borderRadius: '50%', background: ACCENT, color: '#fff', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>✓</span>
+                              )}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }}>
                               {(renameIdx === i && renameFrom === 'strip') ? (
@@ -1019,7 +1256,7 @@ export default function SongEditorModal() {
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Custom Slide Order</div>
               <div style={{ display: 'grid', gap: 5 }}>
                 {(editingSong.cues || []).map((c, i) => (
-                  <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={() => setEditorCueIdx(i)} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: i === editorCueIdx ? 'rgba(59,130,246,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), borderRadius: 8, padding: '6px 8px', cursor: 'grab' }}>
+                  <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: i === editorCueIdx ? 'rgba(59,130,246,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, padding: '6px 8px', cursor: 'grab' }}>
                     {dropHint && dropHint.i === i && (
                       <span style={{ position: 'absolute', top: 0, bottom: 0, [dropHint.side === 'before' ? 'left' : 'right']: 0, width: 3, background: ACCENT, borderRadius: 3 }} />
                     )}
@@ -1031,10 +1268,10 @@ export default function SongEditorModal() {
                       ) : (
                         <div onDoubleClick={(e) => { e.stopPropagation(); startRename(i, c, 'order'); }} title="Double-click to rename" style={{ fontSize: 11, fontWeight: 700, color: C.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'text' }}>{c.label || 'Slide'}</div>
                       )}
-                      <div style={{ fontSize: 9.5, color: C.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(c.text || '').split('\n')[0] || 'empty'}</div>
+                      <div style={{ fontSize: 9.5, color: C.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stripMarkup(c.text || '').split('\n')[0] || 'empty'}</div>
                     </div>
-                    <button onClick={(e) => { e.stopPropagation(); moveCue(i, -1); }} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: 2 }}><ChevronUp size={12} /></button>
-                    <button onClick={(e) => { e.stopPropagation(); moveCue(i, 1); }} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: 2 }}><ChevronDown size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); moveCue(i, -1); setApplySel([]); }} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: 2 }}><ChevronUp size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); moveCue(i, 1); setApplySel([]); }} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: 2 }}><ChevronDown size={12} /></button>
                   </div>
                 ))}
               </div>
@@ -1121,24 +1358,97 @@ export default function SongEditorModal() {
     </div>
 
     {/* ===== FOOTER ===== */}
-    <div style={{ padding: '10px 16px', borderTop: '1px solid var(--ui-border2)', display: 'flex', justifyContent: 'flex-end', gap: 10, flexShrink: 0 }}>
+    <div style={{ position: 'relative', padding: '10px 16px', borderTop: '1px solid var(--ui-border2)', display: 'flex', justifyContent: 'flex-end', gap: 10, flexShrink: 0 }}>
+      {/* APPLY TO — centred at the bottom of the modal, themed like every
+          other segmented control here: the pill picks the target, the Apply
+          button beside it is what actually writes. */}
+      <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', display: 'flex', alignItems: 'center', gap: 9 }}>
+        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 1.4, textTransform: 'uppercase', color: C.faint, whiteSpace: 'nowrap' }}>Apply to</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: 3 }}>
+          {APPLY_SCOPES.map(({ k, label, tip }) => {
+            const on = applyScope === k;
+            const hot = applyHover === k;
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setApplyScope(k)}
+                onMouseEnter={() => setApplyHover(k)}
+                onMouseLeave={() => setApplyHover(h => (h === k ? null : h))}
+                title={tip}
+                style={{
+                  background: on ? ACCENT : hot ? 'rgba(255,255,255,0.07)' : 'transparent',
+                  border: 'none',
+                  color: on ? '#fff' : hot ? C.text : C.muted,
+                  borderRadius: 999,
+                  padding: '6px 14px',
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  transition: 'background 120ms ease, color 120ms ease',
+                }}
+              >
+                {k === 'selected' && applySel.length ? `Selected ${applySel.length}` : label}
+              </button>
+            );
+          })}
+        </div>
+        {/* The button this control exists for. Hidden on "This Slide" (there
+            is nothing to push — the change is already here); on "Selected" it
+            stays on screen greyed out until at least one slide is ticked, so
+            it lights up instead of appearing from nowhere. */}
+        {applyScope !== 'this' && (() => {
+          const ready = applyScope !== 'selected' || applySel.length > 0;
+          const from = srcName();
+          const tip = !ready
+            ? 'Tick slides first — Ctrl+click them in the list'
+            : applyScope === 'all'
+              ? `Copy ${from} (type, box and line sizes) onto every slide`
+              : `Copy ${from} (type, box and line sizes) onto ${applySel.length} ticked slide${applySel.length === 1 ? '' : 's'}`;
+          return (
+            <button
+              type="button"
+              onClick={() => { if (ready) applyToScope(applyScope); }}
+              aria-disabled={!ready}
+              title={tip}
+              style={{
+                background: ready ? ACCENT : C.elevated2,
+                border: '1px solid ' + (ready ? 'transparent' : 'var(--ui-border2)'),
+                color: ready ? '#fff' : C.faint,
+                borderRadius: 999,
+                padding: '6px 17px',
+                fontSize: 11.5,
+                fontWeight: 800,
+                letterSpacing: 0.2,
+                cursor: ready ? 'pointer' : 'not-allowed',
+                whiteSpace: 'nowrap',
+                transition: 'background 140ms ease, color 140ms ease, border-color 140ms ease',
+              }}
+            >Apply</button>
+          );
+        })()}
+        <span style={{ width: 1, height: 22, background: 'var(--ui-border2)' }} />
+      </div>
       <motion.button {...stubTap} onClick={() => setIsEditorOpen(false)} style={{ background: C.border, border: 'none', color: C.text, padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</motion.button>
       <motion.button {...stubTap} onClick={handleSaveSong} style={{ background: ACCENT, border: 'none', color: C.text, padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Save Song</motion.button>
     </div>
-  </motion.div>
 
-  {/* Confirmation for the "apply to every slide" buttons — they rewrite the
-      whole song at once, which looks exactly like nothing happened. */}
-  <AnimatePresence>
-    {applyToast && (
-      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 26, display: 'flex', justifyContent: 'center', pointerEvents: 'none', zIndex: 6 }}>
-        <motion.div initial={{ opacity: 0, y: 14, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.97 }} transition={{ type: 'spring', stiffness: 420, damping: 30 }} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(16,185,129,0.16)', border: '1px solid rgba(52,211,153,0.5)', color: '#34d399', padding: '9px 17px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, boxShadow: '0 12px 34px rgba(0,0,0,0.45)', backdropFilter: 'blur(10px)' }}>
-          <Check size={15} />
-          {applyToast}
-        </motion.div>
-      </div>
-    )}
-  </AnimatePresence>
+    {/* Confirmation for the "apply to every slide" buttons — they rewrite the
+        whole song at once, which looks exactly like nothing happened. Lives
+        INSIDE the panel so `bottom` is measured from the modal edge and the
+        toast clears the footer's APPLY TO control instead of covering it. */}
+    <AnimatePresence>
+      {applyToast && (
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 72, display: 'flex', justifyContent: 'center', pointerEvents: 'none', zIndex: 6 }}>
+          <motion.div initial={{ opacity: 0, y: 14, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.97 }} transition={{ type: 'spring', stiffness: 420, damping: 30 }} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(16,185,129,0.16)', border: '1px solid rgba(52,211,153,0.5)', color: '#34d399', padding: '9px 17px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, boxShadow: '0 12px 34px rgba(0,0,0,0.45)', backdropFilter: 'blur(10px)' }}>
+            <Check size={15} />
+            {applyToast}
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  </motion.div>
 </motion.div>
   );
 }

@@ -88,6 +88,7 @@ jobs:
             release/*.exe
             release/*.blockmap
             release/latest.yml
+          name: ${{ github.ref_name }} Beta
           generate_release_notes: true
           draft: false
           prerelease: false

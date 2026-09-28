@@ -1,10 +1,15 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, Images, PanelLeftClose, Music, MonitorPlay, Pencil, FileUp, BookOpen } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { slidesFromPptx } from '../lib/backgrounds';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import Dropdown from './Dropdown';
+
+/* Left-to-right order of the sub-tabs — used to give the panel swap a
+   direction, so switching to a tab further right slides content in from the
+   right and back is the mirror of that. */
+const TAB_ORDER = ['order', 'shows', 'songs'];
 
 export default function LeftSidebar() {
   const app = useApp();
@@ -19,13 +24,9 @@ export default function LeftSidebar() {
     showsQuery,
     setShowsQuery,
     activeService,
-    showsCollapsed,
-    setShowsCollapsed,
     songs,
     activeSong,
     activeCue,
-    songsCollapsed,
-    setSongsCollapsed,
     searchQuery,
     setSearchQuery,
     serviceAddMenu,
@@ -114,11 +115,90 @@ export default function LeftSidebar() {
   } = app;
 
   const [sectionRenameIdx, setSectionRenameIdx] = useState(null);
+  // Which of the three panels is on screen. They used to share one narrow
+  // column — three headers, a divider and a few hundred pixels split three
+  // ways, so each list was only a handful of rows tall. One at a time gives
+  // every section room. Cross-list adds no longer lean on drag (two panels
+  // are never visible together now); each row's + Plan button does the same
+  // job, and the order's Add Song / Scripture / Media / Presentation pickers
+  // cover the rest.
+  const [viewTab, setViewTab] = useState('order');
+  // Which way the panel swap travels: +1 toward the tab on the right, -1
+  // back toward the left. The ref only catches up in an effect, so the
+  // render that sees the NEW tab still finds the OLD index in it — that
+  // comparison is what tells us the direction we came from.
+  const tabIdx = TAB_ORDER.indexOf(viewTab);
+  const lastTabIdx = useRef(tabIdx);
+  const tabDir = tabIdx >= lastTabIdx.current ? 1 : -1;
+  useEffect(() => { lastTabIdx.current = tabIdx; }, [tabIdx]);
   // Blocks a second click from stacking a second file dialog behind the first.
   const pptxImportBusy = useRef(false);
   // The import is not instant (PowerShell + unzip), so the button has to say so.
   const [pptxImporting, setPptxImporting] = useState(false);
   const [sectionRenameTitle, setSectionRenameTitle] = useState('');
+  // Drag-to-reorder on the service order. Only the ITEMS are draggable — a
+  // section heading is a click target (collapse, rename, set ADD TO), so
+  // making it draggable too was pulling whole blocks around by accident.
+  // dropRow is the flat index of the row currently lighting up; headings and
+  // items share the running flatIdx, so one number identifies either. The
+  // actual insert position lives in dropRef, because it can point at a gap
+  // between rows rather than at a row at all.
+  const [dropRow, setDropRow] = useState(null);
+  const dropRef = useRef(null);
+  // Set from the item's dragstart so the list knows the drag came from its
+  // own rows — the outer "drop a show/song here" dashed border then stays
+  // out of the way, and the reorder never falls into that external handler.
+  const internalDrag = useRef(false);
+  // Two pieces of feedback, updated together: where the item will land
+  // (dropRef, consumed by the drop handler) and which row lights up for it.
+  const setDrop = (at, row) => { dropRef.current = at; setDropRow(row); };
+  // Where the drop should insert, read from where the pointer actually is.
+  // Scanned on dragover rather than on drop, so the row under the cursor is
+  // the one lit up while you move. Over a row: that row's own index (upper
+  // half = insert above, lower half = insert below). Over a heading: always
+  // the start of that section — dropping on a heading should put the item
+  // INTO that section, not above it. In the 8px gap between rows, which is
+  // the easy thing to hit: nearest row by its centre, so the item lands
+  // where the pointer was instead of jumping to the end of the order.
+  const scanDropTarget = (e) => {
+    const items = activeService?.items || [];
+    let el = e.target;
+    while (el && el !== e.currentTarget && el.getAttribute && el.getAttribute('data-drop-idx') === null) el = el.parentElement;
+    if (el && el !== e.currentTarget && el.getAttribute && el.getAttribute('data-drop-idx') !== null) {
+      const idx = Number(el.getAttribute('data-drop-idx'));
+      if (el.getAttribute('data-drop-section')) return { at: idx + 1, row: idx };
+      const r = el.getBoundingClientRect();
+      return { at: e.clientY < r.top + r.height / 2 ? idx : idx + 1, row: idx };
+    }
+    let at = items.length;
+    let row = null;
+    const kids = Array.prototype.slice.call(e.currentTarget.children);
+    for (let i = 0; i < kids.length; i++) {
+      const raw = kids[i].getAttribute('data-drop-idx');
+      if (raw === null) continue;
+      const r = kids[i].getBoundingClientRect();
+      row = Number(raw);
+      if (e.clientY < r.top + r.height / 2) return { at: row, row };
+      at = row + 1;
+    }
+    return { at, row };
+  };
+  const dropOnOrder = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const target = dropRef.current;
+    internalDrag.current = false;
+    setDrop(null, null);
+    setServiceDragOver(false);
+    try {
+      const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+      if (!data) return;
+      if (data.kind === 'reorder') {
+        if (target !== null && target !== undefined) moveServiceBlock(Number(data.from), target);
+      } else if (data.kind === 'show') queueShowIntoService(data.id);
+      else if (data.kind === 'song') { const song = songs.find(s => s.id === data.id); if (song) addSongToService(song); }
+    } catch (_) {}
+  };
   // Scripture picker — local on purpose. Nothing here selects a book/chapter in
   // the Scripture tab, so the operator can add three passages in a row without
   // the reading pane jumping around under them.
@@ -207,7 +287,7 @@ export default function LeftSidebar() {
       transition={{ type: 'spring', stiffness: 320, damping: 34 }}
       style={{ flexShrink: 0, overflow: 'hidden', height: '100%', maxWidth: '35vw' }}
     >
-    <div style={{ width: '100%', minWidth: 280, height: '100%', background: 'var(--ui-elev)', borderRight: '1px solid var(--ui-border)', flexDirection: 'column', display: 'flex' }}>
+    <div style={{ width: '100%', minWidth: 280, height: '100%', background: 'var(--ui-panel)', borderRight: '1px solid var(--ui-border)', flexDirection: 'column', display: 'flex' }}>
   {/* Sidebar header */}
   <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--ui-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexShrink: 0 }}>
     {dockTab === 'shows' ? (
@@ -227,31 +307,56 @@ export default function LeftSidebar() {
     if (dockTab === 'shows') {
       return (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          {/* PANEL 1 — SHOWS LIBRARY (Step 1) */}
-          <div style={{ flex: showsCollapsed ? '0 0 auto' : '4 1 0', minHeight: showsCollapsed ? 0 : 90, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div onClick={() => setShowsCollapsed(v => !v)} title={showsCollapsed ? 'Expand Shows' : 'Collapse Shows'} style={{ padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexShrink: 0, cursor: 'pointer', userSelect: 'none' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 800, color: 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.5 }}>
-                {showsCollapsed ? <ChevronRight size={13} color="var(--ui-faint)" /> : <ChevronDown size={13} color="var(--ui-faint)" />} Shows
-                <span style={{ color: 'var(--ui-faint)', fontWeight: 700, letterSpacing: 0 }}>({(services || []).length})</span>
-              </span>
+          {/* SUB-TABS — one panel at a time instead of three stacked into the
+              same narrow column. Counts live on the tab so nothing is hidden
+              behind the switch. */}
+          <div className="side-tabs">
+            <button className="side-tab" data-wide="1" data-active={viewTab === 'order' ? '1' : '0'} onClick={() => setViewTab('order')} title="The running order you are building">Service Order <span className="tab-n">{serviceOrderCount()}</span></button>
+            <button className="side-tab" data-active={viewTab === 'shows' ? '1' : '0'} onClick={() => setViewTab('shows')} title="Saved shows — click to load one, or use + Plan to queue it">Shows <span className="tab-n">{(services || []).length}</span></button>
+            <button className="side-tab" data-active={viewTab === 'songs' ? '1' : '0'} onClick={() => setViewTab('songs')} title="Song library">Songs <span className="tab-n">{songs.length}</span></button>
+          </div>
+
+          {/* Panel swap — the panel leaving slides toward the tab you are
+              heading for, the one arriving follows it in. Exit runs first
+              (mode="wait"), so the two lists never overlap in a 340px column,
+              and at ~170ms the hand-off still reads as instant. */}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={viewTab}
+              initial={{ opacity: 0, x: tabDir * 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: tabDir * -20 }}
+              transition={{ duration: 0.17, ease: [0.22, 1, 0.36, 1] }}
+              style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+            >
+
+          {/* PANEL 1 — SHOWS LIBRARY */}
+          {viewTab === 'shows' && (
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* Title lives on the sub-tab — this row is a slim action bar. */}
+            <div style={{ padding: '8px 12px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <button onClick={(e) => { e.stopPropagation(); openNewShow(); }} title="New Show" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '4px 11px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Plus size={11} /> New Show</button>
             </div>
-            {!showsCollapsed && (
-              <>
+            <>
                 <div style={{ padding: '0 12px 6px 12px', position: 'relative', flexShrink: 0 }}>
                   <Search size={12} color="var(--ui-faint)" style={{ position: 'absolute', left: 20, top: 6 }} />
                   <input value={showsQuery} onChange={(e) => setShowsQuery(e.target.value)} placeholder="Filter shows…" style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: '5px 8px 5px 25px', color: 'var(--ui-text)', fontSize: 11.5, outline: 'none' }} />
                 </div>
                 <div style={{ flex: 1, overflowY: 'auto', padding: '4px 10px 10px 10px', display: 'grid', gap: 6, alignContent: 'start' }}>
+                  {/* Rows are no longer draggable: the Service Order lives on
+                      its own tab now, so a show row and the drop target are
+                      never on screen together — + Plan on hover does that job. */}
                   {[...(services || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).filter(s => !showsQuery.trim() || (s.name || '').toLowerCase().includes(showsQuery.trim().toLowerCase())).map(svc => (
-                    <div key={svc.id} draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'show', id: svc.id })); e.dataTransfer.effectAllowed = 'copy'; }} onClick={() => loadService(svc.id)} title="Drag into Service Plan or click to load" style={{ background: activeService?.id === svc.id ? 'rgba(37,99,235,0.15)' : 'var(--ui-elev2)', border: activeService?.id === svc.id ? '1px solid rgba(59,130,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '8px 10px', cursor: 'grab', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                    <div key={svc.id} className="row" onClick={() => { loadService(svc.id); setViewTab('order'); }} title="Load this show into the Service Order" style={{ background: activeService?.id === svc.id ? 'rgba(37,99,235,0.15)' : 'var(--ui-elev2)', border: activeService?.id === svc.id ? '1px solid rgba(59,130,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '8px 10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                       <div style={{ minWidth: 0 }}>
                         <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--ui-text)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{svc.name}</span>
                         <span style={{ fontSize: 10, fontWeight: 700, color: svc.date ? '#f59e0b' : 'var(--ui-faint)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fmtShowDate(svc.date) || 'No date'}</span>
                         <span style={{ fontSize: 10, color: 'var(--ui-faint)', display: 'block' }}>{svc.category || 'Worship'} • {svc.ratio || '16:9'} • {showItemCount(svc)} items</span>
                       </div>
-                      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                        <button onClick={(e) => { e.stopPropagation(); queueShowIntoService(svc.id); }} title="Add to Service Plan" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: '#93C5FD', padding: '3px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Plan</button>
+                      {/* Action cluster — hover-revealed so a list of shows
+                          reads as titles and dates, not as a wall of chips. */}
+                      <div className="row-act" style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                        <button onClick={(e) => { e.stopPropagation(); queueShowIntoService(svc.id); setViewTab('order'); }} title="Add to Service Plan — jumps to the order so you see it land" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: '#93C5FD', padding: '3px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Plan</button>
                         <button onClick={(e) => { e.stopPropagation(); deleteSavedService(svc.id); }} title="Delete show" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.28)', color: '#F87171', cursor: 'pointer', padding: '3px 6px', borderRadius: 6, display: 'flex', alignItems: 'center' }}><Trash2 size={11} /></button>
                       </div>
                     </div>
@@ -262,48 +367,57 @@ export default function LeftSidebar() {
                     <div style={{ textAlign: 'center', color: 'var(--ui-faint)', fontSize: 11, padding: 8 }}>No shows match "{showsQuery}".</div>
                   ) : null}
                 </div>
-              </>
-            )}
+            </>
           </div>
+          )}
 
-          <div style={{ height: 1, background: 'var(--ui-border)', flexShrink: 0 }} />
+          {/* PANEL 2 — SERVICE ORDER (G-Presenter style). Full height now:
+              this is the panel the operator actually runs the service from,
+              so it stops splitting the column with two libraries. */}
+          {viewTab === 'order' && (
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '7px 10px 8px 10px', borderBottom: '1px solid var(--ui-border)', flexShrink: 0 }}>
+              {/* The panel title and the item count now live on the sub-tab
+                  above — repeating them here stacked the same information
+                  twice in a 340px column.
 
-          {/* PANEL 2 — SERVICE ORDER (G-Presenter style) */}
-          <div style={{ flex: '6 1 0', minHeight: 90, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ padding: '8px 10px 6px 12px', borderBottom: '1px solid var(--ui-border)', flexShrink: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.5 }}>Service Order <span style={{ color: 'var(--ui-faint)', fontWeight: 700, letterSpacing: 0 }}>• {serviceOrderCount()} total item{serviceOrderCount() === 1 ? '' : 's'}</span></span>
-                <div style={{ display: 'flex', gap: 2, alignItems: 'center', flexShrink: 0 }}>
+                  One header row instead of two. ADD TO anchors the left edge
+                  and the section controls sit flush right, which is what
+                  closes the empty gutter above the picker and the one to the
+                  left of + Section. The field is capped at 150px and allowed
+                  to shrink further: it names a target, it is not a banner. */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <span style={{ fontSize: 9, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 0.8, whiteSpace: 'nowrap' }}>Add to</span>
+                <Dropdown
+                  value={serviceTargetTitle || ''}
+                  onChange={(v) => setServiceTargetTitle(v || null)}
+                  options={[{ value: '', label: 'End of order' }, ...serviceSectionTitles().map(t => ({ value: t, label: t }))]}
+                  placeholder="End of order"
+                  title="Section that songs, media, scripture and presentations go into"
+                  style={{ flex: '0 1 150px', minWidth: 0 }}
+                />
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, alignItems: 'center', flexShrink: 0 }}>
                   <button onClick={collapseAllServiceSections} title="Collapse all sections" style={{ background: 'transparent', border: 'none', color: 'var(--ui-faint)', cursor: 'pointer', padding: '3px', display: 'flex' }}><ChevronUp size={13} /></button>
                   <button onClick={expandAllServiceSections} title="Expand all sections" style={{ background: 'transparent', border: 'none', color: 'var(--ui-faint)', cursor: 'pointer', padding: '3px', display: 'flex' }}><ChevronDown size={13} /></button>
                   <button onClick={() => addHeaderToService('New Section')} title="+ New Section" style={{ background: 'rgba(255,255,255,0.04)', border: '1px dashed var(--ui-border)', color: 'var(--ui-text2)', padding: '3px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}><Plus size={11} /> Section</button>
                   <button onClick={clearServiceOrder} title="Clear order" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.28)', color: '#F87171', cursor: 'pointer', padding: '3px 5px', borderRadius: 6, display: 'flex', alignItems: 'center' }}><Trash2 size={13} /></button>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 4, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
-                  <span style={{ fontSize: 9, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 0.8, whiteSpace: 'nowrap' }}>Add to</span>
-                  <Dropdown
-                    value={serviceTargetTitle || ''}
-                    onChange={(v) => setServiceTargetTitle(v || null)}
-                    options={[{ value: '', label: 'End of order' }, ...serviceSectionTitles().map(t => ({ value: t, label: t }))]}
-                    placeholder="End of order"
-                    title="Section that songs, media, scripture and presentations go into"
-                    style={{ flex: 1, minWidth: 0 }}
-                  />
-                </div>
-                {/* Ghost buttons — no border box at rest, so four actions in a
-                    single row read as one calm line instead of four stacked
-                    chips. Local Media is not repeated here: the Media panel
-                    already carries Image / Video "upload" for local files. */}
-                <button className="svc-add" data-active={serviceAddMenu === 'song' ? '1' : '0'} onClick={() => setServiceAddMenu(serviceAddMenu === 'song' ? null : 'song')} title="Add a song from the library"><Music size={12} /> Add Song</button>
-                <button className="svc-add" data-active={serviceAddMenu === 'scripture' ? '1' : '0'} onClick={() => { const open = serviceAddMenu !== 'scripture'; setServiceAddMenu(open ? 'scripture' : null); setScMsg(null); if (open && !bibleBooks) loadBibleBooks().then(r => { if (!r || !r.books) setScMsg({ err: (r && r.error) || 'Bible books could not be loaded.' }); }); }} title="Add Scripture straight to the section marked ADD TO — no need to open the Scripture tab"><BookOpen size={12} /> Scripture</button>
-                <button className="svc-add" data-active={serviceAddMenu === 'media' ? '1' : '0'} onClick={() => { const open = serviceAddMenu !== 'media'; setServiceAddMenu(open ? 'media' : null); if (open) fetchMediaLibrary(); }} title="Images, video and announcements"><ImageIcon size={12} /> Media</button>
-                <button className="svc-add" data-active={serviceAddMenu === 'deck' ? '1' : '0'} onClick={() => { const open = serviceAddMenu !== 'deck'; setServiceAddMenu(open ? 'deck' : null); setScMsg(null); }} title="Add a presentation to the section marked ADD TO"><Monitor size={12} /> Presentation</button>
+              {/* Ghost buttons — no border box at rest, so four actions in a
+                  single row read as one calm line instead of four stacked
+                  chips. Icons and padding are trimmed a notch so all four
+                  hold one line at the default column width. Local Media is
+                  not repeated here: the Media panel already carries Image /
+                  Video "upload" for local files. */}
+              <div style={{ display: 'flex', gap: 3, marginTop: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button className="svc-add" data-active={serviceAddMenu === 'song' ? '1' : '0'} onClick={() => setServiceAddMenu(serviceAddMenu === 'song' ? null : 'song')} title="Add a song from the library"><Music size={11} /> Add Song</button>
+                <button className="svc-add" data-active={serviceAddMenu === 'scripture' ? '1' : '0'} onClick={() => { const open = serviceAddMenu !== 'scripture'; setServiceAddMenu(open ? 'scripture' : null); setScMsg(null); if (open && !bibleBooks) loadBibleBooks().then(r => { if (!r || !r.books) setScMsg({ err: (r && r.error) || 'Bible books could not be loaded.' }); }); }} title="Add Scripture straight to the section marked ADD TO — no need to open the Scripture tab"><BookOpen size={11} /> Scripture</button>
+                <button className="svc-add" data-active={serviceAddMenu === 'media' ? '1' : '0'} onClick={() => { const open = serviceAddMenu !== 'media'; setServiceAddMenu(open ? 'media' : null); if (open) fetchMediaLibrary(); }} title="Images, video and announcements"><ImageIcon size={11} /> Media</button>
+                <button className="svc-add" data-active={serviceAddMenu === 'deck' ? '1' : '0'} onClick={() => { const open = serviceAddMenu !== 'deck'; setServiceAddMenu(open ? 'deck' : null); setScMsg(null); }} title="Add a presentation to the section marked ADD TO"><Monitor size={11} /> Presentation</button>
               </div>
               <input type="file" id="service-media-input" accept="image/*,video/*" style={{ display: 'none' }} onChange={addMediaItemToService} />
               {serviceAddMenu === 'song' && (
-                <div style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 4 }}>
+                <div className="svc-menu" style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 4 }}>
                   <input autoFocus value={serviceSongQuery} onChange={(e) => setServiceSongQuery(e.target.value)} placeholder="Search library songs…" style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 7, padding: '5px 8px', color: 'var(--ui-text)', fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
                   {/* The list scrolls instead of running off the panel — every
                       song stays reachable without typing a search. */}
@@ -326,7 +440,7 @@ export default function LeftSidebar() {
                 </div>
               )}
               {serviceAddMenu === 'media' && (
-                <div style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 4 }}>
+                <div className="svc-menu" style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 4 }}>
                   <div style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 1 }}>Add Media</div>
                   <button onClick={() => { const open = !serviceMediaPicker; setServiceMediaPicker(open); if (open) fetchMediaLibrary(); }} title="Choose an image or video that is already in the app — nothing is re-uploaded" style={{ textAlign: 'left', background: serviceMediaPicker ? 'rgba(37,99,235,0.14)' : 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontWeight: 700 }}><Images size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Existing Media</span>
@@ -366,7 +480,7 @@ export default function LeftSidebar() {
                 </div>
               )}
               {serviceAddMenu === 'scripture' && (
-                <div style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 5 }}>
+                <div className="svc-menu" style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 5 }}>
                   <div style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 1 }}>Add Scripture · {bibleTrans.toUpperCase()}</div>
                   {!bibleBooks ? (
                     <div style={{ fontSize: 10.5, color: scMsg?.err ? '#F87171' : 'var(--ui-faint)', padding: 4, lineHeight: 1.45 }}>{scMsg?.err || 'Loading books…'}</div>
@@ -410,7 +524,7 @@ export default function LeftSidebar() {
                 </div>
               )}
               {serviceAddMenu === 'deck' && (
-                <div style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 4 }}>
+                <div className="svc-menu" style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 4 }}>
                   <div style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 1 }}>Add Presentation</div>
                   {(presentations || []).length === 0 ? (
                     <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', padding: 4, lineHeight: 1.5 }}>No presentations yet — open Presentations in the dock below, then New Presentation or Import PowerPoint.</div>
@@ -442,9 +556,9 @@ export default function LeftSidebar() {
                 </div>
               )}
             </div>
-            <div onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setServiceDragOver(true); }} onDragLeave={() => setServiceDragOver(false)} onDrop={(e) => { e.preventDefault(); setServiceDragOver(false); try { const data = JSON.parse(e.dataTransfer.getData('text/plain')); if (data.kind === 'show') queueShowIntoService(data.id); else if (data.kind === 'song') { const song = songs.find(s => s.id === data.id); if (song) addSongToService(song); } } catch (_) {} }} style={{ flex: 1, overflowY: 'auto', padding: '4px 10px 10px 10px', display: 'grid', gap: 8, alignContent: 'start', border: serviceDragOver ? '1px dashed #3B82F6' : '1px dashed transparent', borderRadius: 10, margin: '0 8px', background: serviceDragOver ? 'rgba(37,99,235,0.08)' : 'transparent' }}>
+            <div onDragOver={(e) => { e.preventDefault(); if (internalDrag.current) { const t = scanDropTarget(e); setDrop(t.at, t.row); return; } e.dataTransfer.dropEffect = 'copy'; setServiceDragOver(true); }} onDragLeave={() => setServiceDragOver(false)} onDrop={dropOnOrder} style={{ flex: 1, overflowY: 'auto', padding: '4px 10px 10px 10px', display: 'grid', gap: 8, alignContent: 'start', border: serviceDragOver ? '1px dashed #3B82F6' : '1px dashed transparent', borderRadius: 10, margin: '0 8px', background: serviceDragOver ? 'rgba(37,99,235,0.08)' : 'transparent' }}>
               {(activeService?.items || []).filter(i => i.item_type !== 'section_header').length === 0 && (
-                <div style={{ textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12, padding: 12 }}>Drop shows or songs here, or use Add Song / Scripture / Media / Presentation above to build the service order.</div>
+                <div style={{ textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12, padding: 12 }}>Nothing in the order yet. Use Add Song / Scripture / Media / Presentation above, or open the Shows and Songs tabs and press + Plan on a row.</div>
               )}
               {(() => {
                 const rows = [];
@@ -466,7 +580,7 @@ export default function LeftSidebar() {
                       return out;
                     })();
                     return (
-                      <div key={`h-${ri}`} onDragOver={(e) => { e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); try { const data = JSON.parse(e.dataTransfer.getData('text/plain')); if (data && data.kind === 'reorder') moveServiceBlock(Number(data.from), row.idx); } catch (_) {} }} draggable={sectionRenameIdx !== row.idx} onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onClick={() => { if (sectionRenameIdx === row.idx) return; setServiceTargetTitle(row.item.title); toggleServiceCollapse(row.item.title); }} onDoubleClick={(e) => { e.stopPropagation(); beginRenameSection(row.idx, row.item.title); }} title="Click = target + collapse/expand · Double-click = rename section" style={{ cursor: sectionRenameIdx === row.idx ? 'default' : 'grab', userSelect: sectionRenameIdx === row.idx ? 'text' : 'none', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 10, color: serviceTargetTitle === row.item.title ? '#93C5FD' : 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.3, padding: '7px 6px 5px 6px', borderBottom: '1px solid var(--ui-border)', background: serviceTargetTitle === row.item.title ? 'rgba(37,99,235,0.08)' : 'transparent' }}>
+                      <div key={`h-${ri}`} className="row" data-drop-idx={row.idx} data-drop-section="1" onClick={() => { if (sectionRenameIdx === row.idx) return; setServiceTargetTitle(row.item.title); toggleServiceCollapse(row.item.title); }} onDoubleClick={(e) => { e.stopPropagation(); beginRenameSection(row.idx, row.item.title); }} title="Click = target + collapse/expand · Double-click = rename section · Drop an item here to move it into this section" style={{ cursor: sectionRenameIdx === row.idx ? 'default' : 'pointer', userSelect: sectionRenameIdx === row.idx ? 'text' : 'none', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 10, color: serviceTargetTitle === row.item.title ? '#93C5FD' : 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.3, padding: '7px 6px 5px 6px', borderBottom: '1px solid var(--ui-border)', background: serviceTargetTitle === row.item.title ? 'rgba(37,99,235,0.08)' : 'transparent', boxShadow: dropRow === row.idx ? 'inset 0 -3px 0 #3B82F6' : 'none' }}>
                         {sectionRenameIdx === row.idx ? null : (collapsed ? <ChevronRight size={12} color="var(--ui-faint)" /> : <ChevronDown size={12} color="var(--ui-faint)" />)}
                         {sectionRenameIdx === row.idx ? (
                           <input
@@ -491,6 +605,7 @@ export default function LeftSidebar() {
                         )}
                         {sectionRenameIdx !== row.idx && (
                           <button
+                            className="row-act"
                             onClick={(e) => { e.stopPropagation(); beginRenameSection(row.idx, row.item.title); }}
                             title="Rename section"
                             style={{ background: 'transparent', border: 'none', color: 'var(--ui-faint)', cursor: 'pointer', padding: 1, display: 'flex', flexShrink: 0 }}
@@ -510,7 +625,7 @@ export default function LeftSidebar() {
                   const icon = row.item.item_type === 'song' ? <Music size={11} /> : isScripture ? <BookOpen size={11} /> : row.item.item_type === 'media' ? <ImageIcon size={11} /> : row.item.item_type === 'presentation' ? <MonitorPlay size={11} /> : <FileText size={11} />;
                   const iconColor = row.item.item_type === 'song' ? '#3B82F6' : isScripture ? '#f59e0b' : 'var(--ui-muted)';
                   return (
-                    <div key={`i-${ri}`} draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); try { const data = JSON.parse(e.dataTransfer.getData('text/plain')); if (data && data.kind === 'reorder') moveServiceBlock(Number(data.from), row.idx); } catch (_) {} }}onClick={() => { if (row.item.item_type === 'song') selectSong(row.item.content); else if (isLive) return; else fireServiceItemLive(row.item); }} title="Drag to reorder; click to go live" style={{ position: 'relative', background: isLive ? 'rgba(34,197,94,0.10)' : (row.item.item_type === 'song' && Number(row.item.content) === activeSong?.id) || (row.item.item_type === 'custom_slide' && activeCue?.id === row.item.id) ? 'rgba(37,99,235,0.12)' : 'var(--ui-elev2)', border: isLive ? '1px solid rgba(34,197,94,0.55)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '6px 8px', cursor: 'grab', display: 'grid', gridTemplateColumns: '14px 20px 18px 1fr auto', gap: 6, alignItems: 'center' }}>
+                    <div key={`i-${ri}`} className="row" data-drop-idx={row.idx} draggable onDragStart={(e) => { internalDrag.current = true; e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { internalDrag.current = false; setDrop(null, null); }} onClick={() => { if (row.item.item_type === 'song') selectSong(row.item.content); else if (isLive) return; else fireServiceItemLive(row.item); }} title="Drag to reorder · click to go live" style={{ position: 'relative', background: isLive ? 'rgba(34,197,94,0.10)' : (row.item.item_type === 'song' && Number(row.item.content) === activeSong?.id) || (row.item.item_type === 'custom_slide' && activeCue?.id === row.item.id) ? 'rgba(37,99,235,0.12)' : 'var(--ui-elev2)', border: isLive ? '1px solid rgba(34,197,94,0.55)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '6px 8px', cursor: 'grab', display: 'grid', gridTemplateColumns: '14px 20px 18px 1fr auto', gap: 6, alignItems: 'center', boxShadow: dropRow === row.idx ? '0 0 0 2px rgba(59,130,246,0.6)' : 'none' }}>
                       {isLive && <div style={{ position: 'absolute', left: 0, top: 4, bottom: 4, width: 3, borderRadius: 3, background: '#22c55e', boxShadow: '0 0 8px rgba(34,197,94,0.8)' }} />}
                       <GripVertical size={12} color="var(--ui-faint)" />
                       <span style={{ fontSize: 10, fontWeight: 800, color: isLive ? '#22c55e' : 'var(--ui-faint)', fontFamily: 'monospace' }}>{isLive ? '▶' : itemNum}</span>
@@ -528,7 +643,7 @@ export default function LeftSidebar() {
                         ) : (
                           <button onClick={(e) => { e.stopPropagation(); fireServiceItemLive(row.item); }} title="Go live" style={{ background: '#2563EB', border: '1px solid #2563EB', color: '#FFFFFF', borderRadius: 6, fontSize: 9.5, fontWeight: 700, padding: '3px 8px', cursor: 'pointer' }}>Go</button>
                         )}
-                        <Trash2 size={12} color="var(--ui-faint)" onClick={(e) => { e.stopPropagation(); removeServiceItem(row.idx); }} style={{ cursor: 'pointer' }} />
+                        <Trash2 className="row-act" size={12} color="var(--ui-faint)" onClick={(e) => { e.stopPropagation(); removeServiceItem(row.idx); }} style={{ cursor: 'pointer' }} />
                       </div>
                     </div>
                   );
@@ -537,33 +652,33 @@ export default function LeftSidebar() {
               })()}
             </div>
           </div>
+          )}
 
-          <div style={{ height: 1, background: 'var(--ui-border)', flexShrink: 0 }} />
-
-          {/* PANEL 3 — SONG LIBRARY (Step 2) */}
-          <div style={{ flex: songsCollapsed ? '0 0 auto' : '4 1 0', minHeight: songsCollapsed ? 0 : 90, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div onClick={() => setSongsCollapsed(v => !v)} title={songsCollapsed ? 'Expand Songs' : 'Collapse Songs'} style={{ padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexShrink: 0, cursor: 'pointer', userSelect: 'none' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 800, color: 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.5, flexShrink: 0 }}>
-                {songsCollapsed ? <ChevronRight size={13} color="var(--ui-faint)" /> : <ChevronDown size={13} color="var(--ui-faint)" />} Songs
-                <span style={{ color: 'var(--ui-faint)', fontWeight: 700, letterSpacing: 0 }}>({songs.length})</span>
-              </span>
+          {/* PANEL 3 — SONG LIBRARY */}
+          {viewTab === 'songs' && (
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, flexShrink: 0 }}>
               <button onClick={(e) => { e.stopPropagation(); handleNewSong(); }} title="New song" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '4px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}><Plus size={12} /> New</button>
             </div>
-            {!songsCollapsed && (
-              <>
+            <>
                 <div style={{ padding: '0 10px 6px 10px', position: 'relative', flexShrink: 0 }}>
                   <Search size={13} color="var(--ui-faint)" style={{ position: 'absolute', left: 19, top: 7 }} />
                   <input id="song-search-input" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search songs…" style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: '6px 8px 6px 27px', color: 'var(--ui-text)', fontSize: 12, outline: 'none' }} />
                 </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '4px 8px 10px 8px', display: 'grid', gap: 6, alignContent: 'start' }}>
+              {/* Same as the shows list: the order is on another tab, so a
+                  row is a plain click-to-open, not a drag handle. */}
               {songs.map(song => (
-                <div key={song.id} draggable onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'song', id: song.id })); e.dataTransfer.effectAllowed = 'copy'; }} onClick={() => selectSong(song.id)} title="Drag into Service Plan to queue it" style={{ background: activeSong?.id === song.id ? 'rgba(37,99,235,0.15)' : 'var(--ui-elev2)', border: activeSong?.id === song.id ? '1px solid rgba(59,130,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '7px 11px', cursor: 'grab', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div key={song.id} className="row" onClick={() => selectSong(song.id)} title="Click to open this song · hover the row for + Plan" style={{ background: activeSong?.id === song.id ? 'rgba(37,99,235,0.15)' : 'var(--ui-elev2)', border: activeSong?.id === song.id ? '1px solid rgba(59,130,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '7px 11px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ minWidth: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--ui-text)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{song.title}</span>
                     <span style={{ fontSize: 10.5, color: 'var(--ui-muted)', marginTop: 2, display: 'block' }}>{song.artist || 'Unknown'} • {song.category}</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-                    <button onClick={(e) => { e.stopPropagation(); addSongToService(song); }} title="Add to Service Plan" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: '#93C5FD', padding: '3px 8px', borderRadius: 6, fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>+ Plan</button>
+                  {/* The whole cluster waits for hover — star included — so a
+                      list of songs reads as titles and artists rather than as
+                      four icons per row fighting the text. */}
+                  <div className="row-act" style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                    <button onClick={(e) => { e.stopPropagation(); addSongToService(song); setViewTab('order'); }} title="Add to Service Plan — jumps to the order so you see it land" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: '#93C5FD', padding: '3px 8px', borderRadius: 6, fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>+ Plan</button>
                     <Star size={13} color={song.is_favorite ? '#f59e0b' : 'var(--ui-faint)'} fill={song.is_favorite ? '#f59e0b' : 'none'} onClick={(e) => handleToggleFavorite(song.id, e)} style={{ cursor: 'pointer' }} />
                     <Edit3 size={13} color="var(--ui-muted)" onClick={(e) => { e.stopPropagation(); editSong(song.id); }} style={{ cursor: 'pointer' }} />
                     <button onClick={(e) => { e.stopPropagation(); handleDeleteSong(song.id); }} title="Delete song" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.28)', color: '#F87171', cursor: 'pointer', padding: '3px 6px', borderRadius: 6, display: 'flex', alignItems: 'center' }}><Trash2 size={13} /></button>
@@ -572,9 +687,11 @@ export default function LeftSidebar() {
               ))}
               {songs.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12 }}>No songs found.</div>}
             </div>
-              </>
-            )}
+            </>
           </div>
+          )}
+            </motion.div>
+          </AnimatePresence>
         </div>
       );
     }

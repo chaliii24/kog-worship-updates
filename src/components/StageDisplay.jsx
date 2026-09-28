@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { stripMarkup } from '../lib/lyrics';
 
 export default function StageDisplay({ currentSlide, C }) {
   const stage = currentSlide && typeof currentSlide === 'object' && currentSlide.current ? currentSlide : { current: { title: 'KOG Worship', label: 'Waiting…', text: '' }, next: null };
@@ -55,7 +56,7 @@ export default function StageDisplay({ currentSlide, C }) {
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}>
         <div style={{ fontSize: '1.6vh', fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '0.9vh' }}>{current.title ? `${current.title}  ·  ` : ''}{current.label || 'Current'}</div>
-        <p style={{ margin: 0, fontSize: `${curSize}px`, lineHeight: 1.3, fontWeight: '800', whiteSpace: 'pre-line', color: C.text, textShadow: '0 2px 20px rgba(99,102,241,0.25)', overflow: 'hidden' }}>{current.text || 'Blackout'}</p>
+        <p style={{ margin: 0, fontSize: `${curSize}px`, lineHeight: 1.3, fontWeight: '800', whiteSpace: 'pre-line', color: C.text, textShadow: '0 2px 20px rgba(99,102,241,0.25)', overflow: 'hidden' }}>{stripMarkup(current.text) || 'Blackout'}</p>
       </div>
 
       <div style={{ borderTop: '1px solid #24243a', paddingTop: '2vh', minHeight: '14vh', flexShrink: 0 }}>
@@ -63,7 +64,7 @@ export default function StageDisplay({ currentSlide, C }) {
         {nextSlide ? (
           <>
             <div style={{ fontSize: '1.4vh', fontWeight: '800', color: C.accLine, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.7vh' }}>{nextSlide.title ? `${nextSlide.title}  ·  ` : ''}{nextSlide.label}</div>
-            <p style={{ margin: 0, fontSize: `${nextSize}px`, lineHeight: 1.3, fontWeight: '700', whiteSpace: 'pre-line', color: '#a1a1aa', overflow: 'hidden' }}>{nextSlide.text}</p>
+            <p style={{ margin: 0, fontSize: `${nextSize}px`, lineHeight: 1.3, fontWeight: '700', whiteSpace: 'pre-line', color: '#a1a1aa', overflow: 'hidden' }}>{stripMarkup(nextSlide.text)}</p>
           </>
         ) : (
           <p style={{ margin: 0, fontSize: '1.9vh', color: C.faint2 }}>— Nothing queued —</p>

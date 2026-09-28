@@ -128,10 +128,10 @@ export default function CenterWorkspace() {
   }, [dockTab, bibleStep, bibleChapter, bibleFocusedVerse]);
 
   return (
-<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-bg)' }}>
+<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
   <AnimatePresence mode="wait" initial={false}>
   {dockTab === 'scripture' ? (
-    <motion.div key="scripture" initial={{ opacity: 0, x: -26 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 26 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-bg)' }}>
+    <motion.div key="scripture" initial={{ opacity: 0, x: -26 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 26 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 16px', flexShrink: 0, borderBottom: '1px solid var(--ui-border)', background: 'var(--ui-elev)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
           <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -452,7 +452,7 @@ export default function CenterWorkspace() {
   ) : (dockTab === 'presentations' || activePresentation) ? (
   <PresentationWorkspace />
   ) : (
-  <motion.div key="other" initial={{ opacity: 0, x: 26 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -26 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-bg)' }}>
+  <motion.div key="other" initial={{ opacity: 0, x: 26 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -26 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
   <div style={{ padding: '12px 18px 8px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexShrink: 0 }}>
     <div style={{ minWidth: 0 }}>
       <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeSong?.title || 'Welcome to KOGWorship'}</h2>
@@ -477,6 +477,11 @@ export default function CenterWorkspace() {
       </div>
     ) : (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: C.faint2, borderRadius: 14 }}>
+        {/* Same treatment the Presentations tab gives its preview card: a
+            true-black screen on the canvas tone, outlined with the theme's
+            stronger border rather than a bespoke rgba hairline. Matching it
+            keeps the welcome state and a real presentation deck looking like
+            the same object in the same place. */}
         <div style={{ width: '100%', maxWidth: 720, aspectRatio: '16 / 9', background: '#000', border: '1px solid var(--ui-border2)', borderRadius: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
           <div style={{ width: 58, height: 58, borderRadius: 16, background: 'radial-gradient(140% 140% at 30% 20%, #3b1d6e, #1a0c30)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Music size={28} color={PINK} /></div>
           <div style={{ fontSize: 14, fontWeight: 700, color: C.muted }}>Welcome to KOGWorship</div>

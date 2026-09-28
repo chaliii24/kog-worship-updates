@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { SkipBack, SkipForward, Type, Square, RotateCcw, Music, Image, MonitorPlay, FileText, Smartphone, BookOpen } from 'lucide-react';
 import { stubTap } from '../../lib/anim.js';
+import { stripMarkup } from '../../lib/lyrics';
 
 const clampText = (s, n) => {
   const t = String(s || '');
@@ -83,7 +84,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
 
           {hasPicture ? (
             <p style={{ margin: '0 0 0 8px', fontSize: 21, lineHeight: 1.35, fontWeight: 800, whiteSpace: 'pre-line', maxHeight: 168, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 6, WebkitBoxOrient: 'vertical' }}>
-              {deckOnAir && !live.text ? 'Presentation slide is on air' : live.text}
+              {deckOnAir && !live.text ? 'Presentation slide is on air' : stripMarkup(live.text)}
             </p>
           ) : (
             <div style={{ marginLeft: 8, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
@@ -105,7 +106,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
           {nextCue ? (
             <>
               <div style={{ fontSize: 11.5, fontWeight: 900, color: ACCENT, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>{nextCue.label}</div>
-              <p style={{ margin: 0, fontSize: 15, lineHeight: 1.4, fontWeight: 600, color: C.text2, whiteSpace: 'pre-line', maxHeight: 84, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical' }}>{clampText(nextCue.text, 220)}</p>
+              <p style={{ margin: 0, fontSize: 15, lineHeight: 1.4, fontWeight: 600, color: C.text2, whiteSpace: 'pre-line', maxHeight: 84, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical' }}>{clampText(stripMarkup(nextCue.text), 220)}</p>
             </>
           ) : (
             <span style={{ fontSize: 13.5, color: C.faint }}>{state?.song ? 'End of song — press Next for the next item.' : 'No song loaded.'}</span>

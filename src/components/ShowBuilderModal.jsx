@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Plus, Search, Trash2, Video, Monitor, LayoutGrid, ChevronDown, ChevronLeft, ChevronRight, Music, FileText, Image as ImageIcon } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatCountdown } from '../lib/constants';
+import { stripMarkup } from '../lib/lyrics';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 
@@ -77,7 +78,7 @@ const itemSlides = (it) => {
   if (it?.songId) {
     const s = builderActiveSong?.id === it.songId ? builderActiveSong : (builderSongDetails[it.songId] || songs.find(x => x.id === it.songId));
     if (!s) return [];
-    return [{ type: 'title', text: s.title || '', sub: s.artist || '' }, ...(s.cues || []).map((c, i) => ({ type: 'cue', cue: c, num: i + 1, text: c.text || '', sub: c.label || '' }))];
+    return [{ type: 'title', text: s.title || '', sub: s.artist || '' }, ...(s.cues || []).map((c, i) => ({ type: 'cue', cue: c, num: i + 1, text: stripMarkup(c.text || ''), sub: c.label || '' }))];
   }
   if (it?.media_url) return [{ type: 'media', text: it.title || 'Media', sub: it.media_type || 'image', url: it.media_url, dur: it.duration }];
   return [{ type: 'slide', text: it?.content || '', sub: it?.title || 'Slide', dur: it?.duration }];

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, dialog, protocol, shell, session } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, dialog, protocol, shell, session, Menu } from 'electron';
 import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import electronLog from 'electron-log';
@@ -293,6 +293,35 @@ app.whenReady().then(() => {
   serveMediaProtocol();
   createWindow();
 
+  // Electron ships a default application menu whose Edit section binds Undo
+  // to CmdOrCtrl+Z and Redo to Ctrl+Y — the exact keys the Song Editor now
+  // owns for its own whole-song history. Native undo touches only the focused
+  // textarea while ours rewinds the whole draft, so letting both fire would
+  // undo in two different places at once (or one swallow the other). Rebuild
+  // the menu from its own template with those two dropped: this Electron
+  // build has no removeItem/clear that behaves, so mutation is out. Every
+  // other accelerator — Cut/Copy/Paste, Reload, DevTools, Zoom, Fullscreen —
+  // comes through untouched, and the renderer keeps Ctrl+Z to itself.
+  try {
+    const menu = Menu.getApplicationMenu();
+    if (menu) {
+      const drop = new Set(['CommandOrControl+Z', 'Control+Y', 'CommandOrControl+Shift+Z']);
+      const toTemplate = (mi) => {
+        if (mi.type === 'separator') return { type: 'separator' };
+        if (mi.accelerator && drop.has(mi.accelerator)) return null;
+        const t = mi.role ? { role: mi.role } : { label: mi.label };
+        if (mi.accelerator) t.accelerator = mi.accelerator;
+        if (mi.type && mi.type !== 'normal') t.type = mi.type;
+        if (mi.submenu) t.submenu = mi.submenu.items.map(toTemplate).filter(Boolean);
+        return t;
+      };
+      Menu.setApplicationMenu(Menu.buildFromTemplate(menu.items.map(toTemplate).filter(Boolean)));
+    }
+  } catch {
+    // Better no menu at all than one that steals Ctrl+Z from the editor.
+    try { Menu.setApplicationMenu(null); } catch { /* never block startup */ }
+  }
+
   // Phones on the same WiFi talk to this. The command port is the ONLY way a
   // phone reaches the renderer — main forwards and never mutates app state
   // itself, so the desktop stays the single source of truth.
@@ -424,12 +453,38 @@ function createOutputWindow(output) {
     resolution: isWindowed ? (output.resolution || 'native') : 'native'
   });
 
+  // ESC is the way out of an output that is covering the OPERATOR'S OWN
+  // screen — which is exactly what happens when no monitor was available to
+  // assign (`preview`), or the assigned one has gone missing, so the window
+  // fell back to the primary display. When the output lands on its own
+  // separate display the handler is never installed: a stray Esc at the
+  // console must not take a live projection off the wall mid-service.
+  const onPrimary = !target || target.id === screen.getPrimaryDisplay().id;
+
   win.loadURL(`${startUrl}${outputRoute(output)}`);
   win.webContents.on('did-finish-load', () => {
     if (win && !win.isDestroyed()) {
       win.webContents.send('update-output-aspect', output.aspect || '16:9');
+      // A frameless fullscreen window sitting over the console has to hold
+      // the keyboard, otherwise Esc arrives at the operator window underneath
+      // and the exit below never fires.
+      if (onPrimary && !isWindowed) win.focus();
     }
   });
+  if (onPrimary) {
+    win.webContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown' || input.key !== 'Escape') return;
+      event.preventDefault();
+      closeOutputWindow(output.id);
+      if (operatorWindow && !operatorWindow.isDestroyed()) {
+        // Tell the console the output is gone, so its toggle reads as off
+        // and the next sync cannot reopen what Esc just closed.
+        operatorWindow.webContents.send('output-closed', output.id);
+        if (operatorWindow.isMinimized()) operatorWindow.restore();
+        operatorWindow.focus();
+      }
+    });
+  }
   win.on('closed', () => {
     if (outputWindows.get(output.id)?.win === win) outputWindows.delete(output.id);
   });
