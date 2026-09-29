@@ -57,7 +57,7 @@ export default function PresentationInspector({
   const applyOnline = (r) => downloadBg(r);
 
   const tabBtn = (id, label, Icon) => (
-    <button onClick={() => setTab(id)} style={{ flex: 1, background: tab === id ? 'rgba(59,130,246,0.18)' : 'transparent', border: tab === id ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)', color: tab === id ? C.heading : C.muted, padding: '6px 4px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+    <button onClick={() => setTab(id)} style={{ flex: 1, background: tab === id ? 'rgba(139,92,246,0.18)' : 'transparent', border: tab === id ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)', color: tab === id ? C.heading : C.muted, padding: '6px 4px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
       <Icon size={12} /> {label}
     </button>
   );
@@ -210,7 +210,7 @@ export default function PresentationInspector({
         <span style={SECTION}>Layout</span>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 5 }}>
           {LAYOUTS.map(l => (
-            <button key={l.id} onClick={() => patchSlide({ layout: l.id, pos: {} })} style={{ background: slide.layout === l.id ? 'rgba(59,130,246,0.18)' : 'var(--ui-input)', border: slide.layout === l.id ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)', color: slide.layout === l.id ? C.heading : C.muted, borderRadius: 7, padding: '7px 4px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button key={l.id} onClick={() => patchSlide({ layout: l.id, pos: {} })} style={{ background: slide.layout === l.id ? 'rgba(139,92,246,0.18)' : 'var(--ui-input)', border: slide.layout === l.id ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)', color: slide.layout === l.id ? C.heading : C.muted, borderRadius: 7, padding: '7px 4px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 13 }}>{l.icon}</span> {l.name}
             </button>
           ))}

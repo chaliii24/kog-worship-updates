@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useIsPresent } from 'motion/react';
 import { formatCountdown } from './constants';
 
@@ -21,9 +21,11 @@ export function useElapsedSeconds(start) {
 // Pink LIVE pill on the monitor tile — identical markup, self-ticking.
 export function LiveBadge({ start, C, PINK }) {
   const elapsed = useElapsedSeconds(start);
+  // White on the violet pill in both themes — theme text would flip dark in
+  // light mode and sink into the PINK background (badge sits on slide tiles).
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: PINK, color: C.text, borderRadius: '999px', padding: '1px 8px', fontSize: '9px', fontWeight: '800', letterSpacing: '0.5px' }}>
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: C.text }} />{start ? formatCountdown(elapsed) : 'LIVE'}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: PINK, color: '#FFFFFF', borderRadius: '999px', padding: '1px 8px', fontSize: '9px', fontWeight: '800', letterSpacing: '0.5px' }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFFFFF' }} />{start ? formatCountdown(elapsed) : 'LIVE'}
     </span>
   );
 }
@@ -36,6 +38,39 @@ export function TimerReadout({ start, duration, C, PINK }) {
     <span style={{ fontSize: 20, fontWeight: 800, fontFamily: 'monospace', color: duration > 0 && elapsed > duration ? '#ef4444' : (start ? PINK : C.faint) }}>
       {formatCountdown(elapsed)}{duration > 0 ? ` / ${formatCountdown(duration)}` : ''}
     </span>
+  );
+}
+
+// Fits a fixed 1280×720 design canvas into whatever space its parent has —
+// the same contain-scale ProjectorDisplay applies to the output window, but
+// measured from the element, because slide-grid tiles are fluid. Lyrics drawn
+// inside therefore land at the exact proportion and position the projector
+// will use. One ResizeObserver per tile; state writes are guarded so a
+// repeated zero-size callback cannot loop a re-render.
+export function TileCanvas({ children }) {
+  const ref = useRef(null);
+  const [scale, setScale] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      if (!w || !h) return;
+      const s = Math.min(w / 1280, h / 720);
+      setScale(prev => (Math.abs(prev - s) < 0.0005 ? prev : s));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div ref={ref} style={{ position: 'absolute', inset: 0, zIndex: 2, overflow: 'hidden', pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 1280, height: 720, flexShrink: 0, position: 'relative', transform: `scale(${scale})`, transformOrigin: 'center center' }}>
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -64,10 +99,19 @@ export function installVideoGuard() {
     }
   }, { rootMargin: '120px', threshold: 0.01 });
 
+  // The live projection is NEVER touched by this guard. A fullscreen output
+  // on another display (especially a focusable:false one) is routinely
+  // reported by Chromium as hidden/occluded, so the guard would pause its
+  // background loop and only resume it on a visibility event that may never
+  // come — the video froze on the wall while the right-panel preview (same
+  // markup, visible operator window) kept playing. Thumbnails still throttle;
+  // the wall just runs.
+  const isOutputLoop = (n) => !!(n && n.closest && n.closest('[data-kog-output]'));
+
   const watch = (node) => {
     if (!node || node.nodeType !== 1) return;
-    if (node.tagName === 'VIDEO' && node.hasAttribute('autoplay')) io.observe(node);
-    node.querySelectorAll?.('video[autoplay]').forEach(v => io.observe(v));
+    if (node.tagName === 'VIDEO' && node.hasAttribute('autoplay') && !isOutputLoop(node)) io.observe(node);
+    node.querySelectorAll?.('video[autoplay]').forEach(v => { if (!isOutputLoop(v)) io.observe(v); });
   };
 
   const start = () => {
@@ -207,6 +251,98 @@ export function BackgroundVideo({ src, style, ...rest }) {
     if (!v) return;
     if (isPresent) v.play().catch(() => {});
     else if (!v.paused) v.pause();
+  }, [isPresent, src]);
+
+  // Self-healing loop: the OS/Chromium can pause a backgrounded output
+  // window's media without any input from us. Every pause while this layer
+  // is live is immediately undone, and a slow net catches a stalled or
+  // (should `loop` ever be dropped) ended element. The preview and the
+  // projector then behave identically — loop forever, muted.
+  //
+  // Second job: catch the WEDGE. A decoder starving under load (opening views
+  // fast mounts a burst of thumbnails that all fight for decode slots) leaves
+  // the element reporting paused=false, ended=false — healthy by every check
+  // above — while the last frame stays painted forever. That's the "video
+  // frozen but lyrics still moving" state — invisible to pause/ended
+  // listeners, so the old heal never fired. Two independent signals:
+  //   · clock flat while claiming to play  → pipeline wedged;
+  //   · clock moving but presented frames frozen (visible windows only — a
+  //     hidden window paints nothing by design) → frame-drop starvation.
+  // Flat = nudge (pause+play restarts the pipeline in place), still flat =
+  // rebuild the media resource. Rebuilds back off (3s, 6s, 9s…) so a
+  // transient stall gets repeated chances without a dead file looping. No
+  // visibility gate: an output window can be misreported as hidden, and a
+  // healthy hidden video still advances its clock — so clock-flat is only
+  // ever true for a real stall, hidden or not.
+  useEffect(() => {
+    const v = ref.current;
+    if (!v || !isPresent) return;
+
+    let lastTime = v.currentTime;
+    let lastFrames = 0;
+    let framesLive = false;   // frame counter stays 0 on some platforms → ignore it
+    let everAdvanced = lastTime > 0;
+    let stillTicks = 0;
+    let reloads = 0;
+    let cooldown = 0;   // ticks to spend judging nothing after a rebuild
+
+    const heal = () => {
+      if (!v.paused && !v.ended) return;
+      try { if (v.ended) v.currentTime = 0; } catch {}
+      v.play().catch(() => {});
+    };
+
+    const tick = () => {
+      if (v.paused || v.ended) { heal(); stillTicks = 0; return; }
+      if (v.seeking) return;                    // frozen by design mid-seek
+      const t = v.currentTime;
+      const pf = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null;
+      const fr = pf ? pf.totalVideoFrames : 0;
+      if (fr > 0) framesLive = true;
+      // A rebuild zeroes both counters — absorb that window before judging,
+      // or the reset reads as either spurious recovery (backoff collapses)
+      // or a fresh stall (backoff burns).
+      if (cooldown > 0) {
+        cooldown--;
+        lastTime = t;
+        lastFrames = fr;
+        stillTicks = 0;
+        return;
+      }
+      const frameSig = framesLive && !document.hidden;
+      const moved = t !== lastTime && (!frameSig || fr !== lastFrames);
+      lastTime = t;
+      lastFrames = fr;
+      if (moved) {
+        if (t > 0) everAdvanced = true;
+        reloads = 0;
+        stillTicks = 0;
+        return;
+      }
+      if (!everAdvanced && v.readyState < 2) return;   // first load: give it time
+      if (++stillTicks === 1) {                       // ~1.5s flat: nudge in place
+        try { v.pause(); } catch {}
+        v.play().catch(() => {});
+        return;
+      }
+      if (stillTicks >= 2 + reloads * 2) {            // 3s, then 6s, 9s…: rebuild
+        stillTicks = 0;
+        reloads++;
+        cooldown = 2;
+        try { v.load(); } catch {}
+        v.play().catch(() => {});
+      }
+    };
+
+    const onPause = () => { if (isPresent) heal(); };
+    v.addEventListener('pause', onPause);
+    v.addEventListener('ended', onPause);
+    const id = setInterval(tick, 1500);
+    return () => {
+      clearInterval(id);
+      v.removeEventListener('pause', onPause);
+      v.removeEventListener('ended', onPause);
+    };
   }, [isPresent, src]);
 
   // preload="auto": the swap has no lead time (Go -> standby is the trigger),

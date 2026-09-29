@@ -25,19 +25,19 @@ export default function SplashScreen({ C, logoImage }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
-      style={{ position: 'fixed', inset: 0, background: '#050509', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', zIndex: 9999, fontFamily: 'var(--font-sans)', color: C.text, overflow: 'hidden' }}
+      style={{ position: 'fixed', inset: 0, background: '#090a0f', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', zIndex: 9999, fontFamily: 'var(--font-sans)', color: C.text, overflow: 'hidden' }}
     >
       {/* Pulsing ambient flash behind the brand */}
       <motion.div
         animate={{ opacity: [0.25, 0.55, 0.25], scale: [1, 1.12, 1] }}
         transition={{ duration: 3.4, repeat: Infinity, ease: 'easeInOut' }}
-        style={{ position: 'absolute', width: 560, height: 560, borderRadius: '50%', background: `radial-gradient(circle, ${C.accLine}33 0%, rgba(129,140,248,0.07) 40%, transparent 70%)`, filter: 'blur(70px)', top: '50%', left: '50%', margin: '-280px 0 0 -280px', zIndex: 0 }}
+        style={{ position: 'absolute', width: 560, height: 560, borderRadius: '50%', background: `radial-gradient(circle, ${C.accLine}33 0%, rgba(167,139,250,0.07) 40%, transparent 70%)`, filter: 'blur(70px)', top: '50%', left: '50%', margin: '-280px 0 0 -280px', zIndex: 0 }}
       />
       {/* Expanding ring flash */}
       <motion.div
         animate={{ opacity: [0, 0.5, 0], scale: [0.6, 1, 1.2] }}
         transition={{ duration: 2.8, repeat: Infinity, repeatDelay: 0.9, ease: 'easeOut' }}
-        style={{ position: 'absolute', width: 240, height: 240, borderRadius: '50%', border: '1px solid rgba(129,140,248,0.4)', top: '50%', left: '50%', margin: '-120px 0 0 -120px', zIndex: 0, pointerEvents: 'none' }}
+        style={{ position: 'absolute', width: 240, height: 240, borderRadius: '50%', border: '1px solid rgba(167,139,250,0.4)', top: '50%', left: '50%', margin: '-120px 0 0 -120px', zIndex: 0, pointerEvents: 'none' }}
       />
 
       <motion.div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
@@ -60,7 +60,7 @@ export default function SplashScreen({ C, logoImage }) {
         initial={{ scaleX: 0 }}
         animate={{ scaleX: 1 }}
         transition={{ duration: 4.6, ease: 'easeInOut' }}
-        style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 2, transformOrigin: 'left center', background: `linear-gradient(90deg, rgba(129,140,248,0) 0%, ${C.accLine} 100%)`, zIndex: 1 }}
+        style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 2, transformOrigin: 'left center', background: `linear-gradient(90deg, rgba(167,139,250,0) 0%, ${C.accLine} 100%)`, zIndex: 1 }}
       />
 
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.3, duration: 0.8 }} style={{ position: 'absolute', bottom: 26, zIndex: 1, fontSize: 12.5, color: C.faint }}>

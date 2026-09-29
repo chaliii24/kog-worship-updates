@@ -9,6 +9,137 @@
    change on the canvas").
    ===================================================================== */
 
+/* =====================================================================
+   TAILWIND v4 + UNTITLED UI — MIGRATION, PHASE 1 (first components).
+   Layer order is declared FIRST so Untitled's `@layer base` (the
+   .dark-mode token overrides inside untitledui/styles/theme.css) lands
+   between theme and utilities — same order as tailwindcss/index.css,
+   minus preflight:
+     • theme      — Tailwind defaults + Untitled's tokens (variables only);
+     • base       — Untitled's .dark-mode overrides + the SCOPED preflight
+                    shim further down (class-scoped: only elements that
+                    opt in with `uu-root` can match);
+     • utilities  — layered, so the app's unlayered CSS still beats every
+                    one of them; that is why the console renders as before.
+   ⚠ GLOBAL preflight is still DELIBERATELY NOT IMPORTED. It restyles
+   every button, input, heading and border in the console the instant it
+   exists — before a single component opts in. Untitled components assume
+   a border-box world, so the few reset rules they need live scoped under
+   `.uu-root` in @layer base instead (utilities still win over those).
+   ===================================================================== */
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "./untitledui/styles/theme.css";
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* Untitled UI's plugins + variant vocabulary. Every rule from these is
+   emitted only when a component references it — nothing else changes. */
+@plugin "tailwindcss-react-aria-components";
+@plugin "tailwindcss-animate";
+
+@custom-variant dark (&:where(.dark-mode, .dark-mode *));
+@custom-variant label (& [data-label]);
+@custom-variant focus-input-within (&:has(input:focus));
+
+@utility scrollbar-hide {
+  &::-webkit-scrollbar { display: none; -webkit-appearance: none; }
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@utility transition-inherit-all {
+  transition-property: inherit;
+  transition-duration: inherit;
+  transition-timing-function: inherit;
+}
+
+/* =====================================================================
+   UNTITLED UI ↔ KOG THEME BRIDGE (phase 2).
+   Untitled's semantic tokens default to *their* neutral scale; the
+   console paints itself from --ui-* (index.css :root / [data-theme],
+   mirrored from lib/theme.js). Re-point the semantics so every adopted
+   component wears the app's exact palette instead of a near-miss gray.
+   Mechanics: this block sits AFTER the theme.css import inside
+   @layer base, so on a specificity tie (base vs base, :root vs their
+   .dark-mode) source order makes it win in BOTH modes — and --ui-*
+   flips itself via [data-theme], so one flat block covers light+dark.
+   Rules: only neutral surface/text/icon/border semantics are mapped.
+   Brand stays the blue scale (= ACCENT); error/success/warning keep
+   stock hues; *_on-brand and *-solid inversion tokens stay untouched.
+   ===================================================================== */
+@layer base {
+  :root {
+    /* Modal max-height math (Untitled Modal → Dialog `max-h-[inherit]`):
+       the app has no mobile visualViewport hook, so dvh = the viewport. */
+    --visual-viewport-height: 100dvh;
+
+    /* surfaces: panel → raised → raised-more (C.panel / elevated / elevated2) */
+    --color-bg-primary: var(--ui-panel);
+    --color-bg-primary_alt: var(--ui-panel);
+    --color-bg-primary_hover: var(--ui-elev);
+    --color-bg-secondary: var(--ui-elev);
+    --color-bg-secondary_alt: var(--ui-elev);
+    --color-bg-secondary_hover: var(--ui-elev2);
+    --color-bg-tertiary: var(--ui-elev2);
+    --color-bg-quaternary: var(--ui-elev2);
+    --color-bg-overlay: rgba(0, 0, 0, 0.84); /* the console's modal scrim */
+
+    /* text: C.text / text2 / muted / faint */
+    --color-text-primary: var(--ui-text);
+    --color-text-secondary: var(--ui-text2);
+    --color-text-secondary_hover: var(--ui-text);
+    --color-text-tertiary: var(--ui-muted);
+    --color-text-tertiary_hover: var(--ui-text2);
+    --color-text-quaternary: var(--ui-faint);
+    --color-text-placeholder: var(--ui-faint);
+
+    /* icon foregrounds (CloseButton, button icons) */
+    --color-fg-primary: var(--ui-text);
+    --color-fg-secondary: var(--ui-text2);
+    --color-fg-secondary_hover: var(--ui-text);
+    --color-fg-tertiary: var(--ui-muted);
+    --color-fg-tertiary_hover: var(--ui-text2);
+    --color-fg-quaternary: var(--ui-faint);
+    --color-fg-quaternary_hover: var(--ui-muted);
+
+    /* borders & rings — the app's card border is --ui-border2 */
+    --color-border-primary: var(--ui-border2);
+    --color-border-secondary: var(--ui-border);
+    --color-border-tertiary: var(--ui-blight);
+  }
+}
+
+/* SCOPED preflight — opt in with the `uu-root` class on an Untitled
+   component's root element. Mirrors only what their components assume:
+   border-box sizing, zeroed UA chrome, inherited form-control font.
+   @layer base keeps it below every utility, and the class scope keeps it
+   away from the rest of the console (which never carries `uu-root`). */
+@layer base {
+  .uu-root, .uu-root *, .uu-root *::before, .uu-root *::after { box-sizing: border-box; }
+  .uu-root, .uu-root *, .uu-root *::before, .uu-root *::after {
+    margin: 0;
+    padding: 0;
+    border: 0 solid;
+  }
+  /* UA chrome otherwise leaks through: form controls inherit neither the
+     family nor the transparent background without preflight. Self-match
+     matters — the uu-root element IS often the <button> itself. */
+  .uu-root:is(button, input, select, textarea),
+  .uu-root :is(button, input, select, textarea) {
+    font-family: inherit;
+    background-color: transparent;
+  }
+}
+
+/* Tailwind v4 ships its own value for `--font-sans`. The app defines
+   that same variable in :root below — two definitions is a coin toss
+   the cascade decides, and the loser changes the UI font app-wide.
+   Pin Tailwind's copy to the app's exact stack so it cannot drift. */
+@theme {
+  --font-sans: 'Inter Variable', 'CMG Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
 /* -- family: CMG Sans (the default UI + lyric face) -- */
 @font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
 @font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-Italic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
@@ -57,6 +188,13 @@
 @font-face { font-family: 'CMG Sans Mono Digits'; src: url('./assets/fonts/cmg/CMGSans-BoldMonoDigits.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
 @font-face { font-family: 'CMG Sans Backslant'; src: url('./assets/fonts/cmg/CMGSans-BoldBackslant.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
 
+/* Cinzel Decorative — user-supplied display font (OFL license ships next to
+   the files: assets/fonts/cinzel/OFL.txt). Three real weights so the
+   editor's bold toggle lands on the Bold/Black face instead of faking it. */
+@font-face { font-family: 'Cinzel Decorative'; src: url('./assets/fonts/cinzel/CinzelDecorative-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Cinzel Decorative'; src: url('./assets/fonts/cinzel/CinzelDecorative-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Cinzel Decorative'; src: url('./assets/fonts/cinzel/CinzelDecorative-Black.ttf') format('truetype'); font-weight: 900; font-style: normal; font-display: swap; }
+
 :root {
   color-scheme: dark;
   /* System UI font: Inter (bundled offline via @fontsource-variable — no
@@ -75,7 +213,7 @@
      designed look. App.jsx sets <html data-theme> + color-scheme so
      native controls (scrollbars, selects, color pickers) follow too.
      ===================================================================== */
-  --ui-bg: #050509;
+  --ui-bg: #090a0f;
   /* Chrome and canvas, split the way the Presentations tab already does it.
      Both side panels (left command centre, right Live Output) sit on
      --ui-panel; the centre stage drops to --ui-bg so the workspace reads as
@@ -83,26 +221,26 @@
      stage — slide tiles, the empty-state card — not from a second colour
      invented for the middle column. */
   --ui-stage: var(--ui-bg);
-  --ui-panel: #0b0b10;
-  --ui-elev: #12121a;
-  --ui-elev2: #16161f;
-  --ui-input: #12121a;
-  --ui-border: #1f1f30;
-  --ui-border2: #2b2b44;
+  --ui-panel: #13151e;
+  --ui-elev: #171a25;
+  --ui-elev2: #1c1f2c;
+  --ui-input: #171a25;
+  --ui-border: #191d28;
+  --ui-border2: #222636;
   --ui-blight: rgba(255, 255, 255, 0.06);
-  --ui-text: #ffffff;
-  --ui-text2: #e5e7eb;
-  --ui-muted: #9ca3af;
-  --ui-faint: #6b7280;
+  --ui-text: #e2e8f0;
+  --ui-text2: #cbd5e1;
+  --ui-muted: #64748b;
+  --ui-faint: #475569;
   --ui-dock-idle: #8b8b9e;
   --ui-dock-hover: #e2e8f0;
-  --ui-dock-active: #dbeafe;
+  --ui-dock-active: #ede9fe;
   --ui-hover-bg: rgba(255, 255, 255, 0.05);
   --ui-hover-border: rgba(148, 163, 184, 0.22);
   --ui-tip-bg: #1e293b;
   --ui-tip-text: #f1f5f9;
-  --ui-scroll-track: #0a0a0a;
-  --ui-scroll-thumb: #2d2d3f;
+  --ui-scroll-track: #090a0f;
+  --ui-scroll-thumb: #2f3547;
 }
 
 [data-theme='light'] {
@@ -122,7 +260,7 @@
   --ui-faint: #7c8798;
   --ui-dock-idle: #64748b;
   --ui-dock-hover: #0f172a;
-  --ui-dock-active: #1d4ed8;
+  --ui-dock-active: #6d28d9;
   --ui-hover-bg: rgba(15, 23, 42, 0.05);
   --ui-hover-border: rgba(100, 116, 139, 0.3);
   --ui-tip-bg: #ffffff;
@@ -281,7 +419,7 @@ textarea {
   width: 0;
   height: 2px;
   border-radius: 2px;
-  background: #3b82f6;
+  background: #8b5cf6;
   transform: translateX(-50%);
   transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease;
   opacity: 0;
@@ -299,18 +437,18 @@ textarea {
 }
 
 .dock-btn:focus-visible {
-  outline: 2px solid rgba(59, 130, 246, 0.7);
+  outline: 2px solid rgba(139, 92, 246, 0.7);
   outline-offset: 2px;
 }
 
 .dock-btn[data-active='1'] {
-  background: rgba(59, 130, 246, 0.10);
-  border-color: rgba(96, 165, 250, 0.55);
+  background: rgba(139, 92, 246, 0.10);
+  border-color: rgba(167, 139, 250, 0.55);
   color: var(--ui-dock-active);
   box-shadow:
-    0 0 0 1px rgba(96, 165, 250, 0.18),
-    0 0 16px rgba(59, 130, 246, 0.38),
-    0 0 36px rgba(59, 130, 246, 0.16),
+    0 0 0 1px rgba(167, 139, 250, 0.18),
+    0 0 16px rgba(139, 92, 246, 0.38),
+    0 0 36px rgba(139, 92, 246, 0.16),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
   animation: dockGlowIn 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -318,24 +456,24 @@ textarea {
 @keyframes dockGlowIn {
   0% {
     box-shadow:
-      0 0 0 1px rgba(96, 165, 250, 0),
-      0 0 0 rgba(59, 130, 246, 0),
-      0 0 0 rgba(59, 130, 246, 0);
+      0 0 0 1px rgba(167, 139, 250, 0),
+      0 0 0 rgba(139, 92, 246, 0),
+      0 0 0 rgba(139, 92, 246, 0);
     background: transparent;
   }
   55% {
     box-shadow:
-      0 0 0 1px rgba(96, 165, 250, 0.35),
-      0 0 22px rgba(59, 130, 246, 0.55),
-      0 0 44px rgba(59, 130, 246, 0.28);
+      0 0 0 1px rgba(167, 139, 250, 0.35),
+      0 0 22px rgba(139, 92, 246, 0.55),
+      0 0 44px rgba(139, 92, 246, 0.28);
   }
   100% {
     box-shadow:
-      0 0 0 1px rgba(96, 165, 250, 0.18),
-      0 0 16px rgba(59, 130, 246, 0.38),
-      0 0 36px rgba(59, 130, 246, 0.16),
+      0 0 0 1px rgba(167, 139, 250, 0.18),
+      0 0 16px rgba(139, 92, 246, 0.38),
+      0 0 36px rgba(139, 92, 246, 0.16),
       inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    background: rgba(59, 130, 246, 0.10);
+    background: rgba(139, 92, 246, 0.10);
   }
 }
 
@@ -365,7 +503,7 @@ textarea {
 }
 
 .dock-cta:hover {
-  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.35);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.35);
 }
 
 .dock-tip-wrap {
@@ -443,10 +581,10 @@ textarea {
   justify-content: space-between;
   gap: 6px;
   padding: 4px 6px;
-  border: 1px solid rgba(59, 130, 246, 0.55);
+  border: 1px solid rgba(139, 92, 246, 0.55);
   border-radius: 7px;
-  background: rgba(37, 99, 235, 0.10);
-  color: #93c5fd;
+  background: rgba(139, 92, 246, 0.10);
+  color: #c4b5fd;
   font-size: 10.5px;
   font-weight: 700;
   line-height: 1.3;
@@ -457,8 +595,8 @@ textarea {
 }
 
 .dd-trigger:hover {
-  background: rgba(37, 99, 235, 0.17);
-  border-color: rgba(96, 165, 250, 0.9);
+  background: rgba(139, 92, 246, 0.17);
+  border-color: rgba(167, 139, 250, 0.9);
 }
 
 /* Neutral tone for pickers that sit inside a panel (book / chapter). */
@@ -518,7 +656,7 @@ textarea {
   overscroll-behavior: contain;
   padding: 4px;
   background: var(--ui-elev2);
-  border: 1px solid rgba(59, 130, 246, 0.45);
+  border: 1px solid rgba(139, 92, 246, 0.45);
   border-radius: 8px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
   animation: ddPanelIn 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -549,9 +687,16 @@ textarea {
 }
 
 .dd-opt[data-active='1'] {
-  background: rgba(37, 99, 235, 0.22);
-  color: #93c5fd;
+  background: rgba(139, 92, 246, 0.22);
+  color: #c4b5fd;
   font-weight: 700;
+}
+
+/* Keyboard cursor while filtering a searchable dropdown (see Dropdown.jsx).
+   A ring separates it from plain hover and from the selected-row tint. */
+.dd-opt[data-hl='1'] {
+  background: var(--ui-hover-bg);
+  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.4);
 }
 
 .dd-empty {
@@ -600,9 +745,9 @@ textarea {
 }
 
 .svc-add[data-active='1'] {
-  background: rgba(37, 99, 235, 0.16);
-  border-color: rgba(59, 130, 246, 0.5);
-  color: #93c5fd;
+  background: rgba(139, 92, 246, 0.16);
+  border-color: rgba(139, 92, 246, 0.5);
+  color: #c4b5fd;
 }
 
 .svc-add:disabled {
@@ -666,9 +811,9 @@ textarea {
 }
 
 .side-tabs .side-tab[data-active='1'] {
-  background: rgba(37, 99, 235, 0.16);
-  border-color: rgba(59, 130, 246, 0.5);
-  color: #93c5fd;
+  background: rgba(139, 92, 246, 0.16);
+  border-color: rgba(139, 92, 246, 0.5);
+  color: #c4b5fd;
 }
 
 .side-tabs .side-tab .tab-n {

@@ -34,9 +34,9 @@ export default function PinPad({ C, value, onChange, onSubmit, error, role, onSw
               transition={{ type: 'spring', stiffness: 520, damping: 26 }}
               style={{
                 width: 15, height: 15, borderRadius: '50%',
-                background: filled ? '#3b82f6' : 'transparent',
-                border: `2px solid ${filled ? '#3b82f6' : C.border2}`,
-                boxShadow: filled ? '0 0 12px rgba(59,130,246,0.55)' : 'none',
+                background: filled ? '#8b5cf6' : 'transparent',
+                border: `2px solid ${filled ? '#8b5cf6' : C.border2}`,
+                boxShadow: filled ? '0 0 12px rgba(139,92,246,0.55)' : 'none',
               }}
             />
           );

@@ -121,15 +121,15 @@ return (
             <select
               value={targetSecId}
               onChange={(e) => setBuilderTargetSecId(e.target.value)}
-              style={{ flex: 1, minWidth: 0, background: C.elevated2, border: '1px solid #4338ca', borderRadius: 5, padding: '4px 6px', color: C.accLine, fontSize: 10.5, fontWeight: 700, outline: 'none', cursor: 'pointer' }}
+              style={{ flex: 1, minWidth: 0, background: C.elevated2, border: '1px solid #5b21b6', borderRadius: 5, padding: '4px 6px', color: C.accLine, fontSize: 10.5, fontWeight: 700, outline: 'none', cursor: 'pointer' }}
             >
               {sections.map(s => <option key={s.id} value={s.id}>{s.title || 'Untitled'} ({s.items.length})</option>)}
             </select>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            <button onClick={() => setServiceAddMenu(serviceAddMenu === 'builder-song' ? null : 'builder-song')} style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-song' ? '#1e1b4b' : C.elevated2, color: serviceAddMenu === 'builder-song' ? C.accLine : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-song' ? '#4338ca' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Song</button>
+            <button onClick={() => setServiceAddMenu(serviceAddMenu === 'builder-song' ? null : 'builder-song')} style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-song' ? '#1e1b4b' : C.elevated2, color: serviceAddMenu === 'builder-song' ? C.accLine : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-song' ? '#5b21b6' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Song</button>
             <button onClick={() => { if (targetSecId) addSlideToSection(targetSecId); }} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Slide</button>
-            <button onClick={() => { const open = serviceAddMenu !== 'builder-media'; setServiceAddMenu(open ? 'builder-media' : null); if (open) { setBuilderMediaPicker(true); fetchMediaLibrary(); } }} title="Upload a file, or pick media that is already in the app" style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-media' ? 'rgba(37,99,235,0.18)' : C.elevated2, color: serviceAddMenu === 'builder-media' ? '#93C5FD' : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-media' ? '#4338ca' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Media</button>
+            <button onClick={() => { const open = serviceAddMenu !== 'builder-media'; setServiceAddMenu(open ? 'builder-media' : null); if (open) { setBuilderMediaPicker(true); fetchMediaLibrary(); } }} title="Upload a file, or pick media that is already in the app" style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-media' ? 'rgba(139,92,246,0.18)' : C.elevated2, color: serviceAddMenu === 'builder-media' ? '#C4B5FD' : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-media' ? '#5b21b6' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Media</button>
             <input type="file" id="show-media-input-builder" accept="image/*,video/*" style={{ display: 'none' }} onChange={addShowBuilderMedia} />
             <button onClick={() => addShowBuilderPlaceholder('Announcement')} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Announcement</button>
           </div>
@@ -161,7 +161,7 @@ return (
         {serviceAddMenu === 'builder-media' && (
           <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--ui-border)', display: 'grid', gap: 5 }}>
             <div style={{ display: 'flex', gap: 4 }}>
-              <button onClick={() => { const open = !builderMediaPicker; setBuilderMediaPicker(open); if (open) fetchMediaLibrary(); }} title="Choose an image or video that is already in the app — nothing is re-uploaded" style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 700, background: builderMediaPicker ? 'rgba(37,99,235,0.18)' : C.elevated2, color: builderMediaPicker ? '#93C5FD' : C.text2, border: '1px solid ' + (builderMediaPicker ? '#4338ca' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Existing Media</button>
+              <button onClick={() => { const open = !builderMediaPicker; setBuilderMediaPicker(open); if (open) fetchMediaLibrary(); }} title="Choose an image or video that is already in the app — nothing is re-uploaded" style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 700, background: builderMediaPicker ? 'rgba(139,92,246,0.18)' : C.elevated2, color: builderMediaPicker ? '#C4B5FD' : C.text2, border: '1px solid ' + (builderMediaPicker ? '#5b21b6' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Existing Media</button>
               <button onClick={() => document.getElementById('show-media-input-builder')?.click()} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>+ Upload</button>
             </div>
             {builderMediaPicker && ((mediaLibrary || []).filter(a => a.kind === 'image' || a.kind === 'video').length === 0 ? (
@@ -199,11 +199,11 @@ return (
                     setBuilderCollapsed(prev => collapsed ? prev.filter(x => x !== sec.id) : [...prev, sec.id]);
                   }}
                   title={isTarget ? 'Target section for new items — click to collapse/expand' : 'Click to make this the target section and collapse/expand'}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', cursor: 'pointer', background: isTarget ? 'rgba(59,130,246,0.10)' : secSelected ? 'rgba(34,197,94,0.06)' : 'transparent', borderBottom: isTarget ? '1px solid rgba(59,130,246,0.35)' : 'none' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', cursor: 'pointer', background: isTarget ? 'rgba(139,92,246,0.10)' : secSelected ? 'rgba(34,197,94,0.06)' : 'transparent', borderBottom: isTarget ? '1px solid rgba(139,92,246,0.35)' : 'none' }}
                 >
-                  <span style={{ color: isTarget ? '#3B82F6' : C.muted }}>{collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</span>
-                  <input type="text" value={sec.title} onChange={(e) => renameShowSection(sec.id, e.target.value)} onClick={(e) => e.stopPropagation()} style={{ flex: 1, background: 'transparent', border: 'none', borderBottom: '1px dashed var(--ui-border2)', color: isTarget ? '#93C5FD' : C.heading, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, outline: 'none', padding: '2px 0' }} />
-                  {isTarget && <span style={{ fontSize: 8, fontWeight: 800, color: '#3B82F6', border: '1px solid rgba(59,130,246,0.5)', borderRadius: 4, padding: '0 4px' }}>ADD TO</span>}
+                  <span style={{ color: isTarget ? '#8b5cf6' : C.muted }}>{collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</span>
+                  <input type="text" value={sec.title} onChange={(e) => renameShowSection(sec.id, e.target.value)} onClick={(e) => e.stopPropagation()} style={{ flex: 1, background: 'transparent', border: 'none', borderBottom: '1px dashed var(--ui-border2)', color: isTarget ? '#C4B5FD' : C.heading, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, outline: 'none', padding: '2px 0' }} />
+                  {isTarget && <span style={{ fontSize: 8, fontWeight: 800, color: '#8b5cf6', border: '1px solid rgba(139,92,246,0.5)', borderRadius: 4, padding: '0 4px' }}>ADD TO</span>}
                   <span style={{ fontSize: 9, color: C.muted, background: C.elevated2, borderRadius: 999, padding: '1px 5px' }}>{sec.items.length}</span>
                   <button onClick={(e) => { e.stopPropagation(); removeShowSection(sec.id); }} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', display: 'flex', padding: 1 }}><Trash2 size={11} /></button>
                 </div>

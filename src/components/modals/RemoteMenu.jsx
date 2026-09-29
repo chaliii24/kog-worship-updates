@@ -78,7 +78,7 @@ export default function RemoteMenu({ C, ACCENT, onClose }) {
       ) : (
         <>
           {/* QR */}
-          <div style={{ background: '#0b0b10', borderRadius: 12, padding: 12, textAlign: 'center', marginBottom: 10, border: `1px solid ${C.border2}` }}>
+          <div style={{ background: '#13151e', borderRadius: 12, padding: 12, textAlign: 'center', marginBottom: 10, border: `1px solid ${C.border2}` }}>
             {info.qr
               ? <img src={info.qr} alt="Scan to open the remote" style={{ width: 168, height: 168, borderRadius: 8 }} />
               : <div style={{ width: 168, height: 168, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280', fontSize: 12 }}>QR unavailable</div>}

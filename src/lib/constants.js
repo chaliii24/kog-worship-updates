@@ -91,7 +91,8 @@ export const FALLBACK_SYSTEM_FONTS = [
   'Trebuchet MS', 'Verdana', 'Yu Gothic'
 ];
 
-// CMG Sans pack only — every entry maps to an @font-face in src/index.css.
+// Song/lyric font presets — every entry maps to an @font-face in src/index.css
+// (the CMG Sans pack, plus the user-supplied Cinzel Decorative).
 // Entry 0 is the DEFAULT song/lyric font — applied wherever a cue has no
 // font stored (new songs, legacy songs): CMG Sans Wide (ExtraBoldWide).
 // App chrome uses Inter instead (--font-sans in index.css); lyrics never
@@ -113,4 +114,8 @@ export const FONT_OPTIONS = [
   { label: 'CMG Sans Wide Outline', value: '"CMG Sans Wide Outline", "CMG Sans", sans-serif' },
   { label: 'CMG Sans Mono Digits', value: '"CMG Sans Mono Digits", "CMG Sans", sans-serif' },
   { label: 'CMG Sans Backslant', value: '"CMG Sans Backslant", "CMG Sans", sans-serif' },
+  // User-supplied display face (assets/fonts/cinzel, OFL.txt ships with it).
+  // Real 400/700/900 weights behind ONE family, so bold/italic toggles pick
+  // a true face instead of a synthesized one.
+  { label: 'Cinzel Decorative', value: '"Cinzel Decorative", Georgia, serif' },
 ];

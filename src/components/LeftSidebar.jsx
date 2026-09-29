@@ -5,6 +5,9 @@ import { useApp } from '../context/AppContext';
 import { slidesFromPptx } from '../lib/backgrounds';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import Dropdown from './Dropdown';
+// Untitled UI — migration phase 3 (tabs): RAC-backed Tabs for the Service
+// Order / Shows / Songs switcher (mirror layout documented in NewSongPrompt).
+import { Tabs, TabList, Tab } from '../untitledui/components/application/tabs/tabs';
 
 /* Left-to-right order of the sub-tabs — used to give the panel swap a
    direction, so switching to a tab further right slides content in from the
@@ -19,6 +22,8 @@ export default function LeftSidebar() {
     ACCENT,
     leftOpen,
     setLeftOpen,
+    viewTab,
+    setViewTab,
     dockTab,
     services,
     showsQuery,
@@ -122,7 +127,9 @@ export default function LeftSidebar() {
   // are never visible together now); each row's + Plan button does the same
   // job, and the order's Add Song / Scripture / Media / Presentation pickers
   // cover the rest.
-  const [viewTab, setViewTab] = useState('order');
+  // viewTab (Service Order / Shows / Songs) comes from App context now — the
+  // whole sidebar unmounts while the song-editor page is open, and App-owned
+  // state keeps the operator on the tab they came from.
   // Which way the panel swap travels: +1 toward the tab on the right, -1
   // back toward the left. The ref only catches up in an effect, so the
   // render that sees the NEW tab still finds the OLD index in it — that
@@ -296,7 +303,7 @@ export default function LeftSidebar() {
       <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.5 }}>{dockTab} Tools</span>
     )}
     {dockTab === 'shows' && (
-      <motion.button {...stubTap} onClick={saveCurrentService} style={{ background: 'transparent', border: '1px solid #3B82F6', color: '#93C5FD', padding: '5px 11px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>Save Plan</motion.button>
+      <motion.button {...stubTap} onClick={saveCurrentService} style={{ background: 'transparent', border: '1px solid #8b5cf6', color: '#C4B5FD', padding: '5px 11px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>Save Plan</motion.button>
     )}
     <motion.button {...iconBtnTap} onClick={() => setLeftOpen(false)} title="Minimize command center" style={{ background: 'transparent', border: 'none', color: 'var(--ui-faint)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}><PanelLeftClose size={16} /></motion.button>
   </div>
@@ -311,9 +318,20 @@ export default function LeftSidebar() {
               same narrow column. Counts live on the tab so nothing is hidden
               behind the switch. */}
           <div className="side-tabs">
-            <button className="side-tab" data-wide="1" data-active={viewTab === 'order' ? '1' : '0'} onClick={() => setViewTab('order')} title="The running order you are building">Service Order <span className="tab-n">{serviceOrderCount()}</span></button>
-            <button className="side-tab" data-active={viewTab === 'shows' ? '1' : '0'} onClick={() => setViewTab('shows')} title="Saved shows — click to load one, or use + Plan to queue it">Shows <span className="tab-n">{(services || []).length}</span></button>
-            <button className="side-tab" data-active={viewTab === 'songs' ? '1' : '0'} onClick={() => setViewTab('songs')} title="Song library">Songs <span className="tab-n">{songs.length}</span></button>
+            {/* Untitled UI Tabs (phase 3): brand chips with real tab roles +
+                keyboard nav (arrows / Home / End). The 340px column can't fit
+                their 14px default labels + count pills (~335px of 318px), so
+                the label size stays at the sidebar's tuned 10px density via
+                className; counts ride their Badge (`String()` keeps a 0
+                count visible). The AnimatePresence panel swap below is
+                untouched — it keys off viewTab exactly as before. */}
+            <Tabs selectedKey={viewTab} onSelectionChange={setViewTab}>
+              <TabList type="button-brand" size="sm">
+                <Tab id="order" label="Service Order" badge={String(serviceOrderCount())} title="The running order you are building" className="text-[10px] px-1.5" />
+                <Tab id="shows" label="Shows" badge={String((services || []).length)} title="Saved shows — click to load one, or use + Plan to queue it" className="text-[10px] px-1.5" />
+                <Tab id="songs" label="Songs" badge={String(songs.length)} title="Song library" className="text-[10px] px-1.5" />
+              </TabList>
+            </Tabs>
           </div>
 
           {/* Panel swap — the panel leaving slides toward the tab you are
@@ -333,21 +351,22 @@ export default function LeftSidebar() {
           {/* PANEL 1 — SHOWS LIBRARY */}
           {viewTab === 'shows' && (
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            {/* Title lives on the sub-tab — this row is a slim action bar. */}
-            <div style={{ padding: '8px 12px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-              <button onClick={(e) => { e.stopPropagation(); openNewShow(); }} title="New Show" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '4px 11px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Plus size={11} /> New Show</button>
+            {/* One slim action bar: the filter fills the space beside
+                + New Show instead of sitting on a second row above the list. */}
+            <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+                <Search size={12} color="var(--ui-faint)" style={{ position: 'absolute', left: 8, top: 6, pointerEvents: 'none' }} />
+                <input value={showsQuery} onChange={(e) => setShowsQuery(e.target.value)} placeholder="Filter shows…" style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: '5px 8px 5px 25px', color: 'var(--ui-text)', fontSize: 11.5, outline: 'none' }} />
+              </div>
+              <button onClick={(e) => { e.stopPropagation(); openNewShow(); }} title="New Show" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '4px 11px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, whiteSpace: 'nowrap' }}><Plus size={11} /> New Show</button>
             </div>
             <>
-                <div style={{ padding: '0 12px 6px 12px', position: 'relative', flexShrink: 0 }}>
-                  <Search size={12} color="var(--ui-faint)" style={{ position: 'absolute', left: 20, top: 6 }} />
-                  <input value={showsQuery} onChange={(e) => setShowsQuery(e.target.value)} placeholder="Filter shows…" style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: '5px 8px 5px 25px', color: 'var(--ui-text)', fontSize: 11.5, outline: 'none' }} />
-                </div>
                 <div style={{ flex: 1, overflowY: 'auto', padding: '4px 10px 10px 10px', display: 'grid', gap: 6, alignContent: 'start' }}>
                   {/* Rows are no longer draggable: the Service Order lives on
                       its own tab now, so a show row and the drop target are
                       never on screen together — + Plan on hover does that job. */}
                   {[...(services || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).filter(s => !showsQuery.trim() || (s.name || '').toLowerCase().includes(showsQuery.trim().toLowerCase())).map(svc => (
-                    <div key={svc.id} className="row" onClick={() => { loadService(svc.id); setViewTab('order'); }} title="Load this show into the Service Order" style={{ background: activeService?.id === svc.id ? 'rgba(37,99,235,0.15)' : 'var(--ui-elev2)', border: activeService?.id === svc.id ? '1px solid rgba(59,130,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '8px 10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                    <div key={svc.id} className="row" onClick={() => { loadService(svc.id); setViewTab('order'); }} title="Load this show into the Service Order" style={{ background: activeService?.id === svc.id ? 'rgba(139,92,246,0.15)' : 'var(--ui-elev2)', border: activeService?.id === svc.id ? '1px solid rgba(139,92,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '8px 10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                       <div style={{ minWidth: 0 }}>
                         <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--ui-text)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{svc.name}</span>
                         <span style={{ fontSize: 10, fontWeight: 700, color: svc.date ? '#f59e0b' : 'var(--ui-faint)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fmtShowDate(svc.date) || 'No date'}</span>
@@ -356,7 +375,7 @@ export default function LeftSidebar() {
                       {/* Action cluster — hover-revealed so a list of shows
                           reads as titles and dates, not as a wall of chips. */}
                       <div className="row-act" style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                        <button onClick={(e) => { e.stopPropagation(); queueShowIntoService(svc.id); setViewTab('order'); }} title="Add to Service Plan — jumps to the order so you see it land" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: '#93C5FD', padding: '3px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Plan</button>
+                        <button onClick={(e) => { e.stopPropagation(); queueShowIntoService(svc.id); setViewTab('order'); }} title="Add to Service Plan — jumps to the order so you see it land" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: '#C4B5FD', padding: '3px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Plan</button>
                         <button onClick={(e) => { e.stopPropagation(); deleteSavedService(svc.id); }} title="Delete show" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.28)', color: '#F87171', cursor: 'pointer', padding: '3px 6px', borderRadius: 6, display: 'flex', alignItems: 'center' }}><Trash2 size={11} /></button>
                       </div>
                     </div>
@@ -442,9 +461,9 @@ export default function LeftSidebar() {
               {serviceAddMenu === 'media' && (
                 <div className="svc-menu" style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 4 }}>
                   <div style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 1 }}>Add Media</div>
-                  <button onClick={() => { const open = !serviceMediaPicker; setServiceMediaPicker(open); if (open) fetchMediaLibrary(); }} title="Choose an image or video that is already in the app — nothing is re-uploaded" style={{ textAlign: 'left', background: serviceMediaPicker ? 'rgba(37,99,235,0.14)' : 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button onClick={() => { const open = !serviceMediaPicker; setServiceMediaPicker(open); if (open) fetchMediaLibrary(); }} title="Choose an image or video that is already in the app — nothing is re-uploaded" style={{ textAlign: 'left', background: serviceMediaPicker ? 'rgba(139,92,246,0.14)' : 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontWeight: 700 }}><Images size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Existing Media</span>
-                    <span style={{ fontSize: 10, color: serviceMediaPicker ? '#93C5FD' : 'var(--ui-faint)' }}>{serviceMediaPicker ? 'Hide' : `${mediaLibrary.filter(a => a.kind === 'image' || a.kind === 'video').length} in app`}</span>
+                    <span style={{ fontSize: 10, color: serviceMediaPicker ? '#C4B5FD' : 'var(--ui-faint)' }}>{serviceMediaPicker ? 'Hide' : `${mediaLibrary.filter(a => a.kind === 'image' || a.kind === 'video').length} in app`}</span>
                   </button>
                   {serviceMediaPicker && (mediaLibrary.filter(a => a.kind === 'image' || a.kind === 'video').length === 0 ? (
                     <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', border: '1px dashed var(--ui-border)', borderRadius: 7, padding: '8px', textAlign: 'center', lineHeight: 1.5 }}>
@@ -494,6 +513,8 @@ export default function LeftSidebar() {
                         placeholder="Choose a book…"
                         title="Book"
                         maxHeight={288}
+                        searchable
+                        searchPlaceholder="Filter books…"
                       />
                       {(() => {
                         const book = (bibleBooks.books || []).find(b => String(b.nr) === String(scBook));
@@ -556,7 +577,7 @@ export default function LeftSidebar() {
                 </div>
               )}
             </div>
-            <div onDragOver={(e) => { e.preventDefault(); if (internalDrag.current) { const t = scanDropTarget(e); setDrop(t.at, t.row); return; } e.dataTransfer.dropEffect = 'copy'; setServiceDragOver(true); }} onDragLeave={() => setServiceDragOver(false)} onDrop={dropOnOrder} style={{ flex: 1, overflowY: 'auto', padding: '4px 10px 10px 10px', display: 'grid', gap: 8, alignContent: 'start', border: serviceDragOver ? '1px dashed #3B82F6' : '1px dashed transparent', borderRadius: 10, margin: '0 8px', background: serviceDragOver ? 'rgba(37,99,235,0.08)' : 'transparent' }}>
+            <div onDragOver={(e) => { e.preventDefault(); if (internalDrag.current) { const t = scanDropTarget(e); setDrop(t.at, t.row); return; } e.dataTransfer.dropEffect = 'copy'; setServiceDragOver(true); }} onDragLeave={() => setServiceDragOver(false)} onDrop={dropOnOrder} style={{ flex: 1, overflowY: 'auto', padding: '4px 10px 10px 10px', display: 'grid', gap: 8, alignContent: 'start', border: serviceDragOver ? '1px dashed #8b5cf6' : '1px dashed transparent', borderRadius: 10, margin: '0 8px', background: serviceDragOver ? 'rgba(139,92,246,0.08)' : 'transparent' }}>
               {(activeService?.items || []).filter(i => i.item_type !== 'section_header').length === 0 && (
                 <div style={{ textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12, padding: 12 }}>Nothing in the order yet. Use Add Song / Scripture / Media / Presentation above, or open the Shows and Songs tabs and press + Plan on a row.</div>
               )}
@@ -580,7 +601,7 @@ export default function LeftSidebar() {
                       return out;
                     })();
                     return (
-                      <div key={`h-${ri}`} className="row" data-drop-idx={row.idx} data-drop-section="1" onClick={() => { if (sectionRenameIdx === row.idx) return; setServiceTargetTitle(row.item.title); toggleServiceCollapse(row.item.title); }} onDoubleClick={(e) => { e.stopPropagation(); beginRenameSection(row.idx, row.item.title); }} title="Click = target + collapse/expand · Double-click = rename section · Drop an item here to move it into this section" style={{ cursor: sectionRenameIdx === row.idx ? 'default' : 'pointer', userSelect: sectionRenameIdx === row.idx ? 'text' : 'none', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 10, color: serviceTargetTitle === row.item.title ? '#93C5FD' : 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.3, padding: '7px 6px 5px 6px', borderBottom: '1px solid var(--ui-border)', background: serviceTargetTitle === row.item.title ? 'rgba(37,99,235,0.08)' : 'transparent', boxShadow: dropRow === row.idx ? 'inset 0 -3px 0 #3B82F6' : 'none' }}>
+                      <div key={`h-${ri}`} className="row" data-drop-idx={row.idx} data-drop-section="1" onClick={() => { if (sectionRenameIdx === row.idx) return; setServiceTargetTitle(row.item.title); toggleServiceCollapse(row.item.title); }} onDoubleClick={(e) => { e.stopPropagation(); beginRenameSection(row.idx, row.item.title); }} title="Click = target + collapse/expand · Double-click = rename section · Drop an item here to move it into this section" style={{ cursor: sectionRenameIdx === row.idx ? 'default' : 'pointer', userSelect: sectionRenameIdx === row.idx ? 'text' : 'none', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 10, color: serviceTargetTitle === row.item.title ? '#C4B5FD' : 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.3, padding: '7px 6px 5px 6px', borderBottom: '1px solid var(--ui-border)', background: serviceTargetTitle === row.item.title ? 'rgba(139,92,246,0.08)' : 'transparent', boxShadow: dropRow === row.idx ? 'inset 0 -3px 0 #8b5cf6' : 'none' }}>
                         {sectionRenameIdx === row.idx ? null : (collapsed ? <ChevronRight size={12} color="var(--ui-faint)" /> : <ChevronDown size={12} color="var(--ui-faint)" />)}
                         {sectionRenameIdx === row.idx ? (
                           <input
@@ -595,12 +616,12 @@ export default function LeftSidebar() {
                             }}
                             onBlur={commitRenameSection}
                             placeholder="Section name"
-                            style={{ flex: 1, minWidth: 0, background: 'rgba(37,99,235,0.12)', border: 'none', borderBottom: '1px dashed #3B82F6', borderRadius: 0, color: 'var(--ui-text)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.3, outline: 'none', padding: '2px 0' }}
+                            style={{ flex: 1, minWidth: 0, background: 'rgba(139,92,246,0.12)', border: 'none', borderBottom: '1px dashed #8b5cf6', borderRadius: 0, color: 'var(--ui-text)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.3, outline: 'none', padding: '2px 0' }}
                           />
                         ) : (
                           <>
                             <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{row.item.title}</span>
-                            {serviceTargetTitle === row.item.title && <span style={{ flexShrink: 0, fontSize: 8, fontWeight: 800, color: '#93C5FD', border: '1px solid rgba(59,130,246,0.5)', borderRadius: 4, padding: '0 4px', letterSpacing: 0 }}>ADD TO</span>}
+                            {serviceTargetTitle === row.item.title && <span style={{ flexShrink: 0, fontSize: 8, fontWeight: 800, color: '#C4B5FD', border: '1px solid rgba(139,92,246,0.5)', borderRadius: 4, padding: '0 4px', letterSpacing: 0 }}>ADD TO</span>}
                           </>
                         )}
                         {sectionRenameIdx !== row.idx && (
@@ -623,9 +644,9 @@ export default function LeftSidebar() {
                   const slideCount = serviceSlideCount(row.item);
                   const isScripture = !!(row.item.meta && row.item.meta.kind === 'bible');
                   const icon = row.item.item_type === 'song' ? <Music size={11} /> : isScripture ? <BookOpen size={11} /> : row.item.item_type === 'media' ? <ImageIcon size={11} /> : row.item.item_type === 'presentation' ? <MonitorPlay size={11} /> : <FileText size={11} />;
-                  const iconColor = row.item.item_type === 'song' ? '#3B82F6' : isScripture ? '#f59e0b' : 'var(--ui-muted)';
+                  const iconColor = row.item.item_type === 'song' ? '#8b5cf6' : isScripture ? '#f59e0b' : 'var(--ui-muted)';
                   return (
-                    <div key={`i-${ri}`} className="row" data-drop-idx={row.idx} draggable onDragStart={(e) => { internalDrag.current = true; e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { internalDrag.current = false; setDrop(null, null); }} onClick={() => { if (row.item.item_type === 'song') selectSong(row.item.content); else if (isLive) return; else fireServiceItemLive(row.item); }} title="Drag to reorder · click to go live" style={{ position: 'relative', background: isLive ? 'rgba(34,197,94,0.10)' : (row.item.item_type === 'song' && Number(row.item.content) === activeSong?.id) || (row.item.item_type === 'custom_slide' && activeCue?.id === row.item.id) ? 'rgba(37,99,235,0.12)' : 'var(--ui-elev2)', border: isLive ? '1px solid rgba(34,197,94,0.55)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '6px 8px', cursor: 'grab', display: 'grid', gridTemplateColumns: '14px 20px 18px 1fr auto', gap: 6, alignItems: 'center', boxShadow: dropRow === row.idx ? '0 0 0 2px rgba(59,130,246,0.6)' : 'none' }}>
+                    <div key={`i-${ri}`} className="row" data-drop-idx={row.idx} draggable onDragStart={(e) => { internalDrag.current = true; e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { internalDrag.current = false; setDrop(null, null); }} onClick={() => { if (row.item.item_type === 'song') selectSong(row.item.content); else if (isLive) return; else fireServiceItemLive(row.item); }} title="Drag to reorder · click to go live" style={{ position: 'relative', background: isLive ? 'rgba(34,197,94,0.10)' : (row.item.item_type === 'song' && Number(row.item.content) === activeSong?.id) || (row.item.item_type === 'custom_slide' && activeCue?.id === row.item.id) ? 'rgba(139,92,246,0.12)' : 'var(--ui-elev2)', border: isLive ? '1px solid rgba(34,197,94,0.55)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '6px 8px', cursor: 'grab', display: 'grid', gridTemplateColumns: '14px 20px 18px 1fr auto', gap: 6, alignItems: 'center', boxShadow: dropRow === row.idx ? '0 0 0 2px rgba(139,92,246,0.6)' : 'none' }}>
                       {isLive && <div style={{ position: 'absolute', left: 0, top: 4, bottom: 4, width: 3, borderRadius: 3, background: '#22c55e', boxShadow: '0 0 8px rgba(34,197,94,0.8)' }} />}
                       <GripVertical size={12} color="var(--ui-faint)" />
                       <span style={{ fontSize: 10, fontWeight: 800, color: isLive ? '#22c55e' : 'var(--ui-faint)', fontFamily: 'monospace' }}>{isLive ? '▶' : itemNum}</span>
@@ -641,7 +662,7 @@ export default function LeftSidebar() {
                         {isLive ? (
                           <button onClick={(e) => { e.stopPropagation(); stopServiceItemLive(row.item); }} title="Stop — take this item off air" style={{ background: 'rgba(239,68,68,0.18)', border: '1px solid rgba(239,68,68,0.55)', color: '#F87171', borderRadius: 6, fontSize: 9.5, fontWeight: 700, padding: '3px 8px', cursor: 'pointer' }}>■ Stop</button>
                         ) : (
-                          <button onClick={(e) => { e.stopPropagation(); fireServiceItemLive(row.item); }} title="Go live" style={{ background: '#2563EB', border: '1px solid #2563EB', color: '#FFFFFF', borderRadius: 6, fontSize: 9.5, fontWeight: 700, padding: '3px 8px', cursor: 'pointer' }}>Go</button>
+                          <button onClick={(e) => { e.stopPropagation(); fireServiceItemLive(row.item); }} title="Go live" style={{ background: '#7c3aed', border: '1px solid #7c3aed', color: '#FFFFFF', borderRadius: 6, fontSize: 9.5, fontWeight: 700, padding: '3px 8px', cursor: 'pointer' }}>Go</button>
                         )}
                         <Trash2 className="row-act" size={12} color="var(--ui-faint)" onClick={(e) => { e.stopPropagation(); removeServiceItem(row.idx); }} style={{ cursor: 'pointer' }} />
                       </div>
@@ -657,19 +678,22 @@ export default function LeftSidebar() {
           {/* PANEL 3 — SONG LIBRARY */}
           {viewTab === 'songs' && (
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ padding: '8px 10px', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, flexShrink: 0 }}>
+            {/* One header row: the search fills the empty space that used to
+                sit beside + New when they lived on two separate rows — the
+                list gets that whole band back. */}
+            <div style={{ padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+                <Search size={13} color="var(--ui-faint)" style={{ position: 'absolute', left: 9, top: 7, pointerEvents: 'none' }} />
+                <input id="song-search-input" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search songs…" style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: '6px 8px 6px 27px', color: 'var(--ui-text)', fontSize: 12, outline: 'none' }} />
+              </div>
               <button onClick={(e) => { e.stopPropagation(); handleNewSong(); }} title="New song" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '4px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}><Plus size={12} /> New</button>
             </div>
             <>
-                <div style={{ padding: '0 10px 6px 10px', position: 'relative', flexShrink: 0 }}>
-                  <Search size={13} color="var(--ui-faint)" style={{ position: 'absolute', left: 19, top: 7 }} />
-                  <input id="song-search-input" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search songs…" style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: '6px 8px 6px 27px', color: 'var(--ui-text)', fontSize: 12, outline: 'none' }} />
-                </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '4px 8px 10px 8px', display: 'grid', gap: 6, alignContent: 'start' }}>
               {/* Same as the shows list: the order is on another tab, so a
                   row is a plain click-to-open, not a drag handle. */}
               {songs.map(song => (
-                <div key={song.id} className="row" onClick={() => selectSong(song.id)} title="Click to open this song · hover the row for + Plan" style={{ background: activeSong?.id === song.id ? 'rgba(37,99,235,0.15)' : 'var(--ui-elev2)', border: activeSong?.id === song.id ? '1px solid rgba(59,130,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '7px 11px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div key={song.id} className="row" onClick={() => selectSong(song.id)} title="Click to open this song · hover the row for + Plan" style={{ background: activeSong?.id === song.id ? 'rgba(139,92,246,0.15)' : 'var(--ui-elev2)', border: activeSong?.id === song.id ? '1px solid rgba(139,92,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '7px 11px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ minWidth: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--ui-text)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{song.title}</span>
                     <span style={{ fontSize: 10.5, color: 'var(--ui-muted)', marginTop: 2, display: 'block' }}>{song.artist || 'Unknown'} • {song.category}</span>
@@ -678,7 +702,7 @@ export default function LeftSidebar() {
                       list of songs reads as titles and artists rather than as
                       four icons per row fighting the text. */}
                   <div className="row-act" style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-                    <button onClick={(e) => { e.stopPropagation(); addSongToService(song); setViewTab('order'); }} title="Add to Service Plan — jumps to the order so you see it land" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: '#93C5FD', padding: '3px 8px', borderRadius: 6, fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>+ Plan</button>
+                    <button onClick={(e) => { e.stopPropagation(); addSongToService(song); setViewTab('order'); }} title="Add to Service Plan — jumps to the order so you see it land" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: '#C4B5FD', padding: '3px 8px', borderRadius: 6, fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>+ Plan</button>
                     <Star size={13} color={song.is_favorite ? '#f59e0b' : 'var(--ui-faint)'} fill={song.is_favorite ? '#f59e0b' : 'none'} onClick={(e) => handleToggleFavorite(song.id, e)} style={{ cursor: 'pointer' }} />
                     <Edit3 size={13} color="var(--ui-muted)" onClick={(e) => { e.stopPropagation(); editSong(song.id); }} style={{ cursor: 'pointer' }} />
                     <button onClick={(e) => { e.stopPropagation(); handleDeleteSong(song.id); }} title="Delete song" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.28)', color: '#F87171', cursor: 'pointer', padding: '3px 6px', borderRadius: 6, display: 'flex', alignItems: 'center' }}><Trash2 size={13} /></button>
@@ -736,7 +760,7 @@ export default function LeftSidebar() {
                 <span style={{ fontSize: 10, color: 'var(--ui-faint)' }}>{p.slideCount || 0} slide{(p.slideCount || 0) === 1 ? '' : 's'} • {String(p.updated_at || '').slice(0, 10)}</span>
               </div>
               <div style={{ display: 'flex', gap: 5 }}>
-                <button onClick={async () => { const d = await (window.require ? window.require('electron').ipcRenderer.invoke('db-get-presentation', p.id) : null); if (d) addPresentationToService(d); }} title="Add to Service Plan — goes into the section you are working in" style={{ flexShrink: 0, background: 'transparent', border: '1px solid var(--ui-border)', color: '#93C5FD', padding: '5px 8px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Plus size={11} /> Plan</button>
+                <button onClick={async () => { const d = await (window.require ? window.require('electron').ipcRenderer.invoke('db-get-presentation', p.id) : null); if (d) addPresentationToService(d); }} title="Add to Service Plan — goes into the section you are working in" style={{ flexShrink: 0, background: 'transparent', border: '1px solid var(--ui-border)', color: '#C4B5FD', padding: '5px 8px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Plus size={11} /> Plan</button>
                 <button onClick={() => openPresentation(p.id)} title="Edit" style={{ flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '5px 8px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Edit3 size={11} /> Edit</button>
                 <button onClick={async () => { const d = await (window.require ? window.require('electron').ipcRenderer.invoke('db-get-presentation', p.id) : null); if (d) presentDeck(d); else openPresentation(p.id); }} title="Present live" style={{ background: ACCENT, border: 'none', color: '#fff', padding: '5px 10px', borderRadius: 7, fontSize: 10.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Monitor size={11} /> Present</button>
                 <button onClick={() => deletePresentationDeck(p.id)} title="Delete" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.28)', color: '#F87171', cursor: 'pointer', padding: '4px 7px', borderRadius: 7, display: 'flex', alignItems: 'center' }}><Trash2 size={11} /></button>

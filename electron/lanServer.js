@@ -188,7 +188,7 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
 
   const notBuilt = (res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-    res.end('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#050509;color:#e5e7eb;font:600 16px system-ui;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:28px">The app has not been built yet and the dev server is not running.<br>Start <b>npm run dev</b> or build the app, then reload this page.</body></html>');
+    res.end('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#090a0f;color:#cbd5e1;font:600 16px system-ui;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:28px">The app has not been built yet and the dev server is not running.<br>Start <b>npm run dev</b> or build the app, then reload this page.</body></html>');
   };
 
   // Vite has not produced dist/ yet, or we are in dev — hand the phone to the
@@ -198,7 +198,7 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
   const redirectToDev = (res) => {
     const target = `http://${primaryAddress()}:5173/mobile.html`;
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-    res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#050509;color:#fff;font:600 16px system-ui;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:24px"><div>Opening the dev build…<br><br><a id="l" style="color:#60a5fa" href="${target}">tap here if nothing happens</a></div><script>location.replace('${target}'+location.hash);document.getElementById('l').href='${target}'+location.hash;</script></body></html>`);
+    res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#090a0f;color:#fff;font:600 16px system-ui;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:24px"><div>Opening the dev build…<br><br><a id="l" style="color:#a78bfa" href="${target}">tap here if nothing happens</a></div><script>location.replace('${target}'+location.hash);document.getElementById('l').href='${target}'+location.hash;</script></body></html>`);
   };
 
   // Is the Vite dev server actually up? Probed per request (cached briefly) so
@@ -409,7 +409,7 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
   };
 
   const qr = async (url) => {
-    try { return await QRCode.toDataURL(url, { margin: 1, width: 320, color: { dark: '#ffffff', light: '#0b0b10' } }); }
+    try { return await QRCode.toDataURL(url, { margin: 1, width: 320, color: { dark: '#ffffff', light: '#13151e' } }); }
     catch { return ''; }
   };
 

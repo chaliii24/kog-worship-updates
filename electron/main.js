@@ -45,6 +45,7 @@ import {
   getBuiltinPhotoAssets
 } from './database.js';
 import { createLanServer } from './lanServer.js';
+import { status as decklinkStatus, listDevices as decklinkListDevices, start as decklinkStart, stop as decklinkStop } from './decklink.js';
 
 dotenv.config();
 
@@ -332,6 +333,8 @@ app.whenReady().then(() => {
   }).catch(() => {});
 
   app.on('before-quit', () => { try { lan.stop(); } catch { /* noop */ } });
+  // Kill a running DeckLink SDI mirror (child ffmpeg) with the app.
+  app.on('before-quit', () => { try { decklinkStop(); } catch { /* noop */ } });
 
   // Record which path Chromium actually took. `gpu_compositing` / `video_decode`
   // reading "hardware" vs "software" is the difference between smooth and
@@ -358,9 +361,12 @@ function getDisplayList() {
     .filter((display) => display.internal !== true)
     .map((display, index) => ({
       id: display.id,
+      // Hardware port handle on Windows (\\.\DISPLAY1, \\.\DISPLAY2, ...):
+      // outputs bind to this, not to loose window coordinates.
       label: display.label || `Display ${index + 1}`,
       width: display.bounds.width,
       height: display.bounds.height,
+      bounds: { x: display.bounds.x, y: display.bounds.y, width: display.bounds.width, height: display.bounds.height },
       primary: display.id === primaryId,
       internal: false,
       scaleFactor: display.scaleFactor
@@ -405,15 +411,58 @@ function resolutionPreset(res) {
   return (res && map[res]) ? map[res] : null;
 }
 
+function outputTitle(output) {
+  // Stable, exact window title: gdigrab (`title=`) grabs the live window for
+  // the DeckLink SDI bridge, and get-output-status reports it to the console.
+  return `KOG OUT ${output.id} — ${output.name || 'Output'}`;
+}
+
 function createOutputWindow(output) {
   const displayId = output.displayId;
   const target = displayId === 'preview' ? null : screen.getAllDisplays().find((d) => d.id === displayId);
   const startUrl = getAppStartUrl();
   const preset = resolutionPreset(output.resolution);
-  const isWindowed = preset !== null;
+  const vp = output.viewport && output.viewport.enabled ? output.viewport : null;
+  // A live output bound to a physical display stays FULLSCREEN no matter
+  // which resolution is selected — the resolution only shapes the view
+  // composed inside the window (its aspect frame), it never pulls the
+  // projection out of fullscreen. Windowed mode survives only for the dev
+  // preview / a display that has gone missing.
+  const isWindowed = preset !== null && !vp && !target;
+  // Focus rule: an output covering the operator's own screen must hold the
+  // keyboard (Esc exit). An output on its own display must NEVER take focus
+  // or the mouse cursor away from the console mid-service — focusable:false
+  // makes it inert to activation while still painting above everything.
+  const onPrimary = !target || target.id === screen.getPrimaryDisplay().id;
+  const base = target ? target.bounds : screen.getPrimaryDisplay().bounds;
 
   let win;
-  if (!isWindowed) {
+  if (vp) {
+    // Custom pixel viewport: exact window bounds for LED processors and
+    // non-standard video walls. x/y are relative to the bound display's
+    // origin and may be negative or extend past its edge — walls that span
+    // two displays or overlap a neighbor's seam.
+    const vx = Math.round(Number(vp.x) || 0);
+    const vy = Math.round(Number(vp.y) || 0);
+    const vw = Math.max(64, Math.round(Number(vp.w) || base.width));
+    const vh = Math.max(64, Math.round(Number(vp.h) || base.height));
+    win = new BrowserWindow({
+      x: base.x + vx,
+      y: base.y + vy,
+      width: vw,
+      height: vh,
+      frame: false,
+      resizable: false,
+      movable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      minimizable: false,
+      fullscreen: false,
+      title: outputTitle(output),
+      focusable: onPrimary,
+      webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
+    });
+  } else if (!isWindowed) {
     const primary = target || screen.getPrimaryDisplay();
     win = new BrowserWindow({
       x: primary.bounds.x,
@@ -427,6 +476,8 @@ function createOutputWindow(output) {
       minimizable: false,
       movable: false,
       autoHideMenuBar: true,
+      title: outputTitle(output),
+      focusable: onPrimary,
       webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
     });
   } else {
@@ -436,7 +487,7 @@ function createOutputWindow(output) {
       height: h,
       x: target ? (target.bounds.x + 60) : (60 + outputWindows.size * 40),
       y: target ? (target.bounds.y + 60) : (60 + outputWindows.size * 40),
-      title: `${output.name || 'Output'} (${w}×${h})`,
+      title: outputTitle(output),
       autoHideMenuBar: true,
       alwaysOnTop: true,
       minimizable: false,
@@ -450,7 +501,16 @@ function createOutputWindow(output) {
     role: output.role || 'lyrics',
     displayId: displayId ?? null,
     name: output.name || 'Output',
-    resolution: isWindowed ? (output.resolution || 'native') : 'native'
+    resolution: isWindowed ? (output.resolution || 'native') : 'native',
+    // How the window was built: only a WINDOWED output may be rebuilt by a
+    // resolution change — a fullscreen one keeps its bounds and just
+    // re-composes the view (live cfg push below).
+    windowed: isWindowed,
+    title: outputTitle(output),
+    viewport: JSON.stringify(output.viewport || null),
+    // Hash of the whole config: sync pushes `output-config` (rotation /
+    // edge-blend / rename) live without recreating the window.
+    cfg: JSON.stringify(output)
   });
 
   // ESC is the way out of an output that is covering the OPERATOR'S OWN
@@ -459,12 +519,21 @@ function createOutputWindow(output) {
   // fell back to the primary display. When the output lands on its own
   // separate display the handler is never installed: a stray Esc at the
   // console must not take a live projection off the wall mid-service.
-  const onPrimary = !target || target.id === screen.getPrimaryDisplay().id;
+  // (`onPrimary` is decided up in createOutputWindow — before the window is
+  // built — so it also controls focusable.)
+
+  // The page's <title> would otherwise replace the BrowserWindow title, and
+  // gdigrab grabs this window by exact title for the DeckLink SDI bridge —
+  // so swallow page title updates and pin ours instead.
+  win.on('page-title-updated', (event) => event.preventDefault());
 
   win.loadURL(`${startUrl}${outputRoute(output)}`);
   win.webContents.on('did-finish-load', () => {
     if (win && !win.isDestroyed()) {
+      win.setTitle(outputTitle(output));
       win.webContents.send('update-output-aspect', output.aspect || '16:9');
+      // Rotation / custom viewport / edge-blend settings for THIS window.
+      win.webContents.send('output-config', output);
       // A frameless fullscreen window sitting over the console has to hold
       // the keyboard, otherwise Esc arrives at the operator window underneath
       // and the exit below never fires.
@@ -515,13 +584,40 @@ function syncOutputs(outputs) {
 
   for (const output of desired) {
     const existing = outputWindows.get(output.id);
+    const vpJson = JSON.stringify(output.viewport || null);
+    // Would this output be WINDOWED right now? Only the dev preview (no
+    // display bound) windows itself; a display-bound output is always
+    // fullscreen, so a resolution change there must NOT rebuild the window.
+    const vpOn = !!(output.viewport && output.viewport.enabled);
+    const bound = output.displayId != null && output.displayId !== '' && output.displayId !== 'preview'
+      && screen.getAllDisplays().some((d) => d.id === output.displayId);
+    const willWindowed = !vpOn && !bound && resolutionPreset(output.resolution) !== null;
     if (!existing) {
       createOutputWindow(output);
-    } else if (existing.displayId !== output.displayId || existing.role !== output.role || existing.resolution !== (output.resolution || 'native')) {
+    } else if (
+      existing.displayId !== output.displayId ||
+      existing.role !== output.role ||
+      vpJson !== existing.viewport ||
+      existing.windowed !== willWindowed ||
+      (willWindowed && existing.resolution !== (output.resolution || 'native'))
+    ) {
+      // Geometry change (bound display, role, custom viewport, or a
+      // windowed output's resolution): rebuild at its new bounds.
       closeOutputWindow(output.id);
       createOutputWindow(output);
     } else {
       existing.name = output.name || existing.name;
+      const cfg = JSON.stringify(output);
+      if (existing.cfg !== cfg) {
+        // Rotation / edge-blend / rename changed: apply live, no rebuild.
+        existing.cfg = cfg;
+        const fresh = existing.win && !existing.win.isDestroyed() ? existing.win : null;
+        if (fresh) {
+          fresh.webContents.send('output-config', output);
+          existing.title = outputTitle(output);
+          fresh.setTitle(existing.title);
+        }
+      }
     }
   }
 }
@@ -549,7 +645,11 @@ ipcMain.on('outputs-save', (event, outputs) => {
       role: o.role,
       displayId: o.displayId,
       resolution: o.resolution || 'native',
-      aspect: o.aspect || '16:9'
+      aspect: o.aspect || '16:9',
+      // Screen hardware: custom pixel viewport, rotation, edge blending.
+      viewport: o.viewport || undefined,
+      rotation: o.rotation || undefined,
+      blend: o.blend || undefined
     }));
     fs.writeFileSync(OUTPUTS_FILE, JSON.stringify(persistable, null, 2));
   } catch (e) {}
@@ -636,19 +736,93 @@ ipcMain.handle('get-output-status', () => {
   const displays = screen.getAllDisplays();
   return [...outputWindows.entries()].map(([id, entry]) => {
     const disp = entry.displayId === 'preview' ? null : displays.find((d) => d.id === entry.displayId) || null;
+    const live = entry.win && !entry.win.isDestroyed();
     return {
       id,
       name: entry.name,
       role: entry.role,
-      open: !!(entry.win && !entry.win.isDestroyed()),
+      open: !!live,
       displayId: disp ? entry.displayId : null,
       displayLabel: disp ? (disp.label || `${disp.bounds.width}×${disp.bounds.height}`) : null,
       width: disp ? disp.bounds.width : null,
-      height: disp ? disp.bounds.height : null
+      height: disp ? disp.bounds.height : null,
+      // Capture identity for the DeckLink SDI bridge: exact window title
+      // (gdigrab `title=`) and current bounds (desktop-region fallback).
+      title: entry.title || null,
+      bounds: live ? entry.win.getBounds() : null
 };
   });
 });
  
+// --- OUTPUT CONFIG PUSH (rotation / custom viewport / edge blend) ---
+// Sent when the window loads; a freshly mounted output window also pulls it,
+// so a push that raced the renderer's listener can never be lost.
+ipcMain.handle('output-config-request', (event, id) => {
+  const synced = lastSyncedOutputs.find((o) => o && o.id === id);
+  if (synced) return synced;
+  const entry = outputWindows.get(id);
+  return entry ? { id, name: entry.name, role: entry.role } : null;
+});
+
+// --- IDENTIFY DISPLAYS ---
+// Fullscreen overlay per PHYSICAL screen carrying its number + hardware port
+// handle (\\.\DISPLAY1), so technicians can match each window to a monitor
+// port. Auto-closes after 6s, or on click / a second press.
+let identifyWindows = [];
+function closeIdentify() {
+  for (const w of identifyWindows) {
+    try { if (!w.isDestroyed()) w.close(); } catch { /* noop */ }
+  }
+  identifyWindows = [];
+}
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+ipcMain.on('identify-displays', () => {
+  closeIdentify();
+  const displays = screen.getAllDisplays();
+  const primaryId = screen.getPrimaryDisplay().id;
+  displays.forEach((d, i) => {
+    const label = d.label || `Display ${i + 1}`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+      html,body{margin:0;height:100%;background:#09090b;color:#fff;font-family:system-ui,sans-serif;overflow:hidden;user-select:none}
+      body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.4vh;cursor:pointer}
+      .n{font-size:32vh;line-height:1;font-weight:900;color:#8b5cf6;text-shadow:0 0 48px rgba(139,92,246,.55)}
+      .l{font-size:4.2vh;font-weight:800;letter-spacing:.05em}
+      .r{font-size:2.4vh;color:#a1a1aa}
+      .t{font-size:1.9vh;color:#71717a;position:absolute;bottom:3vh}
+    </style></head><body>
+      <div class="n">${i + 1}</div>
+      <div class="l">${escapeHtml(label)}</div>
+      <div class="r">${d.bounds.width}×${d.bounds.height} @ ${d.bounds.x},${d.bounds.y}${d.id === primaryId ? ' · PRIMARY' : ''}</div>
+      <div class="t">Click to close</div>
+      <script>document.addEventListener('click',function(){try{require('electron').ipcRenderer.send('identify-close')}catch(e){}});</script>
+    </body></html>`;
+    try {
+      const w = new BrowserWindow({
+        x: d.bounds.x, y: d.bounds.y, width: d.bounds.width, height: d.bounds.height,
+        frame: false, backgroundColor: '#09090b', resizable: false, movable: false,
+        minimizable: false, maximizable: false, skipTaskbar: true, alwaysOnTop: true,
+        fullscreenable: false, focusable: false, title: `Display ${i + 1}`,
+        webPreferences: { nodeIntegration: true, contextIsolation: false }
+      });
+      w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+      identifyWindows.push(w);
+    } catch { /* noop */ }
+  });
+  // Guard: a second press closes this batch and opens a new one — the old
+  // timer must not cut the new batch short.
+  const batch = identifyWindows;
+  setTimeout(() => { if (identifyWindows === batch) closeIdentify(); }, 6000);
+});
+ipcMain.on('identify-close', closeIdentify);
+
+// --- DECKLINK / ULTRASTUDIO SDI OUTPUT (ffmpeg bridge) ---
+ipcMain.handle('decklink-status', (event, ffmpegPath) => decklinkStatus(ffmpegPath || null));
+ipcMain.handle('decklink-devices', (event, ffmpegPath) => decklinkListDevices(ffmpegPath || null));
+ipcMain.handle('decklink-start', (event, opts) => decklinkStart(opts || {}));
+ipcMain.handle('decklink-stop', () => decklinkStop());
+
 // --- AUTO UPDATER IPC ---
 ipcMain.handle('check-for-updates', async () => {
   try {

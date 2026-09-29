@@ -306,7 +306,9 @@ export default function LyricsCanvasEditor({
   underline = false,
   strike = false,
   valign = 'middle',
-  pad = 10,
+  // No default: undefined keeps pad on AUTO — lyricsLayoutMetrics derives it
+  // from the font size, matching what the projector does with the same cue.
+  pad,
   fill = false,
   fillMax = 165,
   fillMin = 18,
@@ -624,19 +626,33 @@ export default function LyricsCanvasEditor({
     tickerDir,
   };
 
-  // ---- canvas <-> viewport scale -----------------------------------------
+  // ---- stage contain-fit + canvas <-> viewport scale ----------------------
+  // The stage takes the LARGEST 16:9 that fits its parent's content box —
+  // width-limited on wide columns, height-limited (availH × 16/9) when the
+  // toolbar + pager leave little height — so it is centered and can never
+  // slide under the footer. Size and scale are written imperatively like the
+  // box geometry below; React must not diff these px values away.
   useLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el) return undefined;
     const apply = () => {
-      const w = el.clientWidth;
-      if (!w) return;
+      const parent = el.parentElement;
+      if (!parent) return;
+      const cs = getComputedStyle(parent);
+      const availW = parent.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+      const availH = parent.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+      if (!(availW > 0) || !(availH > 0)) return;
+      const w = Math.min(availW, availH * (CANVAS_W / CANVAS_H));
+      if (!(w > 0)) return;
+      el.style.width = `${w}px`;
+      el.style.height = `${w * (CANVAS_H / CANVAS_W)}px`;
       const s = w / CANVAS_W;
       setScale((prev) => (Math.abs(prev - s) < 0.0002 ? prev : s));
     };
     apply();
     const ro = new ResizeObserver(apply);
     ro.observe(el);
+    if (el.parentElement) ro.observe(el.parentElement);
     return () => ro.disconnect();
   }, []);
 
@@ -830,7 +846,7 @@ export default function LyricsCanvasEditor({
   const pillTop = box.y >= 34 ? box.y - 26 : box.y + box.h + 4;
 
   return (
-    <div ref={wrapRef} style={{ width: '100%', aspectRatio: '16 / 9', position: 'relative', overflow: 'hidden', borderRadius: 12, boxShadow: '0 12px 44px rgba(0,0,0,0.45)', border: '1px solid var(--ui-border2)' }}>
+    <div ref={wrapRef} style={{ boxSizing: 'border-box', position: 'relative', overflow: 'hidden', borderRadius: 12, boxShadow: '0 12px 44px rgba(0,0,0,0.45)', border: '1px solid var(--ui-border2)' }}>
       {/* z0 — background layer */}
       {bgType === 'color' && (
         <div style={{ position: 'absolute', inset: 0, backgroundColor: bgValue || '#000000', zIndex: 0 }} />
@@ -1064,7 +1080,7 @@ export default function LyricsCanvasEditor({
           FILL/TICKER badges (left) can never collide with them. */}
       {editing && (
         <div
-          style={{ position: 'absolute', top: 8, right: 8, zIndex: 6, display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(5,10,20,0.94)', border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '3px 4px 3px 10px', boxShadow: '0 2px 10px rgba(0,0,0,0.5)' }}
+          style={{ position: 'absolute', top: 8, right: 8, zIndex: 6, display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(9,10,15,0.94)', border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '3px 4px 3px 10px', boxShadow: '0 2px 10px rgba(0,0,0,0.5)' }}
           // A mousedown here must not blur the textarea: onBlur ends edit mode,
           // which would fire before the click and swallow it.
           onMouseDown={(ev) => ev.preventDefault()}
@@ -1072,7 +1088,7 @@ export default function LyricsCanvasEditor({
           <span title={hasSel
             ? 'Sizes the HIGHLIGHTED text. Only that phrase changes — the rest of the slide keeps its size.'
             : 'Scales the line under the caret. Put each phrase on its own line (Enter) to size lines differently.'}
-          style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1, color: hasSel ? '#ffffff' : '#93c5fd', whiteSpace: 'nowrap', cursor: 'help' }}>
+          style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1, color: hasSel ? '#ffffff' : '#c4b5fd', whiteSpace: 'nowrap', cursor: 'help' }}>
             {hasSel ? 'SELECTION' : 'LINE SIZE'}
           </span>
           {LINE_SCALE_PRESETS.map((v) => {
@@ -1129,7 +1145,7 @@ export default function LyricsCanvasEditor({
           <div style={{ position: 'absolute', left: box.x, top: Math.max(2, pillTop) }}>
             <button
               onClick={startEdit}
-              style={{ pointerEvents: 'auto', background: 'rgba(5,10,20,0.82)', border: `1px solid ${ACCENT}`, color: '#93c5fd', borderRadius: 999, padding: '2px 9px', fontSize: 10, fontWeight: 800, letterSpacing: 0.4, cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: 1.5, boxShadow: '0 2px 8px rgba(0,0,0,0.5)' }}
+              style={{ pointerEvents: 'auto', background: 'rgba(9,10,15,0.82)', border: `1px solid ${ACCENT}`, color: '#c4b5fd', borderRadius: 999, padding: '2px 9px', fontSize: 10, fontWeight: 800, letterSpacing: 0.4, cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: 1.5, boxShadow: '0 2px 8px rgba(0,0,0,0.5)' }}
             >
               &#9998; Edit text
             </button>

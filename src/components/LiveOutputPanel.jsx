@@ -4,6 +4,9 @@ import { motion } from 'motion/react';
 import { TimerReadout } from '../lib/perf';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import Dropdown from './Dropdown';
+// Untitled UI — migration phase 3 (tabs): RAC-backed Tabs for the Groups/Media
+// switcher (mirror layout + `@/` alias documented in NewSongPrompt.jsx).
+import { Tabs, TabList, Tab, TabPanel } from '../untitledui/components/application/tabs/tabs';
 
 export default function LiveOutputPanel({
   C,
@@ -41,7 +44,11 @@ export default function LiveOutputPanel({
   // label stay right even though the picker only hands back a URL.
   const defaultOpt = scriptureDefaultOptions.find(o => o.value === (scriptureDefault && scriptureDefault.value)) || null;
   return (
-    <motion.div className="right-panel-shell" initial={{ x: 64, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ type: 'spring', stiffness: 260, damping: 28, delay: 0.3 }} style={{ flex: '0 1 340px', minWidth: 280, maxWidth: '35vw', background: C.panel, borderLeft: '1px solid var(--ui-border)', flexDirection: 'column', display: 'flex' }}>
+    // No entrance animation: the console subtree remounts every time the song
+    // editor closes (and on boot), so the old slide+fade-in with its 0.3s
+    // delay flashed a dark ghost of this panel over its own slot on every
+    // load. It renders instantly at full opacity.
+    <div className="right-panel-shell" style={{ flex: '0 1 340px', minWidth: 280, maxWidth: '35vw', background: C.panel, borderLeft: '1px solid var(--ui-border)', flexDirection: 'column', display: 'flex' }}>
       <div style={{ padding: '12px 12px 6px 12px', borderBottom: '1px solid ' + C.border, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 800, color: C.heading, textTransform: 'uppercase', letterSpacing: 1.5 }}>Live Output</span>
@@ -87,7 +94,7 @@ export default function LiveOutputPanel({
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 7,
-                background: 'linear-gradient(180deg, #3B82F6, #2563EB)',
+                background: 'linear-gradient(180deg, #8b5cf6, #7c3aed)',
                 border: 'none',
                 color: '#FFFFFF',
                 padding: '9px 14px',
@@ -95,7 +102,7 @@ export default function LiveOutputPanel({
                 fontSize: 12,
                 fontWeight: 800,
                 cursor: 'pointer',
-                boxShadow: '0 0 0 1px rgba(37,99,235,0.5), 0 8px 24px rgba(37,99,235,0.3)',
+                boxShadow: '0 0 0 1px rgba(139,92,246,0.5), 0 8px 24px rgba(139,92,246,0.3)',
               }}
             >
               <Zap size={13} />
@@ -114,7 +121,7 @@ export default function LiveOutputPanel({
             every upload, and on a short window it pushed Clear Lyrics / Clear
             All past the fold where they could not be reached at all. */}
         <div style={{ display: 'flex', gap: 6, marginTop: 8, flexShrink: 0 }}>
-          <motion.button {...stubTap} onClick={clearLyrics} title="Take the words off the screen and keep the background running" style={{ flex: 1, minWidth: 0, background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.35)', color: '#93c5fd', padding: '7px 4px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Type size={12} /> Clear Lyrics</motion.button>
+          <motion.button {...stubTap} onClick={clearLyrics} title="Take the words off the screen and keep the background running" style={{ flex: 1, minWidth: 0, background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.35)', color: '#c4b5fd', padding: '7px 4px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Type size={12} /> Clear Lyrics</motion.button>
           <motion.button {...stubTap} onClick={() => fireCueLive({ id: 'clear', label: 'Clear', text: '' })} title="Clear everything — words and background" style={{ flex: 1, minWidth: 0, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171', padding: '7px 4px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Square size={12} /> Clear All</motion.button>
           <motion.button {...iconBtnTap} onClick={handlePrevCue} style={{ width: 44, background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><SkipBack size={14} /></motion.button>
           <motion.button {...iconBtnTap} onClick={handleNextCue} style={{ width: 44, background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><SkipForward size={14} /></motion.button>
@@ -165,15 +172,18 @@ export default function LiveOutputPanel({
         )}
       </div>
 
-      {/* GROUPS & MEDIA */}
-      <div style={{ padding: '10px 12px', borderBottom: '1px solid ' + C.border, display: 'flex', background: C.panel, gap: 4, flexShrink: 0 }}>
-        {['Groups', 'Media'].map(t => (
-          <motion.button key={t} {...stubTap} onClick={() => setRightTab(t === 'Groups' ? 'groups' : 'media')} style={{ flex: 1, background: rightTab === (t === 'Groups' ? 'groups' : 'media') ? PINK : 'transparent', color: rightTab === (t === 'Groups' ? 'groups' : 'media') ? C.text : C.muted, border: 'none', padding: '6px 0', borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>{t}</motion.button>
-        ))}
-      </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>
-        {rightTab === 'groups' ? (
-          groupLabels.length > 0 ? (
+      {/* GROUPS & MEDIA — Untitled UI Tabs (migration phase 3). Their TabList
+          adds real tab semantics + RAC keyboard nav (arrows / Home / End) and
+          brand chip states; state keys and the panel content are unchanged. */}
+      <Tabs selectedKey={rightTab} onSelectionChange={setRightTab} className="min-h-0 flex-1">
+        <div style={{ padding: '10px 12px', borderBottom: '1px solid ' + C.border, background: C.panel, flexShrink: 0 }}>
+          <TabList type="button-brand" size="sm" fullWidth>
+            <Tab id="groups" label="Groups" />
+            <Tab id="media" label="Media" />
+          </TabList>
+        </div>
+        <TabPanel id="groups" className="box-border flex-1 overflow-y-auto p-2.5">
+          {groupLabels.length > 0 ? (
             <div style={{ display: 'grid', gap: 6 }}>
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 2 }}>Quick Jump</div>
 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -185,8 +195,9 @@ export default function LiveOutputPanel({
             </div>
           ) : (
             <div style={{ fontSize: 12, color: C.faint2, padding: 6 }}>Load a song to see its sections here.</div>
-          )
-        ) : (
+          )}
+        </TabPanel>
+        <TabPanel id="media" className="box-border flex-1 overflow-y-auto p-2.5">
           <div style={{ display: 'grid', gap: 10 }}>
             <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Slide Timer</div>
             <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -204,8 +215,8 @@ export default function LiveOutputPanel({
               <div><b style={{ color: C.text2 }}>B</b> → blackout · <b style={{ color: C.text2 }}>?</b> → hotkeys</div>
             </div>
           </div>
-        )}
-      </div>
-    </motion.div>
+        </TabPanel>
+      </Tabs>
+    </div>
   );
 }

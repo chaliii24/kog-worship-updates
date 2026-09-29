@@ -36,7 +36,7 @@ export default function StageDisplay({ currentSlide, C }) {
   const curSize = fitSize(0.074, 0.030, curBudget, String(current.text || '').split('\n').length);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: C.panel, color: C.text, fontFamily: 'system-ui, sans-serif', display: 'flex', flexDirection: 'column', padding: '4.5vh 3.5vw', boxSizing: 'border-box', overflow: 'hidden' }}>
+    <div style={{ position: 'fixed', inset: 0, background: C.panel, color: C.text, fontFamily: 'system-ui, sans-serif', display: 'flex', flexDirection: 'column', padding: '4.5vh 3.5vw', boxSizing: 'border-box', overflow: 'hidden', cursor: 'none' }}>
       <style>{`
         html, body, #root {
           margin: 0 !important; padding: 0 !important;

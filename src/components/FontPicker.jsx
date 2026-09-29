@@ -85,8 +85,8 @@ export default function FontPicker({ value, choices, onChange, C }) {
         onClick={() => { onChange(o.value); setOpen(false); }}
         style={{
           display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', cursor: 'pointer',
-          background: selected ? 'rgba(59,130,246,0.18)' : (hot ? 'rgba(255,255,255,0.06)' : 'transparent'),
-          borderLeft: `2px solid ${selected ? (C.accLine || '#3B82F6') : 'transparent'}`,
+          background: selected ? 'rgba(139,92,246,0.18)' : (hot ? 'rgba(255,255,255,0.06)' : 'transparent'),
+          borderLeft: `2px solid ${selected ? (C.accLine || '#8b5cf6') : 'transparent'}`,
         }}
       >
         <span style={{ fontFamily: o.value, fontSize: 13.5, color: C.text, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.label}</span>
@@ -103,7 +103,7 @@ export default function FontPicker({ value, choices, onChange, C }) {
         ref={btnRef}
         type="button"
         onClick={() => setOpen(o => !o)}
-        style={{ width: '100%', background: C.input, color: C.text, border: open ? `1px solid ${C.accLine || '#3B82F6'}` : '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
+        style={{ width: '100%', background: C.input, color: C.text, border: open ? `1px solid ${C.accLine || '#8b5cf6'}` : '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
       >
         <span style={{ fontFamily: value, fontSize: 13, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}>{current.label}</span>
         <span style={{ color: C.faint, fontSize: 10, flexShrink: 0 }}>▾</span>

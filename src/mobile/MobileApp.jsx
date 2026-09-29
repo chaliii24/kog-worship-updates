@@ -128,7 +128,7 @@ function Connecting({ C }) {
       <motion.span
         animate={{ rotate: 360 }}
         transition={{ repeat: Infinity, ease: 'linear', duration: 1.1 }}
-        style={{ width: 34, height: 34, borderRadius: '50%', border: `3px solid ${C.border2}`, borderTopColor: '#3b82f6' }}
+        style={{ width: 34, height: 34, borderRadius: '50%', border: `3px solid ${C.border2}`, borderTopColor: '#8b5cf6' }}
       />
       <div style={{ fontSize: 14, fontWeight: 700, color: C.muted }}>Looking for the computer…</div>
       <div style={{ fontSize: 12.5, color: C.faint, textAlign: 'center', maxWidth: 280, lineHeight: 1.5 }}>
@@ -148,7 +148,7 @@ function Denied({ C, reason, onRetry }) {
           ? 'The operator disconnected all phones. Ask for the new pairing code on the computer.'
           : 'This phone is not authorised to control the output.'}
       </div>
-      <motion.button {...stubTap} onClick={onRetry} style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: 10, padding: '13px 26px', fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>
+      <motion.button {...stubTap} onClick={onRetry} style={{ background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 10, padding: '13px 26px', fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>
         Pair again
       </motion.button>
     </div>

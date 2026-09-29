@@ -27,7 +27,7 @@ function useContainerScale() {
 
 function SlideThumb({ slide, w = 154, h = 87, active }) {
   return (
-    <div style={{ width: w, height: h, overflow: 'hidden', position: 'relative', background: '#000', borderRadius: 6, outline: active ? '2px solid #3B82F6' : '1px solid var(--ui-border2)', outlineOffset: active ? 1 : 0 }}>
+    <div style={{ width: w, height: h, overflow: 'hidden', position: 'relative', background: '#000', borderRadius: 6, outline: active ? '2px solid #8b5cf6' : '1px solid var(--ui-border2)', outlineOffset: active ? 1 : 0 }}>
       <div style={{ width: 1280, height: 720, transform: 'scale(' + (w / 1280) + ')', transformOrigin: 'top left' }}>
         <PresentationSlide slide={slide} />
       </div>
@@ -215,7 +215,7 @@ export default function PresentationModal() {
 
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
           <div style={{ flex: '0 0 200px', minWidth: 160, borderRight: '1px solid var(--ui-border2)', overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button onClick={addSlide} style={{ background: 'rgba(59,130,246,0.14)', border: '1px dashed ' + ACCENT, color: ACCENT, borderRadius: 8, padding: '8px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Plus size={13} /> New Slide</button>
+            <button onClick={addSlide} style={{ background: 'rgba(139,92,246,0.14)', border: '1px dashed ' + ACCENT, color: ACCENT, borderRadius: 8, padding: '8px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Plus size={13} /> New Slide</button>
             {deck.slides.map((s, i) => (
               <div key={s.id || i} onClick={() => setIdx(i)} style={{ cursor: 'pointer', display: 'grid', gap: 4 }}>
                 <SlideThumb slide={s} active={i === idx} />
@@ -246,7 +246,7 @@ export default function PresentationModal() {
               <button onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={idx === 0} style={{ background: 'var(--ui-elev2)', border: '1px solid var(--ui-border2)', color: C.text, borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Prev</button>
               Slide {idx + 1} / {deck.slides.length}
               <button onClick={() => setIdx(i => Math.min(deck.slides.length - 1, i + 1))} disabled={idx === deck.slides.length - 1} style={{ background: 'var(--ui-elev2)', border: '1px solid var(--ui-border2)', color: C.text, borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Next</button>
-              <button onClick={resetPositions} title="Restore default text positions for this slide" style={{ background: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.5)', color: '#93C5FD', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Reset Positions</button>
+              <button onClick={resetPositions} title="Restore default text positions for this slide" style={{ background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.5)', color: '#C4B5FD', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Reset Positions</button>
             </div>
           </div>
 

@@ -127,7 +127,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
                     {...stubTap}
                     onClick={() => goLive(cue.id)}
                     style={{
-                      background: active ? 'rgba(59,130,246,0.16)' : C.elevated,
+                      background: active ? 'rgba(139,92,246,0.16)' : C.elevated,
                       border: `1px solid ${active ? ACCENT : C.border2}`,
                       color: active ? ACCENT : C.text2,
                       borderRadius: 999, padding: '9px 15px', fontSize: 13, fontWeight: 800,
@@ -167,7 +167,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
       {/* ── TRANSPORT (fixed, thumb zone) ───────────────────────────── */}
       <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 50, background: C.panel, borderTop: `1px solid ${C.border2}`, padding: '10px 12px calc(10px + env(safe-area-inset-bottom))', display: 'flex', flexDirection: 'column', gap: 8, boxShadow: '0 -12px 32px rgba(0,0,0,0.35)' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 1.2fr 1.2fr', gap: 8 }}>
-          <motion.button {...stubTap} onClick={() => send('clearLyrics')} style={{ ...railBtn(C), color: '#60a5fa', borderColor: 'rgba(59,130,246,0.45)', background: 'rgba(59,130,246,0.10)' }}>
+          <motion.button {...stubTap} onClick={() => send('clearLyrics')} style={{ ...railBtn(C), color: '#a78bfa', borderColor: 'rgba(139,92,246,0.45)', background: 'rgba(139,92,246,0.10)' }}>
             <Type size={17} /> Lyrics
           </motion.button>
           <motion.button {...stubTap} onClick={() => send('clearAll')} style={{ ...railBtn(C), color: '#f87171', borderColor: 'rgba(239,68,68,0.45)', background: 'rgba(239,68,68,0.10)' }}>

@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { resolveRects, visibleElements } from '../lib/backgrounds';
 
-const ACCENT = '#3B82F6';
+const ACCENT = '#8b5cf6';
 const LABEL = { title: 'Title', subtitle: 'Subtitle', bullets: 'Bullets', body: 'Body' };
 const DESIGN_W = 1280;
 const DESIGN_H = 720;
@@ -68,10 +68,10 @@ export default function PresentationEditableLayer({ slide, scale, onChange }) {
               width: r.w * scale,
               height: r.h * scale,
               boxSizing: 'border-box',
-              border: `1.5px ${isActive ? 'solid' : 'dashed'} ${isActive ? ACCENT : 'rgba(59,130,246,0.65)'}`,
+              border: `1.5px ${isActive ? 'solid' : 'dashed'} ${isActive ? ACCENT : 'rgba(139,92,246,0.65)'}`,
               borderRadius: 5,
               cursor: 'move',
-              background: isActive ? 'rgba(59,130,246,0.08)' : 'transparent'
+              background: isActive ? 'rgba(139,92,246,0.08)' : 'transparent'
             }}
           >
             <span style={{ position: 'absolute', top: 1, left: 3, fontSize: 9, fontWeight: 800, letterSpacing: 0.4, color: ACCENT, background: 'rgba(5,5,9,0.75)', borderRadius: 4, padding: '0 4px', pointerEvents: 'none', textTransform: 'uppercase' }}>{LABEL[key]}</span>

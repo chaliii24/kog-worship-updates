@@ -1,11 +1,19 @@
 import React from 'react';
 import { resolveRects, visibleElements } from '../lib/backgrounds';
+import { BackgroundVideo } from '../lib/perf';
 
 // Renders a single 16:9 presentation slide. Shared by the editor preview and the
 // live projector output (ProjectorDisplay), so what you build is what shows.
 // Every text element is absolutely positioned from resolveRects(slide), which
 // merges the layout defaults with the user's draggable slide.pos overrides.
-export default function PresentationSlide({ slide, width = 1280, height = 720 }) {
+//
+// keepAlive: only the LIVE surfaces (projector + monitor preview) pass it, and
+// it swaps the bare <video> for BackgroundVideo's stall watchdog — a decoder
+// wedge on the wall otherwise froze presentations with no recovery. Thumbnails
+// and editor canvases must NOT pass it: their videos are owned by the
+// video guard (pause when offscreen), and healing would fight it, decoding the
+// whole filmstrip offscreen.
+export default function PresentationSlide({ slide, width = 1280, height = 720, keepAlive = false }) {
   if (!slide) return null;
   const s = slide;
   const bg = s.bg || {};
@@ -42,7 +50,9 @@ export default function PresentationSlide({ slide, width = 1280, height = 720 })
           <img src={bgValue} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         )}
         {bgType === 'video' && bgValue && (
-          <video src={bgValue} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          keepAlive
+            ? <BackgroundVideo src={bgValue} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <video src={bgValue} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         )}
       </div>
 

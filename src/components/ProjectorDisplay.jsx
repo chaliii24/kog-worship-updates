@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { renderLyricsLayout } from '../lib/lyrics';
+import { renderLyricsLayout, DEFAULT_LYRIC_SIZE } from '../lib/lyrics';
 import { cssSpeed } from '../lib/constants';
 import PresentationSlide from './PresentationSlide';
 import { BackgroundVideo } from '../lib/perf';
 import { AnimatePresence, motion } from 'motion/react';
 
-export default function ProjectorDisplay({ currentSlide, C, aspect }) {
+export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
   const [win, setWin] = useState({ w: window.innerWidth, h: window.innerHeight });
 
   // rAF-throttled: while a windowed output is dragged, resize fires ~60x/s and
@@ -73,17 +73,89 @@ export default function ProjectorDisplay({ currentSlide, C, aspect }) {
   const blankSlide = !currentSlide.text && !currentSlide.presentation;
 
   // 1:1 projection: the 1280x720 design canvas (background + lyrics together)
-  // is scaled uniformly to CONTAIN the window and centered. Letterbox bars fall
-  // OUTSIDE the canvas, so text/box/background proportions always match the
-  // editor canvas regardless of the physical display resolution or aspect.
-  const s = Math.min(win.w / 1280, win.h / 720);
+  // is scaled uniformly to CONTAIN the aspect frame (see VIEW SHAPE below)
+  // and centered. Letterbox bars fall OUTSIDE the canvas, so text/box/
+  // background proportions always match the editor canvas regardless of the
+  // physical display resolution or aspect.
+  //
+  // Screen hardware (`config`, pushed per output window by main): 90°/270°
+  // rotation swaps the LOGICAL viewport and rotates it back into the physical
+  // window — vertical side-screens and ceiling-mounted monitors get the whole
+  // frame, sideways, with no letterboxing.
+  const cfg = config || {};
+  const nrot = Number(cfg.rotation);
+  const rot = nrot === 90 || nrot === 180 || nrot === 270 ? nrot : 0;
+  const swap = rot === 90 || rot === 270;
+  const pw = win.w;
+  const ph = win.h;
+  const vw = swap ? ph : pw;
+  const vh = swap ? pw : ph;
+
+  // VIEW SHAPE: the output composes inside a frame of the selected aspect
+  // ratio, centered in the window — so changing the ratio on the console
+  // visibly changes the PHYSICAL projection (the bars are the root's black,
+  // exactly like the preview's aspect wrapper). Per-output config wins over
+  // the global setting; a window whose own ratio already matches within 2%
+  // snaps to full-bleed, so a 16:9 projector never shows a hairline seam.
+  const ratioOf = (v) => {
+    const m = String(v || '').match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+    return m && Number(m[2]) ? Number(m[1]) / Number(m[2]) : 0;
+  };
+  const ar = ratioOf(cfg.aspect) || ratioOf(aspect) || 16 / 9;
+  // 16:9 is FIT-TO-SCREEN: it always fills the window edge to edge. A panel
+  // whose reported ratio drifts (16:10 laptop, EDID rounding, DPI division)
+  // must NEVER show a letterbox while the operator has 16:9 selected — the
+  // background simply runs to all four edges, exactly as it did before the
+  // aspect frame existed. Every OTHER ratio is an explicit shape request and
+  // letterboxes on purpose (that is what the control is for).
+  const isFit = Math.abs(ar - 16 / 9) < 0.01;
+  const snap = isFit || Math.abs(vw / vh - ar) / ar <= 0.02;
+  const fw = snap ? vw : Math.min(vw, vh * ar);
+  const fh = snap ? vh : Math.min(vh, vw / ar);
+  const fx = (vw - fw) / 2;
+  const fy = (vh - fh) / 2;
+
+  const s = Math.min(fw / 1280, fh / 720);
   const cw = 1280 * s;
   const ch = 720 * s;
-  const cx = (win.w - cw) / 2;
-  const cy = (win.h - ch) / 2;
+  const cx = fx + (fw - cw) / 2;
+  const cy = fy + (fh - ch) / 2;
+
+  // Edge blending for multi-projector / LED walls: per-edge soft feather
+  // (alpha ramp into the seam), per-edge overlap darkening (kills the hot
+  // line where two projectors double up), and a gamma curve. All three are
+  // off unless the operator enables them — with no blend config there is no
+  // filter, no mask, no overlay at all, so the low-end boxes pay nothing.
+  const blend = cfg.blend && cfg.blend.enabled ? cfg.blend : null;
+  const feather = (blend && blend.feather) || {};
+  const overlap = (blend && blend.overlap) || {};
+  const gamma = blend ? (Number(blend.gamma) || 1) : 1;
+
+  const featherBox = (edge, direction) => {
+    const px = Number(feather[edge]) || 0;
+    if (!blend || px <= 0) return { position: 'absolute', inset: 0 };
+    const g = `linear-gradient(${direction}, rgba(0,0,0,0) 0px, rgba(0,0,0,1) ${px}px)`;
+    return { position: 'absolute', inset: 0, maskImage: g, WebkitMaskImage: g };
+  };
+  const fL = featherBox('l', 'to right');
+  const fR = featherBox('r', 'to left');
+  const fT = featherBox('t', 'to bottom');
+  const fB = featherBox('b', 'to top');
+
+  const seamBox = (edge, style, background) => {
+    const px = Number(overlap[edge]) || 0;
+    if (!blend || px <= 0) return null;
+    return <div key={`seam-${edge}`} style={{ ...style, background, pointerEvents: 'none' }} />;
+  };
+  const seams = [
+    seamBox('l', { left: 0, top: 0, bottom: 0, width: Number(overlap.l) || 0 }, 'linear-gradient(to right, rgba(0,0,0,0.55), rgba(0,0,0,0))'),
+    seamBox('r', { right: 0, top: 0, bottom: 0, width: Number(overlap.r) || 0 }, 'linear-gradient(to left, rgba(0,0,0,0.55), rgba(0,0,0,0))'),
+    seamBox('t', { top: 0, left: 0, right: 0, height: Number(overlap.t) || 0 }, 'linear-gradient(to bottom, rgba(0,0,0,0.55), rgba(0,0,0,0))'),
+    seamBox('b', { bottom: 0, left: 0, right: 0, height: Number(overlap.b) || 0 }, 'linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0))')
+  ];
 
   return (
-    <div style={{
+    <div data-kog-output="" style={{
       position: 'fixed',
       inset: 0,
       width: '100vw',
@@ -92,6 +164,9 @@ export default function ProjectorDisplay({ currentSlide, C, aspect }) {
       padding: 0,
       overflow: 'hidden',
       background: '#000',
+      // Live output never shows the mouse: the cursor over a projection is a
+      // classic focus/cursor leak during a service.
+      cursor: 'none',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center'
@@ -136,8 +211,25 @@ export default function ProjectorDisplay({ currentSlide, C, aspect }) {
         <audio key={currentSlide.audio} src={currentSlide.audio} autoPlay loop style={{ display: 'none' }} />
       ) : null}
 
-      {/* Fullscreen background: fills the entire window (no letterbox/border).
-          Content stays on a centered 16:9 canvas so text proportions match the editor. */}
+      {/* Rotation stage: the logical viewport (swapped for 90°/270°) rotated
+          into the physical window. With no rotation config this is an inert
+          full-size box at inset 0 — pixel-identical to the flat layout. */}
+      <div style={{
+        position: 'absolute',
+        width: vw,
+        height: vh,
+        left: (pw - vw) / 2,
+        top: (ph - vh) / 2,
+        transform: rot ? `rotate(${rot}deg)` : undefined,
+        transformOrigin: 'center center',
+        filter: gamma !== 1 ? 'url(#kogOutGamma)' : undefined
+      }}>
+        {/* Soft-edge feathering: one wrapper per edge, nested so edges
+            intersect. No feather set = no mask applied = no cost. */}
+        <div style={fL}><div style={fR}><div style={fT}><div style={fB}>
+          {/* Background: fills the ASPECT FRAME (fx/fy/fw/fh), not the raw
+          window — a 4:3 projection on a 16:9 display gets black pillarbox
+          bars, mirroring the preview's aspect wrapper 1:1. */}
       <AnimatePresence>
         <motion.div
           key={bgKey}
@@ -145,7 +237,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect }) {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: bgFade }}
-          style={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 0 }}
+          style={{ position: 'absolute', left: fx, top: fy, width: fw, height: fh, overflow: 'hidden', zIndex: 0 }}
         >
           {slideStyle.backgroundType === 'image' && (
             <div style={{ position: 'absolute', inset: 0, background: `url(${slideStyle.backgroundValue}) center/cover no-repeat` }} />
@@ -188,11 +280,11 @@ export default function ProjectorDisplay({ currentSlide, C, aspect }) {
             >
               <div style={{ width: '100%', height: '100%', position: 'relative', ...animStyle }}>
                 {currentSlide.presentation && currentSlide.presentation.slide ? (
-                  <PresentationSlide slide={currentSlide.presentation.slide} />
+                  <PresentationSlide slide={currentSlide.presentation.slide} keepAlive />
                 ) : currentSlide.text ? (
                   (() => {
                     const isTitleSlide = currentSlide.label === 'Song Title';
-                    const st = slideStyle.lyric || { font: slideStyle.fontFamily || 'system-ui, sans-serif', size: 110, lineHeight: 1.05, align: slideStyle.textAlign || 'center', color: slideStyle.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
+                    const st = slideStyle.lyric || { font: slideStyle.fontFamily || 'system-ui, sans-serif', size: DEFAULT_LYRIC_SIZE, lineHeight: 1.05, align: slideStyle.textAlign || 'center', color: slideStyle.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
                     st.isTitle = isTitleSlide;
                     const box = st.box || { x: 80, y: isTitleSlide ? 140 : 100, w: 1120, h: isTitleSlide ? 440 : 480 };
                     const artist = currentSlide.artist || '';
@@ -215,6 +307,29 @@ export default function ProjectorDisplay({ currentSlide, C, aspect }) {
           </AnimatePresence>
         </div>
       </div>
+
+          {/* Seam overlap: a darkening band where two projectors' images
+              double up on a blended wall (the feather handles the fade;
+              this kills the hot line at the seam). */}
+          {seams}
+        </div></div></div></div>
+      </div>
+
+      {/* Gamma curve correction (feFuncR/G/B, sRGB): 1.00 = off. Rendered
+          only when a blend sets it — no filter, no per-frame shader cost. */}
+      {gamma !== 1 && (
+        <svg width="0" height="0" aria-hidden="true" style={{ position: 'absolute', width: 0, height: 0 }}>
+          <defs>
+            <filter id="kogOutGamma" colorInterpolationFilters="sRGB">
+              <feComponentTransfer>
+                <feFuncR type="gamma" amplitude="1" exponent={gamma} offset="0" />
+                <feFuncG type="gamma" amplitude="1" exponent={gamma} offset="0" />
+                <feFuncB type="gamma" amplitude="1" exponent={gamma} offset="0" />
+              </feComponentTransfer>
+            </filter>
+          </defs>
+        </svg>
+      )}
     </div>
   );
 }

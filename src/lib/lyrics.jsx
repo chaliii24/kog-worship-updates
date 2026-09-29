@@ -777,52 +777,198 @@ const runSpan = (s, ratio, key, stroke) => {
 export const FONT_SIZE_MIN = 12;
 export const FONT_SIZE_MAX = 720;
 
+// The default lyric size: what every cue without an explicit size renders at,
+// and what the Size field, manual builder and both parsers create blocks with.
+export const DEFAULT_LYRIC_SIZE = 140;
+
+// Padding follows the font size: 140 → 14px, 400 → 40px. A fixed 10px gutter
+// is fine at small sizes and claustrophobic once the type grows, so an unset
+// pad derives from the size instead. An explicit cue.pad always wins.
+export const autoPadForSize = (size) =>
+  Math.round(Math.max(4, Math.min(80, (Number(size) || DEFAULT_LYRIC_SIZE) * 0.1)));
+
 // Box metrics shared by the renderer and by the editor's textarea, so the box
 // you type into and the box that lands on the projector are sized identically.
 export const lyricsLayoutMetrics = (st, box) => {
-  const pad = st.fill ? 6 : Math.max(0, Number(st.pad ?? 10) || 0);
-  const boxW = Math.max(200, (box.w || 1280) - pad * 2);
+  const baseSize = Math.max(FONT_SIZE_MIN, Math.min(Number(st.size) || DEFAULT_LYRIC_SIZE, FONT_SIZE_MAX));
+  const pad = st.fill
+    ? 6
+    : Math.max(0, st.pad != null && st.pad !== '' ? Number(st.pad) || 0 : autoPadForSize(baseSize));
+  const boxW = Math.max(200, (box.w || 1280) - pad * 2 - (st.highlight ? 24 : 0));
   const boxH = box.h || 640;
-  const baseSize = Math.max(FONT_SIZE_MIN, Math.min(Number(st.size) || 110, FONT_SIZE_MAX));
   const maxH = Math.max(40, Math.min(boxH - pad * 2, 700));
   return { pad, boxW, boxH, baseSize, maxH };
 };
+
+// --- real glyph measurement ------------------------------------------------
+// The old chars-per-line guess (0.55em per char) under-counts wraps on wide
+// faces: "CMG Sans Wide" runs ~0.75em+, so a line it wrapped to 2 rows really
+// draws as 3 — every box "fitted to its text" came out too short and the
+// canvas (and the projector) clipped the top line, while the plain thumbnail,
+// which ignores the box entirely, looked fine. Measure the actual glyph
+// widths instead. Width scales linearly with font size for a face, so each
+// string is measured ONCE at a reference size and scaled from there — after
+// the first pass the fill solver's ~17 evaluations are pure arithmetic.
+let _measureCtx = null;
+const measureCtx = () => {
+  if (typeof document === 'undefined') return null;
+  if (!_measureCtx) _measureCtx = document.createElement('canvas').getContext('2d');
+  return _measureCtx;
+};
+
+const MEASURE_REF_PX = 100;
+let _measureGen = 0; // bumped when webfonts finish loading — invalidates all refs
+const _measureCache = new Map(); // `${weight}|${style}|${family}|${text}` → width @100px
+
+// Reference width of `text` at 100px, or null when there is no DOM to measure
+// with — the caller then falls back to the old heuristic.
+const measureRef = (text, weight, style, family) => {
+  const ctx = measureCtx();
+  if (!ctx || !text) return null;
+  const key = `${weight}|${style}|${family}|${text}`;
+  let ref = _measureCache.get(key);
+  if (ref === undefined) {
+    ctx.font = `${style ? `${style} ` : ''}${weight} ${MEASURE_REF_PX}px ${family}`;
+    ref = ctx.measureText(text).width;
+    if (_measureCache.size > 8000) _measureCache.clear();
+    _measureCache.set(key, ref);
+  }
+  return ref;
+};
+
+// A face finishing its load changes every width measured with its fallback —
+// drop the cache and every per-token reference in one go.
+if (typeof document !== 'undefined' && document.fonts && document.fonts.addEventListener) {
+  document.fonts.addEventListener('loadingdone', () => {
+    _measureGen += 1;
+    _measureCache.clear();
+  });
+}
 
 // The ONE font size for the whole block: top-anchored at box.x/box.y, shrunk
 // only when it overflows the box (or, in fill mode, scaled to use the full
 // height). Inline runs are measured per line first:
 //   maxScale — the biggest run, because that run sets the CSS line-box strut
 //              and therefore how tall the line actually is.
-//   avgScale — length-weighted mean, because a 1.6x word eats far more
-//              horizontal room than a 0.55x word and drives where it wraps.
+//   tokens   — the line split into words and spaces with each run's scale,
+//              face, weight and tracking, so wrapped rows can be counted
+//              against the real glyph widths (measureRef above).
 // Parsed OUTSIDE the closure below: the fill solver evaluates totalHeight ~17
 // times and re-parsing per evaluation would multiply the cost for nothing.
 const lineShape = (line) => {
   const segs = parseSegments(line);
   let maxScale = 0, chars = 0, weighted = 0;
+  const tokens = [];
   for (const s of segs) {
     if (s.scale > maxScale) maxScale = s.scale;
     chars += s.t.length;
     weighted += s.t.length * s.scale;
+    // Words and the spaces between them. A word can span runs (markup may
+    // switch mid-word), so pieces stay separate — only spaces are break
+    // opportunities, exactly like the browser's own line breaker.
+    for (const part of s.t.split(/(\s+)/)) {
+      if (!part) continue;
+      if (/^\s+$/.test(part)) tokens.push({ sp: true, t: ' ', sc: s.scale || 1, f: s.font, w: s.weight, it: s.italic, tr: s.track, n: part.length });
+      else tokens.push({ t: part, sc: s.scale || 1, f: s.font, w: s.weight, bold: s.bold, it: s.italic, tr: s.track, n: part.length });
+    }
   }
   return {
     plain: segs.map((s) => s.t).join(''),
     maxScale: maxScale || 1,
     avgScale: chars ? weighted / chars : (maxScale || 1),
+    tokens,
+    _st: null, // style identity the token references were measured for
+    _g: -1,    // measurement generation those references belong to
   };
 };
+
+// Wrapped row count for one line inside boxW at `base` px — greedy at spaces,
+// where the browser breaks, with every piece measured in its own face, weight
+// and scale. Falls back to the old chars-per-line heuristic only when there is
+// no DOM to measure with (SSR/tests).
+const wrapRows = (shape, boxW, base, st) => {
+  const tokens = shape.tokens;
+  const stKey = `${(st && st.font) || ''}\u0001${st && st.bold !== false ? 1 : 0}\u0001${st && st.italic ? 1 : 0}\u0001${(st && st.letterSpacing) || 0}`;
+  if (shape._st !== stKey || shape._g !== _measureGen) {
+    shape._st = stKey;
+    shape._g = _measureGen;
+    if (tokens) for (let i = 0; i < tokens.length; i++) tokens[i].ref = undefined;
+  }
+  const heuristic = () => {
+    const cpl = Math.max(6, boxW / (base * shape.avgScale * 0.55));
+    return Math.max(1, Math.ceil(shape.plain.length / cpl));
+  };
+  if (!tokens || !tokens.length) return 1;
+  const ls = (st && Number(st.letterSpacing)) || 0;
+  const cWeight = st && st.bold !== false ? 700 : 400;
+  const cStyle = st && st.italic ? 'italic' : '';
+  const cFamily = (st && st.font) || FONT_OPTIONS[0].value;
+
+  let rows = 1; // the current (partly filled) row
+  let cur = 0; // its used width
+  let gapW = 0; // collapsed space waiting before the next word
+  let wordW = 0; // width of the word currently assembling
+  let open = false;
+
+  // Place the finished word. A word that fits joins the current row; otherwise
+  // it starts a fresh row and, if it is still wider than the line (break-word),
+  // shatters across as many rows as it needs — an exact multiple leaves the
+  // row full (cur = boxW), never empty, so the next word still wraps.
+  const commit = () => {
+    if (cur > 0 && cur + gapW + wordW <= boxW) { cur += gapW + wordW; }
+    else {
+      if (cur > 0) { rows += 1; cur = 0; }
+      let rest = wordW;
+      while (rest > boxW) { rows += 1; rest -= boxW; }
+      cur = rest;
+    }
+    gapW = 0;
+    wordW = 0;
+    open = false;
+  };
+
+  for (let i = 0; i < tokens.length; i++) {
+    const tk = tokens[i];
+    const px = base * (tk.sc || 1);
+    if (tk.ref === undefined) {
+      const ref = measureRef(
+        tk.t,
+        tk.w != null ? tk.w : (tk.bold ? 700 : cWeight),
+        tk.it ? 'italic' : cStyle,
+        tk.f || cFamily,
+      );
+      if (ref == null) return heuristic();
+      tk.ref = ref;
+    }
+    const w = (tk.ref * px) / MEASURE_REF_PX + tk.n * ((tk.tr != null ? tk.tr * px : 0) + ls);
+    if (tk.sp) {
+      if (open) commit();
+      // Whitespace collapses: the widest single space wins.
+      if (gapW < w) gapW = w;
+    } else {
+      wordW += w;
+      open = true;
+    }
+  }
+  if (open) commit();
+  return rows;
+};
+
+// Rendered height of a block at `base` px inside boxW. Shared by the shrink
+// pass below and by fitBoxToText, so "does it fit" is answered by ONE
+// estimator — a box fitted by fitBoxToText is a box the renderer won't shrink.
+const blockHeightAt = (shapes, boxW, lh, base, st) => shapes.reduce((h, l) => {
+  if (!l.plain.trim()) return h + base * lh * 0.7;
+  const wrapped = wrapRows(l, boxW, base, st);
+  return h + wrapped * base * l.maxScale * lh;
+}, 0);
 
 export const computeLyricsFontSize = (text, st, box) => {
   const lh = st.lineHeight || 1.05;
   const { boxW, baseSize, maxH } = lyricsLayoutMetrics(st, box);
   const lines = (applyCaseTransform(text || '', st.caseMode || 'none')).split('\n');
   const shapes = lines.map(lineShape);
-  const totalHeight = (base) => shapes.reduce((h, l) => {
-    if (!l.plain.trim()) return h + base * lh * 0.7;
-    const cpl = Math.max(6, boxW / (base * l.avgScale * 0.55));
-    const wrapped = Math.max(1, Math.ceil(l.plain.length / cpl));
-    return h + wrapped * base * l.maxScale * lh;
-  }, 0);
+  const totalHeight = (base) => blockHeightAt(shapes, boxW, lh, base, st);
   let fs = baseSize;
   if (st.fill) {
     // Fill mode (scripture): scale UP or DOWN so the block uses the full box
@@ -852,6 +998,121 @@ export const computeLyricsFontSize = (text, st, box) => {
   }
   return Math.round(fs);
 };
+
+/**
+ * Grow/shrink a cue's BOX to its text at `size` — the inverse of the renderer's
+ * shrink pass. Instead of the font being cut down to a fixed box (140 → 107px,
+ * "why is my size ignored?"), the box becomes tall enough for the text to draw
+ * at exactly the requested size; only content that genuinely exceeds the 720px
+ * canvas falls back to the shrink pass, and that pass is a fit — never a cut.
+ *
+ * Keeps x/w/angle from the incoming box (placement stays yours), adjusts only
+ * h and keeps the box's own vertical center (it grows/shrinks symmetrically
+ * around where you put it). The height is measured against the real glyph
+ * widths (wrapRows), so the fit is exact for any face — 6% slack covers line
+ * box rounding and highlight padding. Fill mode is skipped: there the box
+ * drives the size, not the other way round. Blank text returns the box
+ * untouched.
+ */
+export const fitBoxToText = (text, st = {}, box) => {
+  const cur = box || { x: 80, y: 100, w: 1120, h: 480 };
+  if (st.fill) return cur;
+  const shapes = (applyCaseTransform(text || '', st.caseMode || 'none')).split('\n').map(lineShape);
+  if (!shapes.some(s => s.plain.trim())) return cur;
+  const base = Math.max(FONT_SIZE_MIN, Math.min(Number(st.size) || DEFAULT_LYRIC_SIZE, FONT_SIZE_MAX));
+  const lh = st.lineHeight || 1.05;
+  const pad = st.pad != null && st.pad !== '' ? Math.max(0, Number(st.pad) || 0) : autoPadForSize(base);
+  const w = Number(cur.w) || 1120;
+  const boxW = Math.max(200, w - pad * 2 - (st.highlight ? 24 : 0));
+  const need = blockHeightAt(shapes, boxW, lh, base, st) * 1.06 + pad * 2;
+  const h = Math.round(Math.max(96, Math.min(700, need)));
+  const centerY = (Number(cur.y) || 0) + (Number(cur.h) || 480) / 2;
+  const y = Math.round(Math.max(10, Math.min(710 - h, centerY - h / 2)));
+  return { ...cur, y, h };
+};
+
+/**
+ * Typing variant: the box may GROW to keep new text visible at full size, but
+ * never shrinks under the operator's hands — a box they deliberately made
+ * compact (or resized, which already scales the font with it) stays compact
+ * while they fix a typo.
+ */
+export const growBoxToText = (text, st = {}, box) => {
+  const fitted = fitBoxToText(text, st, box);
+  return fitted.h > (Number(box && box.h) || 0) ? fitted : box;
+};
+
+/**
+ * Parse-time normalisation for BOTH parsers (Smart Auto-Paste and the manual
+ * builder/split): give the block the default size and a box fitted to its own
+ * text at that size, so freshly parsed lyrics are fully visible at 140px
+ * instead of being shrunk into the stock 1120×480 box.
+ */
+export const fitParsedCue = (cue) => {
+  if (!cue || typeof cue !== 'object') return cue;
+  const size = Number(cue.size) || DEFAULT_LYRIC_SIZE;
+  // Face, weight, italic and tracking all move the wrap points — fitting
+  // without them measured the wrong font and the box came out short.
+  const st = {
+    font: cue.font,
+    size,
+    lineHeight: cue.lineHeight,
+    caseMode: cue.case,
+    pad: cue.pad,
+    bold: cue.bold,
+    italic: cue.italic,
+    letterSpacing: cue.letterSpacing,
+    highlight: cue.highlight,
+    fill: cue.resizeMode === 'fill',
+  };
+  return { ...cue, size, box: fitBoxToText(cue.text || '', st, cue.box) };
+};
+
+/**
+ * The shared cue → lyric-style mapping: ONE place that decides how a cue
+ * renders (face, size, padding, shadow, fill, box…). App's projector paths,
+ * the slide grid and the editor's slide strip all build their style from this,
+ * so a thumbnail can never drift from what the output draws.
+ */
+export const cueLyricStyle = (cue) => ({
+  font: cue?.font || FONT_OPTIONS[0].value,
+  size: cue?.size != null ? cue.size : DEFAULT_LYRIC_SIZE,
+  lineHeight: cue?.lineHeight || 1.05,
+  align: cue?.align || 'center',
+  color: cue?.color || '#f5f5f4',
+  caseMode: cue?.case || 'none',
+  bold: cue?.bold !== false,
+  italic: !!cue?.italic,
+  underline: !!cue?.underline,
+  strike: !!cue?.strike,
+  letterSpacing: Number(cue?.letterSpacing) || 0,
+  valign: cue?.valign || 'middle',
+  // null = auto: padding derives from the font size in
+  // lyricsLayoutMetrics, so the gutter grows with the type.
+  pad: cue?.pad != null ? Number(cue.pad) : null,
+  shadow: !!(cue?.shadow),
+  shadowColor: cue?.shadowColor || '#000000',
+  shadowBlur: cue?.shadowBlur != null ? Number(cue.shadowBlur) : 14,
+  shadowOffsetX: cue?.shadowOffsetX != null ? Number(cue.shadowOffsetX) : 0,
+  shadowOffsetY: cue?.shadowOffsetY != null ? Number(cue.shadowOffsetY) : 4,
+  outline: !!(cue?.outline),
+  strokeColor: cue?.strokeColor || '#000000',
+  strokeWidth: cue?.strokeWidth != null ? Number(cue.strokeWidth) : 1.5,
+  gradient: !!(cue?.gradient),
+  gradientColor1: cue?.gradientColor1 || '#f5f5f4',
+  gradientColor2: cue?.gradientColor2 || '#93c5fd',
+  gradientAngle: cue?.gradientAngle != null ? Number(cue.gradientAngle) : 180,
+  highlight: !!(cue?.highlight),
+  hlOpacity: cue?.hlOpacity ?? 40,
+  resizeMode: cue?.resizeMode === 'fill' ? 'fill' : cue?.resizeMode === 'scale' ? 'scale' : 'fit',
+  fill: cue?.resizeMode === 'fill',
+  fillMax: cue?.fillMax != null ? Number(cue.fillMax) : 165,
+  fillMin: cue?.fillMin != null ? Number(cue.fillMin) : 18,
+  layoutMode: cue?.layoutMode === 'ticker' ? 'ticker' : 'static',
+  tickerSpeed: cue?.tickerSpeed != null ? Number(cue.tickerSpeed) : 18,
+  tickerDir: cue?.tickerDir === 'rtl' ? 'rtl' : 'ltr',
+  box: cue?.box || { x: 80, y: 100, w: 1120, h: 480 },
+});
 
 // Shared renderer: editor canvas, projector and live-output monitor all draw
 // from this ONE function, so letter positions are identical everywhere — and

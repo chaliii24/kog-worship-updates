@@ -3,10 +3,10 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Layers, Plus, Search, Star, Clock, Folder, Download, Upload, Trash2, Edit3, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, Sparkles, CheckSquare, Square, Wand2, Monitor, Calendar, ArrowUp, ArrowDown, FileText, SkipBack, SkipForward, Cpu, LayoutGrid, Link2, Save, Copy, ChevronUp, ChevronDown, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, HelpCircle, Network, Menu, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack, CornerUpLeft, MonitorPlay, Zap } from 'lucide-react';
 import logoImage from './assets/logo.png';
 import { getTheme } from './lib/theme';
-import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, cssSpeed } from './lib/constants';
-import { applyCaseTransform, renderLyricsLayout, stripMarkup, FONT_SIZE_MAX } from './lib/lyrics';
+import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, cssSpeed } from './lib/constants';
+import { applyCaseTransform, renderLyricsLayout, cueLyricStyle, growBoxToText, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, fitBoxToText, fitParsedCue } from './lib/lyrics';
 import { parseSongBlocks, splitCuesByLines } from '../electron/songParse.js';
-import { LiveBadge, TileVideo, BackgroundVideo } from './lib/perf';
+import { LiveBadge, TileVideo, TileCanvas, BackgroundVideo } from './lib/perf';
 import SplashScreen from './components/SplashScreen';
 import WelcomeScreen from './components/WelcomeScreen';
 import StageDisplay from './components/StageDisplay';
@@ -17,6 +17,7 @@ import LiveOutputPanel from './components/LiveOutputPanel';
 import LeftSidebar from './components/LeftSidebar';
 import CenterWorkspace from './components/CenterWorkspace';
 import SongEditorModal from './components/SongEditorModal';
+import { Toaster } from './untitledui/components/ui/toast';
 import NewSongPrompt from './components/NewSongPrompt';
 import PresentationModal from './components/PresentationModal';
 import PresentationSlide from './components/PresentationSlide';
@@ -44,6 +45,9 @@ export default function App() {
   const [isStage, setIsStage] = useState(false);
   const [isOutput, setIsOutput] = useState(false);
   const [outputRole, setOutputRole] = useState('lyrics');
+  // Per-output screen hardware pushed by main: rotation, custom pixel
+  // viewport, edge blending. Only an output window ever receives it.
+  const [outputCfg, setOutputCfg] = useState(null);
   const [showSplash, setShowSplash] = useState(true);
   const [showWelcome, setShowWelcome] = useState(true);
   const [currentSlide, setCurrentSlide] = useState({ title: "KOG Worship", text: "", style: {}, timestamp: Date.now() });
@@ -60,6 +64,10 @@ export default function App() {
     try {
       document.documentElement.dataset.theme = dark ? 'dark' : 'light';
       document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+      // Untitled UI reads its dark token set from a `.dark-mode` class on
+      // <html> — mirror the app's theme flag onto it (variables only; only
+      // components that use those tokens see any difference).
+      document.documentElement.classList.toggle('dark-mode', !!dark);
     } catch { /* non-browser context */ }
     return dark;
   });
@@ -67,6 +75,7 @@ export default function App() {
     try { localStorage.setItem('kog-theme', themeDark ? 'dark' : 'light'); } catch { /* ignore */ }
     document.documentElement.dataset.theme = themeDark ? 'dark' : 'light';
     document.documentElement.style.colorScheme = themeDark ? 'dark' : 'light';
+    document.documentElement.classList.toggle('dark-mode', !!themeDark);
   }, [themeDark]);
   // Cross-fade the flip: .theme-fading (index.css) enables a short
   // background/border/color transition on every element, but ONLY while a
@@ -196,6 +205,15 @@ export default function App() {
   const [builderSheet, setBuilderSheet] = useState(null); // { secIdx, itemIdx } of selected service-order item
   const [builderTargetSecId, setBuilderTargetSecId] = useState(null); // section that Add Song/Slide/Media goes into
   const [builderDensity, setBuilderDensity] = useState(3); // 1-4 grid density
+  // Slide-grid density in the Center Workspace (1-4 columns) — same control
+  // the Show Builder has. Sticky across sessions like the other console prefs.
+  const [gridDensity, setGridDensity] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem('kog_grid_density'));
+      return Number.isFinite(n) && n >= 1 && n <= 4 ? Math.round(n) : 2;
+    } catch { return 2; }
+  });
+  useEffect(() => { try { localStorage.setItem('kog_grid_density', String(gridDensity)); } catch { /* storage unavailable */ } }, [gridDensity]);
   const [builderTileIdx, setBuilderTileIdx] = useState(0); // active tile within selected item
   const [builderCollapsed, setBuilderCollapsed] = useState([]);
   const [builderRehearse, setBuilderRehearse] = useState(false);
@@ -223,6 +241,10 @@ export default function App() {
   const presentationNextRef = useRef(null);
 
   const [isEditorOpen, setIsEditorOpen] = useState(false);
+  // Left-sidebar tab (Service Order / Shows / Songs) lives in App, not in the
+  // sidebar: the console unmounts while the song-editor page is open, and this
+  // keeps the operator on the tab they left.
+  const [viewTab, setViewTab] = useState('order');
   const [editorMode, setEditorMode] = useState('manual');
   const [newSongPromptOpen, setNewSongPromptOpen] = useState(false);
   const [rawPasteText, setRawPasteText] = useState('');
@@ -361,11 +383,36 @@ export default function App() {
     }
   }, [outputs]);
 
+  // Grow-only box repair for stored songs, applied wherever a song crosses
+  // from the database into the app. A cue saved by an older build can carry a
+  // box that no longer fits its text (the pre-measurement fitter under-counted
+  // wraps on wide faces), and the renderer's shrink pass then quietly draws
+  // 140 as ~100 — Size says 140, the canvas shows something smaller, and only
+  // retyping used to snap it back. Same repair as typing (growBoxToText), run
+  // on load: any cue whose text needs more height gets its box fitted at the
+  // cue's OWN size. Nothing ever shrinks (hand-placed boxes keep their
+  // center); fill mode and locked cues are left alone — the box drives size
+  // there / the operator pinned that box.
+  const repairSongBoxes = (song) => {
+    if (!song || !Array.isArray(song.cues)) return song;
+    const fixCue = (c) => {
+      if (!c || c.locked || c.resizeMode === 'fill') return c;
+      const box = growBoxToText(c.text || '', cueLyricStyle(c), c.box);
+      return box === c.box ? c : { ...c, box };
+    };
+    const out = { ...song, cues: song.cues.map(fixCue) };
+    if (song.title_cue) {
+      const t = fixCue(song.title_cue);
+      if (t !== song.title_cue) out.title_cue = t;
+    }
+    return out;
+  };
+
   const fetchSongs = async () => {
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
       const result = await ipcRenderer.invoke('db-get-songs', searchQuery, activeCategory);
-      setSongs(result);
+      setSongs(Array.isArray(result) ? result.map(repairSongBoxes) : result);
     }
   };
 
@@ -509,7 +556,7 @@ export default function App() {
       const seq = ++songLoadSeqRef.current;
       const details = await ipcRenderer.invoke('db-get-song-details', id);
       if (seq !== songLoadSeqRef.current) return; // a newer click won
-      setActiveSong(details);
+      setActiveSong(repairSongBoxes(details));
     }
   };
 
@@ -520,7 +567,7 @@ export default function App() {
       song = await ipcRenderer.invoke('db-get-song-details', id);
     }
     if (!song) return;
-    setEditingSong({ ...song, cues: song.cues || [] });
+    setEditingSong(repairSongBoxes({ ...song, cues: song.cues || [] }));
     setEditorMode('manual');
     setRawPasteText('');
     setIsEditorOpen(true);
@@ -554,8 +601,10 @@ export default function App() {
       }
       pullLiveState(true);
     } else if (outputMatch) {
+      const outputId = decodeURIComponent(outputMatch[1]);
+      const outputRoleName = decodeURIComponent(outputMatch[2] || 'lyrics');
       setIsOutput(true);
-      setOutputRole(decodeURIComponent(outputMatch[2] || 'lyrics'));
+      setOutputRole(outputRoleName);
       if (window.require) {
         const { ipcRenderer } = window.require('electron');
         ipcRenderer.on('render-live-slide', (event, slideData) => {
@@ -564,8 +613,17 @@ export default function App() {
         ipcRenderer.on('render-live-stage', (event, stageData) => {
           setCurrentSlide(stageData);
         });
+        // Screen hardware for THIS output (rotation / custom viewport /
+        // edge blend). A push can land before this effect runs, so also
+        // pull once on mount — same pattern as get-live-state above.
+        ipcRenderer.on('output-config', (_e, cfg) => {
+          if (!cfg || cfg.id === outputId) setOutputCfg(cfg);
+        });
+        ipcRenderer.invoke('output-config-request', outputId)
+          .then((cfg) => { if (cfg) setOutputCfg(cfg); })
+          .catch(() => {});
       }
-      pullLiveState(decodeURIComponent(outputMatch[2] || 'lyrics') === 'stage');
+      pullLiveState(outputRoleName === 'stage');
     } else if (hash.includes('/projector')) {
       setIsProjector(true);
       if (window.require) {
@@ -1005,7 +1063,7 @@ export default function App() {
     const item = showBuilder?.sections?.[secIdx]?.items?.[itemIdx];
     if (item?.songId && window.require) {
       const { ipcRenderer } = window.require('electron');
-      const details = await ipcRenderer.invoke('db-get-song-details', item.songId);
+      const details = repairSongBoxes(await ipcRenderer.invoke('db-get-song-details', item.songId));
       setBuilderActiveSong(details);
       if (details) setBuilderSongDetails(prev => ({ ...prev, [item.songId]: details }));
     } else {
@@ -1021,7 +1079,7 @@ export default function App() {
       const { ipcRenderer } = window.require('electron');
       const detailsArr = await Promise.all(songIds.map(id => ipcRenderer.invoke('db-get-song-details', id)));
       const map = {};
-      detailsArr.forEach((d, i) => { if (d) map[songIds[i]] = d; });
+      detailsArr.forEach((d, i) => { if (d) map[songIds[i]] = repairSongBoxes(d); });
       setBuilderSongDetails(prev => ({ ...prev, ...map }));
     })();
   }, [showModalOpen, showBuilder]);
@@ -1068,7 +1126,7 @@ export default function App() {
       if (!song) return;
       if (tileIdx === 0) {
         setActiveSong(song);
-        const titleCue = song.title_cue || { id: 'title-card', label: 'Song Title', text: song.title, box: { x: 80, y: 140, w: 1120, h: 440 }, size: 110, align: 'center', color: '#ffffff' };
+        const titleCue = song.title_cue || { id: 'title-card', label: 'Song Title', text: song.title, box: { x: 80, y: 140, w: 1120, h: 440 }, size: DEFAULT_LYRIC_SIZE, align: 'center', color: '#ffffff' };
         setActiveCue(titleCue);
         setSlideTimer({ start: Date.now(), elapsed: 0, duration: 0 });
         // Build bg from THIS song (activeSong state has not flushed yet).
@@ -1321,7 +1379,7 @@ export default function App() {
     if (!activeSong) return;
     liveBibleRef.current = null;
     liveBibleSrcRef.current = null;
-    const titleCue = activeSong.title_cue || { id: 'title-card', label: 'Song Title', text: activeSong.title, box: { x: 80, y: 140, w: 1120, h: 440 }, size: 110, align: 'center', color: '#ffffff' };
+    const titleCue = activeSong.title_cue || { id: 'title-card', label: 'Song Title', text: activeSong.title, box: { x: 80, y: 140, w: 1120, h: 440 }, size: DEFAULT_LYRIC_SIZE, align: 'center', color: '#ffffff' };
     setActiveCue(titleCue);
     setSlideTimer({ start: Date.now(), elapsed: 0, duration: 0 });
     const effectiveStyle = resolutionStyle(titleCue);
@@ -1405,7 +1463,7 @@ export default function App() {
     const { ipcRenderer } = window.require('electron');
     const cueOnAir = activeCue; // frozen at click time; the await below can outlive this render
     const seq = ++songLoadSeqRef.current;
-    const details = await ipcRenderer.invoke('db-get-song-details', id);
+    const details = repairSongBoxes(await ipcRenderer.invoke('db-get-song-details', id));
     if (!details || seq !== songLoadSeqRef.current) return; // a newer click won
     setActiveSong(details);
     // Browsing rows re-points activeSong without touching the output, so the
@@ -1818,7 +1876,9 @@ export default function App() {
   // or the local fallback) is normalised and split to linesPerSlide through
   // the shared parser in electron/songParse.js, so a lyrics-site paste with
   // no [Verse]/Chorus labels still builds real blocks.
-  const processAutoPaste = async (textOverride) => {
+  // `opts.linesPerSlide` lets the split prompt run THIS parse with the number
+  // just confirmed — setState alone would still be stale inside this closure.
+  const processAutoPaste = async (textOverride, opts = {}) => {
     const text = (typeof textOverride === 'string') ? textOverride : rawPasteText;
     if (!text || !text.trim()) {
       await appAlert("Please paste lyrics or a chord chart first!");
@@ -1830,15 +1890,16 @@ export default function App() {
       return;
     }
 
+    const nLines = Math.max(1, Math.floor(Number(opts.linesPerSlide ?? linesPerSlide) || 4));
     setIsParsing(true);
     try {
       let cues = null;
       try {
         if (window.require) {
           const { ipcRenderer } = window.require('electron');
-          const result = await ipcRenderer.invoke('ai-parse-chord-chart', { text, model: selectedAiModel, linesPerSlide });
+          const result = await ipcRenderer.invoke('ai-parse-chord-chart', { text, model: selectedAiModel, linesPerSlide: nLines });
           if (result && Array.isArray(result.cues) && result.cues.length > 0) {
-            cues = splitCuesByLines(result.cues, linesPerSlide);
+            cues = splitCuesByLines(result.cues, nLines);
             setAiStatus(result.modelUsed);
           }
         }
@@ -1849,10 +1910,15 @@ export default function App() {
       // No AI/IPC result? Build the blocks locally — same parser the main
       // process uses, so pure lyrics behave identically offline.
       if (!cues || cues.length === 0) {
-        cues = splitCuesByLines(parseSongBlocks(text, linesPerSlide), linesPerSlide);
+        cues = splitCuesByLines(parseSongBlocks(text, nLines), nLines);
         setAiStatus('Local Parser (Offline)');
       }
       if (cues.length === 0) cues = [{ label: 'Verse 1', text }];
+
+      // Both parse engines land here: give every block the default size and a
+      // box fitted to its own text at that size, so the lyrics draw at the
+      // full 140px instead of being shrunk into the stock box.
+      cues = cues.map(fitParsedCue);
 
       setEditingSong(prev => ({ ...prev, cues }));
       return cues;
@@ -1864,7 +1930,9 @@ export default function App() {
   // ----------------------------------------------------
 
   // --- WEB SONG IMPORT: fetch chord chart/lyrics from a URL then parse ---
-  const fetchSongFromUrl = async () => {
+  // opts.linesPerSlide passes the split prompt's confirmed count through to
+  // the parse that follows the fetch.
+  const fetchSongFromUrl = async (opts = {}) => {
     if (!importUrl.trim()) { await appAlert('Paste a song URL first — lyric sites and chord charts both work.'); return; }
     setImportUrlStatus('Fetching page…');
     setIsFetching(true);
@@ -1880,7 +1948,7 @@ export default function App() {
         }
         setRawPasteText(result.text);
         setImportUrlStatus(`Fetched ${result.text.length} chars${srcLabel}${titleLabel} — parsing…`);
-        const cues = await processAutoPaste(result.text);
+        const cues = await processAutoPaste(result.text, opts);
         setImportUrlStatus(`Imported & parsed ✓ (${(cues || []).length} blocks)${srcLabel}${titleLabel}`);
       } else {
         setImportUrlStatus('No readable text found.');
@@ -1950,7 +2018,10 @@ export default function App() {
       }
       for (let i = 0; i < lines.length; i += n) {
         const part = Math.floor(i / n) + 1;
-        newCues.push({ ...cue, label: `${baseLabel} (Part ${part})`, text: lines.slice(i, i + n).join('\n') });
+        // New chunk = new text = refit the box to it, so a slide carved out of
+        // a long section still shows every line at the cue's own font size.
+        // Untouched cues keep the box the operator may have dragged by hand.
+        newCues.push(fitParsedCue({ ...cue, label: `${baseLabel} (Part ${part})`, text: lines.slice(i, i + n).join('\n') }));
       }
     });
     setEditingSong({ ...editingSong, cues: newCues });
@@ -1964,7 +2035,7 @@ export default function App() {
     label: 'Song Title',
     text: editingSong?.title || '',
     box: { x: 80, y: 140, w: 1120, h: 440 },
-    size: 110,
+    size: DEFAULT_LYRIC_SIZE,
     align: 'center',
     color: '#ffffff'
   };
@@ -2006,10 +2077,34 @@ export default function App() {
   // One click: merge a patch into every slide (title slide included).
   const applyPatchToAllCues = (patch) => {
     if (!patch) return;
+    // The patch usually carries a new size — refit every box to its own text
+    // at that size, so applying a bigger/smaller font never leaves a slide
+    // whose text no longer fits its box. The fitter measures with each merged
+    // cue's OWN face/tracking (and its own size when the patch carries none),
+    // so the box matches what actually renders. Fill-mode cues are exempt:
+    // their box SETS the size, so moving it would change what fill computes.
+    const stOf = (n) => ({
+      font: n.font,
+      size: n.size,
+      lineHeight: n.lineHeight,
+      caseMode: n.case,
+      pad: n.pad,
+      bold: n.bold,
+      italic: n.italic,
+      letterSpacing: n.letterSpacing,
+      highlight: n.highlight,
+      fill: n.resizeMode === 'fill',
+    });
+    const refit = (next, prevCue) => (prevCue.resizeMode === 'fill'
+      ? next
+      : { ...next, box: fitBoxToText(next.text || '', stOf(next), prevCue.box) });
     setEditingSong(prev => ({
       ...prev,
-      title_cue: { ...(prev.title_cue || { ...defaultTitleCue, text: prev.title || defaultTitleCue.text }), ...patch },
-      cues: (prev.cues || []).map(c => ({ ...c, ...patch })),
+      title_cue: (() => {
+        const base = prev.title_cue || { ...defaultTitleCue, text: prev.title || defaultTitleCue.text };
+        return refit({ ...base, ...patch }, base);
+      })(),
+      cues: (prev.cues || []).map(c => refit({ ...c, ...patch }, c)),
     }));
   };
 
@@ -2081,7 +2176,7 @@ export default function App() {
     const patch = { box: { x: Math.round(nx), y: Math.round(ny), w: Math.round(nw), h: Math.round(nh) } };
     if (boxDrag.mode !== 'move') {
       const origH = b.h || 480;
-      const origSize = Number(editorCue.size) || 110;
+      const origSize = Number(editorCue.size) || DEFAULT_LYRIC_SIZE;
       const ratio = origSize / origH;
       patch.size = Math.round(clampNum(nh * ratio, 18, FONT_SIZE_MAX));
     }
@@ -2097,43 +2192,8 @@ export default function App() {
     <button title={title} aria-disabled={disabled || undefined} onClick={disabled ? undefined : onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: active ? 'rgba(34,197,94,0.15)' : C.elevated, border: '1px solid ' + (active ? 'rgba(34,197,94,0.5)' : 'var(--ui-border2)'), color: danger ? '#f87171' : C.text2, borderRadius: 7, padding: '6px 9px', fontSize: 11, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1 }}>{children}</button>
   );
 
-  const cueLyricStyle = (cue) => ({
-    font: cue?.font || FONT_OPTIONS[0].value,
-    size: cue?.size != null ? cue.size : 110,
-    lineHeight: cue?.lineHeight || 1.05,
-    align: cue?.align || 'center',
-    color: cue?.color || '#f5f5f4',
-    caseMode: cue?.case || 'none',
-    bold: cue?.bold !== false,
-    italic: !!cue?.italic,
-    underline: !!cue?.underline,
-    strike: !!cue?.strike,
-    letterSpacing: Number(cue?.letterSpacing) || 0,
-    valign: cue?.valign || 'middle',
-    pad: cue?.pad != null ? Number(cue.pad) : 10,
-    shadow: !!(cue?.shadow),
-    shadowColor: cue?.shadowColor || '#000000',
-    shadowBlur: cue?.shadowBlur != null ? Number(cue.shadowBlur) : 14,
-    shadowOffsetX: cue?.shadowOffsetX != null ? Number(cue.shadowOffsetX) : 0,
-    shadowOffsetY: cue?.shadowOffsetY != null ? Number(cue.shadowOffsetY) : 4,
-    outline: !!(cue?.outline),
-    strokeColor: cue?.strokeColor || '#000000',
-    strokeWidth: cue?.strokeWidth != null ? Number(cue.strokeWidth) : 1.5,
-    gradient: !!(cue?.gradient),
-    gradientColor1: cue?.gradientColor1 || '#f5f5f4',
-    gradientColor2: cue?.gradientColor2 || '#93c5fd',
-    gradientAngle: cue?.gradientAngle != null ? Number(cue.gradientAngle) : 180,
-    highlight: !!(cue?.highlight),
-    hlOpacity: cue?.hlOpacity ?? 40,
-    resizeMode: cue?.resizeMode === 'fill' ? 'fill' : cue?.resizeMode === 'scale' ? 'scale' : 'fit',
-    fill: cue?.resizeMode === 'fill',
-    fillMax: cue?.fillMax != null ? Number(cue.fillMax) : 165,
-    fillMin: cue?.fillMin != null ? Number(cue.fillMin) : 18,
-    layoutMode: cue?.layoutMode === 'ticker' ? 'ticker' : 'static',
-    tickerSpeed: cue?.tickerSpeed != null ? Number(cue.tickerSpeed) : 18,
-    tickerDir: cue?.tickerDir === 'rtl' ? 'rtl' : 'ltr',
-    box: cue?.box || { x: 80, y: 100, w: 1120, h: 480 },
-  });
+  // cueLyricStyle lives in lib/lyrics — shared with the editor's slide strip
+  // and the slide grid so every surface renders a cue identically.
 
   useEffect(() => {
     if (!isEditorOpen) { setCanvasEdit(false); setBoxDrag(null); return; }
@@ -2372,11 +2432,32 @@ export default function App() {
     return tiles;
   })();
 
-  const renderSlideFace = (tile, { height = '150px', fontSize = '15px', radius = '10px', bg, media } = {}) => {
+  // Tile-face cache: on a cue change only the two tiles whose live ring flips
+  // need fresh work — every other tile's face (lyrics + still thumbnail) is
+  // identical, so hand back the same element instead of re-running the full
+  // cueLyricStyle → renderLyricsLayout measure chain for the whole grid.
+  // Same element reference lets React bail out of those subtrees entirely.
+  const tileFaceCacheRef = useRef({ song: null, theme: null, nebula: null, map: new Map() });
+
+  // Slide-grid tile face — the Live Output, miniaturized 1:1. `aspect` comes
+  // from the output's aspect, and the lyrics run through the SAME
+  // cueLyricStyle → renderLyricsLayout chain the projector uses, on a
+  // measured 1280×720 canvas (TileCanvas), so position, size, alignment,
+  // color, case and shadow are identical to the live output in both themes.
+  // Only operator chrome (LIVE pill, #index, section chip) sits on top.
+  // Ticker cues render as static lines — a thumbnail must not start a
+  // marquee per tile.
+  const renderSlideFace = (tile, { height = '150px', aspect, radius = '10px', bg, media } = {}) => {
     const cue = tile.cue;
     const isTitle = tile.isTitle;
-    const text = isTitle ? (activeSong.title || '') : stripMarkup(cue?.text || '');
+    // Same title-cue resolution fireTitleLive uses, so the tile shows the
+    // exact text/style that would go live.
+    const titleCue = activeSong.title_cue || { id: 'title-card', label: 'Song Title', text: activeSong.title, box: { x: 80, y: 140, w: 1120, h: 440 }, size: DEFAULT_LYRIC_SIZE, align: 'center', color: '#ffffff' };
+    const text = isTitle ? (titleCue.text || activeSong.title || '') : (cue?.text || '');
     const label = isTitle ? 'Title' : (cue?.label || 'Slide');
+    const st = { ...cueLyricStyle(isTitle ? titleCue : cue), layoutMode: 'static' };
+    st.isTitle = isTitle;
+    const box = st.box || { x: 80, y: isTitle ? 140 : 100, w: 1120, h: isTitle ? 440 : 480 };
     const bgInfo = (() => {
       if (isTitle) {
         if (songHasBackground(activeSong)) return { type: activeSong.bg_type, value: activeSong.bg_value };
@@ -2390,31 +2471,52 @@ export default function App() {
     const mediaLayer = media || (bgInfo && bgInfo.type !== 'color' ? { type: bgInfo.type, url: bgInfo.value } : null);
     const isLive = activeCue != null && activeCue.id !== 'clear' && ((isTitle && activeCue.id === 'title-card') || (!isTitle && cue && activeCue.id === cue.id));
     const hasMedia = !!mediaLayer;
-    return (
-      <div style={{ position: 'relative', height, borderRadius: radius, overflow: 'hidden', background: faceBg, border: isLive ? `2px solid ${PINK}` : '1px solid var(--ui-blight)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', boxShadow: isLive ? `0 0 0 2px rgba(255,79,163,0.25), 0 8px 24px rgba(0,0,0,0.45)` : '0 4px 14px rgba(0,0,0,0.35)', boxSizing: 'border-box' }}>
+    // Live tiles always rebuild (LIVE pill timer + pink ring must be fresh).
+    // Anything else cached: song/theme/nebula identity invalidates, aspect
+    // rides the key, explicit bg/media overrides bypass.
+    const cc = tileFaceCacheRef.current;
+    if (cc.song !== activeSong || cc.theme !== C || cc.nebula !== NEBULA) {
+      tileFaceCacheRef.current = { song: activeSong, theme: C, nebula: NEBULA, map: new Map() };
+    }
+    const faceCache = tileFaceCacheRef.current.map;
+    const cacheable = !isLive && !bg && !media;
+    const faceKey = `${aspect || ''}|${isTitle ? 'title' : (cue?.id || ('n' + tile.num))}`;
+    if (cacheable) {
+      const hit = faceCache.get(faceKey);
+      if (hit) return hit;
+    }
+    const face = (
+      <div style={{ position: 'relative', height: aspect ? 'auto' : height, aspectRatio: aspect, borderRadius: radius, overflow: 'hidden', background: faceBg, border: isLive ? `2px solid ${PINK}` : '1px solid var(--ui-blight)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', boxShadow: isLive ? `0 0 0 2px rgba(255,79,163,0.25), 0 8px 24px rgba(0,0,0,0.45)` : '0 4px 14px rgba(0,0,0,0.35)', boxSizing: 'border-box' }}>
         {mediaLayer && (
           mediaLayer.type === 'image' ? (
             <img key={`bgimg-${mediaLayer.url}`} src={mediaLayer.url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }} />
           ) : (
-            <TileVideo key={`bgvid-${mediaLayer.url}`} src={mediaLayer.url} animate={isLive} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }} />
+            <TileVideo key={`bgvid-${mediaLayer.url}`} src={mediaLayer.url} animate={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }} />
           )
         )}
-        {mediaLayer && <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: 'rgba(0,0,0,0.18)' }} />}
+        {/* Lyrics exactly as the projector draws them: same renderer, same
+            1280×720 canvas, contain-fit to the tile. No darkening overlay or
+            bottom gradient — the output has neither. */}
+        <TileCanvas>
+          <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+            {renderLyricsLayout(text, st, box)}
+          </div>
+        </TileCanvas>
         <div style={{ position: 'absolute', top: 6, left: 8, display: 'flex', alignItems: 'center', gap: 6, zIndex: 2 }}>
           {isLive && <LiveBadge start={slideTimer.start} C={C} PINK={PINK} />}
         </div>
-        <div style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, background: 'rgba(0,0,0,0.45)', color: isLive ? PINK : C.heading, borderRadius: 6, padding: '1px 6px', fontSize: 9, fontWeight: 800 }}>
+        <div style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, background: 'rgba(0,0,0,0.45)', color: isLive ? PINK : '#ddd6fe', borderRadius: 6, padding: '1px 6px', fontSize: 9, fontWeight: 800 }}>
           {isTitle ? '♬' : `#${tile.num}`}
         </div>
-        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 2, padding: '14px 10px 10px 10px', background: 'linear-gradient(to top, rgba(0,0,0,0.82), rgba(0,0,0,0.15))' }}>
-          <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '1.5px', textTransform: 'uppercase', color: isLive ? PINK : C.heading, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
-            {label}
-            {hasMedia && mediaLayer && mediaLayer.type && <span style={{ fontSize: 8, background: 'rgba(192,132,252,0.25)', border: '1px solid rgba(192,132,252,0.5)', color: '#d8b4fe', borderRadius: 4, padding: '0 4px' }}>{String(mediaLayer.type).toUpperCase()}</span>}
-          </div>
-          <p style={{ margin: 0, fontSize, lineHeight: 1.25, fontWeight: 700, color: C.text, whiteSpace: 'pre-line', textShadow: '0 2px 12px rgba(0,0,0,0.9)', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{text || '—'}</p>
+        {/* Section chip: compact pill so the real render behind it stays visible. */}
+        <div style={{ position: 'absolute', bottom: 6, left: 8, zIndex: 2, display: 'flex', alignItems: 'center', gap: 4, maxWidth: 'calc(100% - 16px)' }}>
+          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '1.5px', textTransform: 'uppercase', color: isLive ? PINK : '#ddd6fe', background: 'rgba(0,0,0,0.45)', borderRadius: 6, padding: '2px 6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+          {hasMedia && mediaLayer && mediaLayer.type && <span style={{ flexShrink: 0, fontSize: 8, background: 'rgba(192,132,252,0.25)', border: '1px solid rgba(192,132,252,0.5)', color: '#d8b4fe', borderRadius: 4, padding: '0 4px' }}>{String(mediaLayer.type).toUpperCase()}</span>}
         </div>
       </div>
     );
+    if (cacheable) faceCache.set(faceKey, face);
+    return face;
   };
 
   // --- DOCK TOOL ACTIONS ---
@@ -3070,11 +3172,11 @@ export default function App() {
                   >
                     <div style={{ width: '100%', height: '100%', position: 'relative', animation: monitorContent && !monitorContent.presentation ? (animCSS || undefined) : undefined }}>
                       {monitorContent && monitorContent.presentation?.slide ? (
-                        <PresentationSlide slide={monitorContent.presentation.slide} />
+                        <PresentationSlide slide={monitorContent.presentation.slide} keepAlive />
                       ) : monitorContent && monitorContent.text ? (
                         (() => {
                           const isTitleSlide = monitorContent.label === 'Song Title';
-                          const lst = st.lyric || { font: st.fontFamily || 'system-ui, sans-serif', size: 110, lineHeight: 1.05, align: st.textAlign || 'center', color: st.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
+                          const lst = st.lyric || { font: st.fontFamily || 'system-ui, sans-serif', size: DEFAULT_LYRIC_SIZE, lineHeight: 1.05, align: st.textAlign || 'center', color: st.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
                           lst.isTitle = isTitleSlide;
                           const box = lst.box || { x: 80, y: isTitleSlide ? 140 : 100, w: 1120, h: isTitleSlide ? 440 : 480 };
                           return (
@@ -3110,7 +3212,7 @@ export default function App() {
           </>
         )}
         {monitorContent && (
-          <div style={{ position: 'absolute', bottom: 6, left: 8, zIndex: 2, background: monitorContent.standby ? 'rgba(37,99,235,0.72)' : 'rgba(0,0,0,0.45)', color: '#d4d4d8', borderRadius: 4, padding: '1px 6px', fontSize: 8.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5 }}>{monitorContent.standby ? 'Standby' : (monitorContent.label || 'Slide')}</div>
+          <div style={{ position: 'absolute', bottom: 6, left: 8, zIndex: 2, background: monitorContent.standby ? 'rgba(139,92,246,0.72)' : 'rgba(0,0,0,0.45)', color: '#d4d4d8', borderRadius: 4, padding: '1px 6px', fontSize: 8.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5 }}>{monitorContent.standby ? 'Standby' : (monitorContent.label || 'Slide')}</div>
         )}
       </div>
     );
@@ -3123,7 +3225,7 @@ export default function App() {
   if (isOutput) {
     return outputRole === 'stage'
       ? <StageDisplay currentSlide={currentSlide} C={C} />
-      : <ProjectorDisplay currentSlide={currentSlide} C={C} aspect={outputAspect} />;
+      : <ProjectorDisplay currentSlide={currentSlide} C={C} aspect={outputAspect} config={outputCfg} />;
   }
 
   if (isProjector) {
@@ -3159,7 +3261,7 @@ export default function App() {
     activeTab, setActiveTab, songs, setSongs, searchQuery, setSearchQuery, showsQuery, setShowsQuery,
     showsCollapsed, setShowsCollapsed, songsCollapsed, setSongsCollapsed, serviceDragOver, setServiceDragOver,
     activeCategory, setActiveCategory, activeSong, setActiveSong, activeCue, setActiveCue,
-    leftOpen, setLeftOpen, rightOpen, setRightOpen, showHotkeys, setShowHotkeys, showAbout, setShowAbout, showMoreMenu, setShowMoreMenu,
+    leftOpen, setLeftOpen, viewTab, setViewTab, rightOpen, setRightOpen, showHotkeys, setShowHotkeys, showAbout, setShowAbout, showMoreMenu, setShowMoreMenu,
     dockTab, setDockTab, scheduleView, setScheduleView, activeMenu, setActiveMenu, rightTab, setRightTab,
     mediaLibrary, setMediaLibrary, scriptureBgLibrary, libraryStats, setLibraryStats, appInfo, setAppInfo, audioPreview, setAudioPreview, audioVolume, setAudioVolume,
     bibleLib, setBibleLib, bibleTrans, setBibleTrans, bibleBooks, setBibleBooks, bibleSel, setBibleSel, bibleChapter, setBibleChapter,
@@ -3171,7 +3273,7 @@ export default function App() {
     showModalOpen, setShowModalOpen, showBuilder, setShowBuilder,
     builderSongQuery, setBuilderSongQuery, builderSrcSongQuery, setBuilderSrcSongQuery, builderSheet, setBuilderSheet,
     builderTargetSecId, setBuilderTargetSecId, builderTargetSectionId,
-    builderDensity, setBuilderDensity, builderTileIdx, setBuilderTileIdx, builderCollapsed, setBuilderCollapsed,
+    builderDensity, setBuilderDensity, gridDensity, setGridDensity, builderTileIdx, setBuilderTileIdx, builderCollapsed, setBuilderCollapsed,
     builderRehearse, setBuilderRehearse, builderActiveSong, setBuilderActiveSong, builderSongDetails, setBuilderSongDetails,
     selectedServiceId, setSelectedServiceId, slideTimer, setSlideTimer, services, setServices, templates, setTemplates,
     selectedTemplateId, setSelectedTemplateId, dragIndex, setDragIndex,
@@ -3271,7 +3373,17 @@ export default function App() {
         ACCENT={ACCENT}
       />
 
-      {/* ===== MAIN WORKSPACE ===== */}
+      {/* ===== MAIN WORKSPACE =====
+           The song editor used to be an overlay ON TOP of this console, so
+           every keystroke re-rendered AND repainted the sidebar, the slide
+           grid (51 tiles x renderLyricsLayout) and the live panel behind the
+           panel — that was the lag. It is the page in this slot now: while it
+           is open the console subtree is not mounted at all, so an edit only
+           renders the editor. TopHeader stays (menus, LIVE status, theme). */}
+      {isEditorOpen ? (
+        <SongEditorModal />
+      ) : (
+      <>
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0, width: '100%' }}>
 
 {/* LEFT SIDEBAR */}
@@ -3323,6 +3435,8 @@ export default function App() {
         activeId={showOutputMonitor ? 'outputs' : undefined}
         onSelect={handleDockSelect}
       />
+      </>
+      )}
 
       {/* CUSTOM SLIDE MODAL */}
       <AnimatePresence>
@@ -3338,17 +3452,17 @@ export default function App() {
       )}
       </AnimatePresence>
 
-      {/* SONG EDITOR MODAL */}
+      {/* NEW SONG PROMPT — pick Manual Builder vs Smart Paste first. (The song
+          editor itself is no longer a modal: it renders in the MAIN WORKSPACE
+          slot above as the editor page whenever isEditorOpen.) */}
       <AnimatePresence>
-      {/* NEW SONG PROMPT — pick Manual Builder vs Smart Paste first */}
-      {newSongPromptOpen && !isEditorOpen && (
-        <NewSongPrompt onChoose={startNewSong} onCancel={() => setNewSongPromptOpen(false)} />
-      )}
-
-      {isEditorOpen && (
-        <SongEditorModal />
-      )}
+        {newSongPromptOpen && !isEditorOpen && (
+          <NewSongPrompt onChoose={startNewSong} onCancel={() => setNewSongPromptOpen(false)} />
+        )}
       </AnimatePresence>
+      {/* TOASTER — Untitled UI toast stack (portals to body, z-index 10050,
+          so it always sits above the modals) */}
+      <Toaster />
       {/* PRESENTATION / SERMON BUILDER MODAL */}
       <AnimatePresence>
       {isPresentationOpen && (

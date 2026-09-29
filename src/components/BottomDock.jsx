@@ -13,9 +13,12 @@ const ICON_MAP = {
   'settings': Settings,
 };
 
+// Opacity ONLY — a `y` variant would make motion write an inline transform
+// that wipes out the CSS `translateX(-50%)` centering on .dock-tip, shoving
+// the chip sideways under the slide tiles.
 const tooltipVariants = {
-  hidden: { opacity: 0, y: 8 },
-  show: { opacity: 1, y: 0 },
+  hidden: { opacity: 0 },
+  show: { opacity: 1 },
 };
 
 function DockTooltip({ label, children }) {
@@ -51,12 +54,18 @@ function DockTooltip({ label, children }) {
 export default function BottomDock({ C, PINK, dockItems, dockTab, onSelect, activeId }) {
   const currentId = activeId ?? dockTab;
   return (
-    <motion.div
+    // No entrance animation — same as the right panel: the console remounts
+    // on boot and on every editor close, and a fade-up with a 0.2s delay
+    // flashed a dark strip over this slot on every load.
+    <div
       className="dock-shell"
-      initial={{ y: 64, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.5, delay: 0.2 }}
       style={{
+        // The slide tiles' internal z-indexes (bg img z1, badges z2) escape
+        // to the root stacking context once motion settles to transform:none,
+        // so they painted OVER the hover chip above the dock. Lift the whole
+        // dock to z10 — above the escaped tile z's, below modals/scrims (z50+).
+        position: 'relative',
+        zIndex: 10,
         height: 56,
         flexShrink: 0,
         background: C.panel,
@@ -88,7 +97,7 @@ export default function BottomDock({ C, PINK, dockItems, dockTab, onSelect, acti
                 cursor: 'pointer',
                 background: 'transparent',
                 border: '1px solid transparent',
-                color: active ? '#93C5FD' : C.muted,
+                color: active ? '#C4B5FD' : C.muted,
               }}
             >
               <Icon size={18} strokeWidth={active ? 2.4 : 1.8} />
@@ -98,6 +107,6 @@ export default function BottomDock({ C, PINK, dockItems, dockTab, onSelect, acti
         );
       })}
       <div style={{ flex: 1 }} />
-    </motion.div>
+    </div>
   );
 }

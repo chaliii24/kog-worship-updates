@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath, URL } from 'node:url'
 
 // Resolve paths against this file. `__dirname` is unreliable here because the
@@ -8,7 +9,17 @@ import { fileURLToPath, URL } from 'node:url'
 const from = (p) => fileURLToPath(new URL(p, import.meta.url))
 
 export default defineConfig({
-  plugins: [react()],
+  // tailwindcss — Untitled UI migration (phase 1): tokens + utilities
+  // layers only (see the header of src/index.css). Phase 1: real components
+  // now live under src/untitledui/ and NewSongPrompt.jsx uses them.
+  resolve: {
+    // Untitled UI's components import each other through a `@/` alias rooted
+    // at their repo root — src/untitledui mirrors that layout so the files
+    // stay copy-paste compatible with upstream. The regex only matches
+    // `@/`, so npm scopes like `@untitledui/icons` pass through untouched.
+    alias: [{ find: /^@\//, replacement: from('./src/untitledui/') }],
+  },
+  plugins: [react(), tailwindcss()],
   base: './',
   // `host: true` binds 0.0.0.0 instead of localhost — without it a phone on
   // the LAN cannot load the app during `npm run dev`. Production does not use

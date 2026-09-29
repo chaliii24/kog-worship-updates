@@ -1,13 +1,16 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Plus, Check, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, Cpu, KeyRound, Timer, Clock3, Link2, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack, Undo2, Redo2 } from 'lucide-react';
+import { Plus, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, Cpu, KeyRound, Timer, Clock3, Link2, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack, Undo2, Redo2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, FALLBACK_SYSTEM_FONTS } from '../lib/constants';
-import { applyCaseTransform, renderLyricsLayout, stripMarkup, FONT_SIZE_MIN, FONT_SIZE_MAX, parseSegments, restyleLineScales } from '../lib/lyrics';
+import { renderLyricsLayout, cueLyricStyle, stripMarkup, FONT_SIZE_MIN, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, autoPadForSize, fitBoxToText, growBoxToText, restyleLineScales } from '../lib/lyrics';
 import { useApp } from '../context/AppContext';
-import { modalOverlay, panelLg, stubTap, iconBtnTap } from '../lib/anim';
+import { stubTap, iconBtnTap } from '../lib/anim';
+import { Tabs, TabList, Tab, TabPanel } from '../untitledui/components/application/tabs/tabs';
+import { toast } from '../untitledui/components/ui/toast';
 import LyricsCanvasEditor from './LyricsCanvasEditor';
 import FontPicker from './FontPicker';
-import { TileVideo } from '../lib/perf';
+import ColorPicker from '../untitledui/components/application/color-picker/color-picker';
+import { TileVideo, TileCanvas } from '../lib/perf';
 
 let sysFontCache = null;
 
@@ -179,6 +182,36 @@ export default function SongEditorModal() {
   // field straight away so it can be typed before doing anything else.
   // `renameFrom` keeps the field in the list it was opened from — both lists
   // show every slide, so two inputs for one slide would fight over focus.
+  // --- split prompt (ask BEFORE parsing) -----------------------------------
+  // Parse & Build Blocks and Fetch & Parse ask first how many lyric lines
+  // each slide keeps — that count is exactly what splitCuesByLines turns into
+  // "(Part n)" groups, so the generated blocks come out accurate instead of
+  // inheriting whatever number the sidebar last held. Confirmed value also
+  // becomes the sidebar/Split default (setLinesPerSlide).
+  const [splitPrompt, setSplitPrompt] = useState(null); // null | 'parse' | 'fetch'
+  const [splitN, setSplitN] = useState('');
+
+  const openSplitPrompt = (kind) => {
+    // Nothing to parse yet? Let the action raise its own alert instead of
+    // asking for a split count nobody can use.
+    if (kind === 'fetch' && !importUrl.trim()) { fetchSongFromUrl(); return; }
+    if (kind === 'parse' && !rawPasteText.trim()) { processAutoPaste(); return; }
+    setSplitN(String(Math.max(1, Math.min(12, Math.floor(Number(linesPerSlide) || 4)))));
+    setSplitPrompt(kind);
+  };
+
+  const runSplitPrompt = () => {
+    const parsed = Math.floor(Number(splitN));
+    const n = Math.max(1, Math.min(12, Number.isFinite(parsed) && parsed > 0 ? parsed : 4));
+    const kind = splitPrompt;
+    setSplitPrompt(null);
+    setLinesPerSlide(n);
+    // Passed explicitly: setState is async, the parse closure would still see
+    // the OLD linesPerSlide if we relied on the state update landing first.
+    if (kind === 'fetch') fetchSongFromUrl({ linesPerSlide: n });
+    else if (kind === 'parse') processAutoPaste(undefined, { linesPerSlide: n });
+  };
+
   const [renameIdx, setRenameIdx] = useState(null);
   const [renameFrom, setRenameFrom] = useState('strip');
   const [renameVal, setRenameVal] = useState('');
@@ -189,16 +222,19 @@ export default function SongEditorModal() {
 
   // --- "applied to every slide" confirmation -------------------------------
   // These buttons rewrite every slide at once and the result looks identical
-  // to doing nothing, so a click gave no sign it had landed. A short toast
-  // names what was just applied.
-  const [applyToast, setApplyToast] = useState(null);
-  const applyToastRef = useRef(null);
-  const confirmApplied = (message) => {
-    setApplyToast(message);
-    clearTimeout(applyToastRef.current);
-    applyToastRef.current = setTimeout(() => setApplyToast(null), 2600);
+  // to doing nothing, so a click gave no sign it had landed. The Untitled UI
+  // toast stack (mounted once in App) names what was just applied; real
+  // writes also carry Undo — Apply lands in the editor history, so one click
+  // takes it back.
+  const confirmApplied = (message, { type = 'success', title = 'Applied', undoable = false } = {}) => {
+    toast.add({
+      title,
+      description: message,
+      type,
+      duration: undoable ? 5600 : 4200,
+      ...(undoable ? { actionProps: { children: 'Undo', onClick: () => undo() } } : {}),
+    });
   };
-  useEffect(() => () => clearTimeout(applyToastRef.current), []);
 
   // --- APPLY TO scope (footer) --------------------------------------------
   // The footer's three-way control says WHERE this slide's look is pushed:
@@ -227,9 +263,25 @@ export default function SongEditorModal() {
   // setting the sidebar controls onto the title slide and every cue.
   // Layout/resize mode, padding, timing and notes are deliberately left out:
   // those vary slide to slide instead of being a look.
+  // The style fields the box fitter measures with: wrap points depend on the
+  // face, weight, italic and tracking, so fitting without them guessed at the
+  // wrong font and the box came out short (top line clipped on the canvas).
+  const fitStFor = (c, size) => ({
+    font: c.font,
+    size: size ?? c.size,
+    lineHeight: c.lineHeight,
+    caseMode: c.case,
+    pad: c.pad,
+    bold: c.bold,
+    italic: c.italic,
+    letterSpacing: c.letterSpacing,
+    highlight: c.highlight,
+    fill: c.resizeMode === 'fill',
+  });
+
   const visualPatchFrom = (c) => ({
     font: c.font || FONT_OPTIONS[0].value,
-    size: c.size || 92,
+    size: c.size || DEFAULT_LYRIC_SIZE,
     lineHeight: c.lineHeight || 1.05,
     letterSpacing: c.letterSpacing || 0,
     bold: c.bold !== false,
@@ -344,7 +396,7 @@ export default function SongEditorModal() {
     const c = editorCue;
     if (!c) return;
     applyPatchToAllCues(visualPatchFrom(c));
-    confirmApplied('Typography applied to every slide');
+    confirmApplied('Typography applied to every slide', { undoable: true });
   };
 
   // Footer APPLY TO: the three segments only CHOOSE the target — they never
@@ -376,23 +428,30 @@ export default function SongEditorModal() {
     patch.resizeMode = c.resizeMode || 'fit';
     patch.fillMin = c.fillMin ?? 18;
     patch.fillMax = c.fillMax ?? 165;
-    patch.pad = c.pad ?? 10;
+    // Only an explicit pad travels — a cue on auto padding stays on auto and
+    // re-derives its gutter from the applied size.
+    if (c.pad != null) patch.pad = c.pad;
 
     const cues = editingSong.cues || [];
     const sel = scope === 'all' ? cues.map((_, i) => i) : applySel.filter(i => i >= 0 && i < cues.length);
     const hasTitle = !!editingSong.title_cue && (scope === 'all' || applySel.includes(-1));
     if (!sel.length && !hasTitle) {
-      confirmApplied(applySel.length ? 'Nothing to apply to — tick a slide below' : 'Ctrl+click slides in the list to select them');
+      confirmApplied(applySel.length ? 'Nothing to apply to — tick a slide below' : 'Ctrl+click slides in the list to select them', { type: 'info', title: 'Pick slides first' });
       return;
     }
     const hit = new Set(sel);
     const srcText = c.text || '';
     const restyle = (t) => restyleLineScales(srcText, t || '');
+    // Typography travels with a refitted box: the applied size is only honoured
+    // if each target's OWN text fits its box at that size — measured with the
+    // target's own face, since patch.font travels with it. Fill mode exempt —
+    // there the box sets the size, so moving it would change fill's answer.
+    const refit = (next) => ({ ...next, box: fitBoxToText(next.text || '', fitStFor(next), next.box) });
     breakHist(); // one Ctrl+Z takes back the whole Apply, not 1.2s of it
     setEditingSong({
       ...editingSong,
-      title_cue: hasTitle ? { ...editingSong.title_cue, ...patch, text: restyle(editingSong.title_cue.text) } : editingSong.title_cue,
-      cues: cues.map((cu, i) => (hit.has(i) ? { ...cu, ...patch, text: restyle(cu.text) } : cu)),
+      title_cue: hasTitle ? refit({ ...editingSong.title_cue, ...patch, text: restyle(editingSong.title_cue.text) }) : editingSong.title_cue,
+      cues: cues.map((cu, i) => (hit.has(i) ? refit({ ...cu, ...patch, text: restyle(cu.text) }) : cu)),
     });
     // The ticks have done their job. Leave every slide unchecked so the next
     // Apply has to be aimed again — otherwise the last selection is still lit
@@ -407,6 +466,9 @@ export default function SongEditorModal() {
         : scope === 'all'
           ? `Copied ${from} to every slide (${n})`
           : `Copied ${from} to ${n} slide${n === 1 ? '' : 's'}`,
+      selfOnly
+        ? { type: 'info', title: 'No change' }
+        : { undoable: true },
     );
   };
 
@@ -633,17 +695,26 @@ export default function SongEditorModal() {
     return opts;
   }, [sysFonts, editorCue?.font]);
 
+  // A PAGE, not a modal: App mounts this in the MAIN WORKSPACE slot (under
+  // TopHeader) while the console subtree is unmounted. Full-bleed flex child —
+  // no backdrop layer, no entrance animation, so a keystroke renders only the
+  // editor instead of the whole console behind a translucent overlay.
   return (
-<motion.div {...modalOverlay} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.84)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}>
-  <motion.div {...panelLg} style={{ background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: '14px', width: 'min(1540px, 97vw)', height: 'min(94vh, 960px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.75)', position: 'relative' }}>
+    <div style={{ position: 'relative', flex: 1, minHeight: 0, background: C.bg, display: 'flex' }}>
+      <div style={{ background: C.panel, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+
+    {/* ===== TABS SHELL — Untitled UI (migration phase 3, song editor):
+ Manual/Auto switch the body panels below. RAC unmounts the inactive
+ TabPanel, so behaviour matches the old ternary exactly. */}
+    <Tabs selectedKey={editorMode} onSelectionChange={setEditorMode} className="box-border flex-1 min-h-0">
 
     {/* ===== HEADER ===== */}
     <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--ui-border2)', display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0, flexWrap: 'wrap' }}>
       <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 800, whiteSpace: 'nowrap' }}>{editingSong.id ? 'Edit Song' : 'Add New Song'}</h2>
-      <div style={{ display: 'flex', background: C.elevated2, padding: 3, borderRadius: 8, border: '1px solid var(--ui-border2)' }}>
-        <button onClick={() => setEditorMode('manual')} style={{ background: editorMode === 'manual' ? ACCENT : 'transparent', border: 'none', color: C.text, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Manual Builder</button>
-        <button onClick={() => setEditorMode('auto')} style={{ background: editorMode === 'auto' ? ACCENT : 'transparent', border: 'none', color: C.text, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}><Wand2 size={13} /> Smart Auto-Paste</button>
-      </div>
+      <TabList type="button-brand" size="sm">
+        <Tab id="manual">Manual Builder</Tab>
+        <Tab id="auto" icon={Wand2}>Smart Auto-Paste</Tab>
+      </TabList>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flex: 1, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         <div style={{ flex: '0 1 220px', minWidth: 120 }}>
           <input type="text" value={editingSong.title} onChange={(e) => { const title = e.target.value; setEditingSong({ ...editingSong, title, title_cue: editingSong.title_cue ? { ...editingSong.title_cue, text: title } : editingSong.title_cue }); }} placeholder="Song title" style={{ width: '100%', background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '7px 10px', color: C.text, fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
@@ -663,7 +734,7 @@ export default function SongEditorModal() {
     <AnimatePresence>
       {(isParsing || isFetching) && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }} style={{ position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(5,5,9,0.82)', backdropFilter: 'blur(6px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
-          <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.9, ease: 'linear' }} style={{ width: 52, height: 52, borderRadius: '50%', border: '3px solid rgba(59,130,246,0.22)', borderTopColor: ACCENT, boxSizing: 'border-box' }} />
+          <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.9, ease: 'linear' }} style={{ width: 52, height: 52, borderRadius: '50%', border: '3px solid rgba(139,92,246,0.22)', borderTopColor: ACCENT, boxSizing: 'border-box' }} />
           <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>{isParsing ? 'Parsing lyrics & building blocks…' : 'Fetching & preparing page…'}</div>
           <div style={{ fontSize: 12, color: C.faint, maxWidth: 440, textAlign: 'center', lineHeight: 1.55 }}>
             {isParsing ? 'Detecting sections and splitting your song into slides. This can take a few seconds.' : 'Downloading the page, then extracting the lyrics and sections.'}
@@ -672,10 +743,56 @@ export default function SongEditorModal() {
       )}
     </AnimatePresence>
 
-    {/* ===== BODY ===== */}
-    <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
-      {editorMode === 'auto' ? (
-        /* ---------- SMART AUTO-PASTE ---------- */
+    {/* ===== SPLIT PROMPT — how many lyric lines per slide, asked BEFORE the
+        parse runs. Number → splitCuesByLines → accurate "(Part n)" groups. */}
+    <AnimatePresence>
+      {splitPrompt && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.16 }}
+          onClick={(e) => { if (e.target === e.currentTarget) setSplitPrompt(null); }}
+          style={{ position: 'absolute', inset: 0, zIndex: 60, background: 'rgba(5,5,9,0.72)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        >
+          <motion.div
+            initial={{ scale: 0.96, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.97, opacity: 0 }} transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') { e.preventDefault(); setSplitPrompt(null); }
+              else if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') { e.preventDefault(); runSplitPrompt(); }
+            }}
+            role="dialog" aria-modal="true" aria-label="Lyric lines per slide"
+            style={{ width: 'min(420px, 100%)', background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: 14, boxShadow: '0 24px 70px rgba(0,0,0,0.55)', padding: '20px 22px' }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 800, color: C.text, marginBottom: 6 }}>How many lyric lines per slide?</div>
+            <div style={{ fontSize: 12, color: C.faint, lineHeight: 1.6, marginBottom: 14 }}>
+              Each slide keeps up to this many lines — longer sections continue as <b style={{ color: C.accLine, fontWeight: 700 }}>(Part 2, Part 3…)</b>. This decides how the {splitPrompt === 'fetch' ? 'fetched page' : 'pasted lyrics'} split into blocks.
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              {[1, 2, 3, 4, 6, 8].map((n) => {
+                const active = String(n) === String(splitN);
+                return (
+                  <button key={n} onClick={() => setSplitN(String(n))} style={{ minWidth: 38, padding: '6px 0', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer', background: active ? ACCENT : C.input, color: active ? '#fff' : C.text2, border: active ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)' }}>{n}</button>
+                );
+              })}
+              <span style={{ fontSize: 10.5, color: C.faint, marginLeft: 2, fontWeight: 700 }}>lines / slide</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                autoFocus
+                type="number" min={1} max={12} value={splitN}
+                onChange={(e) => setSplitN(e.target.value)}
+                onFocus={(e) => e.target.select()}
+                aria-label="Lines per slide"
+                style={{ width: 76, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '9px 10px', fontSize: 15, fontWeight: 800, textAlign: 'center', outline: 'none' }}
+              />
+              <button onClick={() => setSplitPrompt(null)} style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid var(--ui-border2)', color: C.text2, padding: '9px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={runSplitPrompt} style={{ background: ACCENT, border: 'none', color: '#fff', padding: '9px 16px', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}><Wand2 size={14} /> {splitPrompt === 'fetch' ? 'Fetch & Parse' : 'Parse & Build'}</button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+
+    {/* ===== BODY — each mode is a TabPanel (auto first, like the old ternary) ===== */}
+      <TabPanel id="auto" className="box-border flex flex-1 min-h-0 overflow-hidden">
         <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 10, flexWrap: 'wrap' }}>
             <label style={{ fontSize: 13, fontWeight: 700, color: C.accLine, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -691,7 +808,7 @@ export default function SongEditorModal() {
                 </select>
               </div>
               {aiStatus && (
-                <span style={{ fontSize: 10, background: aiStatus.includes('Online') ? 'rgba(34,197,94,0.2)' : 'rgba(59,130,246,0.2)', color: aiStatus.includes('Online') ? '#4ade80' : '#60a5fa', padding: '4px 8px', borderRadius: 8, fontWeight: 700, border: aiStatus.includes('Online') ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(59,130,246,0.4)' }}>{aiStatus}</span>
+                <span style={{ fontSize: 10, background: aiStatus.includes('Online') ? 'rgba(34,197,94,0.2)' : 'rgba(139,92,246,0.2)', color: aiStatus.includes('Online') ? '#4ade80' : '#a78bfa', padding: '4px 8px', borderRadius: 8, fontWeight: 700, border: aiStatus.includes('Online') ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(139,92,246,0.4)' }}>{aiStatus}</span>
               )}
             </div>
           </div>
@@ -737,13 +854,13 @@ export default function SongEditorModal() {
           <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'center' }}>
             <Link2 size={13} color={C.accLine} />
             <input type="text" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} placeholder="Paste any song link — Ultimate Guitar, Genius, AZLyrics…" style={{ flex: 1, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '8px 10px', color: C.text, fontSize: 12, outline: 'none' }} />
-            <button onClick={fetchSongFromUrl} disabled={isParsing || isFetching} style={{ background: C.input, border: '1px solid ' + ACCENT, color: C.accLine, padding: '8px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: (isParsing || isFetching) ? 'wait' : 'pointer', whiteSpace: 'nowrap', opacity: (isParsing || isFetching) ? 0.6 : 1 }}>{isFetching && !isParsing ? 'Fetching…' : 'Fetch & Parse'}</button>
+            <button onClick={() => openSplitPrompt('fetch')} disabled={isParsing || isFetching} style={{ background: C.input, border: '1px solid ' + ACCENT, color: C.accLine, padding: '8px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: (isParsing || isFetching) ? 'wait' : 'pointer', whiteSpace: 'nowrap', opacity: (isParsing || isFetching) ? 0.6 : 1 }}>{isFetching && !isParsing ? 'Fetching…' : 'Fetch & Parse'}</button>
           </div>
           {importUrlStatus && (
-            <div style={{ fontSize: 11, color: importUrlStatus.includes('✓') ? '#4ade80' : importUrlStatus.includes('failed') || importUrlStatus.includes('Invalid') || importUrlStatus.includes('Could') ? '#ef4444' : '#60a5fa', margin: '0 0 10px 0', fontWeight: 600, whiteSpace: 'pre-wrap' }}>{importUrlStatus}</div>
+            <div style={{ fontSize: 11, color: importUrlStatus.includes('✓') ? '#4ade80' : importUrlStatus.includes('failed') || importUrlStatus.includes('Invalid') || importUrlStatus.includes('Could') ? '#ef4444' : '#a78bfa', margin: '0 0 10px 0', fontWeight: 600, whiteSpace: 'pre-wrap' }}>{importUrlStatus}</div>
           )}
           <textarea rows={10} value={rawPasteText} onChange={(e) => setRawPasteText(e.target.value)} placeholder="[Verse 1] or plain lyrics&#10;Paste chords (auto-stripped) or copy/paste from a lyrics site — sections are detected for you." style={{ width: '100%', background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: 12, color: C.text, fontSize: 13, fontFamily: 'monospace', outline: 'none', resize: 'vertical' }} />
-          <button onClick={() => processAutoPaste()} disabled={isParsing || isFetching} style={{ marginTop: 12, background: ACCENT, border: 'none', color: C.text, padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: (isParsing || isFetching) ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: (isParsing || isFetching) ? 0.6 : 1 }}><Wand2 size={14} /> {isParsing ? 'Parsing…' : 'Parse & Build Blocks'}</button>
+          <button onClick={() => openSplitPrompt('parse')} disabled={isParsing || isFetching} style={{ marginTop: 12, background: ACCENT, border: 'none', color: C.text, padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: (isParsing || isFetching) ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: (isParsing || isFetching) ? 0.6 : 1 }}><Wand2 size={14} /> {isParsing ? 'Parsing…' : 'Parse & Build Blocks'}</button>
           {editingSong.cues && editingSong.cues.length > 0 && (
             <div style={{ marginTop: 16, borderTop: '1px solid var(--ui-border2)', paddingTop: 16 }}>
               <label style={{ fontSize: 11, fontWeight: 700, color: '#4ade80', textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Generated Song Blocks ({editingSong.cues.length})</label>
@@ -761,7 +878,8 @@ export default function SongEditorModal() {
             </div>
           )}
         </div>
-      ) : (
+      </TabPanel>
+      <TabPanel id="manual" className="box-border flex flex-1 min-h-0 overflow-hidden">
         <>
           {/* ================== LEFT SIDEBAR ================== */}
           <div style={{ flex: '0 0 240px', minWidth: 200, borderRight: '1px solid var(--ui-border2)', overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -780,9 +898,9 @@ export default function SongEditorModal() {
                 ))}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Padding</label>
-                <input type="range" min="0" max="80" step="2" value={editorCue?.pad ?? 10} onChange={(e) => updateCueThrottled(editorCueIdx, { pad: Number(e.target.value) })} style={{ flex: 1 }} />
-                <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.pad ?? 10}</span>
+                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }} title={editorCue?.pad != null ? 'Padding' : `Auto — ${autoPadForSize(editorCue?.size)}px at this font size`}>Padding{editorCue?.pad == null && <span style={{ color: C.muted, fontWeight: 600 }}> · auto</span>}</label>
+                <input type="range" min="0" max="80" step="2" value={editorCue?.pad ?? autoPadForSize(editorCue?.size)} onChange={(e) => updateCueThrottled(editorCueIdx, { pad: Number(e.target.value) })} style={{ flex: 1 }} />
+                <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.pad ?? autoPadForSize(editorCue?.size)}</span>
               </div>
             </div>
 
@@ -874,14 +992,21 @@ export default function SongEditorModal() {
                 })}
               </div>
               {selMode && (
-                <div style={{ fontSize: 9.5, fontWeight: 700, color: '#93c5fd', marginTop: 5, letterSpacing: 0.2 }}>
+                <div style={{ fontSize: 9.5, fontWeight: 700, color: '#c4b5fd', marginTop: 5, letterSpacing: 0.2 }}>
                   Highlighted text — B / I / U / S style only that; Size and the rest still set the whole slide
                 </div>
               )}
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <div style={{ flex: 1 }}>
                   <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Size</label>
-                  <NumField key={`size-${editorCueIdx}`} value={editorCue?.size || 92} min={FONT_SIZE_MIN} max={FONT_SIZE_MAX} onCommit={(size) => updateCue(editorCueIdx, { size })} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
+                  <NumField key={`size-${editorCueIdx}`} value={editorCue?.size || DEFAULT_LYRIC_SIZE} min={FONT_SIZE_MIN} max={FONT_SIZE_MAX} onCommit={(size) => {
+                    // The box follows the font: a bigger size grows the box so
+                    // the text draws at full size, a smaller one tightens it —
+                    // either way every line stays visible, never clipped.
+                    // Fill mode exempt (box drives size there, not vice versa).
+                    const st = fitStFor(editorCue || {}, size);
+                    updateCue(editorCueIdx, { size, box: fitBoxToText(editorCue?.text || '', st, editorBox) });
+                  }} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
                 </div>
                 <div style={{ flex: 1 }}>
                   <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Line Ht</label>
@@ -904,11 +1029,21 @@ export default function SongEditorModal() {
             {/* TEXT STYLE */}
             <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Text Style</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Color</label>
-                <input type="color" value={editorCue?.color || '#ffffff'} onChange={(e) => updateCue(editorCueIdx, { color: e.target.value })} style={{ width: 30, height: 26, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
+              {/* UUI color picker — Solid | Gradient merged into one control */}
+              <div style={{ marginBottom: 8 }}>
+                <ColorPicker
+                  C={C}
+                  ACCENT={ACCENT}
+                  value={editorCue?.color || '#ffffff'}
+                  gradient={!!editorCue?.gradient}
+                  color1={editorCue?.gradientColor1 || '#f5f5f4'}
+                  color2={editorCue?.gradientColor2 || '#93c5fd'}
+                  angle={editorCue?.gradientAngle ?? 180}
+                  onChange={(p) => updateCue(editorCueIdx, p)}
+                  onLiveChange={(p) => updateCueThrottled(editorCueIdx, p)}
+                />
               </div>
-              {[['shadow', `Shadow ${editorCue?.shadow ? 'ON' : 'OFF'}`], ['outline', `Outline ${editorCue?.outline ? 'ON' : 'OFF'}`], ['gradient', `Gradient ${editorCue?.gradient ? 'ON' : 'OFF'}`], ['highlight', `Highlight ${editorCue?.highlight ? 'ON' : 'OFF'}`]].map(([k, lbl]) => (
+              {[['shadow', `Shadow ${editorCue?.shadow ? 'ON' : 'OFF'}`], ['outline', `Outline ${editorCue?.outline ? 'ON' : 'OFF'}`], ['highlight', `Highlight ${editorCue?.highlight ? 'ON' : 'OFF'}`]].map(([k, lbl]) => (
                 <button key={k} onClick={() => updateCue(editorCueIdx, { [k]: !editorCue?.[k] })} style={{ width: '100%', background: editorCue?.[k] ? 'rgba(34,197,94,0.15)' : C.elevated2, border: '1px solid ' + (editorCue?.[k] ? 'rgba(34,197,94,0.5)' : 'var(--ui-border2)'), color: editorCue?.[k] ? '#4ade80' : C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', marginBottom: 4 }}>{lbl}</button>
               ))}
               {editorCue?.shadow && (
@@ -949,25 +1084,9 @@ export default function SongEditorModal() {
                   </div>
                 </div>
               )}
-              {editorCue?.gradient && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 2 }}>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>From</label>
-                      <input type="color" value={editorCue?.gradientColor1 || '#f5f5f4'} onChange={(e) => updateCue(editorCueIdx, { gradientColor1: e.target.value })} style={{ width: 30, height: 24, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
-                    </div>
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>To</label>
-                      <input type="color" value={editorCue?.gradientColor2 || '#93c5fd'} onChange={(e) => updateCue(editorCueIdx, { gradientColor2: e.target.value })} style={{ width: 30, height: 24, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Angle</label>
-                    <input type="range" min="0" max="360" step="5" value={editorCue?.gradientAngle ?? 180} onChange={(e) => updateCueThrottled(editorCueIdx, { gradientAngle: Number(e.target.value) })} style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 36, textAlign: 'right' }}>{editorCue?.gradientAngle ?? 180}°</span>
-                  </div>
-                </div>
-              )}
+              {/* Gradient moved into the color picker: the Solid | Gradient
+                  segmented control in the popover owns gradient on/off, both
+                  stops and the angle. */}
               {editorCue?.highlight && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Opacity</label>
@@ -1060,34 +1179,6 @@ export default function SongEditorModal() {
 
           {/* ================== CENTER CANVAS ================== */}
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: C.bg }}>
-            {/* toolbar */}
-            <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--ui-border2)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || []), { label: 'Verse 1', text: '', box: DEFAULT_BOX }]; setEditingSong({ ...editingSong, cues }); startRename(cues.length - 1, cues[cues.length - 1], 'strip'); }} title="Add a new slide"><Plus size={14} /> <span>New Slide</span></ToolbarBtn>
-              <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || [])]; if (!cues.length) { cues.push({ label: 'Verse 1', text: '', box: DEFAULT_BOX, locked: false }); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(0); } else if (editorCueIdx >= 0 && cues[editorCueIdx] && !cues[editorCueIdx].box) { cues[editorCueIdx] = { ...cues[editorCueIdx], box: DEFAULT_BOX, locked: false }; setEditingSong({ ...editingSong, cues }); } }} title="Add/edit text box on this slide"><Type size={14} /> <span>Text</span></ToolbarBtn>
-              <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
-              <ToolbarBtn onClick={undo} disabled={!hist.undo} title="Undo — Ctrl+Z. Takes back the last change (typing, sizes, a deleted slide, an Apply)"><Undo2 size={14} /></ToolbarBtn>
-              <ToolbarBtn onClick={redo} disabled={!hist.redo} title="Redo — Ctrl+Shift+Z or Ctrl+Y"><Redo2 size={14} /></ToolbarBtn>
-              <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
-              <ToolbarBtn onClick={() => duplicateCue(editorCueIdx)} title="Duplicate slide"><Copy size={14} /></ToolbarBtn>
-              <ToolbarBtn danger onClick={() => { if (editorCueIdx < 0) return; const cues = [...(editingSong.cues || [])]; if (!cues.length) return; cues.splice(editorCueIdx, 1); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(Math.min(editorCueIdx, Math.max(0, cues.length - 1))); }} title="Delete slide"><Trash2 size={14} /></ToolbarBtn>
-              <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
-              {[['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight], ['justify', AlignHorizontalJustifyCenter]].map(([a, Icon]) => (
-                <ToolbarBtn key={a} onClick={() => updateCue(editorCueIdx, { align: a })} title={`Align ${a}`} active={(editorCue?.align || 'center') === a}><Icon size={14} /></ToolbarBtn>
-              ))}
-              <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
-              {[['top', AlignVerticalJustifyStart], ['middle', AlignVerticalJustifyCenter], ['bottom', AlignVerticalJustifyEnd]].map(([v, Icon]) => (
-                <ToolbarBtn key={v} onClick={() => updateCue(editorCueIdx, { valign: v })} title={`Vertical ${v}`} active={(editorCue?.valign || 'middle') === v}><Icon size={14} /></ToolbarBtn>
-              ))}
-              <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
-              <ToolbarBtn onClick={() => updateCue(editorCueIdx, { stack: 'front' })} title="Bring forward"><BringToFront size={14} /></ToolbarBtn>
-              <ToolbarBtn onClick={() => updateCue(editorCueIdx, { stack: 'back' })} title="Send back"><SendToBack size={14} /></ToolbarBtn>
-              <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
-              <div style={{ flex: 1 }} />
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: C.faint2, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '3px 9px' }}>
-                <Clock3 size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />{TRANSITIONS.find(t => TRANSITION_KEYS[t] === (editorCue?.anim || 'none')) || 'None'} · {(editorCue?.speed ?? 0.5)}s
-              </span>
-            </div>
-
             {/* counter / nav */}
             <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
               <button onClick={() => setEditorCueIdx(i => Math.max(-1, i - 1))} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 7, padding: '5px 9px', cursor: 'pointer', display: 'flex' }}><ChevronLeft size={15} /></button>
@@ -1095,13 +1186,17 @@ export default function SongEditorModal() {
               <button onClick={() => setEditorCueIdx(i => Math.min((editingSong.cues || []).length - 1, i + 1))} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 7, padding: '5px 9px', cursor: 'pointer', display: 'flex' }}><ChevronRight size={15} /></button>
             </div>
 
-            {/* canvas */}
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12, overflow: 'hidden', minHeight: 0 }}>
+            {/* canvas — contain-fit stage: the padding sits on the OUTER box so
+                the inner one is padding-free; LyricsCanvasEditor measures that
+                box and sizes itself to the largest 16:9 that fits, keeping the
+                stage centered and clear of the footer. */}
+            <div style={{ flex: 1, minHeight: 0, padding: 12, overflow: 'hidden' }}>
+              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {editorCue ? (
                 <LyricsCanvasEditor
                   text={editorCue.text || ''}
                   fontFamily={editorCue.font || FONT_OPTIONS[0].value}
-                  fontSize={Number(editorCue.size) || 110}
+                  fontSize={Number(editorCue.size) || DEFAULT_LYRIC_SIZE}
                   fontColor={editorCue.color || '#ffffff'}
                   textAlign={editorCue.align || 'center'}
                   lineHeight={editorCue.lineHeight || 1.05}
@@ -1128,7 +1223,7 @@ export default function SongEditorModal() {
                   underline={!!editorCue.underline}
                   strike={!!editorCue.strike}
                   valign={editorCue.valign || 'middle'}
-                  pad={editorCue.pad ?? 10}
+                  pad={editorCue.pad}
                   fill={editorCue?.resizeMode === 'fill'}
                   resizeMode={editorCue?.resizeMode || 'fit'}
                   fillMax={editorCue?.fillMax ?? 165}
@@ -1138,15 +1233,57 @@ export default function SongEditorModal() {
                   tickerDir={editorCue?.tickerDir || 'ltr'}
                   previewAnim={hoverAnim}
                   previewTick={previewTick}
-                  previewSpeed={editorCue?.speed ?? 0.5}                  onTextChange={(t) => updateCue(editorCueIdx, { text: t })}
+                  previewSpeed={editorCue?.speed ?? 0.5}                  onTextChange={(t) => {
+                    // Grow-only refit: text typed in the manual builder can
+                    // grow its box so every line stays visible at the full
+                    // font size — but it never SHRINKS a box here (parse,
+                    // size and Apply own the exact fit), so a compact or
+                    // hand-dragged box survives a typo fix. Locked = untouched.
+                    const patch = { text: t };
+                    if (!editorCue?.locked) {
+                      patch.box = growBoxToText(t, fitStFor(editorCue || {}), editorBox);
+                    }
+                    updateCue(editorCueIdx, patch);
+                  }}
                   onBoxChange={(b) => updateCue(editorCueIdx, { box: b })}
                   onSizeChange={(s) => updateCue(editorCueIdx, { size: s })}
                   apiRef={canvasApiRef}
                   onSelectionChange={setCanvasSel}
                 />
               ) : (
-                <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 12, boxShadow: '0 12px 44px rgba(0,0,0,0.45)', border: '1px solid var(--ui-border2)', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.55)', fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-sans)' }}>Add a text box to begin</div>
+                <div style={{ boxSizing: 'border-box', height: '100%', width: 'auto', maxWidth: '100%', aspectRatio: '16 / 9', borderRadius: 12, boxShadow: '0 12px 44px rgba(0,0,0,0.45)', border: '1px solid var(--ui-border2)', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.55)', fontSize: 18, fontWeight: 700, fontFamily: 'var(--font-sans)' }}>Add a text box to begin</div>
               )}
+              </div>
+            </div>
+
+            {/* toolbar — sits UNDER the canvas so the stage starts higher in
+                the column; buttons and behaviour are unchanged. The divider
+                moved from bottom to top for the same reason. */}
+            <div style={{ padding: '8px 12px', borderTop: '1px solid var(--ui-border2)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || []), { label: 'Verse 1', text: '', box: DEFAULT_BOX }]; setEditingSong({ ...editingSong, cues }); startRename(cues.length - 1, cues[cues.length - 1], 'strip'); }} title="Add a new slide"><Plus size={14} /> <span>New Slide</span></ToolbarBtn>
+              <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || [])]; if (!cues.length) { cues.push({ label: 'Verse 1', text: '', box: DEFAULT_BOX, locked: false }); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(0); } else if (editorCueIdx >= 0 && cues[editorCueIdx] && !cues[editorCueIdx].box) { cues[editorCueIdx] = { ...cues[editorCueIdx], box: DEFAULT_BOX, locked: false }; setEditingSong({ ...editingSong, cues }); } }} title="Add/edit text box on this slide"><Type size={14} /> <span>Text</span></ToolbarBtn>
+              <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
+              <ToolbarBtn onClick={undo} disabled={!hist.undo} title="Undo — Ctrl+Z. Takes back the last change (typing, sizes, a deleted slide, an Apply)"><Undo2 size={14} /></ToolbarBtn>
+              <ToolbarBtn onClick={redo} disabled={!hist.redo} title="Redo — Ctrl+Shift+Z or Ctrl+Y"><Redo2 size={14} /></ToolbarBtn>
+              <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
+              <ToolbarBtn onClick={() => duplicateCue(editorCueIdx)} title="Duplicate slide"><Copy size={14} /></ToolbarBtn>
+              <ToolbarBtn danger onClick={() => { if (editorCueIdx < 0) return; const cues = [...(editingSong.cues || [])]; if (!cues.length) return; cues.splice(editorCueIdx, 1); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(Math.min(editorCueIdx, Math.max(0, cues.length - 1))); }} title="Delete slide"><Trash2 size={14} /></ToolbarBtn>
+              <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
+              {[['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight], ['justify', AlignHorizontalJustifyCenter]].map(([a, Icon]) => (
+                <ToolbarBtn key={a} onClick={() => updateCue(editorCueIdx, { align: a })} title={`Align ${a}`} active={(editorCue?.align || 'center') === a}><Icon size={14} /></ToolbarBtn>
+              ))}
+              <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
+              {[['top', AlignVerticalJustifyStart], ['middle', AlignVerticalJustifyCenter], ['bottom', AlignVerticalJustifyEnd]].map(([v, Icon]) => (
+                <ToolbarBtn key={v} onClick={() => updateCue(editorCueIdx, { valign: v })} title={`Vertical ${v}`} active={(editorCue?.valign || 'middle') === v}><Icon size={14} /></ToolbarBtn>
+              ))}
+              <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
+              <ToolbarBtn onClick={() => updateCue(editorCueIdx, { stack: 'front' })} title="Bring forward"><BringToFront size={14} /></ToolbarBtn>
+              <ToolbarBtn onClick={() => updateCue(editorCueIdx, { stack: 'back' })} title="Send back"><SendToBack size={14} /></ToolbarBtn>
+              <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
+              <div style={{ flex: 1 }} />
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: C.faint2, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '3px 9px' }}>
+                <Clock3 size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />{TRANSITIONS.find(t => TRANSITION_KEYS[t] === (editorCue?.anim || 'none')) || 'None'} · {(editorCue?.speed ?? 0.5)}s
+              </span>
             </div>
           </div>
 
@@ -1163,7 +1300,7 @@ export default function SongEditorModal() {
               </div>
               <div style={{ display: 'grid', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
                 {/* Title Slide Thumbnail */}
-                <div onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); dropCue(dragFrom, 0, 'before', false); }} onClick={(e) => slideClick(e, -1)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: editorCueIdx === -1 ? 'rgba(59,130,246,0.16)' : C.elevated, border: dragFrom != null ? '1px dashed ' + ACCENT : (editorCueIdx === -1 ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(-1) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
+                <div onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); dropCue(dragFrom, 0, 'before', false); }} onClick={(e) => slideClick(e, -1)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: editorCueIdx === -1 ? 'rgba(139,92,246,0.16)' : C.elevated, border: dragFrom != null ? '1px dashed ' + ACCENT : (editorCueIdx === -1 ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(-1) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
                   <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 5, background: songHasBackground(editingSong) && editingSong.bg_type === 'color' ? editingSong.bg_value : '#0a0a0a', position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {editingSong.bg_type === 'image' && editingSong.bg_value && (
                       <img draggable={false} src={editingSong.bg_value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -1196,7 +1333,7 @@ export default function SongEditorModal() {
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                         {g.items.map(({ c, i, li }) => (
-                          <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: i === editorCueIdx ? 'rgba(59,130,246,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
+                          <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: i === editorCueIdx ? 'rgba(139,92,246,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
                             {dropHint && dropHint.i === i && (
                               <span style={{ position: 'absolute', top: 0, bottom: 0, [dropHint.side === 'before' ? 'left' : 'right']: 0, width: 3, background: ACCENT, borderRadius: 3, zIndex: 6 }} />
                             )}
@@ -1207,26 +1344,25 @@ export default function SongEditorModal() {
                               {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'video' && (
                                 <TileVideo key={`tb-${resolveBg(c, editingSong).value}`} src={resolveBg(c, editingSong).value} animate={i === editorCueIdx} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                               )}
-                              <div style={{ position: 'relative', zIndex: 2, color: c.color || '#f5f5f4', fontFamily: c.font || FONT_OPTIONS[0].value, fontSize: 9.5, fontWeight: 700, textAlign: 'center', padding: '0 6px', lineHeight: 1.25, textShadow: '0 1px 3px rgba(0,0,0,0.8)', maxWidth: '100%' }}>
-                                {(() => {
-                                  // One row per line, each RUN at its own
-                                  // size — sizes live on words as often as on
-                                  // whole lines, so the thumb has to show what
-                                  // the projector shows: a small lead-in over
-                                  // a big keyword, never flat text.
-                                  return applyCaseTransform(c.text || '', c.case || 'none').split('\n').slice(0, 3).map((ln, i) => (
-                                    <div key={i}>
-                                      {parseSegments(ln).map((sg, j) => {
-                                        const s = typeof sg.scale === 'number' && sg.scale > 0 ? sg.scale : 1;
-                                        return s === 1
-                                          ? <span key={j}>{sg.t}</span>
-                                          : <span key={j} style={{ fontSize: 9.5 * s }}>{sg.t}</span>;
-                                      })}
+                              {(() => {
+                                // 1:1 with the canvas and the projector: the
+                                // SAME renderer on the SAME 1280×720 design
+                                // canvas, contain-fitted to the thumb (the
+                                // live slide grid does exactly this). Box,
+                                // size, wrapping and position therefore
+                                // always match the editor — split a line and
+                                // the thumb and the canvas move together.
+                                const st = { ...cueLyricStyle(c), layoutMode: 'static' };
+                                const box = st.box;
+                                return (
+                                  <TileCanvas>
+                                    <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+                                      {renderLyricsLayout(c.text || '', st, box)}
                                     </div>
-                                  ));
-                                })()}
-                              </div>
-                              <div style={{ position: 'absolute', top: 3, left: 4, fontSize: 8, fontWeight: 800, color: 'rgba(255,255,255,0.85)', background: 'rgba(0,0,0,0.45)', borderRadius: 3, padding: '0 4px' }}>{gi + 1}.{li}</div>
+                                  </TileCanvas>
+                                );
+                              })()}
+                              <div style={{ position: 'absolute', top: 3, left: 4, zIndex: 5, fontSize: 8, fontWeight: 800, color: 'rgba(255,255,255,0.85)', background: 'rgba(0,0,0,0.45)', borderRadius: 3, padding: '0 4px' }}>{gi + 1}.{li}</div>
                               {applySel.includes(i) && (
                                 <span style={{ position: 'absolute', top: 3, right: 4, zIndex: 5, width: 14, height: 14, borderRadius: '50%', background: ACCENT, color: '#fff', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>✓</span>
                               )}
@@ -1256,7 +1392,7 @@ export default function SongEditorModal() {
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Custom Slide Order</div>
               <div style={{ display: 'grid', gap: 5 }}>
                 {(editingSong.cues || []).map((c, i) => (
-                  <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: i === editorCueIdx ? 'rgba(59,130,246,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, padding: '6px 8px', cursor: 'grab' }}>
+                  <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: i === editorCueIdx ? 'rgba(139,92,246,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, padding: '6px 8px', cursor: 'grab' }}>
                     {dropHint && dropHint.i === i && (
                       <span style={{ position: 'absolute', top: 0, bottom: 0, [dropHint.side === 'before' ? 'left' : 'right']: 0, width: 3, background: ACCENT, borderRadius: 3 }} />
                     )}
@@ -1354,8 +1490,8 @@ export default function SongEditorModal() {
             </div>
           </div>
         </>
-      )}
-    </div>
+      </TabPanel>
+    </Tabs>
 
     {/* ===== FOOTER ===== */}
     <div style={{ position: 'relative', padding: '10px 16px', borderTop: '1px solid var(--ui-border2)', display: 'flex', justifyContent: 'flex-end', gap: 10, flexShrink: 0 }}>
@@ -1434,21 +1570,10 @@ export default function SongEditorModal() {
       <motion.button {...stubTap} onClick={handleSaveSong} style={{ background: ACCENT, border: 'none', color: C.text, padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Save Song</motion.button>
     </div>
 
-    {/* Confirmation for the "apply to every slide" buttons — they rewrite the
-        whole song at once, which looks exactly like nothing happened. Lives
-        INSIDE the panel so `bottom` is measured from the modal edge and the
-        toast clears the footer's APPLY TO control instead of covering it. */}
-    <AnimatePresence>
-      {applyToast && (
-        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 72, display: 'flex', justifyContent: 'center', pointerEvents: 'none', zIndex: 6 }}>
-          <motion.div initial={{ opacity: 0, y: 14, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.97 }} transition={{ type: 'spring', stiffness: 420, damping: 30 }} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(16,185,129,0.16)', border: '1px solid rgba(52,211,153,0.5)', color: '#34d399', padding: '9px 17px', borderRadius: 999, fontSize: 12.5, fontWeight: 700, boxShadow: '0 12px 34px rgba(0,0,0,0.45)', backdropFilter: 'blur(10px)' }}>
-            <Check size={15} />
-            {applyToast}
-          </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
-  </motion.div>
-</motion.div>
+    {/* Apply confirmations go through the shared Untitled UI toast stack
+        (mounted once in App.jsx): bottom-right, above this page, with an
+        Undo action on real writes. */}
+      </div>
+    </div>
   );
 }

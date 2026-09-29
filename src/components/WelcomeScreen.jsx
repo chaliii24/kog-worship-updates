@@ -39,14 +39,14 @@ function FlashButton({ children, onClick, variant = 'primary', icon }) {
     primary: {
       ...base,
       border: 'none',
-      background: 'linear-gradient(180deg, #3b82f6, #2563eb)',
+      background: 'linear-gradient(180deg, #8b5cf6, #7c3aed)',
       color: '#ffffff',
-      boxShadow: '0 10px 30px rgba(59,130,246,0.35)',
+      boxShadow: '0 10px 30px rgba(139,92,246,0.35)',
     },
     ghost: {
       ...base,
-      border: '1px solid rgba(129,140,248,0.35)',
-      background: 'rgba(129,140,248,0.05)',
+      border: '1px solid rgba(167,139,250,0.35)',
+      background: 'rgba(167,139,250,0.05)',
       color: 'var(--ui-text2)',
       boxShadow: 'none',
     },
@@ -101,7 +101,7 @@ export default function WelcomeScreen({ services, C, PINK, ACCENT, logoImage, on
       <div style={{ position: 'absolute', top: -180, left: '50%', width: 760, height: 420, transform: 'translateX(-50%)', background: `radial-gradient(closest-side, ${C.accLine}1f, transparent 70%)`, filter: 'blur(44px)', pointerEvents: 'none', zIndex: 0 }} />
 
       {/* Cursor-tracking spotlight flash */}
-      <div ref={spotRef} style={{ position: 'fixed', left: -520, top: -520, width: 520, height: 520, borderRadius: '50%', background: 'radial-gradient(circle, rgba(129,140,248,0.10) 0%, transparent 65%)', pointerEvents: 'none', zIndex: 0 }} />
+      <div ref={spotRef} style={{ position: 'fixed', left: -520, top: -520, width: 520, height: 520, borderRadius: '50%', background: 'radial-gradient(circle, rgba(167,139,250,0.10) 0%, transparent 65%)', pointerEvents: 'none', zIndex: 0 }} />
 
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }} style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 600, textAlign: 'center' }}>
         <motion.div initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', stiffness: 220, damping: 18, delay: 0.05 }} style={{ display: 'inline-block' }}>
@@ -129,7 +129,7 @@ export default function WelcomeScreen({ services, C, PINK, ACCENT, logoImage, on
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 1.1 + recentShows.indexOf(svc) * 0.06, duration: 0.4 }}
-                  whileHover={{ x: 4, backgroundColor: 'rgba(129,140,248,0.08)' }}
+                  whileHover={{ x: 4, backgroundColor: 'rgba(167,139,250,0.08)' }}
                   onClick={() => onOpenRecent(svc.id)}
                   style={{ textAlign: 'left', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--ui-blight)', color: C.text, padding: '10px 13px', borderRadius: 10, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, transition: 'backgroundColor 0.2s ease' }}
                 >
