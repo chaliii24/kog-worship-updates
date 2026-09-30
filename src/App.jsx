@@ -17,7 +17,7 @@ import LiveOutputPanel from './components/LiveOutputPanel';
 import LeftSidebar from './components/LeftSidebar';
 import CenterWorkspace from './components/CenterWorkspace';
 import SongEditorModal from './components/SongEditorModal';
-import { Toaster } from './untitledui/components/ui/toast';
+import { Toaster, toast } from './untitledui/components/ui/toast';
 import NewSongPrompt from './components/NewSongPrompt';
 import PresentationModal from './components/PresentationModal';
 import PresentationSlide from './components/PresentationSlide';
@@ -656,7 +656,23 @@ export default function App() {
     if (isOutputWindow || !window.require) return;
     const { ipcRenderer } = window.require('electron');
     const onUpdateAvailable = (event, info) => { setUpdateVersion(info?.version || null); setAboutStatus(`Update available: v${info.version}`); setUpdateReady('available'); setUpdateProgress(null); };
-    const onUpdateDownloaded = (event, info) => { setUpdateVersion(info?.version || null); setAboutStatus(`Update v${info.version} downloaded.`); setUpdateReady('downloaded'); setUpdateProgress(null); };
+    const onUpdateDownloaded = (event, info) => {
+      setUpdateVersion(info?.version || null);
+      setAboutStatus(`Update v${info.version} downloaded.`);
+      setUpdateReady('downloaded');
+      setUpdateProgress(null);
+      // The automatic prompt: no modal digging, no manual app close. Sticky
+      // 12s toast above everything (z-index beats the modals) whose button
+      // installs immediately. Non-blocking, so a mid-service download never
+      // yanks the operator out of the console.
+      toast.add({
+        title: `Update v${info.version} ready`,
+        description: 'Restart now to install — outputs go black for a moment.',
+        type: 'success',
+        duration: 12000,
+        actionProps: { children: 'Restart & Install', onClick: () => installUpdateVersion(info?.version || null) },
+      });
+    };
     const onUpdateError = (event, error) => { setAboutStatus(`Update error: ${error}`); setUpdateReady('error'); setUpdateProgress(null); };
     const onUpdateNotAvailable = (event, info) => { setAboutStatus(`You're up to date${appInfo?.version ? ` (v${appInfo.version})` : ''}.`); setUpdateReady('uptodate'); setUpdateProgress(null); };
     const onDownloadProgress = (event, progress) => { setUpdateProgress(progress); setUpdateReady('downloading'); setAboutStatus(`Downloading update — ${Math.round(progress.percent)}%`); };
@@ -3066,13 +3082,15 @@ export default function App() {
     }
   };
 
-  const handleInstallUpdate = async () => {
+  // Parameterized so the download toast (registered once, stale closure) can
+  // install the version it just announced instead of whatever state holds.
+  const installUpdateVersion = useCallback(async (version) => {
     try {
       if (window.require) {
         // Remember what is being installed: the app quits below, and the
         // post-relaunch boot compares this flag against its own version to
         // confirm the install landed (the Complete state).
-        if (updateVersion) { try { localStorage.setItem('kog_update_installing', updateVersion); } catch {} }
+        if (version) { try { localStorage.setItem('kog_update_installing', version); } catch {} }
         setUpdateReady('installing');
         setAboutStatus('Installing update...');
         setUpdateProgress(null);
@@ -3087,7 +3105,9 @@ export default function App() {
       setAboutStatus(`Install failed: ${e.message}`);
       setUpdateReady('downloaded');
     }
-  };
+  }, []);
+
+  const handleInstallUpdate = () => installUpdateVersion(updateVersion);
 
   const handleOpenGuide = () => {
     setAboutStatus('The KOGWorship User Guide is not available yet.');

@@ -217,6 +217,11 @@ ipcMain.handle('add-media-file', async (event, sourcePath) => {
 
 let operatorWindow;
 const outputWindows = new Map(); // id -> { win, role, displayId, name }
+// True once quit begins: crash-recovery must NEVER resurrect an output while
+// the app is tearing down — a rebuilt black fullscreen window outlives the
+// quit, sits on the secondary display instead of the desktop, and migrates to
+// the primary when that display is unplugged.
+let isQuitting = false;
 
 // Dev serves Vite from localhost; packaged builds load the bundled renderer.
 function getAppStartUrl() {
@@ -335,6 +340,15 @@ app.whenReady().then(() => {
   app.on('before-quit', () => { try { lan.stop(); } catch { /* noop */ } });
   // Kill a running DeckLink SDI mirror (child ffmpeg) with the app.
   app.on('before-quit', () => { try { decklinkStop(); } catch { /* noop */ } });
+  // Total teardown on quit: every output window is explicitly destroyed FIRST
+  // (prependListener jumps the queue ahead of the stops below), each marked
+  // expected so crash-recovery never fires. Closing the app leaves every
+  // display on its plain desktop — never a black fullscreen window, and never
+  // a resurrected one migrating to the primary when a display is unplugged.
+  app.prependListener('before-quit', () => {
+    isQuitting = true;
+    try { closeAllOutputs(); } catch { /* noop */ }
+  });
 
   // Record which path Chromium actually took. `gpu_compositing` / `video_decode`
   // reading "hardware" vs "software" is the difference between smooth and
@@ -568,7 +582,7 @@ function createOutputWindow(output) {
     const wasExpected = !!cur.expectClose;
     const def = cur.def;
     outputWindows.delete(output.id);
-    if (!wasExpected && def) {
+    if (!wasExpected && def && !isQuitting) {
       // Window died without anyone asking (external kill, display teardown):
       // same recovery as a renderer crash.
       recoverOutputWindow(output.id, def, 'closed-unexpectedly');
@@ -610,6 +624,12 @@ function closeOutputWindow(id) {
 const outputCrashCount = new Map();
 
 function recoverOutputWindow(id, def, reason) {
+  // Quit in progress (or already done): teardown must be total — no windows,
+  // no caches, no resurrected projections. Just drop the entry and go away.
+  if (isQuitting) {
+    outputWindows.delete(id);
+    return;
+  }
   const n = (outputCrashCount.get(id) || 0) + 1;
   outputCrashCount.set(id, n);
   setTimeout(() => { if ((outputCrashCount.get(id) || 0) === n) outputCrashCount.delete(id); }, 30000);
@@ -973,6 +993,16 @@ autoUpdater.on('download-progress', (progress) => {
       total: progress.total,
       bytesPerSecond: progress.bytesPerSecond
     });
+  }
+});
+
+// The download finishing is what flips the console to Restart & Install —
+// without this forward the About modal sits on "Downloading — 100%" forever.
+// (update-available / error reach the renderer through the invoke results;
+// download-progress above; only the completion event was missing.)
+autoUpdater.on('update-downloaded', (info) => {
+  if (operatorWindow && !operatorWindow.isDestroyed()) {
+    try { operatorWindow.webContents.send('update-downloaded', { version: info?.version }); } catch {}
   }
 });
  
