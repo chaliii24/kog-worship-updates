@@ -207,10 +207,13 @@ export default function LiveOutputPanel({
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 2 }}>Quick Jump</div>
 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {groupLabels.map(label => {
-                  // Highlight by BASE label too: a live "Chorus (Part 2)" must
-                  // light the Chorus chip, not leave every chip dark.
-                  const liveBase = String(activeCue?.label || '').replace(/\s*\(Part\s+\d+\)\s*$/i, '');
-                  const on = liveBase === label;
+                  // Chips carry the cue's own label ("Chorus (Part 2)" included),
+                  // so highlight on EXACT match first — that is what lights the
+                  // parted slide you are standing on. The base-name fallback
+                  // covers labels that arrive without their part suffix.
+                  const liveLabel = activeCue?.label || '';
+                  const liveBase = liveLabel.replace(/\s*\(Part\s+\d+\)\s*$/i, '');
+                  const on = liveLabel === label || (liveBase !== '' && liveBase === label);
                   return (
                   <motion.button {...stubTap} key={label} onClick={() => {
                     // Labels here are BASE names ("Chorus") while split cues

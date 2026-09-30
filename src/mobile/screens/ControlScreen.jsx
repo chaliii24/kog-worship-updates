@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { SkipBack, SkipForward, Type, Square, RotateCcw, Music, Image, MonitorPlay, FileText, Smartphone, BookOpen } from 'lucide-react';
+import { SkipBack, SkipForward, Type, Square, RotateCcw, Music, Image, MonitorPlay, FileText, Smartphone, BookOpen, Clock, Play } from 'lucide-react';
 import { stubTap } from '../../lib/anim.js';
 import { stripMarkup } from '../../lib/lyrics';
+import { computeCountdown, DEFAULT_COUNTDOWN } from '../../components/CountdownFace.jsx';
 
 const clampText = (s, n) => {
   const t = String(s || '');
@@ -13,9 +14,13 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
   const ACCENT = T.ACCENT;
   const [now, setNow] = useState(Date.now());
 
-  // Tick only while a slide timer is actually running — a phone on an idle
-  // screen should not keep waking its CPU.
-  const timerRunning = !!(state?.timer?.start);
+  // Tick only while something visibly moves — a phone on an idle screen
+  // should not keep waking its CPU.
+  const cd = { ...DEFAULT_COUNTDOWN, ...(state?.countdown || {}) };
+  const cdLive = !!cd.live;
+  // Wall-clock preview ticks even idle (it IS the content); countdowns tick
+  // only while on air.
+  const timerRunning = !!(state?.timer?.start) || cdLive || cd.mode === 'clock';
   useEffect(() => {
     if (!timerRunning) return undefined;
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -46,6 +51,18 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
 
   const goLive = (id) => send('cue', { id });
   const goServiceItem = (id, liveNow) => send(liveNow ? 'serviceStop' : 'serviceGo', { id });
+
+  // Countdown control: same handlers as the desktop dock tab.
+  const cdSet = (patch) => send('countdownSet', patch);
+  const cdShown = computeCountdown(cd, now);
+  const cdOver = !!cdShown.over;
+  const cdMins = Math.floor((Number(cd.durationSec) || 0) / 60);
+  const cdSecs = (Number(cd.durationSec) || 0) % 60;
+  const cdCommitDuration = (m, s) => {
+    const mm = Math.max(0, Math.min(999, Math.floor(Number(m) || 0)));
+    const ss = Math.max(0, Math.min(59, Math.floor(Number(s) || 0)));
+    cdSet({ durationSec: mm * 60 + ss });
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh', paddingBottom: 'calc(158px + env(safe-area-inset-bottom))' }}>
@@ -110,6 +127,87 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
             </>
           ) : (
             <span style={{ fontSize: 13.5, color: C.faint }}>{state?.song ? 'End of song — press Next for the next item.' : 'No song loaded.'}</span>
+          )}
+        </div>
+
+        {/* ── COUNTDOWN ──────────────────────────────────────────────── */}
+        <div style={{ background: C.elevated, border: `1px solid ${cdLive ? 'rgba(34,197,94,0.5)' : C.border2}`, borderRadius: 16, padding: 14, position: 'relative', overflow: 'hidden' }}>
+          {cdLive && <span style={{ position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderRadius: 3, background: '#22c55e' }} />}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+            <Clock size={13} color={cdLive ? '#4ade80' : C.faint} />
+            <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1.6, textTransform: 'uppercase', color: C.faint }}>Countdown</span>
+            {cdLive && <span style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#4ade80', background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)', padding: '2px 7px', borderRadius: 6 }}>LIVE</span>}
+          </div>
+
+          <div style={{ fontSize: 12.5, fontWeight: 800, color: C.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cd.title || 'Countdown'}</div>
+          <div style={{ fontSize: 44, fontWeight: 900, color: cdOver && cd.overtime ? '#f87171' : C.text, fontVariantNumeric: 'tabular-nums', lineHeight: 1.15 }}>
+            {cdShown.display}{cdShown.suffix ? <span style={{ fontSize: 13, color: C.muted }}> {cdShown.suffix}</span> : null}
+          </div>
+          {cd.subtext ? <div style={{ fontSize: 12, color: C.muted, marginBottom: 2 }}>{cd.subtext}</div> : null}
+
+          <motion.button
+            {...stubTap}
+            onClick={() => send(cdLive ? 'countdownStop' : 'countdownGo')}
+            style={{
+              width: '100%', marginTop: 8, borderRadius: 11, padding: '12px 0', fontSize: 15, fontWeight: 900, cursor: 'pointer',
+              fontFamily: 'inherit', touchAction: 'manipulation', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+              background: cdLive ? 'rgba(239,68,68,0.16)' : '#10b981',
+              border: `1px solid ${cdLive ? 'rgba(239,68,68,0.5)' : '#10b981'}`,
+              color: cdLive ? '#f87171' : '#fff',
+            }}
+          >{cdLive ? <Square size={15} /> : <Play size={15} />} {cdLive ? 'Stop Timer' : 'Go Live'}</motion.button>
+
+          {/* Full config — mirrors the desktop tab (fonts/background stay desktop-side). */}
+          <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+            {[['duration', 'Duration'], ['target', 'Target'], ['clock', 'Clock']].map(([v, lbl]) => (
+              <button
+                key={v}
+                onClick={() => cdSet({ mode: v })}
+                style={{ flex: 1, borderRadius: 8, padding: '8px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: cd.mode === v ? ACCENT : C.elevated2, border: `1px solid ${cd.mode === v ? ACCENT : C.border2}`, color: cd.mode === v ? '#fff' : C.muted }}
+              >{lbl}</button>
+            ))}
+          </div>
+
+          {cd.mode === 'duration' && (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                <input key={`m-${cd.durationSec}`} type="number" min={0} max={999} defaultValue={cdMins} onBlur={(e) => cdCommitDuration(e.target.value, cdSecs)} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} inputMode="numeric" style={{ ...cdNum(C), textAlign: 'center' }} />
+                <span style={cdUnit(C)}>min</span>
+                <input key={`s-${cd.durationSec}`} type="number" min={0} max={59} defaultValue={cdSecs} onBlur={(e) => cdCommitDuration(cdMins, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} inputMode="numeric" style={{ ...cdNum(C), textAlign: 'center' }} />
+                <span style={cdUnit(C)}>sec</span>
+              </div>
+              <div style={{ display: 'flex', gap: 5, marginTop: 7 }}>
+                {[[60, '1m'], [180, '3m'], [300, '5m'], [600, '10m'], [900, '15m'], [1800, '30m']].map(([v, lbl]) => (
+                  <button key={v} onClick={() => cdSet({ durationSec: v })} style={{ flex: 1, borderRadius: 6, padding: '7px 0', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: Number(cd.durationSec) === v ? ACCENT : C.elevated2, border: `1px solid ${Number(cd.durationSec) === v ? ACCENT : C.border2}`, color: Number(cd.durationSec) === v ? '#fff' : C.muted }}>{lbl}</button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {cd.mode === 'target' && (
+            <input type="time" value={cd.targetTime || ''} onChange={(e) => cdSet({ targetTime: e.target.value })} style={{ ...cdNum(C), width: '100%', marginTop: 8, textAlign: 'center' }} />
+          )}
+
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            {[['both', 'Both'], ['main', 'Main'], ['stage', 'Stage']].map(([v, lbl]) => (
+              <button
+                key={v}
+                onClick={() => cdSet({ showOn: v })}
+                style={{ flex: 1, borderRadius: 8, padding: '8px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: cd.showOn === v ? ACCENT : C.elevated2, border: `1px solid ${cd.showOn === v ? ACCENT : C.border2}`, color: cd.showOn === v ? '#fff' : C.muted }}
+              >{lbl}</button>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <input key={`cdt-${cd.title || ''}`} defaultValue={cd.title || ''} onBlur={(e) => { if (e.target.value !== (cd.title || '')) cdSet({ title: e.target.value }); }} placeholder="Title" style={{ ...cdNum(C), flex: 1, minWidth: 0 }} />
+            <input key={`cds-${cd.subtext || ''}`} defaultValue={cd.subtext || ''} onBlur={(e) => { if (e.target.value !== (cd.subtext || '')) cdSet({ subtext: e.target.value }); }} placeholder="Subtext" style={{ ...cdNum(C), flex: 1, minWidth: 0 }} />
+          </div>
+
+          {cd.mode !== 'clock' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 9, fontSize: 12, fontWeight: 700, color: C.text2, cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!cd.overtime} onChange={(e) => cdSet({ overtime: e.target.checked })} />
+              Overtime past 0:00
+            </label>
           )}
         </div>
 
@@ -223,8 +321,14 @@ function ServiceRow({ item, C, ACCENT, onGo }) {
   );
 }
 
-const railBtn = (C) => ({
-  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+const cdNum = (C) => ({
+  background: C.elevated2, border: `1px solid ${C.border2}`, borderRadius: 8,
+  color: C.text, fontSize: 13, fontWeight: 800, padding: '9px 8px', outline: 'none',
+  fontFamily: 'inherit', minWidth: 0,
+});
+const cdUnit = (C) => ({ fontSize: 11, color: C.faint, fontWeight: 700 });
+
+const railBtn = (C) => ({  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
   height: 46, borderRadius: 11, cursor: 'pointer', fontFamily: 'inherit',
   fontSize: 13, fontWeight: 800, touchAction: 'manipulation',
   border: `1px solid ${C.border2}`, background: C.elevated2, color: C.text2,

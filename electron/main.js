@@ -47,6 +47,16 @@ import {
 import { createLanServer } from './lanServer.js';
 import { status as decklinkStatus, listDevices as decklinkListDevices, start as decklinkStart, stop as decklinkStop } from './decklink.js';
 
+// Dead-pipe guard: when the parent stdio goes away (killed terminal, dead
+// automation harness, orphaned second copy), the next log write throws
+// EPIPE:BROKEN PIPE as an uncaught main-process exception — the "A JavaScript
+// error occurred in the main process" dialog. Swallow stream errors on stdio
+// so logging can never crash the app; every other exception path is untouched
+// and still surfaces normally.
+for (const s of [process.stdout, process.stderr]) {
+  try { s.on('error', () => {}); } catch {}
+}
+
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -186,7 +196,6 @@ function serveFileProtocol(rootDir, request) {
   const mime = mediaMime(fileName);
   const rangeHeader = request.headers.get('Range');
   if (rangeHeader) {
-    const total = size;
     // Suffix range (bytes=-500): the LAST 500 bytes. Some players probe this
     // way; the old regex missed it and answered 206 with the FULL body.
     const suffix = /bytes=-(\d+)/.exec(rangeHeader);

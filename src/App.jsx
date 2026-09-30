@@ -436,7 +436,7 @@ export default function App() {
   // from the database into the app. A cue saved by an older build can carry a
   // box that no longer fits its text (the pre-measurement fitter under-counted
   // wraps on wide faces), and the renderer's shrink pass then quietly draws
-  // 140 as ~100 — Size says 140, the canvas shows something smaller, and only
+  // 120 as ~100 — Size says 120, the canvas shows something smaller, and only
   // retyping used to snap it back. Same repair as typing (growBoxToText), run
   // on load: any cue whose text needs more height gets its box fitted at the
   // cue's OWN size. Nothing ever shrinks (hand-placed boxes keep their
@@ -1571,25 +1571,26 @@ export default function App() {
     setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
   }, [activeCue, activeSong, targetedDisplays, displays, resolutionStyle]);
 
-  const fireTitleLive = () => {
-    if (!activeSong) return;
+  const fireTitleLive = (songOverride) => {
+    const song = songOverride || activeSong;
+    if (!song) return;
     liveBibleRef.current = null;
     liveBibleSrcRef.current = null;
-    const titleCue = activeSong.title_cue || { id: 'title-card', label: 'Song Title', text: activeSong.title, box: { x: 80, y: 140, w: 1120, h: 440 }, size: DEFAULT_LYRIC_SIZE, align: 'center', color: '#ffffff' };
+    const titleCue = song.title_cue || { id: 'title-card', label: 'Song Title', text: song.title, box: { x: 80, y: 140, w: 1120, h: 440 }, size: DEFAULT_LYRIC_SIZE, align: 'center', color: '#ffffff' };
     setActiveCue(titleCue);
     setSlideTimer({ start: Date.now(), elapsed: 0, duration: 0 });
     const effectiveStyle = resolutionStyle(titleCue);
     const slidePayload = { 
-      title: activeSong.artist || '', 
-      artist: activeSong.artist || '',
-      text: titleCue.text || activeSong.title,
+      title: song.artist || '', 
+      artist: song.artist || '',
+      text: titleCue.text || song.title,
       label: 'Song Title',
       // resolutionStyle keeps the global cue default at 'none' so ordinary
       // lyrics stay a crisp cut. Titles are a different moment — coming out of
       // Service Order standby they must dissolve in, not pop. Same rule the
       // Show Builder already uses (builderGoLive).
       style: { ...effectiveStyle, transition: titleCue.anim || 'fade' },
-      audio: activeSong.audio_url || null,
+      audio: song.audio_url || null,
       timestamp: liveStamp() 
     };
     setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
@@ -1597,10 +1598,10 @@ export default function App() {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('update-live-slide', slidePayload);
     }
-    const nextCue = activeSong.cues && activeSong.cues.length > 0 ? activeSong.cues[0] : null;
+    const nextCue = song.cues && song.cues.length > 0 ? song.cues[0] : null;
     sendStageData(
-      { title: slidePayload.title, label: 'Song Title', text: activeSong.title, timestamp: slidePayload.timestamp },
-      nextCue ? { title: activeSong.title, label: nextCue.label, text: nextCue.text } : null
+      { title: slidePayload.title, label: 'Song Title', text: song.title, timestamp: slidePayload.timestamp },
+      nextCue ? { title: song.title, label: nextCue.label, text: nextCue.text } : null
     );
   };
 
@@ -1706,7 +1707,20 @@ export default function App() {
   // `undefined === undefined` would light up every id-less row at once.
   const genServiceItemId = () => `si-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-  const fireServiceItemLive = (item) => {
+  // Song-id matching, in ONE place. Service rows round-trip through a TEXT
+  // column, and old plans carry float strings like "42.0" for song 42 — so
+  // neither === nor String() compares match. Numeric-aware: "42", 42 and
+  // "42.0" all name song 42; UUIDs still compare as strings (Number() is NaN).
+  const sameSongId = (a, b) => {
+    if (a == null || b == null) return false;
+    if (String(a) === String(b)) return true;
+    if (String(a).trim() === '' || String(b).trim() === '') return false;
+    const na = Number(a);
+    const nb = Number(b);
+    return Number.isFinite(na) && Number.isFinite(nb) && na === nb;
+  };
+
+  const fireServiceItemLive = async (item) => {
     if (item && item.id == null) item.id = genServiceItemId();
     liveBibleRef.current = (item.meta && item.meta.kind === 'bible') ? item : null;
     liveBibleSrcRef.current = (item.meta && item.meta.kind === 'bible') ? (item.meta.source || null) : null;
@@ -1715,6 +1729,16 @@ export default function App() {
         // Output already shows something: stage this song's background first.
         // A black/cleared output just loads the song, as before.
         stageSongBackground(item.content);
+      } else if (window.require) {
+        // Black output: Go means GO — load the song AND fire its title, so
+        // the room sees it at once and the row flips to Stop. (Staging first
+        // only matters when something is already on air to dissolve from.)
+        const { ipcRenderer } = window.require('electron');
+        const seq = ++songLoadSeqRef.current;
+        const details = repairSongBoxes(await ipcRenderer.invoke('db-get-song-details', item.content));
+        if (!details || seq !== songLoadSeqRef.current) return;
+        setActiveSong(details);
+        fireTitleLive(details);
       } else {
         selectSong(item.content);
       }
@@ -1926,9 +1950,9 @@ export default function App() {
   const serviceOrderCount = () => (activeService?.items || []).filter(i => i.item_type !== 'section_header').length;
   const serviceSlideCount = (item) => {
     if (item.item_type === 'song') {
-      // String compare: content round-trips through a TEXT column, so a
-      // reloaded plan holds "8" where the library holds 8.
-      const song = songs.find(s => String(s.id) === String(item.content));
+      // Numeric-aware match (see sameSongId): reloaded plans hold "42.0"
+      // where the library holds 42.
+      const song = songs.find(s => sameSongId(s.id, item.content));
       // +1 for the title card: firing starts there (fireTitleLive), and the
       // grid/builder both count it — the badge used to read one short.
       return song ? (song.cues || []).length + 1 : 0;
@@ -1958,9 +1982,7 @@ export default function App() {
     const items = (activeService?.items || []).filter(Boolean);
     if (!items.length || !activeCue || activeCue.id === 'clear') return null;
     const songRow = () => (activeSong
-      // String compare: song ids may be numeric or UUIDs — Number(uuid) is
-      // NaN and never matched, so the live row/highlight silently broke.
-      ? items.find(i => i.item_type === 'song' && String(i.content) === String(activeSong.id))
+      ? items.find(i => i.item_type === 'song' && sameSongId(i.content, activeSong.id))
       : null) || null;
     // Standby / title slide only ever come from a song.
     if (activeCue.id === 'standby' || activeCue.id === 'title-card') return songRow();
@@ -2591,6 +2613,22 @@ export default function App() {
         stopServiceItemLive(item);
         return true;
       },
+      // Full countdown control from the phone: same handlers as the dock tab.
+      countdownGo: () => { fireCountdownLive(); return true; },
+      countdownStop: () => { stopCountdownLive(); return true; },
+      countdownSet: (patch) => {
+        if (!patch || typeof patch !== 'object') return false;
+        const clean = {};
+        for (const k of ['title', 'subtext', 'mode', 'durationSec', 'targetTime', 'showOn', 'overtime', 'titleSize', 'timeSize', 'subtextSize']) {
+          if (patch[k] !== undefined) clean[k] = patch[k];
+        }
+        // `live` never travels in: timing stays owned by Go/Stop.
+        if (clean.mode && !['duration', 'target', 'clock'].includes(clean.mode)) delete clean.mode;
+        if (clean.showOn && !['both', 'main', 'stage'].includes(clean.showOn)) delete clean.showOn;
+        if (clean.durationSec !== undefined) clean.durationSec = Math.max(0, Math.floor(Number(clean.durationSec) || 0));
+        setCountdown((prev) => ({ ...DEFAULT_COUNTDOWN, ...(prev || {}), ...clean }));
+        return true;
+      },
     };
   });
 
@@ -2655,12 +2693,38 @@ export default function App() {
         elapsed: slideTimer?.elapsed ?? 0,
         duration: slideTimer?.duration ?? 0,
       },
+      countdown: countdown ? {
+        title: countdown.title || '',
+        subtext: countdown.subtext || '',
+        mode: countdown.mode || 'duration',
+        durationSec: Number(countdown.durationSec) || 0,
+        targetTime: countdown.targetTime || '',
+        showOn: countdown.showOn || 'both',
+        overtime: !!countdown.overtime,
+        titleSize: Number(countdown.titleSize) || 64,
+        timeSize: Number(countdown.timeSize) || 360,
+        subtextSize: Number(countdown.subtextSize) || 40,
+        live: countdown.live ? { endsAt: countdown.live.endsAt ?? null, startedAt: countdown.live.startedAt ?? null } : null,
+      } : null,
     };
     ipcRenderer.send('mobile-state', snap);
   };
   pushMobileRef.current = pushMobileState;
 
-  useEffect(() => { pushMobileState(); }, [currentSlide, displays, activeSong, activeCue, activeService, slideTimer, themeDark, targetedDisplays]);
+  useEffect(() => { pushMobileState(); }, [currentSlide, displays, activeSong, activeCue, activeService, slideTimer, themeDark, targetedDisplays, countdown]);
+
+  // Auto-stop: a live non-overtime timer ends itself at zero (blackout +
+  // stage clear, same as the Stop button) instead of sitting on 0:00 until
+  // someone notices. Wall-clock mode never ends; overtime counts past it.
+  useEffect(() => {
+    if (isOutputWindow || !window.require) return undefined;
+    const live = countdown?.live;
+    if (!live || (countdown?.mode !== 'duration' && countdown?.mode !== 'target')) return undefined;
+    if (countdown?.overtime || live.endsAt == null) return undefined;
+    const wait = Math.max(0, live.endsAt - Date.now());
+    const id = setTimeout(() => { stopCountdownLive(); }, wait);
+    return () => clearTimeout(id);
+  }, [countdown?.live, countdown?.mode, countdown?.overtime]);
 
   useEffect(() => {
     if (isOutputWindow || !window.require) return;
@@ -3619,7 +3683,7 @@ export default function App() {
     baseGroupLabel, nextSuffixLetter, splitCueAtTextareaCaret, reorderCues,
     startBoxDrag, onStagePointerMove, endBoxDrag, ToolbarBtn, cueLyricStyle, handleSaveSong,
     previewAnimation,
-    fireCountdownLive, stopCountdownLive, countdown, setCountdown,
+    fireCountdownLive, stopCountdownLive, countdown, setCountdown, sameSongId,
     handleDeleteSong, handleToggleFavorite, handleExport, handleImport, serviceSections, thumbBg, resolveBg,
     activeSlideIndex, groupLabels, slideGrid, renderSlideFace, applyMediaToActiveSong, importMediaAsset, removeMediaAsset,
     toggleAudioPreview, clearSongAudio, refreshBibleLib, formatBibleVerse, buildBiblePayload, queueBibleServiceSlide,

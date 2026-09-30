@@ -113,6 +113,22 @@ try { db.exec(`ALTER TABLE services ADD COLUMN resolution TEXT DEFAULT '1920x108
 try { db.exec(`ALTER TABLE cues ADD COLUMN style_json TEXT;`); } catch (_) {}
 // Editable title slide (box, font, size, color, ...) stored on the song.
 try { db.exec(`ALTER TABLE songs ADD COLUMN title_cue_json TEXT;`); } catch (_) {}
+// Heal float-string song refs ("42.0" for song 42) left by older writes.
+// Readers tolerate them now (sameSongId), but clean rows keep every fast path
+// working; non-numeric refs (future UUIDs) are never touched.
+try {
+  const rows = db.prepare("SELECT id, content FROM service_items WHERE item_type = 'song'").all();
+  const fix = db.prepare('UPDATE service_items SET content = ? WHERE id = ?');
+  const heal = db.transaction(() => {
+    for (const r of rows) {
+      if (r.content == null || String(r.content).trim() === '') continue;
+      const n = Number(r.content);
+      if (!Number.isInteger(n)) continue;
+      if (String(r.content) !== String(n)) fix.run(String(n), r.id);
+    }
+  });
+  heal();
+} catch (_) {}
 
 const safeParse = (raw) => { try { return raw ? JSON.parse(raw) : null; } catch (_) { return null; } };
 // Cue columns that live in their own columns; everything else belongs in style_json.
@@ -371,6 +387,15 @@ export function saveServicePlan(serviceData) {
   const ratio = serviceData.ratio || '16:9';
   const resolution = serviceData.resolution || '1920x1080';
   const insertItem = db.prepare('INSERT INTO service_items (service_id, item_type, title, subtitle, content, sort_order, duration, media_url, media_type, extra_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  // Song refs must be clean integers: old plans carry float strings like
+  // "42.0" (which no === or String() compare matches), so normalize here —
+  // once — instead of in every reader. Non-numeric ids (future UUIDs) pass
+  // through untouched.
+  const songRef = (item) => {
+    if (item.item_type !== 'song' || item.content == null || String(item.content).trim() === '') return item.content || '';
+    const n = Number(item.content);
+    return Number.isFinite(n) ? Math.trunc(n) : item.content;
+  };
   const runInsert = (serviceId, item, idx) => insertItem.run(
     serviceId,
     item.item_type,
@@ -378,7 +403,7 @@ export function saveServicePlan(serviceData) {
     item.subtitle || '',
     item.item_type === 'media'
       ? JSON.stringify({ media_url: item.media_url || null, media_type: item.media_type || 'image' })
-      : (item.content || ''),
+      : (item.item_type === 'song' ? String(songRef(item)) : (item.content || '')),
     idx + 1,
     item.duration || 0,
     item.media_url || null,

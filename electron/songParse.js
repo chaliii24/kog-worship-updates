@@ -13,16 +13,14 @@
 //      is labelled Chorus. A single wall of text with no blank lines is
 //      chunked linesPerSlide lines at a time.
 //
-// WIDENED SCOPE (offline-regex pass): chart metadata ([Capo 2], "Key: G",
-// "120 BPM", © lines, site chrome like a lone "Lyrics"/"Embed") is dropped
-// instead of becoming slide labels; lyrics-site junk is pre-cleaned
-// (timestamps [00:12.34], "1." list numbers, markdown ##/** wrappers,
-// "(x2)" notes); section types Rap/Spoken/Build/Vamp/Break were added;
-// chord shapes grew (Em7b5, G7sus4, C(maj7), Cmaj7#11, N.C.); and the
-// headerless chorus heuristic now compares stanzas LOOSELY (punctuation,
-// annotations, trailing vocables) and scores repeats by frequency, then
-// brevity, then non-opening position — fixing the identical-verse swap
-// where V C V C labelled the verse as Chorus.
+// WIDENED SCOPE (offline-regex pass 2): shorthand headers (V1/C/Br/PC),
+// ordinals (1st/first/II/End/Final Chorus), headers with inline content
+// ("Chorus: …"), title blocks ("Artist - Title"), metadata (CCLI/Album/Genre,
+// tabbed-by/subscribe/Key-change/capo-fret/Title:/Artist:), trailing LRC
+// timestamps, count-in digit lines, (Repeat)/speaker roles (All:/Men:),
+// instrument solos, wider number separators (No 2, Verse.1, Chorus – 2),
+// and walls of text split at a repeated anchor line into Verse/Chorus via
+// the normal stanza machinery.
 //
 // Chord stripping is GATED on the text actually looking like a chart
 // (standalone chord rows / inline chord pairs), so pure lyrics are never
@@ -55,14 +53,18 @@ const PAREN_CHORD_RE = new RegExp('\\(' + CHORD_BODY + '\\)', 'g');
 // fall through untouched: value-shaped branches require a real chord/
 // number after the keyword, and bare keywords only match the whole line.
 const META_RE = new RegExp('^(?:' + [
-  'capo(?:\\s*[:=]?\\s*\\d{1,2})?\\s*(?:\\(.*\\))?',        // Capo 2 · Capo: 2
+  'capo(?:\\s*[:=]?\\s*\\d{1,2}(?:st|nd|rd|th)?)?\\s*(?:fret)?\\s*(?:\\(.*\\))?$', // Capo 2 · Capo: 2 · Capo 3rd fret
   '(?:original\\s+)?key\\s*(?:of|:|=)\\s*[a-g][#b]?(?:\\s*(?:m|min|minor|maj|major))?(?:\\s*[/,;-].*)?', // Key: G · Key of F#m
   '(?:tempo|speed)(?:\\s*bpm)?\\s*[:.=]?\\s*\\d{1,3}\\b.*', // Tempo: 120
   '\\d{2,3}\\s*(?:b\\.?p\\.?m\\.?)\\b.*',                   // 120 BPM
   '(?:time\\s*(?:signature)?|sig(?:nature)?)\\s*[:=]\\s*\\d+\\s*/\\s*\\d+.*', // Time: 4/4
   '\\d+\\s*/\\s*\\d+\\s*(?:time|signature)?',                // 4/4
   'tuning\\s*[:=].*',                                       // Tuning: Standard
-  '(?:written|composed|arranged|lyrics|chords)\\s+by\\s+.*',
+  'key\\s+change.*', 'modulat.*',                           // Key change up · Modulate to A
+  '(?:written|composed|arranged|lyrics?|chords?|words?(?:\\s*&\\s*music)?|music)\\s+by\\s+.*',
+  '(?:artist|title|song)\\s*[:=]\\s*.+',                    // Artist: Sinach · Title: Way Maker
+  'ccli\\s*#?\\s*[\\w-]+.*',                                // CCLI #12345
+  '(?:album|genre|year|released|writer|producer|label|recorded|tabbed\\s+by|requested\\s+by|dmca|subscribe|like\\s+.*subscribe|follow\\s+(?:us|me|for\\s+more)).*',
   '(?:©|℗).*', 'copyright\\b.*', 'all\\s+rights\\s+reserved.*',
   '(?:made\\s+popular\\s+by|originally\\s+(?:by|performed\\s+by)).*',
   // whole-line site chrome / panel titles, with or without a trailing colon
@@ -77,7 +79,8 @@ const SECTION_CANON = {
   'pre-chorus': 'Pre-Chorus', prechorus: 'Pre-Chorus',
   'post-chorus': 'Post-Chorus', postchorus: 'Post-Chorus',
   refrain: 'Refrain', bridge: 'Bridge', hook: 'Hook', tag: 'Tag',
-  intro: 'Intro', outro: 'Outro', ending: 'Ending', interlude: 'Interlude',
+  intro: 'Intro', outro: 'Outro', ending: 'Ending', end: 'Ending',
+  interlude: 'Interlude',
   instrumental: 'Instrumental', breakdown: 'Breakdown', solo: 'Solo',
   turnaround: 'Turnaround', link: 'Link', coda: 'Coda',
   'ad-lib': 'Ad-Lib', adlib: 'Ad-Lib',
@@ -88,15 +91,26 @@ const SECTION_CANON = {
 // lyric line. Everything after the keyword still has to be a number /
 // word-number / single letter / (x2) — which is what keeps lyric lines
 // like "Break every chain" or "Build me up" or "Rapunzel" safe.
-const SECTION_RE = /^(verse|chorus|pre[-\s]?chorus|post[-\s]?chorus|refrain|bridge|hook|tag|intro|outro|ending|interlude|instrumental|breakdown|break|solo|turnaround|link|coda|ad[-\s]?lib|rap|spoken|build|vamp)(.*)$/i;
-const WORD_NUM = { one: '1', two: '2', three: '3', four: '4', five: '5', six: '6' };
+const SECTION_RE = /^(verse|chorus|pre[-\s]?chorus|post[-\s]?chorus|refrain|bridge|hook|tag|intro|outro|end(?:ing)?|interlude|instrumental|breakdown|break|solo|turnaround|link|coda|ad[-\s]?lib|rap|spoken|build|vamp)(.*)$/i;
+// Shorthand charts: V1, C2, V, C, Ch, Br, PC. A whole line that is ONLY one
+// of these (plus optional number) is a header on every chord/lyric site —
+// and no real lyric line is a lone "C".
+const SHORT_CANON = { v: 'Verse', c: 'Chorus', ch: 'Chorus', br: 'Bridge', pc: 'Pre-Chorus' };
+const SHORT_RE = /^(v|c|ch|br|pc)\s*(\d*)$/i;
+const WORD_NUM = { one: '1', two: '2', three: '3', four: '4', five: '5', six: '6', first: '1', second: '2', third: '3', fourth: '4', fifth: '5', sixth: '6' };
+const ROMAN_NUM = { i: '1', ii: '2', iii: '3', iv: '4', v: '5', vi: '6' };
+const NUM_SEP = '[-\\s:.–—]*';
 
 /**
  * "Verse 1" / "[Chorus]" / "pre chorus:" / "Bridge (x2)" → canonical label.
  * Returns null for anything that is not a section (crucially, ordinary
  * lyric lines like "Bridge over troubled water" must NOT become headers).
+ *
+ * `allowBare` gates single-letter shorthand ("V" / "C" with no number): a
+ * lone "C" is only a header when the paste proves it speaks that shorthand
+ * (another section header elsewhere). Without context it stays a lyric line.
  */
-export function sectionLabel(str) {
+export function sectionLabel(str, allowBare = false) {
   let s = String(str || '').trim();
   if (!s) return null;
   // "[Verse 1]" → unwrap a fully-wrapped string; "Chorus (x2)" → drop only
@@ -105,6 +119,35 @@ export function sectionLabel(str) {
   else s = s.replace(/[(\[][^)\]]*[)\]]\s*$/, '').trim();
   s = s.replace(/[\s:：.\-]+$/, '').trim();
   if (!s) return null;
+  // "Final Chorus" / "Last Verse" — the modifier carries no numbering, drop it.
+  s = s.replace(/^(?:final|last)\s+(?=[a-z])/i, '').trim();
+  if (!s) return null;
+  // Leading numbers ("1st Verse", "2 Chorus", "1. Verse"): the count belongs
+  // to the header that follows. If the rest already carries its own number
+  // ("1 Verse 2") the rest wins — it sits closer to the keyword. A bare
+  // lyric that merely starts with digits ("1 Amazing grace") never parses
+  // as a section, so it falls straight through.
+  const lead = /^(\d+)(?:st|nd|rd|th)?[.)]?\s+(.+)$/.exec(s);
+  if (lead) {
+    const sec = sectionLabel(lead[2], allowBare);
+    if (sec) return /\d$/.test(sec) ? sec : `${sec} ${lead[1]}`;
+  }
+  // Shorthand ("V1", "C", "Br2", "PC") before the full-word match.
+  // Numbered shorthand is unambiguous anywhere; a BARE single letter needs
+  // the caller to have seen section context (allowBare).
+  const sh = SHORT_RE.exec(s);
+  if (sh) {
+    const sk = sh[1].toLowerCase();
+    if (!sh[2] && (sk === 'v' || sk === 'c') && !allowBare) {
+      // fall through: lyric until proven shorthand
+    } else {
+      const canon = SHORT_CANON[sk];
+      return sh[2] ? `${canon} ${parseInt(sh[2], 10)}` : canon;
+    }
+  }
+  // "Guitar Solo" — the instrument is decoration, the section is the Solo.
+  s = s.replace(/^(?:guitar|piano|bass|drums?|strings?)\s+(?=solo$)/i, '').trim();
+  if (!s) return null;
   const m = SECTION_RE.exec(s);
   if (!m) return null;
   let rest = (m[2] || '').trim();
@@ -112,10 +155,12 @@ export function sectionLabel(str) {
   const label = SECTION_CANON[m[1].toLowerCase().replace(/\s+/g, '-')];
   if (!label) return null;
   if (!rest) return label;
-  const num = /^[-\s]*(?:no\.?|#|part)?[-\s]*(\d+)$/.exec(rest);
+  const num = new RegExp('^' + NUM_SEP + '(?:no\\.?|#|part)?' + NUM_SEP + '(\\d+)(?:st|nd|rd|th)?$').exec(rest);
   if (num) return `${label} ${num[1]}`;
-  const word = /^[-\s]*(one|two|three|four|five|six)$/i.exec(rest);
+  const word = new RegExp('^' + NUM_SEP + '(one|two|three|four|five|six|first|second|third|fourth|fifth|sixth)$', 'i').exec(rest);
   if (word) return `${label} ${WORD_NUM[word[1].toLowerCase()]}`;
+  const roman = new RegExp('^' + NUM_SEP + '(i|ii|iii|iv|v|vi)$', 'i').exec(rest);
+  if (roman) return `${label} ${ROMAN_NUM[roman[1].toLowerCase()]}`;
   if (/^[a-d]$/i.test(rest)) return `${label} ${rest.toUpperCase()}`;
   return null;
 }
@@ -251,6 +296,69 @@ export function parseSongBlocks(rawText, linesPerSlide = 4) {
   const rawLines = original.split('\n');
   const splitN = Math.max(1, Math.floor(Number(linesPerSlide) || 4));
 
+  // Title block: many pastes open with "Artist - Title" (UG: "Sinach - Way
+  // Maker") or "Title by Author" then a blank line. That opener is metadata
+  // for the title field, not a lyric — but ONLY when short on both sides and
+  // a blank line + more content follow. An ASCII hyphen additionally requires
+  // Title Case both sides, so a lyric opener like "Hallelujah - my soul
+  // sings" (lowercase tail) survives; en/em dashes are almost never lyric
+  // pauses on line one. Same guards for the "by" form (author Title Cased).
+  const skipIdx = new Set();
+  {
+    let i = 0;
+    while (i < rawLines.length && !rawLines[i].trim()) i++;
+    const first = (rawLines[i] || '').trim();
+    const titleCased = (s) => {
+      const toks = s.split(/\s+/).filter(Boolean);
+      return toks.length > 0 && toks.every((t) => {
+        const m = /[a-zA-Z]/.exec(t);
+        return !m || m[0] === m[0].toUpperCase();
+      });
+    };
+    const dm = /^(.*?)\s+([–—]|-)\s+(.*?)$/.exec(first);
+    const bym = /^(.*?)\s+[Bb][Yy]\s+(.*?)$/.exec(first);
+    let isTitle = false;
+    if (dm) {
+      const a = dm[1].trim(), b = dm[3].trim();
+      if (a && b && a.length <= 60 && b.length <= 60
+        && (dm[2] !== '-' || (titleCased(a) && titleCased(b)))) {
+        let j = i + 1;
+        while (j < rawLines.length && !rawLines[j].trim()) j++;
+        if (j > i + 1 && j < rawLines.length) skipIdx.add(i);
+      }
+    }
+    if (!skipIdx.has(i)) {
+      // "Amazing Grace by John Newton": same guards, author Title Cased.
+      const by = /^(.*?)\s+[Bb][Yy]\s+(.*?)$/.exec(first);
+      if (by) {
+        const w = by[1].trim(), au = by[2].trim();
+        if (w && au && w.length <= 60 && au.length <= 40 && titleCased(au)) {
+          let j = i + 1;
+          while (j < rawLines.length && !rawLines[j].trim()) j++;
+          if (j > i + 1 && j < rawLines.length) skipIdx.add(i);
+        }
+      }
+    }
+  }
+
+  // Whole-paste shorthand context: a bare "V" / "C" line is only a header
+  // when something else in the paste already speaks sections (full keyword
+  // or numbered shorthand). Without that proof it stays lyric — this is the
+  // file's core discipline (ambiguous falls through), applied to lone letters.
+  const probeHeader = (ln) => {
+    const t = String(ln || '').trim()
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^\s*[([]?\d{1,2}[.)][)\]]?\s+/, '');
+    if (/^[(\[][^)\]]*[)\]]$/.test(t)) {
+      const inner = t.slice(1, -1).trim();
+      // Bracketed single chords ("[C]") are notation, never context.
+      if (/^([A-G][#b]?(?:m|min|maj|dim|aug|sus|add)?[0-9]*)$/.test(inner)) return false;
+      return sectionLabel(inner, false) !== null;
+    }
+    return sectionLabel(t, false) !== null;
+  };
+  const allowBare = rawLines.some(probeHeader);
+
   // Pass 1 — does this look like a chord chart? Only then do we risk
   // stripping chord-shaped WORDS out of the lyrics.
   let strong = 0, weak = 0, inline = 0;
@@ -266,7 +374,9 @@ export function parseSongBlocks(rawText, linesPerSlide = 4) {
   const items = []; // {t:'blank'} | {t:'label',v} | {t:'text',v}
   let sawHeader = false;
 
-  for (const raw of rawLines) {
+  for (let li = 0; li < rawLines.length; li++) {
+    if (skipIdx.has(li)) continue;
+    const raw = rawLines[li];
     let line = raw.trim();
     if (!line) {
       if (items.length && items[items.length - 1].t !== 'blank') items.push({ t: 'blank' });
@@ -274,11 +384,13 @@ export function parseSongBlocks(rawText, linesPerSlide = 4) {
     }
 
     // --- Pre-clean: junk that wraps or precedes real content on lyrics
-    // sites. Timestamps ([00:12.34] / LRC), numbered-list verse markers
-    // ("1. Amazing grace", "(2) Great are You", "[3] …"), markdown fences
-    // ("## Verse 1") and bold wrappers ("**Chorus**"). A line that becomes
-    // empty is dropped WITHOUT a blank marker so it never splits a stanza.
+    // sites. Timestamps ([00:12.34] / LRC, leading or trailing), numbered-list
+    // verse markers ("1. Amazing grace", "(2) Great are You", "[3] …"),
+    // markdown fences ("## Verse 1") and bold wrappers ("**Chorus**"). A line
+    // that becomes empty is dropped WITHOUT a blank marker so it never
+    // splits a stanza.
     line = line.replace(/^\s*[([]?\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]?\s*/, '');
+    line = line.replace(/\s*[([]\d{1,2}:\d{2}(?:[.:]\d{1,3})?[)\]]\s*$/, '');
     line = line.replace(/^\s*[([]?\d{1,2}[.)][)\]]?\s+(?=\S)/, '');
     line = line.replace(/^\s*\[\d{1,2}\]\s+/, '');
     if (!line) continue;
@@ -293,12 +405,25 @@ export function parseSongBlocks(rawText, linesPerSlide = 4) {
       ? line.slice(1, -1).trim() : line;
     if (META_RE.test(probe)) continue;
 
+    // --- (Repeat) / (Repeat Chorus): a direction, not a lyric. With a
+    // section it opens that section; bare it is dropped outright.
+    const rep = /^\(?\s*repeat\s*(?:(?:the\s+)?(chorus|verse|bridge|refrain)\s*)?\)?$/i.exec(line);
+    if (rep) {
+      if (rep[1]) { sawHeader = true; items.push({ t: 'label', v: SECTION_CANON[rep[1].toLowerCase()] }); }
+      continue;
+    }
+
+    // --- Speaker roles ("All:", "Men:"): sheet directions. The tag is
+    // dropped, the words stay a lyric line.
+    const role = /^(all|men|women|choir|leader|everyone|congregation|soloist)\s*:\s*(.+)$/i.exec(line);
+    if (role && role[2].trim()) line = role[2].trim();
+
     // --- Section markers: [Verse 1], (Chorus), CHORUS, Verse 1: ---
     const sq = line.startsWith('[') && line.endsWith(']');
     const pr = !sq && line.startsWith('(') && line.endsWith(')');
     if (sq || pr) {
       const inner = line.slice(1, -1).trim();
-      const sec = sectionLabel(inner);
+      const sec = sectionLabel(inner, allowBare);
       if (sec) { sawHeader = true; items.push({ t: 'label', v: sec }); continue; }
       if (sq) {
         // Bracket-only chords ("[C] [G]") are notation, not a title — drop.
@@ -312,20 +437,39 @@ export function parseSongBlocks(rawText, linesPerSlide = 4) {
       // Non-section "(…)" text falls through as an ordinary lyric line,
       // e.g. "(Oh no)" must never become a section called "Oh no".
     } else {
-      const sec = sectionLabel(line);
+      const sec = sectionLabel(line, allowBare);
       if (sec) { sawHeader = true; items.push({ t: 'label', v: sec }); continue; }
       if (line.endsWith(':') && line.length < 25) {
         const lab = normalizeGeneric(line.replace(/[:：]+$/, ''));
         if (lab) { sawHeader = true; items.push({ t: 'label', v: lab }); continue; }
       }
+      // Inline header ("Chorus: Amazing grace", "Verse 1 - Hallelujah"): the
+      // head parses as a section AND a colon/dash separates it from real
+      // words, so split — the label opens the section, the tail stays lyric.
+      // A lyric colon ("Amazing: grace how sweet") never splits because its
+      // head is not a section.
+      const inline = /^(.*?)\s*[:：]\s*(.+)$/.exec(line) || /^(.*?)\s+[–—-]\s*(.+)$/.exec(line);
+      if (inline && inline[2].length > 3) {
+        const head = sectionLabel(inline[1], allowBare);
+        if (head) {
+          sawHeader = true;
+          items.push({ t: 'label', v: head });
+          // Continue below with the tail: it still gets noise/chord cleaning
+          // like any lyric line (it just skips re-entering header checks).
+          line = inline[2].trim();
+        }
+      }
     }
 
-    // --- Noise: tab rhythm rows, decoration rules, repeat notes and
-    // bare list markers ("1." / "(2)" lines with no text after them).
+    // --- Noise: tab rhythm rows, decoration rules, repeat notes, count-ins
+    // ("1 2 3 4", "1,2,3") and bare list markers ("1." / "(2)" lines with no
+    // text after them). A whole line of only digits is a count-in on a chord
+    // sheet, never a lyric.
     if (/^[a-g]?[\|*]?[\s\-0-9\|]{4,}$/.test(line)) continue;
     if (/^[\s│|·•*_=+#~-]+$/.test(line)) continue;
     if (/^x\s*\d+$/i.test(line) || /^[([]\s*x\s*\d+\s*[)\]]$/i.test(line)) continue;
     if (/^[([]?\d{1,2}[.)][)\]]?$/.test(line)) continue;
+    if (/^\d[\d,\s/]*$/.test(line)) continue;
 
     // --- Chord rows only disappear inside a chart ---
     const kind = chordLineKind(line);
@@ -364,6 +508,40 @@ export function parseSongBlocks(rawText, linesPerSlide = 4) {
     if (stanzas.length === 0) return whole();
     if (stanzas.length === 1) {
       const lines = stanzas[0];
+      // A wall of text with a repeated line ("Hallelujah" ×3) is usually
+      // verses around a chorus: split at each repeat and let the normal
+      // stanza machinery (repeat → Chorus) label them, instead of blindly
+      // chunking everything "Verse 1 (Part n)". Needs 2+ occurrences of a
+      // substantial line; anything else falls through to chunking.
+      const freq = new Map();
+      for (const l of lines) {
+        const k = l.trim().toLowerCase();
+        if (k.length > 3) freq.set(k, (freq.get(k) || 0) + 1);
+      }
+      let anchor = null, best = 1;
+      for (const [k, n] of freq) {
+        if (n > best || (n === best && anchor === null)) { best = n; anchor = k; }
+      }
+      if (anchor) {
+        const blocks = [];
+        let cur = [];
+        for (const l of lines) {
+          if (l.trim().toLowerCase() === anchor && cur.length) { blocks.push(cur); cur = []; }
+          cur.push(l);
+        }
+        if (cur.length) blocks.push(cur);
+        if (blocks.length > 1) {
+          const labeled = labelStanzas(blocks);
+          // A trailing lone anchor ("…Hallelujah" alone at the end) is the
+          // chorus restated, not a third verse — but only when the anchor is
+          // substantial; a two-word tag ("oh oh") stays put.
+          if (anchor.length >= 10) {
+            const last = labeled[labeled.length - 1];
+            if (last && last.text.trim().toLowerCase() === anchor) last.label = 'Chorus';
+          }
+          return labeled;
+        }
+      }
       const chunks = [];
       for (let i = 0; i < lines.length; i += splitN) chunks.push(lines.slice(i, i + splitN));
       if (chunks.length === 1) return [{ label: 'Verse 1', text: chunks[0].join('\n') }];

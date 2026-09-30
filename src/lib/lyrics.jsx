@@ -832,9 +832,9 @@ export const FONT_SIZE_MAX = 720;
 
 // The default lyric size: what every cue without an explicit size renders at,
 // and what the Size field, manual builder and both parsers create blocks with.
-export const DEFAULT_LYRIC_SIZE = 140;
+export const DEFAULT_LYRIC_SIZE = 120;
 
-// Padding follows the font size: 140 → 14px, 400 → 40px. A fixed 10px gutter
+// Padding follows the font size: 120 → 12px, 400 → 40px. A fixed 10px gutter
 // is fine at small sizes and claustrophobic once the type grows, so an unset
 // pad derives from the size instead. An explicit cue.pad always wins.
 export const autoPadForSize = (size) =>
@@ -1057,7 +1057,7 @@ export const computeLyricsFontSize = (text, st, box) => {
 
 /**
  * Grow/shrink a cue's BOX to its text at `size` — the inverse of the renderer's
- * shrink pass. Instead of the font being cut down to a fixed box (140 → 107px,
+ * shrink pass. Instead of the font being cut down to a fixed box (120 → 107px,
  * "why is my size ignored?"), the box becomes tall enough for the text to draw
  * at exactly the requested size; only content that genuinely exceeds the 720px
  * canvas falls back to the shrink pass, and that pass is a fit — never a cut.
@@ -1100,13 +1100,20 @@ export const growBoxToText = (text, st = {}, box) => {
 
 /**
  * Parse-time normalisation for BOTH parsers (Smart Auto-Paste and the manual
- * builder/split): give the block the default size and a box fitted to its own
- * text at that size, so freshly parsed lyrics are fully visible at 140px
- * instead of being shrunk into the stock 1120×480 box.
+ * builder/split): give the block the default size and maximum coverage.
+ *
+ * Fresh parses carry no box — they get nearly the whole 1280×720 canvas, so
+ * lyrics spread across the full projection at the full default size instead
+ * of huddling in a corner. Cues that already HAVE a box (split chunks carry
+ * their source's) keep the fitted behavior, so hand placement survives a
+ * split and nothing ever shrinks under the operator.
  */
+// Near-full canvas with a small overscan-safe margin.
+export const PARSE_BOX = { x: 40, y: 32, w: 1200, h: 656 };
 export const fitParsedCue = (cue) => {
   if (!cue || typeof cue !== 'object') return cue;
   const size = Number(cue.size) || DEFAULT_LYRIC_SIZE;
+  if (!cue.box) return { ...cue, size, box: { ...PARSE_BOX } };
   // Face, weight, italic and tracking all move the wrap points — fitting
   // without them measured the wrong font and the box came out short.
   const st = {
