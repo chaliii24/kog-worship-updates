@@ -14,6 +14,12 @@ import { TileVideo, TileCanvas } from '../lib/perf';
 
 let sysFontCache = null;
 
+// One-click glow colours for a highlighted word. Plain buttons (not a colour
+// dialog) so mousedown can preventDefault: focus never leaves the canvas
+// textarea, the highlight stays painted, and the colour lands on the live
+// selection — no blur, no latch, no popup.
+const GLOW_PRESETS = ['#22d3ee', '#f472b6', '#facc15', '#4ade80', '#c084fc', '#ffffff', '#fb923c', '#f87171', '#60a5fa', '#e879f9'];
+
 const quoteFont = (family) => {
   const f = String(family || '').trim();
   if (!f) return f;
@@ -174,6 +180,46 @@ export default function SongEditorModal() {
   const canvasApiRef = useRef(null);
   const [canvasSel, setCanvasSel] = useState(null);
   const selMode = !!canvasSel?.active;
+  // Sticky highlight for the glow colour swatch: opening the native colour
+  // dialog blurs the canvas textarea, onBlur ends edit mode and wipes the live
+  // selection — so the offsets are latched here while the highlight is alive
+  // and the colour is painted onto them (live, per onInput) no matter what has
+  // focus when the dialog closes. `glowPicking` keeps the panel — and its
+  // swatch — statically on screen while the dialog is open instead of
+  // unmounting the moment the highlight collapses.
+  const selLatchRef = useRef(null);
+  const [glowPicking, setGlowPicking] = useState(false);
+  const glowColorRef = useRef(null);
+  useEffect(() => {
+    if (canvasSel?.active) selLatchRef.current = canvasSel;
+  }, [canvasSel]);
+  const glowSel = selMode ? canvasSel : (glowPicking ? selLatchRef.current : null);
+  const glowSelActive = !!(glowSel && glowSel.active);
+  const paintGlowSelection = (color) => {
+    // Live highlight wins; the latch covers the dialog session, during which
+    // the textarea is blurred and the live selection is already gone.
+    const r = (canvasSel?.active ? canvasSel : null) || selLatchRef.current;
+    if (!r || !(r.to > r.from)) return false;
+    canvasApiRef.current?.applyStyleToRange?.({ glow: color }, r.from, r.to);
+    return true;
+  };
+  const finishGlowPick = () => {
+    // A finished pick consumes the latch: later swatch visits with no live
+    // highlight must mean the whole slide, never a word from last time.
+    selLatchRef.current = null;
+    setGlowPicking(false);
+  };
+  // A different slide must never inherit the previous slide's highlight.
+  useEffect(() => { selLatchRef.current = null; setGlowPicking(false); }, [editorCueIdx]);
+  // The slide-level glow swatch is uncontrolled while the dialog is open, so
+  // React never resets its value mid-drag (that reset is what made the picker
+  // stutter). This syncs it back for outside changes — undo, apply-to-all,
+  // slide switch — but never while a pick is in flight.
+  useEffect(() => {
+    if (glowPicking || !glowColorRef.current || !editorCue) return;
+    const want = (editorCue.glowColor || '#22d3ee').toLowerCase();
+    if (glowColorRef.current.value.toLowerCase() !== want) glowColorRef.current.value = editorCue.glowColor || '#22d3ee';
+  }, [editorCue?.glowColor, glowPicking, editorCueIdx]);
 
   // --- inline slide rename -------------------------------------------------
   // The Label field lives inside Slide Properties, which is collapsed by
@@ -297,6 +343,9 @@ export default function SongEditorModal() {
     shadowBlur: c.shadowBlur ?? 14,
     shadowOffsetX: c.shadowOffsetX ?? 0,
     shadowOffsetY: c.shadowOffsetY ?? 4,
+    glow: !!c.glow,
+    glowColor: c.glowColor || '#22d3ee',
+    glowBlur: c.glowBlur ?? 18,
     outline: !!c.outline,
     strokeColor: c.strokeColor || '#000000',
     strokeWidth: c.strokeWidth ?? 1.5,
@@ -1043,8 +1092,22 @@ export default function SongEditorModal() {
                   onLiveChange={(p) => updateCueThrottled(editorCueIdx, p)}
                 />
               </div>
-              {[['shadow', `Shadow ${editorCue?.shadow ? 'ON' : 'OFF'}`], ['outline', `Outline ${editorCue?.outline ? 'ON' : 'OFF'}`], ['highlight', `Highlight ${editorCue?.highlight ? 'ON' : 'OFF'}`]].map(([k, lbl]) => (
-                <button key={k} onClick={() => updateCue(editorCueIdx, { [k]: !editorCue?.[k] })} style={{ width: '100%', background: editorCue?.[k] ? 'rgba(34,197,94,0.15)' : C.elevated2, border: '1px solid ' + (editorCue?.[k] ? 'rgba(34,197,94,0.5)' : 'var(--ui-border2)'), color: editorCue?.[k] ? '#4ade80' : C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', marginBottom: 4 }}>{lbl}</button>
+              {[['shadow', `Shadow ${editorCue?.shadow ? 'ON' : 'OFF'}`], ['glow', `Glow ${(glowSelActive ? glowSel.attrs.glow : editorCue?.glow) ? 'ON' : 'OFF'}`], ['outline', `Outline ${editorCue?.outline ? 'ON' : 'OFF'}`], ['highlight', `Highlight ${editorCue?.highlight ? 'ON' : 'OFF'}`]].map(([k, lbl]) => (
+                <button key={k} onMouseDown={(ev) => { if (k === 'glow' && (selMode || glowPicking)) ev.preventDefault(); }} onClick={() => {
+                  // With text highlighted, Glow styles exactly that
+                  // highlight; otherwise it styles the whole slide.
+                  if (k === 'glow' && (selMode || glowPicking)) {
+                    // Live highlight only — the button advertises slide state
+                    // whenever nothing is highlighted, so it must never act on
+                    // a word from an earlier pick.
+                    const r = canvasSel?.active ? canvasSel : null;
+                    if (r && r.to > r.from) {
+                      canvasApiRef.current?.applyStyleToRange?.({ glow: !r.attrs?.glow }, r.from, r.to);
+                      return;
+                    }
+                  }
+                  updateCue(editorCueIdx, { [k]: !editorCue?.[k] });
+                }} style={{ width: '100%', background: (k === 'glow' && glowSelActive ? glowSel.attrs.glow : editorCue?.[k]) ? 'rgba(34,197,94,0.15)' : C.elevated2, border: '1px solid ' + ((k === 'glow' && glowSelActive ? glowSel.attrs.glow : editorCue?.[k]) ? 'rgba(34,197,94,0.5)' : 'var(--ui-border2)'), color: (k === 'glow' && glowSelActive ? glowSel.attrs.glow : editorCue?.[k]) ? '#4ade80' : C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', marginBottom: 4 }}>{lbl}</button>
               ))}
               {editorCue?.shadow && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 2 }}>
@@ -1068,6 +1131,59 @@ export default function SongEditorModal() {
                       <input type="range" min="-30" max="30" step="1" value={editorCue?.shadowOffsetY ?? 4} onChange={(e) => updateCueThrottled(editorCueIdx, { shadowOffsetY: Number(e.target.value) })} style={{ flex: 1 }} />
                       <span style={{ fontSize: 11, color: C.muted, width: 24, textAlign: 'right' }}>{editorCue?.shadowOffsetY ?? 4}</span>
                     </div>
+                  </div>
+                </div>
+              )}
+              {(selMode || glowSelActive || editorCue?.glow) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 2 }}>
+                  {selMode && (
+                    <div style={{ fontSize: 9.5, fontWeight: 700, color: '#c4b5fd', letterSpacing: 0.2 }}>
+                      Highlighted text — tap a colour and only that glows; the highlight stays until it is painted
+                    </div>
+                  )}
+                  {selMode && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {GLOW_PRESETS.map((c) => {
+                        const selColor = typeof canvasSel?.attrs?.glowColor === 'string' ? canvasSel.attrs.glowColor : (canvasSel?.attrs?.glow ? (editorCue?.glowColor || '#22d3ee') : null);
+                        const on = selColor && selColor.toLowerCase() === c.toLowerCase();
+                        return (
+                          <button
+                            key={c}
+                            title={`Glow the highlighted text ${c}`}
+                            onMouseDown={(ev) => ev.preventDefault()}
+                            onClick={() => canvasApiRef.current?.applyStyle({ glow: c })}
+                            style={{ width: 26, height: 26, borderRadius: 7, background: c, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), boxShadow: on ? `0 0 0 2px ${ACCENT}` : 'none', cursor: 'pointer', padding: 0 }}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                  {!selMode && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Glow color</label>
+                    <input ref={glowColorRef} key={`glowc-${editorCueIdx}`} type="color" defaultValue={editorCue?.glowColor || '#22d3ee'} onMouseDown={() => {
+                      setGlowPicking(true);
+                      // Fresh intent: with no live highlight the latch (if any)
+                      // is a word from an earlier pick, not this visit.
+                      if (!canvasSel?.active) selLatchRef.current = null;
+                    }} onInput={(e) => {
+                      if (!paintGlowSelection(e.target.value)) canvasApiRef.current?.previewGlow?.(e.target.value);
+                    }} onChange={(e) => {
+                      if (!paintGlowSelection(e.target.value)) updateCue(editorCueIdx, { glowColor: e.target.value });
+                      canvasApiRef.current?.clearGlowPreview?.();
+                      finishGlowPick();
+                    }} onBlur={() => {
+                      // Dialog cancelled (Esc): no onChange arrives, so drop a
+                      // stale drag-preview a beat after focus settles. After a
+                      // real pick this is a no-op (preview already cleared).
+                      setTimeout(() => canvasApiRef.current?.clearGlowPreview?.(), 300);
+                    }} style={{ width: 30, height: 24, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
+                  </div>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Strength</label>
+                    <input type="range" min="0" max="60" step="1" value={editorCue?.glowBlur ?? 18} onChange={(e) => updateCueThrottled(editorCueIdx, { glowBlur: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.glowBlur ?? 18}</span>
                   </div>
                 </div>
               )}
@@ -1207,6 +1323,9 @@ export default function SongEditorModal() {
                   shadowBlur={editorCue.shadow ? (editorCue.shadowBlur ?? 14) : 0}
                   shadowOffsetX={editorCue.shadowOffsetX ?? 0}
                   shadowOffsetY={editorCue.shadowOffsetY ?? 4}
+                  glow={!!editorCue.glow}
+                  glowColor={editorCue.glowColor || '#22d3ee'}
+                  glowBlur={editorCue.glowBlur ?? 18}
                   gradient={!!editorCue.gradient}
                   gradientColor1={editorCue.gradientColor1 || '#f5f5f4'}
                   gradientColor2={editorCue.gradientColor2 || '#93c5fd'}

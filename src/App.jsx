@@ -114,6 +114,9 @@ export default function App() {
   const [aboutStatus, setAboutStatus] = useState('');
   const [updateReady, setUpdateReady] = useState(null);
   const [updateProgress, setUpdateProgress] = useState(null);
+  // Which release the updater is working with (set on available/downloaded,
+  // reused for the installing flag + the complete banner after relaunch).
+  const [updateVersion, setUpdateVersion] = useState(null);
   const [showOutputMonitor, setShowOutputMonitor] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
@@ -652,11 +655,11 @@ export default function App() {
   useEffect(() => {
     if (isOutputWindow || !window.require) return;
     const { ipcRenderer } = window.require('electron');
-    const onUpdateAvailable = (event, info) => { setAboutStatus(`Update available: v${info.version}`); setUpdateReady('available'); setUpdateProgress(null); };
-    const onUpdateDownloaded = (event, info) => { setAboutStatus(`Update downloaded: v${info.version}. Restart to install.`); setUpdateReady('downloaded'); setUpdateProgress(null); };
-    const onUpdateError = (event, error) => { setAboutStatus(`Update error: ${error}`); setUpdateReady(null); setUpdateProgress(null); };
-    const onUpdateNotAvailable = (event, info) => { setAboutStatus(`App is up to date.`); setUpdateReady(null); setUpdateProgress(null); };
-    const onDownloadProgress = (event, progress) => { setUpdateProgress(progress); setAboutStatus(`Downloading... ${Math.round(progress.percent)}%`); };
+    const onUpdateAvailable = (event, info) => { setUpdateVersion(info?.version || null); setAboutStatus(`Update available: v${info.version}`); setUpdateReady('available'); setUpdateProgress(null); };
+    const onUpdateDownloaded = (event, info) => { setUpdateVersion(info?.version || null); setAboutStatus(`Update v${info.version} downloaded.`); setUpdateReady('downloaded'); setUpdateProgress(null); };
+    const onUpdateError = (event, error) => { setAboutStatus(`Update error: ${error}`); setUpdateReady('error'); setUpdateProgress(null); };
+    const onUpdateNotAvailable = (event, info) => { setAboutStatus(`You're up to date${appInfo?.version ? ` (v${appInfo.version})` : ''}.`); setUpdateReady('uptodate'); setUpdateProgress(null); };
+    const onDownloadProgress = (event, progress) => { setUpdateProgress(progress); setUpdateReady('downloading'); setAboutStatus(`Downloading update — ${Math.round(progress.percent)}%`); };
     ipcRenderer.on('update-available', onUpdateAvailable);
     ipcRenderer.on('update-downloaded', onUpdateDownloaded);
     ipcRenderer.on('update-error', onUpdateError);
@@ -671,6 +674,23 @@ export default function App() {
     };
   }, [isOutputWindow]);
  
+  // Post-install banner: the installer relaunches the app, so a flag written
+  // before quitAndInstall is how this boot knows it IS the update. Version
+  // mismatch (flag vs running build) means the install landed.
+  useEffect(() => {
+    const v = appInfo?.version;
+    if (!v || isOutputWindow) return;
+    let pending = null;
+    try { pending = localStorage.getItem('kog_update_installing'); } catch {}
+    if (!pending) return;
+    try { localStorage.removeItem('kog_update_installing'); } catch {}
+    if (pending !== v) {
+      setUpdateVersion(pending);
+      setUpdateReady('complete');
+      setAboutStatus(`Update complete — KOG Worship v${v} is now running.`);
+    }
+  }, [appInfo?.version]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Full refresh when the category changes or the splash clears. Services /
   // templates / presentations don't depend on the search box at all.
   useEffect(() => {
@@ -2992,24 +3012,25 @@ export default function App() {
       if (window.require) {
         const { ipcRenderer } = window.require('electron');
         setAboutStatus('Checking for updates...');
-        setUpdateReady(null);
+        setUpdateReady('checking');
         const result = await ipcRenderer.invoke('check-for-updates');
         if (result.error) {
           setAboutStatus(`Update check failed: ${result.error}`);
-          setUpdateReady(null);
+          setUpdateReady('error');
           return;
         }
         if (result.updateInfo) {
+          setUpdateVersion(result.updateInfo.version || null);
           setAboutStatus(`Update available: v${result.updateInfo.version}`);
           setUpdateReady('available');
         } else {
-          setAboutStatus(`App is up to date (v${fallback}).`);
-          setUpdateReady(null);
+          setAboutStatus(`You're up to date (v${fallback}).`);
+          setUpdateReady('uptodate');
         }
       }
     } catch (e) {
       setAboutStatus(`Update check failed: ${e.message}`);
-      setUpdateReady(null);
+      setUpdateReady('error');
     }
   };
 
@@ -3018,6 +3039,7 @@ export default function App() {
       if (window.require) {
         const { ipcRenderer } = window.require('electron');
         setAboutStatus('Starting download...');
+        setUpdateReady('downloading');
         setUpdateProgress(null);
         const result = await ipcRenderer.invoke('download-update');
         if (result.error) {
@@ -3034,11 +3056,23 @@ export default function App() {
   const handleInstallUpdate = async () => {
     try {
       if (window.require) {
+        // Remember what is being installed: the app quits below, and the
+        // post-relaunch boot compares this flag against its own version to
+        // confirm the install landed (the Complete state).
+        if (updateVersion) { try { localStorage.setItem('kog_update_installing', updateVersion); } catch {} }
+        setUpdateReady('installing');
+        setAboutStatus('Installing update...');
+        setUpdateProgress(null);
+        // Let the Installing state paint before the app quits into the NSIS
+        // installer — without the beat the button never visibly changes.
+        await new Promise((r) => setTimeout(r, 900));
         const { ipcRenderer } = window.require('electron');
         await ipcRenderer.invoke('install-update');
       }
     } catch (e) {
+      try { localStorage.removeItem('kog_update_installing'); } catch {}
       setAboutStatus(`Install failed: ${e.message}`);
+      setUpdateReady('downloaded');
     }
   };
 
@@ -3504,11 +3538,12 @@ export default function App() {
           status={aboutStatus}
           updateReady={updateReady}
           updateProgress={updateProgress}
+          updateVersion={updateVersion}
           onCheckUpdates={handleCheckUpdates}
           onDownloadUpdate={handleDownloadUpdate}
           onInstallUpdate={handleInstallUpdate}
           onOpenGuide={handleOpenGuide}
-          onClose={() => { setShowAbout(false); setUpdateReady(null); setUpdateProgress(null); }}
+          onClose={() => { setShowAbout(false); }}
         />
       )}
       </AnimatePresence>

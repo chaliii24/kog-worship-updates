@@ -22,9 +22,19 @@ function formatSpeed(bytesPerSec) {
   return formatBytes(bytesPerSec) + '/s';
 }
 
-export default function AboutModal({ C, ACCENT, PINK, version, status, updateReady, updateProgress, onCheckUpdates, onDownloadUpdate, onInstallUpdate, onOpenGuide, onClose }) {
+export default function AboutModal({ C, ACCENT, PINK, version, status, updateReady, updateProgress, updateVersion, onCheckUpdates, onDownloadUpdate, onInstallUpdate, onOpenGuide, onClose }) {
+  // One control, one phase at a time: idle → checking → downloading →
+  // downloaded → installing → complete (plus uptodate / available / error).
+  const phase = updateReady || 'idle';
+  const pct = Math.round(updateProgress?.percent || 0);
+  const busy = phase === 'checking' || phase === 'downloading' || phase === 'installing';
+  const phaseBtn = {
+    display: 'inline-flex', alignItems: 'center', gap: 6, background: ACCENT, border: 'none',
+    color: '#fff', padding: '10px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: 700,
+  };
   return (
     <motion.div {...modalOverlay} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }} onClick={onClose}>
+      <style>{'@keyframes kogSpin{to{transform:rotate(360deg)}}'}</style>
       <motion.div {...modalPanel} onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: '14px', width: '540px', maxWidth: '92vw', maxHeight: 'calc(100vh - 80px)', overflowY: 'auto', padding: '24px', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <img src={logoImage} alt="KOGWorship" style={{ width: 44, height: 44, objectFit: 'contain', borderRadius: '9px' }} />
@@ -72,23 +82,57 @@ export default function AboutModal({ C, ACCENT, PINK, version, status, updateRea
           <div style={{ marginTop: '16px', fontSize: '12px', color: C.muted, textAlign: 'center' }}>{status}</div>
         )}
 
-        {updateReady === 'downloaded' && (
+        {phase === 'checking' && (
           <div style={{ marginTop: '12px', textAlign: 'center' }}>
-            <motion.button {...stubTap} onClick={onInstallUpdate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: ACCENT, border: 'none', color: '#fff', padding: '10px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-              <RotateCw size={13} /> Restart & Install
+            <button disabled style={{ ...phaseBtn, opacity: 0.85, cursor: 'wait' }}>
+              <RefreshCw size={13} style={{ animation: 'kogSpin 1s linear infinite' }} /> Checking for updates…
+            </button>
+          </div>
+        )}
+
+        {phase === 'downloading' && (
+          <div style={{ marginTop: '12px', textAlign: 'center' }}>
+            <button disabled style={{ ...phaseBtn, opacity: 0.85, cursor: 'wait' }}>
+              <Download size={13} /> Downloading update — {pct}%
+            </button>
+          </div>
+        )}
+
+        {phase === 'downloaded' && (
+          <div style={{ marginTop: '12px', textAlign: 'center' }}>
+            <motion.button {...stubTap} onClick={onInstallUpdate} style={{ ...phaseBtn, cursor: 'pointer' }}>
+              <RotateCw size={13} /> Restart &amp; Install{updateVersion ? ` v${updateVersion}` : ''}
+            </motion.button>
+          </div>
+        )}
+
+        {phase === 'installing' && (
+          <div style={{ marginTop: '12px', textAlign: 'center' }}>
+            <button disabled style={{ ...phaseBtn, opacity: 0.85, cursor: 'wait' }}>
+              <RefreshCw size={13} style={{ animation: 'kogSpin 1s linear infinite' }} /> Installing update…
+            </button>
+          </div>
+        )}
+
+        {phase === 'complete' && (
+          <div style={{ marginTop: '12px', textAlign: 'center' }}>
+            <motion.button {...stubTap} onClick={onClose} style={{ ...phaseBtn, cursor: 'pointer' }}>
+              <RotateCw size={13} /> Launch updated KOG Worship
             </motion.button>
           </div>
         )}
 
 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '22px', flexWrap: 'wrap' }}>
-          {updateReady === 'available' && !updateProgress && (
+          {phase === 'available' && !updateProgress && (
             <motion.button {...stubTap} onClick={onDownloadUpdate} style={{ display: 'flex', alignItems: 'center', gap: 6, background: ACCENT, border: 'none', color: '#fff', padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
               <Download size={13} /> Download Update
             </motion.button>
           )}
+          {!busy && (
           <motion.button {...stubTap} onClick={onCheckUpdates} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
             <RefreshCw size={13} /> Check for Updates
           </motion.button>
+          )}
           <motion.button {...stubTap} onClick={onOpenGuide} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
             <BookOpen size={13} /> User Guide
           </motion.button>

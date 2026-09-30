@@ -20,6 +20,7 @@ const STYLE_TOGGLES = [
   ['italic', 'I', 'Italic'],
   ['underline', 'U', 'Underline'],
   ['strike', 'S', 'Strikethrough'],
+  ['glow', '✦', 'Glow'],
 ];
 
 // ---------------------------------------------------------------------------
@@ -282,6 +283,9 @@ export default function LyricsCanvasEditor({
   shadowBlur = 14,
   shadowOffsetX = 0,
   shadowOffsetY = 4,
+  glow = false,
+  glowColor = '#22d3ee',
+  glowBlur = 18,
   gradient = false,
   gradientColor1 = '#f5f5f4',
   gradientColor2 = '#93c5fd',
@@ -409,26 +413,61 @@ export default function LyricsCanvasEditor({
     let from = start;
     let to = end;
     if (!(to > from)) [from, to] = lineSpanRange(value, lineIndexAt(value, start));
+    applyStyleToRange(patch, from, to);
+    setSel({ start, end });
+  };
+
+  // Explicit-range twin: sidebar controls (e.g. the glow colour swatch) blur
+  // the textarea — onBlur ends edit mode and wipes the live selection — so by
+  // the time their onChange fires there is no selection left to read. Callers
+  // pass the offsets they latched while the highlight was still alive.
+  const applyStyleToRange = (patch, from, to) => {
+    const ta = taRef.current;
+    const value = ta ? ta.value : taText;
     const spans = applySpanPatch(taSpans, from, to, patch);
     setTaSpans(spans);
     taPendingRef.current = emitSpans(value, spans);
     sendTa();
-    setSel({ start, end });
   };
+
+  // Drag-preview for the slide glow colour: the sidebar swatch paints here per
+  // input event WITHOUT committing to the cue, so a drag never round-trips
+  // setEditingSong → full-app re-render + all slide thumbs per tick. rAF
+  // coalesces the event storm to one canvas-only repaint per frame; the dialog
+  // close (onChange) commits for real.
+  const glowPrevRef = useRef(null);
+  const glowRafRef = useRef(0);
+  const [glowPrev, setGlowPrev] = useState(null);
+  const previewGlow = (color) => {
+    glowPrevRef.current = color;
+    if (glowRafRef.current) return;
+    glowRafRef.current = requestAnimationFrame(() => {
+      glowRafRef.current = 0;
+      setGlowPrev(glowPrevRef.current);
+    });
+  };
+  const clearGlowPreview = () => {
+    if (glowRafRef.current) { cancelAnimationFrame(glowRafRef.current); glowRafRef.current = 0; }
+    glowPrevRef.current = null;
+    setGlowPrev(null);
+  };
+  useEffect(() => () => { if (glowRafRef.current) cancelAnimationFrame(glowRafRef.current); }, []);
+  const effGlowColor = glowPrev ?? glowColor;
 
   // The song editor's sidebar Typography panel drives this same thing, so
   // highlighting a word and clicking B there bolds that word, not the slide.
-  if (apiRef) apiRef.current = { applyStyle, hasSelection: () => sel.end > sel.start };
+  if (apiRef) apiRef.current = { applyStyle, applyStyleToRange, previewGlow, clearGlowPreview, hasSelection: () => sel.end > sel.start };
 
   // Tell the sidebar what its buttons should light up on. Keyed on the ANSWER,
   // not on the caret, so moving the cursor never re-renders the whole modal.
   const selReportRef = useRef('');
   useEffect(() => {
-    const state = { bold: tgtOn('bold'), italic: tgtOn('italic'), underline: tgtOn('underline'), strike: tgtOn('strike') };
-    const key = `${hasSel}|${state.bold}|${state.italic}|${state.underline}|${state.strike}|${tgtScale}`;
+    const state = { bold: tgtOn('bold'), italic: tgtOn('italic'), underline: tgtOn('underline'), strike: tgtOn('strike'), glow: tgtOn('glow') };
+    const selGlowColor = rangeAttrs(taSpans, tgtFrom, tgtTo).glow;
+    const key = `${hasSel}|${state.bold}|${state.italic}|${state.underline}|${state.strike}|${state.glow}|${String(selGlowColor)}|${tgtScale}`;
     if (key === selReportRef.current) return;
     selReportRef.current = key;
-    onSelectionChange?.({ active: hasSel, attrs: { ...state, scale: tgtScale } });
+    onSelectionChange?.({ active: hasSel, attrs: { ...state, scale: tgtScale, glowColor: selGlowColor }, from: sel.start, to: sel.end });
   });
 
   // ---- WYSIWYG typing surface --------------------------------------------
@@ -609,6 +648,9 @@ export default function LyricsCanvasEditor({
     shadowBlur,
     shadowOffsetX,
     shadowOffsetY,
+    glow,
+    glowColor: effGlowColor,
+    glowBlur,
     outline: strokeWidth > 0,
     strokeColor,
     strokeWidth,
@@ -839,6 +881,10 @@ export default function LyricsCanvasEditor({
   // Mirror renderLyricsLayout's own gate: shadow is only real when it is
   // switched on (shadowBlur > 0) AND actually displaces or blurs something.
   const shadowOn = !!lyricSt.shadow && ((Number(shadowBlur) || 0) > 0 || (Number(shadowOffsetX) || 0) !== 0 || (Number(shadowOffsetY) || 0) !== 0);
+  const glowOn = !!glow && (Number(glowBlur) || 0) > 0;
+  const glowLayers = glowOn ? `0 0 ${Math.max(2, Math.round((Number(glowBlur) || 18) / 3))}px ${effGlowColor || '#22d3ee'}, 0 0 ${Number(glowBlur) || 18}px ${effGlowColor || '#22d3ee'}` : '';
+  const shadowLayer = shadowOn ? `${Number(shadowOffsetX) || 0}px ${Number(shadowOffsetY) || 0}px ${Number(shadowBlur) || 0}px ${shadowColor || '#000000'}` : '';
+  const taTextShadow = [shadowLayer, glowLayers].filter(Boolean).join(', ') || 'none';
   const animCSS = previewing ? transitionAnimation(previewAnim, previewSpeed) : '';
 
   const boxTransform = angle ? `rotate(${angle}deg)` : 'none';
@@ -1034,7 +1080,7 @@ export default function LyricsCanvasEditor({
                   color: overlayOn ? 'transparent' : (gradient ? (gradientColor1 || '#f5f5f4') : (fontColor || '#f5f5f4')),
                   caretColor: overlayOn ? 'transparent' : (fontColor || '#ffffff'),
                   WebkitTextStroke: !overlayOn && strokeWidth > 0 ? `${strokeWidth}px ${strokeColor || '#000000'}` : undefined,
-                  textShadow: !overlayOn && shadowOn ? `${Number(shadowOffsetX) || 0}px ${Number(shadowOffsetY) || 0}px ${Number(shadowBlur) || 0}px ${shadowColor || '#000000'}` : 'none',
+                  textShadow: !overlayOn ? taTextShadow : 'none',
                   whiteSpace: 'pre-wrap',
                   overflowWrap: 'break-word',
                   wordBreak: 'break-word',

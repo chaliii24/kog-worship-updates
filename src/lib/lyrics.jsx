@@ -78,6 +78,13 @@ const parseRunAttrs = (raw) => {
       out.font = v.replace(/\|/g, ', ');
     } else if (k === 'color' || k === 'colour') {
       out.color = v;
+    } else if (k === 'glow') {
+      // {glow=#22d3ee} glows one word in that colour; {glow=1} rides the
+      // slide's glow colour; {glow=off} clears it.
+      const b = parseBool(v);
+      if (b === false) out.glow = false;
+      else if (b === true) out.glow = true;
+      else out.glow = v;
     } else if (BOOL_KEYS[k]) {
       const b = parseBool(v);
       if (b !== undefined) out[BOOL_KEYS[k]] = b;
@@ -118,7 +125,7 @@ const sameRun = (a, b) => !!a.bold === !!b.bold
   && !!a.italic === !!b.italic
   && !!a.strike === !!b.strike
   && a.scale === b.scale && a.weight === b.weight && a.track === b.track
-  && a.font === b.font && a.color === b.color;
+  && a.font === b.font && a.color === b.color && (a.glow || undefined) === (b.glow || undefined);
 
 // A line becomes a short list of styled runs. Adjacent runs that share a style
 // are merged, so a normal unmarked line is exactly one run — which is what
@@ -178,7 +185,7 @@ export const stripMarkup = (text) => (text || '').split('\n').map(stripLine).joi
 export const LINE_SCALE_PRESETS = [0.55, 0.7, 1, 1.5, 2];
 
 const SPAN_NUM = ['scale', 'weight', 'track'];
-const SPAN_TEXT = ['font', 'color'];
+const SPAN_TEXT = ['font', 'color', 'glow'];
 const SPAN_BOOL = ['bold', 'underline', 'italic', 'strike'];
 const SPAN_KEYS = [...SPAN_NUM, ...SPAN_TEXT, ...SPAN_BOOL];
 
@@ -222,6 +229,7 @@ const markerOf = (a) => {
   if (n.track !== undefined) parts.push(`track=${n.track}`);
   if (n.font !== undefined) parts.push(`font=${String(n.font).replace(/,\s*/g, '|')}`);
   if (n.color !== undefined) parts.push(`color=${n.color}`);
+  if (n.glow !== undefined) parts.push(`glow=${n.glow === true ? 1 : n.glow}`);
   if (n.bold) parts.push('bold=1');
   if (n.underline) parts.push('underline=1');
   if (n.italic) parts.push('italic=1');
@@ -740,7 +748,7 @@ export const restyleLineScales = (srcText, tgtText) => {
 // every song written before this feature existed is byte-for-byte unchanged.
 // `ratio` is s.scale / lineMax: the container carries lineMax as its own font
 // size, so runs express themselves in `em` relative to it.
-const runSpan = (s, ratio, key, stroke) => {
+const runSpan = (s, ratio, key, stroke, under) => {
   // Run-level decoration/style, chosen without allocating: both replace whatever
   // the container had, and the useful direction is "this slide is plain, this
   // one word is underlined" — which is exactly what the selection chips produce.
@@ -748,7 +756,17 @@ const runSpan = (s, ratio, key, stroke) => {
     ? (s.strike ? 'underline line-through' : 'underline')
     : (s.strike ? 'line-through' : null);
   const italic = s.italic ? 'italic' : null;
-  if (ratio === 1 && !s.weight && s.track == null && !s.font && !s.color && !deco && !italic) {
+  // Per-word glow: a child replaces the container's text-shadow for its own
+  // glyphs, so the slide shadow is re-applied underneath the word's own glow.
+  // glow=true rides the slide's glow colour; a colour value glows that word
+  // alone even when the slide-level glow is off.
+  const runGlowColor = s.glow === true ? (under && under.glowColor) : (s.glow || null);
+  const runGlowBlur = (under && under.glowBlur) || 18;
+  const runGlow = s.glow && runGlowColor
+    ? `0 0 ${Math.max(2, Math.round(runGlowBlur / 3))}px ${runGlowColor}, 0 0 ${runGlowBlur}px ${runGlowColor}`
+    : '';
+  const runShadow = s.glow ? [under && under.shadow, runGlow].filter(Boolean).join(', ') : '';
+  if (ratio === 1 && !s.weight && s.track == null && !s.font && !s.color && !s.glow && !deco && !italic) {
     return s.bold ? <b key={key}>{s.t}</b> : s.t;
   }
   return (
@@ -764,6 +782,7 @@ const runSpan = (s, ratio, key, stroke) => {
         // whose parent span forces WebkitTextFillColor to transparent.
         WebkitTextFillColor: s.color || undefined,
         WebkitTextStroke: stroke,
+        textShadow: runShadow || undefined,
         textDecoration: deco || undefined,
         fontStyle: italic || undefined,
       }}
@@ -1095,6 +1114,9 @@ export const cueLyricStyle = (cue) => ({
   shadowBlur: cue?.shadowBlur != null ? Number(cue.shadowBlur) : 14,
   shadowOffsetX: cue?.shadowOffsetX != null ? Number(cue.shadowOffsetX) : 0,
   shadowOffsetY: cue?.shadowOffsetY != null ? Number(cue.shadowOffsetY) : 4,
+  glow: !!(cue?.glow),
+  glowColor: cue?.glowColor || '#22d3ee',
+  glowBlur: cue?.glowBlur != null ? Number(cue.glowBlur) : 18,
   outline: !!(cue?.outline),
   strokeColor: cue?.strokeColor || '#000000',
   strokeWidth: cue?.strokeWidth != null ? Number(cue.strokeWidth) : 1.5,
@@ -1127,6 +1149,15 @@ export const renderLyricsLayout = (text, st, box) => {
   const deco = [st.underline ? 'underline' : null, st.strike ? 'line-through' : null].filter(Boolean).join(' ') || 'none';
   const strokeW = Number(st.strokeWidth) || 0;
   const shadowOn = !!st.shadow && ((Number(st.shadowBlur) || 0) > 0 || (Number(st.shadowOffsetX) || 0) !== 0 || (Number(st.shadowOffsetY) || 0) !== 0);
+  const glowOn = !!st.glow && (Number(st.glowBlur) || 0) > 0;
+  // Glow is a zero-offset colored blur stacked UNDER the shadow (first layer
+  // paints on top), with a tight core pass so small text still reads.
+  const glowLayers = glowOn ? `0 0 ${Math.max(2, Math.round((Number(st.glowBlur) || 18) / 3))}px ${st.glowColor || '#22d3ee'}, 0 0 ${Number(st.glowBlur) || 18}px ${st.glowColor || '#22d3ee'}` : '';
+  const shadowLayer = shadowOn ? `${Number(st.shadowOffsetX) || 0}px ${Number(st.shadowOffsetY) || 0}px ${Number(st.shadowBlur) || 0}px ${st.shadowColor || '#000000'}` : '';
+  const textShadow = [shadowLayer, glowLayers].filter(Boolean).join(', ') || 'none';
+  // What glowing runs inherit from: the slide shadow stays under a word's own
+  // glow, and glow=true rides the slide colour/strength.
+  const runUnder = { shadow: shadowLayer, glowColor: st.glowColor || '#22d3ee', glowBlur: Number(st.glowBlur) || 18 };
   const gradOn = !!st.gradient;
   const gradAngle = Number(st.gradientAngle);
   const gradSpanStyle = gradOn ? {
@@ -1159,7 +1190,7 @@ export const renderLyricsLayout = (text, st, box) => {
       color: gradOn ? undefined : (st.color || '#f5f5f4'),
       fontFamily: st.font || FONT_OPTIONS[0].value,
       WebkitTextStroke: st.outline && strokeW > 0 ? `${strokeW}px ${st.strokeColor || '#000000'}` : 'none',
-      textShadow: shadowOn ? `${Number(st.shadowOffsetX) || 0}px ${Number(st.shadowOffsetY) || 0}px ${Number(st.shadowBlur) || 0}px ${st.shadowColor || '#000000'}` : 'none',
+      textShadow,
       background: st.highlight ? `rgba(70,45,15,${(st.hlOpacity ?? 40) / 100})` : 'transparent',
       borderRadius: 8,
       padding: st.highlight ? '3px 12px' : 0,
@@ -1175,7 +1206,7 @@ export const renderLyricsLayout = (text, st, box) => {
           {[0, 1].map(i => (
             <span key={i} style={runStyle}>
               <span style={gradSpanStyle || undefined}>
-                {segs.map((s, si) => runSpan(s, s.scale / tickerMax, si))}
+                {segs.map((s, si) => runSpan(s, s.scale / tickerMax, si, undefined, runUnder))}
               </span>
             </span>
           ))}
@@ -1194,7 +1225,7 @@ export const renderLyricsLayout = (text, st, box) => {
         const lineMax = segs.reduce((m, s) => Math.max(m, s.scale), 0) || 1;
         const strokeOn = st.outline && strokeW > 0;
         return (
-          <div key={li} style={{ display: 'inline-block', width: '100%', fontSize: size * lineMax, fontWeight: bold ? 700 : 400, fontStyle: st.italic ? 'italic' : 'normal', textDecoration: deco, letterSpacing: st.letterSpacing ? `${st.letterSpacing}px` : undefined, textAlignLast: isJustify ? 'justify' : undefined, lineHeight: lh, color: gradOn ? undefined : (st.color || '#f5f5f4'), fontFamily: st.font || FONT_OPTIONS[0].value, WebkitTextStroke: strokeOn ? `${strokeW}px ${st.strokeColor || '#000000'}` : 'none', textShadow: shadowOn ? `${Number(st.shadowOffsetX) || 0}px ${Number(st.shadowOffsetY) || 0}px ${Number(st.shadowBlur) || 0}px ${st.shadowColor || '#000000'}` : 'none', background: st.highlight ? `rgba(70,45,15,${(st.hlOpacity ?? 40) / 100})` : 'transparent', borderRadius: 8, padding: st.highlight ? '3px 12px' : 0, boxSizing: 'border-box', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+          <div key={li} style={{ display: 'inline-block', width: '100%', fontSize: size * lineMax, fontWeight: bold ? 700 : 400, fontStyle: st.italic ? 'italic' : 'normal', textDecoration: deco, letterSpacing: st.letterSpacing ? `${st.letterSpacing}px` : undefined, textAlignLast: isJustify ? 'justify' : undefined, lineHeight: lh, color: gradOn ? undefined : (st.color || '#f5f5f4'), fontFamily: st.font || FONT_OPTIONS[0].value, WebkitTextStroke: strokeOn ? `${strokeW}px ${st.strokeColor || '#000000'}` : 'none', textShadow, background: st.highlight ? `rgba(70,45,15,${(st.hlOpacity ?? 40) / 100})` : 'transparent', borderRadius: 8, padding: st.highlight ? '3px 12px' : 0, boxSizing: 'border-box', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
             <span style={gradSpanStyle}>
               {segs.map((s, si) => runSpan(
                 s,
@@ -1202,7 +1233,8 @@ export const renderLyricsLayout = (text, st, box) => {
                 si,
                 // Outline is in px, so a 0.55x run needs a 0.55x stroke or the
                 // small lead line gets a chunky outline the big word doesn't.
-                strokeOn && s.scale !== lineMax ? `${strokeW * (s.scale / lineMax)}px ${st.strokeColor || '#000000'}` : undefined
+                strokeOn && s.scale !== lineMax ? `${strokeW * (s.scale / lineMax)}px ${st.strokeColor || '#000000'}` : undefined,
+                runUnder
               ))}
             </span>
           </div>
