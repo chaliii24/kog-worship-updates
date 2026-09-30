@@ -510,7 +510,12 @@ function createOutputWindow(output) {
     viewport: JSON.stringify(output.viewport || null),
     // Hash of the whole config: sync pushes `output-config` (rotation /
     // edge-blend / rename) live without recreating the window.
-    cfg: JSON.stringify(output)
+    cfg: JSON.stringify(output),
+    // Full definition for crash recovery: a dead window is rebuilt from this
+    // (did-finish-load re-sends aspect/config, pullLiveState restores the
+    // live slide), so recreation needs no console round-trip.
+    def: { ...output },
+    expectClose: false,
   });
 
   // ESC is the way out of an output that is covering the OPERATOR'S OWN
@@ -555,14 +560,77 @@ function createOutputWindow(output) {
     });
   }
   win.on('closed', () => {
-    if (outputWindows.get(output.id)?.win === win) outputWindows.delete(output.id);
+    const cur = outputWindows.get(output.id);
+    // Recreation guard: the entry may already belong to a rebuilt window
+    // (crash path below destroys the dead one after registering its
+    // replacement) — only act when this IS the registered window.
+    if (cur?.win !== win) return;
+    const wasExpected = !!cur.expectClose;
+    const def = cur.def;
+    outputWindows.delete(output.id);
+    if (!wasExpected && def) {
+      // Window died without anyone asking (external kill, display teardown):
+      // same recovery as a renderer crash.
+      recoverOutputWindow(output.id, def, 'closed-unexpectedly');
+    }
+  });
+
+  // Crash recovery: a dead renderer must never take the projection (or the
+  // main process) down with it. Rebuild the window from the stored def;
+  // did-finish-load re-pushes aspect/config and get-live-state restores the
+  // live slide, so the wall comes back on its own mid-service. Crash loops
+  // (poisoned GPU, broken driver) stop after 3 rapid rebuilds and report to
+  // the console instead of thrashing forever.
+  win.webContents.on('render-process-gone', (_event, details) => {
+    const cur = outputWindows.get(output.id);
+    if (!cur || cur.win !== win) return;
+    electronLog.error(`[output] renderer gone (${(details && details.reason) || 'unknown'}) on ${cur.title} — rebuilding`);
+    outputWindows.delete(output.id);
+    try { if (!win.isDestroyed()) { cur.expectClose = true; win.destroy(); } } catch {}
+    recoverOutputWindow(output.id, cur.def || { ...output }, 'renderer-crash');
+  });
+  win.on('unresponsive', () => {
+    const cur = outputWindows.get(output.id);
+    if (!cur || cur.win !== win || win.isDestroyed()) return;
+    // Hung renderer (usually a wedged decoder): a reload re-pulls the live
+    // slide via get-live-state. No state is lost — outputs hold no local state.
+    electronLog.warn(`[output] ${cur.title} unresponsive — reloading`);
+    try { win.reload(); } catch {}
   });
 }
 
 function closeOutputWindow(id) {
   const entry = outputWindows.get(id);
+  if (entry) entry.expectClose = true;
   if (entry?.win && !entry.win.isDestroyed()) entry.win.close();
   outputWindows.delete(id);
+}
+
+// Crash-loop breaker state for recoverOutputWindow below.
+const outputCrashCount = new Map();
+
+function recoverOutputWindow(id, def, reason) {
+  const n = (outputCrashCount.get(id) || 0) + 1;
+  outputCrashCount.set(id, n);
+  setTimeout(() => { if ((outputCrashCount.get(id) || 0) === n) outputCrashCount.delete(id); }, 30000);
+  if (n > 3) {
+    electronLog.error(`[output] KOG OUT ${id} crashed ${n}x in 30s — NOT rebuilding (needs operator eyes)`);
+    outputCrashCount.delete(id);
+    if (operatorWindow && !operatorWindow.isDestroyed()) {
+      try { operatorWindow.webContents.send('output-failed', { id, reason }); } catch {}
+    }
+    return;
+  }
+  electronLog.warn(`[output] rebuilding KOG OUT ${id} after ${reason} (attempt ${n})`);
+  try {
+    createOutputWindow({ ...def, enabled: true });
+  } catch (err) {
+    electronLog.error(`[output] rebuild of KOG OUT ${id} failed:`, err && err.message);
+    return;
+  }
+  if (operatorWindow && !operatorWindow.isDestroyed()) {
+    try { operatorWindow.webContents.send('output-recovered', { id, reason, attempt: n }); } catch {}
+  }
 }
 
 function closeAllOutputs() {
@@ -611,6 +679,7 @@ function syncOutputs(outputs) {
       if (existing.cfg !== cfg) {
         // Rotation / edge-blend / rename changed: apply live, no rebuild.
         existing.cfg = cfg;
+        existing.def = { ...output };
         const fresh = existing.win && !existing.win.isDestroyed() ? existing.win : null;
         if (fresh) {
           fresh.webContents.send('output-config', output);
@@ -687,6 +756,23 @@ ipcMain.on('update-live-stage', (event, stageData) => {
 // there is no load-order race (a push on did-finish-load could arrive
 // before the window is listening and be lost).
 ipcMain.handle('get-live-state', () => ({ slide: lastLiveSlide, stage: lastLiveStage }));
+
+// Next-slide media warm-up: the console fires this while the current slide is
+// still on screen (type + url only — bytes never travel through IPC). Lyrics
+// outputs pre-decode images / pre-fetch video so a song switch mounts warm.
+ipcMain.on('output-preload', (_event, payload) => {
+  if (!payload || !payload.url) return;
+  for (const { win, role } of outputWindows.values()) {
+    if (role === 'lyrics' && win && !win.isDestroyed()) {
+      try { win.webContents.send('output-preload', payload); } catch {}
+    }
+  }
+});
+
+// GPU status for the dev-only output perf HUD (localStorage kog_perf=1).
+ipcMain.handle('output-gpu-status', () => {
+  try { return app.getGPUFeatureStatus(); } catch (e) { return { error: String((e && e.message) || e) }; }
+});
 
 ipcMain.on('update-output-aspect', (event, aspect) => {
   for (const [id, { win }] of outputWindows) {

@@ -1,9 +1,80 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { renderLyricsLayout, DEFAULT_LYRIC_SIZE } from '../lib/lyrics';
 import { cssSpeed } from '../lib/constants';
 import PresentationSlide from './PresentationSlide';
 import { BackgroundVideo } from '../lib/perf';
 import { AnimatePresence, motion } from 'motion/react';
+
+// Development-only perf HUD: enable with localStorage kog_perf=1 in the
+// output window (DevTools → Application → Local Storage). Off by default and
+// invisible otherwise. Tracks FPS (rAF), slides rendered, commit→paint per
+// slide, render IPC count, JS heap, playing-video state and GPU flags —
+// everything the stability spec asks to watch, with zero cost when disabled
+// (no rAF loop, no polling, not even mounted).
+function OutputPerfHud({ slideKey }) {
+  const [fps, setFps] = useState(0);
+  const [stats, setStats] = useState({ slides: 0, lastMs: 0, maxMs: 0, ipc: 0, mem: 0, video: '—', gpu: '' });
+  const sRef = useRef({ frames: 0, last: 0, slides: 0, maxMs: 0, ipc: 0 });
+  // Slide commit → first painted frame. slideKey changes once per fired
+  // slide, so this runs once per transition — never a standing loop.
+  useEffect(() => {
+    const s = sRef.current;
+    s.slides += 1;
+    s.ipc += 1;
+    const t0 = performance.now();
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const ms = performance.now() - t0;
+        s.maxMs = Math.max(s.maxMs, ms);
+        setStats((p) => ({ ...p, slides: s.slides, lastMs: ms, maxMs: s.maxMs, ipc: s.ipc }));
+      });
+    });
+    return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); };
+  }, [slideKey]);
+  useEffect(() => {
+    const s = sRef.current;
+    s.last = performance.now();
+    let alive = true;
+    let raf = 0;
+    const loop = () => {
+      if (!alive) return;
+      s.frames += 1;
+      const now = performance.now();
+      if (now - s.last >= 1000) {
+        let mem = 0;
+        try { mem = Math.round((performance.memory?.usedJSHeapSize || 0) / 1048576); } catch {}
+        const v = document.querySelector('video');
+        setFps(Math.round((s.frames * 1000) / Math.max(1, now - s.last)));
+        setStats((p) => ({
+          ...p,
+          mem,
+          video: v ? `rs${v.readyState} ${(v.currentSrc || v.src || '').split('/').pop()}` : 'no-video',
+        }));
+        s.frames = 0;
+        s.last = now;
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    let gpuTimer = 0;
+    const pollGpu = async () => {
+      try {
+        if (!window.require) return;
+        const g = await window.require('electron').ipcRenderer.invoke('output-gpu-status');
+        if (alive && g && !g.error) setStats((p) => ({ ...p, gpu: `gpu:${g.gpu_compositing || '?'} vid:${g.video_decode || '?'}` }));
+      } catch {}
+    };
+    pollGpu();
+    gpuTimer = setInterval(pollGpu, 5000);
+    return () => { alive = false; cancelAnimationFrame(raf); clearInterval(gpuTimer); };
+  }, []);
+  return (
+    <div style={{ position: 'fixed', left: 8, top: 8, zIndex: 9999, pointerEvents: 'none', fontFamily: 'monospace', fontSize: 11, lineHeight: 1.5, color: '#00ff88', background: 'rgba(0,0,0,0.65)', padding: '6px 8px', borderRadius: 6, whiteSpace: 'pre' }}>
+      {`fps ${fps}  slides ${stats.slides}\ncommit→paint ${stats.lastMs.toFixed(1)}ms max ${stats.maxMs.toFixed(1)}ms\nipc~${stats.ipc}  mem ${stats.mem}MB\n${stats.video}\n${stats.gpu}`}
+    </div>
+  );
+}
 
 export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
   const [win, setWin] = useState({ w: window.innerWidth, h: window.innerHeight });
@@ -26,6 +97,33 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
       window.removeEventListener('resize', onResize);
       if (raf) cancelAnimationFrame(raf);
     };
+  }, []);
+
+  // Next-slide media warm-up (see main's output-preload fan-out): the console
+  // announces the coming background while the current slide is still live.
+  // Images decode into the cache; video is fetch-warmed only — a hidden
+  // preloading decoder would steal cycles from the video actually playing.
+  useEffect(() => {
+    if (!window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    const onPreload = (_e, p) => {
+      try {
+        if (!p || !p.url) return;
+        if (p.type === 'image') {
+          const im = new Image();
+          im.src = p.url;
+        } else if (p.type === 'video') {
+          const l = document.createElement('link');
+          l.rel = 'preload';
+          l.as = 'video';
+          l.href = p.url;
+          document.head.appendChild(l);
+          setTimeout(() => l.remove(), 30000);
+        }
+      } catch {}
+    };
+    ipcRenderer.on('output-preload', onPreload);
+    return () => ipcRenderer.removeListener('output-preload', onPreload);
   }, []);
 
   const slideStyle = currentSlide.style || {};
@@ -71,6 +169,12 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
   const bgFade = 0.6;
   // Standby / clear: the incoming slide has no lyrics and no deck on it.
   const blankSlide = !currentSlide.text && !currentSlide.presentation;
+
+  // Dev HUD flag: read once, never subscribed — enabling it takes an output
+  // restart, which is exactly right for a wall (no surprise overlays live).
+  const [perfOn] = useState(() => {
+    try { return typeof localStorage !== 'undefined' && localStorage.getItem('kog_perf') === '1'; } catch { return false; }
+  });
 
   // 1:1 projection: the 1280x720 design canvas (background + lyrics together)
   // is scaled uniformly to CONTAIN the aspect frame (see VIEW SHAPE below)
@@ -171,6 +275,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
       alignItems: 'center',
       justifyContent: 'center'
     }}>
+      {perfOn && <OutputPerfHud slideKey={currentSlide.timestamp} />}
       {/* Reset root margins & hide window scrollbars */}
       <style>{`
         html, body, #root { 

@@ -1315,6 +1315,19 @@ export default function App() {
       { title: slidePayload.title, label: cue?.label || 'Song Title', text: cue?.id === 'clear' ? '' : slidePayload.text, timestamp: slidePayload.timestamp },
       nextCue ? { title: activeSong?.title, label: nextCue.label, text: nextCue.text } : null
     );
+    // Warm the OUTPUT's cache for the next cue's background while this slide
+    // is on screen, so a song switch mounts warm instead of decoding cold
+    // mid-transition. Command-style (type + url only) — bytes never travel
+    // through IPC, and a same-as-current bg is a no-op cache hit.
+    try {
+      if (window.require && targetedDisplays.includes(1) && nextCue) {
+        const { ipcRenderer } = window.require('electron');
+        const nbg = cueHasBackground(nextCue)
+          ? { type: nextCue.bg_type, url: nextCue.bg_value }
+          : (songHasBackground(activeSong) ? { type: activeSong.bg_type, url: activeSong.bg_value } : null);
+        if (nbg && nbg.url) ipcRenderer.send('output-preload', nbg);
+      }
+    } catch {}
   };
 
   // Clear All blacks the whole output. Clear Lyrics is the softer one: only the
