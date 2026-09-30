@@ -405,6 +405,13 @@ export default function LyricsCanvasEditor({
   // next keystroke to land inside of. It still has to read the textarea's own
   // (possibly uncommitted) text rather than the `text` prop, or it would drop
   // the last 150ms of typing.
+  //
+  // Span writes go through a ref mirror, not the render-scope `taSpans`: two
+  // chips clicked back-to-back (sidebar B then canvas I, sidebar glow then a
+  // chip) otherwise compute the second patch from the pre-first array and the
+  // first patch is silently lost.
+  const taSpansRef = useRef(null);
+  taSpansRef.current = taSpans;
   const applyStyle = (patch) => {
     const ta = taRef.current;
     const value = ta ? ta.value : taText;
@@ -424,7 +431,7 @@ export default function LyricsCanvasEditor({
   const applyStyleToRange = (patch, from, to) => {
     const ta = taRef.current;
     const value = ta ? ta.value : taText;
-    const spans = applySpanPatch(taSpans, from, to, patch);
+    const spans = applySpanPatch(taSpansRef.current || [], from, to, patch);
     setTaSpans(spans);
     taPendingRef.current = emitSpans(value, spans);
     sendTa();
@@ -460,6 +467,8 @@ export default function LyricsCanvasEditor({
 
   // Tell the sidebar what its buttons should light up on. Keyed on the ANSWER,
   // not on the caret, so moving the cursor never re-renders the whole modal.
+  // Deps are the actual inputs (selection, spans, text) — the old dep-less
+  // version re-ran (and re-ran rangeAttrs over the spans) on EVERY render.
   const selReportRef = useRef('');
   useEffect(() => {
     const state = { bold: tgtOn('bold'), italic: tgtOn('italic'), underline: tgtOn('underline'), strike: tgtOn('strike'), glow: tgtOn('glow') };
@@ -468,7 +477,7 @@ export default function LyricsCanvasEditor({
     if (key === selReportRef.current) return;
     selReportRef.current = key;
     onSelectionChange?.({ active: hasSel, attrs: { ...state, scale: tgtScale, glowColor: selGlowColor }, from: sel.start, to: sel.end });
-  });
+  }, [sel.start, sel.end, hasSel, tgtFrom, tgtTo, tgtScale, taSpans, taText]);
 
   // ---- WYSIWYG typing surface --------------------------------------------
   // z1 keeps rendering (the live text, not the 150ms-lagged prop) and the
@@ -1014,6 +1023,7 @@ export default function LyricsCanvasEditor({
               <textarea
                 ref={taRef}
                 value={taText}
+                data-kog-canvas="1"
                 className={overlayOn ? 'lyr-edit-ghost' : undefined}
                 onChange={(e) => {
                   const v = e.target.value;

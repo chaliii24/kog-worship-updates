@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Square, Type, SkipBack, SkipForward, Image as ImageIcon, Video, Zap } from 'lucide-react';
 import { motion } from 'motion/react';
 import { TimerReadout } from '../lib/perf';
@@ -39,7 +39,26 @@ export default function LiveOutputPanel({
   fireBibleSelectionLive,
   bibleSelCount = 0,
 }) {
-  const isLive = activeCue?.id !== 'clear' && activeCue !== null;
+  const isLive = activeCue != null && activeCue?.id !== 'clear';
+  // Color drags fire onChange per mousemove: leading edge keeps the preview
+  // instant, trailing edge lands the final value so a fast drag + close never
+  // loses the last color. Without this every tick sprayed IPC + re-renders.
+  const bibleColorTimer = useRef(null);
+  const bibleColorPending = useRef(null);
+  const pushBibleColor = (value) => {
+    bibleColorPending.current = value;
+    if (bibleColorTimer.current) return;
+    bibleColorPending.current = null;
+    selectBibleMediaLive('color', value);
+    bibleColorTimer.current = setTimeout(() => {
+      bibleColorTimer.current = null;
+      if (bibleColorPending.current != null) {
+        const v = bibleColorPending.current;
+        bibleColorPending.current = null;
+        selectBibleMediaLive('color', v);
+      }
+    }, 120);
+  };
   // The assigned default, resolved back to its option so the thumbnail and
   // label stay right even though the picker only hands back a URL.
   const defaultOpt = scriptureDefaultOptions.find(o => o.value === (scriptureDefault && scriptureDefault.value)) || null;
@@ -136,7 +155,7 @@ export default function LiveOutputPanel({
             ) : null}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input type="color" value={bibleMedia && bibleMedia.type === 'color' ? bibleMedia.value : '#0a0a0a'} onChange={(e) => selectBibleMediaLive('color', e.target.value)} title="Scripture solid-color background" style={{ width: 30, height: 26, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
+            <input type="color" value={bibleMedia && bibleMedia.type === 'color' ? bibleMedia.value : '#0a0a0a'} onChange={(e) => pushBibleColor(e.target.value)} title="Scripture solid-color background" style={{ width: 30, height: 26, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
             <motion.label {...stubTap} style={{ background: C.elevated, color: C.text2, border: '1px solid var(--ui-border2)', padding: '4px 8px', borderRadius: 6, fontSize: 10, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}><ImageIcon size={10} /> Image<input type="file" accept="image/*" onChange={(e) => { importBibleMedia(e); e.target.value = ''; }} style={{ display: 'none' }} /></motion.label>
             <motion.label {...stubTap} style={{ background: C.elevated, color: C.text2, border: '1px solid var(--ui-border2)', padding: '4px 8px', borderRadius: 6, fontSize: 10, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Video size={10} /> Video<input type="file" accept="video/mp4,video/webm" onChange={(e) => { importBibleMedia(e); e.target.value = ''; }} style={{ display: 'none' }} /></motion.label>
           </div>
@@ -187,9 +206,23 @@ export default function LiveOutputPanel({
             <div style={{ display: 'grid', gap: 6 }}>
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 2 }}>Quick Jump</div>
 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {groupLabels.map(label => (
-                  <motion.button {...stubTap} key={label} onClick={() => { const c = (activeSong?.cues || []).find(x => x.label === label); if (c) fireCueLive(c); }} style={{ background: C.elevated, border: activeCue?.label === label ? `1px solid ${PINK}` : '1px solid var(--ui-border2)', color: activeCue?.label === label ? PINK : C.text2, borderRadius: 999, padding: '6px 13px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>{label}</motion.button>
-                ))}
+                {groupLabels.map(label => {
+                  // Highlight by BASE label too: a live "Chorus (Part 2)" must
+                  // light the Chorus chip, not leave every chip dark.
+                  const liveBase = String(activeCue?.label || '').replace(/\s*\(Part\s+\d+\)\s*$/i, '');
+                  const on = liveBase === label;
+                  return (
+                  <motion.button {...stubTap} key={label} onClick={() => {
+                    // Labels here are BASE names ("Chorus") while split cues
+                    // read "Chorus (Part 2)" — exact match found nothing and
+                    // the chip silently no-opped on parted songs.
+                    const cues = activeSong?.cues || [];
+                    const c = cues.find(x => x.label === label)
+                      || cues.find(x => (x.label || '').startsWith(label + ' (Part'));
+                    if (c) fireCueLive(c);
+                  }} style={{ background: C.elevated, border: on ? `1px solid ${PINK}` : '1px solid var(--ui-border2)', color: on ? PINK : C.text2, borderRadius: 999, padding: '6px 13px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>{label}</motion.button>
+                  );
+                })}
               </div>
               <div style={{ fontSize: 11, color: C.faint, marginTop: 8, lineHeight: 1.6 }}>Click a group to jump straight to its first slide on all outputs.</div>
             </div>

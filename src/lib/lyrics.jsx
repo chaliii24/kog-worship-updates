@@ -117,14 +117,19 @@ const tokenizeLine = (line, inBold) => {
 // Adjacent tokens merge into one <span> when every run key matches. The flags
 // compare as booleans because parseSegments always spells `bold` out while the
 // newer flags arrive as undefined-or-true from the marker scope — and to the
-// renderer "off" and "never mentioned" mean exactly the same thing. Written out
-// rather than looped because this runs for every adjacent pair of every line
-// of every frame, on a machine that is already short of CPU.
+// renderer "off" and "never mentioned" mean exactly the same thing. Weight /
+// tracking compare EFFECTIVE values ({w=400} on default-bold text, {track=0}
+// on untracked text) so identical-looking runs don't fragment into extra
+// spans on every frame. Written out rather than looped because this runs for
+// every adjacent pair of every line of every frame, on a machine that is
+// already short of CPU.
+const effWeight = (r) => (r.weight != null ? r.weight : (r.bold ? 700 : 400));
+const effTrack = (r) => (r.track != null ? r.track : 0);
 const sameRun = (a, b) => !!a.bold === !!b.bold
   && !!a.underline === !!b.underline
   && !!a.italic === !!b.italic
   && !!a.strike === !!b.strike
-  && a.scale === b.scale && a.weight === b.weight && a.track === b.track
+  && a.scale === b.scale && effWeight(a) === effWeight(b) && effTrack(a) === effTrack(b)
   && a.font === b.font && a.color === b.color && (a.glow || undefined) === (b.glow || undefined);
 
 // A line becomes a short list of styled runs. Adjacent runs that share a style
@@ -149,9 +154,34 @@ export const parseSegments = (line) => {
 // monitor, the mobile views, cue lists and thumbnails. They print cue.text
 // raw, so without this the markers would show up as literal `{size=0.55}` (and
 // `**bold**` already leaks as literal asterisks today).
+// Only real markers are stripped: a brace group whose body parses as style
+// attributes (or is empty / `/`). A lyric that literally says `{thanks}` or
+// `{choir}` keeps its words on stage, mobile and thumbnails instead of having
+// them silently deleted.
+const STRIP_KEYS = new Set(['size', 'scale', 'w', 'weight', 'track', 'ls', 'font', 'color', 'colour', 'glow']);
+const isMarkerBody = (b) => {
+  if (b === '' || b === '/') return true;
+  for (const chunk of b.split(',')) {
+    const kv = chunk.trim();
+    if (!kv) continue;
+    const eq = kv.indexOf('=');
+    if (eq < 0) {
+      // Bare flag ({bold}) or numeric shorthand ({0.55}); anything else is prose.
+      if (BOOL_KEYS[kv.toLowerCase()]) continue;
+      const n = parseFloat(kv);
+      if (Number.isFinite(n) && n > 0) continue;
+      return false;
+    }
+    // Unknown key=value ({foo=bar}) is prose too — the reader ignores it, so
+    // stripping it here would delete words the renderer keeps.
+    if (!STRIP_KEYS.has(kv.slice(0, eq).trim().toLowerCase())) return false;
+  }
+  return true;
+};
 const stripLine = (ln) => {
   const hadLead = /^[ \t]*\{[^{}\n]*\}/.test(ln);
-  const out = ln.replace(/\{[^{}\n]*\}/g, '').replace(/\*\*([\s\S]+?)\*\*/g, '$1');
+  const out = ln.replace(/\{([^{}\n]*)\}/g, (m, body) => (isMarkerBody(String(body || '').trim()) ? '' : m))
+    .replace(/\*\*([\s\S]+?)\*\*/g, '$1');
   // A leading marker usually carries no space after it; drop the one that did.
   return hadLead ? out.replace(/^[ \t]+/, '') : out;
 };
@@ -715,13 +745,17 @@ export const restyleLineScales = (srcText, tgtText) => {
     if (!tgtWords.length) {
       // A blank line still gets an anchor, so the words typed into it arrive
       // already dressed — and a blank source line simply reads its own size.
+      // No size found means leave the line alone: patching {scale:undefined}
+      // would DELETE the size it already has.
       const end = matched ? sl.end : (tl.end / Math.max(1, tgtLen)) * srcLen;
-      spans = applySpanPatch(spans, tl.start, tl.end, { scale: profileAt(P, end, lo, hi) });
+      const v = profileAt(P, end, lo, hi);
+      if (v !== undefined) spans = applySpanPatch(spans, tl.start, tl.end, { scale: v });
       continue;
     }
     if (!nS) {
       // The scope has no words to take a size off — one size fits all of it.
-      spans = applySpanPatch(spans, tl.start, tl.end, { scale: profileAt(P, sl.end, lo, hi) });
+      const v = profileAt(P, sl.end, lo, hi);
+      if (v !== undefined) spans = applySpanPatch(spans, tl.start, tl.end, { scale: v });
       continue;
     }
 
@@ -737,7 +771,7 @@ export const restyleLineScales = (srcText, tgtText) => {
       // a size merge back into ONE marker instead of one per word.
       const from = w === 0 ? tl.start : ws;
       const to = w + 1 < tgtWords.length ? tgtWords[w + 1][0] : tl.end;
-      spans = applySpanPatch(spans, from, to, { scale: ladder[k] });
+      if (ladder[k] !== undefined) spans = applySpanPatch(spans, from, to, { scale: ladder[k] });
     }
   }
   return emitSpans(ing.text, spans);
@@ -808,13 +842,16 @@ export const autoPadForSize = (size) =>
 
 // Box metrics shared by the renderer and by the editor's textarea, so the box
 // you type into and the box that lands on the projector are sized identically.
+// Null/zero boxes (bad drag, corrupt cue) fall back to stock instead of
+// throwing on box.w or silently rendering at full-canvas size.
 export const lyricsLayoutMetrics = (st, box) => {
+  const b = box || {};
   const baseSize = Math.max(FONT_SIZE_MIN, Math.min(Number(st.size) || DEFAULT_LYRIC_SIZE, FONT_SIZE_MAX));
   const pad = st.fill
     ? 6
     : Math.max(0, st.pad != null && st.pad !== '' ? Number(st.pad) || 0 : autoPadForSize(baseSize));
-  const boxW = Math.max(200, (box.w || 1280) - pad * 2 - (st.highlight ? 24 : 0));
-  const boxH = box.h || 640;
+  const boxW = Math.max(200, (Number(b.w) || 1280) - pad * 2 - (st.highlight ? 24 : 0));
+  const boxH = Number(b.h) || 640;
   const maxH = Math.max(40, Math.min(boxH - pad * 2, 700));
   return { pad, boxW, boxH, baseSize, maxH };
 };

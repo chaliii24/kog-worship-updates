@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { resolveRects, visibleElements } from '../lib/backgrounds';
 
 const ACCENT = '#8b5cf6';
@@ -14,6 +14,10 @@ export default function PresentationEditableLayer({ slide, scale, onChange }) {
   const keys = visibleElements(slide);
   const [active, setActive] = useState(null);
   const drag = useRef(null);
+  const doneRef = useRef(null);
+  // Unmount mid-drag (slide switch while holding): drop the window listeners
+  // and the stale drag ref with the component.
+  useEffect(() => () => { try { doneRef.current && doneRef.current(); } catch {} drag.current = null; }, []);
 
   if (!keys.length) return null;
 
@@ -41,14 +45,21 @@ export default function PresentationEditableLayer({ slide, scale, onChange }) {
       }
       onChange(d.key, next);
     };
-    const up = () => {
+    const done = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
       drag.current = null;
       setActive(null);
     };
+    // pointercancel (Alt+Tab mid-drag, touch interruption, unplug) must end
+    // the drag too — otherwise drag.current stays set and the next mousemove
+    // teleports the box.
+    const up = done;
+    doneRef.current = done;
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   };
 
   return (

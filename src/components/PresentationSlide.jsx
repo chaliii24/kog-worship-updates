@@ -103,7 +103,7 @@ function Box({ rect, align, children }) {
 function Bullets({ bullets, textColor, bodySize, align }) {
   const justify = align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start';
   return (
-    <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: Math.max(8, bodySize * 0.45) }}>
+    <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: Math.max(8, (Number(bodySize) || 0) * 0.45) }}>
       {bullets.map((b, i) => (
         <li key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', justifyContent: justify, color: textColor, fontSize: bodySize, lineHeight: 1.3, textAlign: align }}>
           <span style={{ opacity: 0.85, flexShrink: 0 }}>•</span>

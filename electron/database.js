@@ -4,7 +4,23 @@ import { app } from 'electron';
 import fs from 'fs';
 
 const dbPath = path.join(app.getPath('userData'), 'kog-worship.db');
-const db = new Database(dbPath);
+let db;
+try {
+  db = new Database(dbPath);
+} catch (firstErr) {
+  // A torn write (power loss mid-save) leaves SQLITE_CORRUPT / SQLITE_NOTADB,
+  // which used to kill the whole app at import time before any window exists.
+  // Quarantine the corpse for manual recovery and start a fresh library.
+  try {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    fs.renameSync(dbPath, `${dbPath}.corrupt-${stamp}`);
+  } catch {}
+  db = new Database(dbPath);
+}
+// WAL + busy timeout: readers (thumbnail sweeps, monitor) never block the
+// writer for long, and concurrent opens wait instead of SQLITE_BUSY-failing.
+try { db.pragma('journal_mode = WAL'); } catch (_) {}
+try { db.pragma('busy_timeout = 5000'); } catch (_) {}
 
 // Initialize Database Tables
 db.exec(`
@@ -126,8 +142,11 @@ if (songCount === 0) {
 }
 
 export function getSongs(searchQuery = '', category = 'All') {
-  let query = 'SELECT * FROM songs WHERE (title LIKE ? OR artist LIKE ?)';
-  let params = [`%${searchQuery}%`, `%${searchQuery}%`];
+  // A literal % or _ in the query used to act as a wildcard (over-matching);
+  // escape it so search means what the operator typed.
+  const q = String(searchQuery || '').replace(/[\\%_]/g, (c) => `\\${c}`);
+  let query = 'SELECT * FROM songs WHERE (title LIKE ? ESCAPE \'\\\' OR artist LIKE ? ESCAPE \'\\\')';
+  let params = [`%${q}%`, `%${q}%`];
 
   if (category === 'Favorites') {
     query += ' AND is_favorite = 1';
@@ -159,21 +178,26 @@ export function saveSong(songData) {
   const { id, title, artist, category, cues, bg_type, bg_value, audio_url, title_cue } = songData;
   const titleCueJson = title_cue ? JSON.stringify(title_cue) : null;
   const insertCue = db.prepare('INSERT INTO cues (song_id, label, text, sequence_order, bg_type, bg_value, duration, style_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-  if (id) {
-    db.prepare('UPDATE songs SET title = ?, artist = ?, category = ?, bg_type = ?, bg_value = ?, audio_url = ?, title_cue_json = ? WHERE id = ?').run(title, artist, category, bg_type || 'color', bg_value || '#000000', audio_url || null, titleCueJson, id);
-    db.prepare('DELETE FROM cues WHERE song_id = ?').run(id);
-    cues.forEach((cue, index) => {
-      insertCue.run(id, cue.label, cue.text, index + 1, cue.bg_type || 'color', cue.bg_value || '#000000', cue.duration || 0, cueStyleJson(cue));
-    });
-    return id;
-  } else {
-    const result = db.prepare('INSERT INTO songs (title, artist, category, bg_type, bg_value, audio_url, title_cue_json) VALUES (?, ?, ?, ?, ?, ?, ?)').run(title, artist, category || 'Worship', bg_type || 'color', bg_value || '#000000', audio_url || null, titleCueJson);
-    const songId = result.lastInsertRowid;
-    cues.forEach((cue, index) => {
+  const runCues = (songId) => {
+    (cues || []).forEach((cue, index) => {
       insertCue.run(songId, cue.label, cue.text, index + 1, cue.bg_type || 'color', cue.bg_value || '#000000', cue.duration || 0, cueStyleJson(cue));
     });
-    return songId;
-  }
+  };
+  // Atomic: the old code deleted every cue BEFORE inserting, so one bad cue
+  // (NULL label/text → NOT NULL violation, full disk, corrupt page) left the
+  // song saved with zero slides. A transaction rolls everything back instead.
+  const tx = db.transaction((songId) => {
+    if (songId) {
+      db.prepare('UPDATE songs SET title = ?, artist = ?, category = ?, bg_type = ?, bg_value = ?, audio_url = ?, title_cue_json = ? WHERE id = ?').run(title, artist, category, bg_type || 'color', bg_value || '#000000', audio_url || null, titleCueJson, songId);
+      db.prepare('DELETE FROM cues WHERE song_id = ?').run(songId);
+      runCues(songId);
+      return songId;
+    }
+    const result = db.prepare('INSERT INTO songs (title, artist, category, bg_type, bg_value, audio_url, title_cue_json) VALUES (?, ?, ?, ?, ?, ?, ?)').run(title, artist, category || 'Worship', bg_type || 'color', bg_value || '#000000', audio_url || null, titleCueJson);
+    runCues(result.lastInsertRowid);
+    return result.lastInsertRowid;
+  });
+  return tx(id || null);
 }
 
 export function deleteSong(songId) {
@@ -278,12 +302,13 @@ export function addMediaAsset(url, kind = 'image', name = '') {
 
 export function deleteMediaAsset(url) {
   if (!url) return;
-  try {
-    db.prepare('DELETE FROM media_assets WHERE url = ?').run(url);
-    db.prepare('UPDATE songs SET bg_type = ?, bg_value = ? WHERE bg_value = ?').run('color', '#000000', url);
-    db.prepare('UPDATE songs SET audio_url = NULL WHERE audio_url = ?').run(url);
-    db.prepare('UPDATE cues SET bg_type = ?, bg_value = ? WHERE bg_value = ?').run('color', '#000000', url);
-  } catch (_) {}
+  // One statement per try: a failure (e.g. a pre-migration DB missing
+  // audio_url — migrations swallow their own errors) must not skip the
+  // remaining cleanups and leave dangling media:// references behind.
+  try { db.prepare('DELETE FROM media_assets WHERE url = ?').run(url); } catch (_) {}
+  try { db.prepare('UPDATE songs SET bg_type = ?, bg_value = ? WHERE bg_value = ?').run('color', '#000000', url); } catch (_) {}
+  try { db.prepare('UPDATE songs SET audio_url = NULL WHERE audio_url = ?').run(url); } catch (_) {}
+  try { db.prepare('UPDATE cues SET bg_type = ?, bg_value = ? WHERE bg_value = ?').run('color', '#000000', url); } catch (_) {}
 }
 
 export function getLibraryStats() {
@@ -369,9 +394,14 @@ export function saveServicePlan(serviceData) {
       : null
   );
   if (id) {
-    db.prepare('UPDATE services SET name = ?, date = ?, category = ?, ratio = ?, resolution = ? WHERE id = ?').run(name, date, category, ratio, resolution, id);
-    db.prepare('DELETE FROM service_items WHERE service_id = ?').run(id);
-    items.forEach((item, idx) => { runInsert(id, item, idx); });
+    // Atomic, same as saveSong: a failed item insert must not leave the plan
+    // saved with half its rows. Also guards a missing items array.
+    const tx = db.transaction(() => {
+      db.prepare('UPDATE services SET name = ?, date = ?, category = ?, ratio = ?, resolution = ? WHERE id = ?').run(name, date, category, ratio, resolution, id);
+      db.prepare('DELETE FROM service_items WHERE service_id = ?').run(id);
+      (items || []).forEach((item, idx) => { runInsert(id, item, idx); });
+    });
+    tx();
     return id;
   } else {
     const res = db.prepare('INSERT INTO services (name, date, category, ratio, resolution) VALUES (?, ?, ?, ?, ?)').run(name, date || new Date().toISOString().split('T')[0], category, ratio, resolution);

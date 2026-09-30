@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { stripMarkup } from '../lib/lyrics';
+import { TimerFace } from './CountdownFace';
 
-export default function StageDisplay({ currentSlide, C }) {
+export default function StageDisplay({ currentSlide, C = {} }) {
   const stage = currentSlide && typeof currentSlide === 'object' && currentSlide.current ? currentSlide : { current: { title: 'KOG Worship', label: 'Waiting…', text: '' }, next: null };
   const current = stage.current || {};
   const nextSlide = stage.next || null;
@@ -14,9 +15,22 @@ export default function StageDisplay({ currentSlide, C }) {
   // resolution the output window opens at (80 px of text at 1080p).
   const [view, setView] = useState(() => ({ w: window.innerWidth, h: window.innerHeight }));
   useEffect(() => {
-    const onResize = () => setView({ w: window.innerWidth, h: window.innerHeight });
+    // rAF-collapsed like the projector: a windowed stage output dragged
+    // across screens fires resize ~60x/s, and every one re-rendered the wall.
+    let raf = 0;
+    const onResize = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        setView((prev) => {
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          return prev.w === w && prev.h === h ? prev : { w, h };
+        });
+      });
+    };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    return () => { window.removeEventListener('resize', onResize); if (raf) cancelAnimationFrame(raf); };
   }, []);
 
   const h = view.h || 1080;
@@ -55,8 +69,18 @@ export default function StageDisplay({ currentSlide, C }) {
       </div>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: 0 }}>
+        {current.timer ? (
+          // Countdown on stage: the same face as the wall, scaled to the
+          // panel height, ticking off the same endsAt — no drift.
+          <div style={{ position: 'relative', flex: 1, minHeight: 0, borderRadius: '1vh', overflow: 'hidden' }}>
+            <TimerFace timer={current.timer} scale={h / 720} />
+          </div>
+        ) : (
+        <>
         <div style={{ fontSize: '1.6vh', fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', letterSpacing: '2px', marginBottom: '0.9vh' }}>{current.title ? `${current.title}  ·  ` : ''}{current.label || 'Current'}</div>
         <p style={{ margin: 0, fontSize: `${curSize}px`, lineHeight: 1.3, fontWeight: '800', whiteSpace: 'pre-line', color: C.text, textShadow: '0 2px 20px rgba(99,102,241,0.25)', overflow: 'hidden' }}>{stripMarkup(current.text) || 'Blackout'}</p>
+        </>
+        )}
       </div>
 
       <div style={{ borderTop: '1px solid #24243a', paddingTop: '2vh', minHeight: '14vh', flexShrink: 0 }}>

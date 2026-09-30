@@ -49,7 +49,14 @@ function run(cmd, args, timeoutMs = 10000) {
 }
 
 export async function findFfmpeg(override) {
-  if (override) return fs.existsSync(override) ? override : null;
+  // A directory passes existsSync but is not an executable — fail fast with a
+  // clear message instead of a confusing async spawn error 700ms later.
+  if (override) {
+    try {
+      if (fs.existsSync(override) && fs.statSync(override).isFile()) return override;
+    } catch {}
+    return null;
+  }
   const now = Date.now();
   if (cache.ffmpeg.value !== undefined && now - cache.ffmpeg.at < 60000) return cache.ffmpeg.value;
   let found = null;
@@ -137,8 +144,31 @@ export async function listDevices(ffmpegOverride) {
 // viewport and rotation, which render inside the window), or the window's
 // desktop region as a fallback for builds where PrintWindow capture of a
 // GPU-composited window comes out black.
+//
+// Mode numbers are COERCED, never interpolated: the filter graph is built
+// from raw strings, and a crafted `mode.w` like `1920,split[a][b]` would
+// rewrite it (ffmpeg filters include file read/write primitives). Same for
+// the field order allowlist and the device name (no commas/quotes/newlines).
+const numMode = (v, lo, hi, fb) => {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fb;
+};
+const cleanField = (f) => ['progressive', 'tt', 'bb', 'tb', 'bt'].includes(f) ? f : 'progressive';
+const cleanDevice = (d) => {
+  const s = String(d || '').trim();
+  return s && !/[,;"'\n\r]/.test(s) ? s : null;
+};
+let lastProc = null;
+
 export async function start(opts) {
-  stop();
+  // Wait out a dying previous instance first: the SDI device is exclusive,
+  // and spawning into its teardown raced for the handle (device busy).
+  if (lastProc) {
+    const t0 = Date.now();
+    while (lastProc.exitCode === null && Date.now() - t0 < 2000) await new Promise((r) => setTimeout(r, 50));
+    lastProc = null;
+  }
+  if (mirror) stop();
   lastError = null;
   const ffmpeg = await findFfmpeg(opts && opts.ffmpegPath);
   if (!ffmpeg) return { ok: false, error: 'ffmpeg not found. Install it and add it to PATH, or set the full ffmpeg.exe path above.' };
@@ -147,8 +177,16 @@ export async function start(opts) {
   if (!opts || !opts.device) return { ok: false, error: 'Pick a DeckLink device, or type its exact name.' };
   if (!opts.windowTitle && !opts.region) return { ok: false, error: 'Start an output window first — there is nothing to send to SDI.' };
 
-  const mode = opts.mode || { w: 1920, h: 1080, rate: '30', field: 'progressive' };
-  const fps = opts.fps || 30;
+  const device = cleanDevice(opts && opts.device);
+  if (!device) return { ok: false, error: 'Pick a DeckLink device, or type its exact name.' };
+  if (!opts.windowTitle && !opts.region) return { ok: false, error: 'Start an output window first — there is nothing to send to SDI.' };
+
+  const mode = opts.mode || {};
+  const mw = numMode(mode.w, 320, 7680, 1920);
+  const mh = numMode(mode.h, 200, 4320, 1080);
+  const rate = numMode(mode.rate, 1, 120, 30);
+  const field = cleanField(mode.field);
+  const fps = numMode(opts.fps, 1, 120, 30);
   const source = opts.region
     ? ['-f', 'gdigrab', '-framerate', String(fps), '-draw_mouse', '0',
        '-offset_x', String(Math.round(opts.region.x)), '-offset_y', String(Math.round(opts.region.y)),
@@ -161,13 +199,13 @@ export async function start(opts) {
   const args = [
     ...source,
     '-an',
-    '-vf', `fps=${mode.rate},scale=${mode.w}:${mode.h}:force_original_aspect_ratio=decrease,pad=${mode.w}:${mode.h}:(ow-iw)/2:(oh-ih)/2:black`,
+    '-vf', `fps=${rate},scale=${mw}:${mh}:force_original_aspect_ratio=decrease,pad=${mw}:${mh}:(ow-iw)/2:(oh-ih)/2:black`,
     '-f', 'decklink',
     '-pix_fmt', 'uyvy422',
-    '-s', `${mode.w}x${mode.h}`,
-    '-r', String(mode.rate),
-    '-field_order', mode.field || 'progressive',
-    String(opts.device)
+    '-s', `${mw}x${mh}`,
+    '-r', String(rate),
+    '-field_order', field,
+    device
   ];
 
   let proc;
@@ -200,10 +238,22 @@ export async function start(opts) {
 
 export function stop() {
   if (!mirror) return { ok: true };
-  mirror.stopping = true;
-  try { mirror.proc.kill(); } catch { /* noop */ }
+  const mine = mirror;
+  mine.stopping = true;
+  // SIGTERM, then SIGKILL if it lingers: the old fire-and-forget kill left
+  // ffmpeg holding the exclusive DeckLink handle while status() reported
+  // running:false — and the next start() died with "device busy".
+  try { mine.proc.kill(); } catch { /* noop */ }
   mirror = null;
   lastError = null;
+  // Handed to start() so it can wait out the teardown before respawning.
+  lastProc = mine.proc;
+  setTimeout(() => {
+    try {
+      if (mine.proc.exitCode === null && mine.proc.signalCode === null) mine.proc.kill('SIGKILL');
+    } catch { /* already gone */ }
+    if (lastProc === mine.proc) lastProc = null;
+  }, 1500).unref?.();
   return { ok: true };
 }
 

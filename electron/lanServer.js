@@ -157,7 +157,10 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
   const broadcast = (obj) => {
     const raw = JSON.stringify(obj);
     for (const s of sockets) {
-      if (s.readyState === 1) {
+      // Identified sockets only: a fresh connection that never declared
+      // itself (stage) or paired (control) used to receive full snapshots —
+      // live lyrics, service order, timer — with no PIN at all.
+      if (s.readyState === 1 && (s.kogRole === 'stage' || (s.kogRole === 'control' && s.kogAuthed))) {
         try { s.send(raw); } catch { /* noop */ }
       }
     }

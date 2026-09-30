@@ -69,8 +69,12 @@ const flat = []; let running = 0;
 });
 const total = flat.length > 0 ? flat.reduce((a, x) => a + x.c, 0) : 0;
 const cur = flat.find(e => e.si === builderSheet?.secIdx && e.ii === builderSheet?.itemIdx);
-const globalIdx = cur ? cur.start + builderTileIdx : 0;
-const upNext = cur ? (builderTileIdx + 1 < cur.c ? { entry: cur, idx: builderTileIdx + 1 } : (flat.indexOf(cur) < flat.length - 1 ? { entry: flat[flat.indexOf(cur) + 1], idx: 0 } : null)) : null;
+// Clamped: switching from a 10-slide song to a 1-slide announcement left the
+// old tile index behind — Up Next, the counter and the highlight then read an
+// out-of-range slide.
+const tileIdx = cur ? Math.max(0, Math.min(builderTileIdx, cur.c - 1)) : 0;
+const globalIdx = cur ? cur.start + tileIdx : 0;
+const upNext = cur ? (tileIdx + 1 < cur.c ? { entry: cur, idx: tileIdx + 1 } : (flat.indexOf(cur) < flat.length - 1 ? { entry: flat[flat.indexOf(cur) + 1], idx: 0 } : null)) : null;
 const sections = showBuilder.sections || [];
 const targetSecId = builderTargetSectionId || sections[0]?.id || '';
 
@@ -129,7 +133,7 @@ return (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             <button onClick={() => setServiceAddMenu(serviceAddMenu === 'builder-song' ? null : 'builder-song')} style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-song' ? '#1e1b4b' : C.elevated2, color: serviceAddMenu === 'builder-song' ? C.accLine : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-song' ? '#5b21b6' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Song</button>
             <button onClick={() => { if (targetSecId) addSlideToSection(targetSecId); }} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Slide</button>
-            <button onClick={() => { const open = serviceAddMenu !== 'builder-media'; setServiceAddMenu(open ? 'builder-media' : null); if (open) { setBuilderMediaPicker(true); fetchMediaLibrary(); } }} title="Upload a file, or pick media that is already in the app" style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-media' ? 'rgba(139,92,246,0.18)' : C.elevated2, color: serviceAddMenu === 'builder-media' ? '#C4B5FD' : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-media' ? '#5b21b6' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Media</button>
+            <button onClick={() => { const open = serviceAddMenu !== 'builder-media'; setServiceAddMenu(open ? 'builder-media' : null); if (open) { setBuilderMediaPicker(true); fetchMediaLibrary(); } else { setBuilderMediaPicker(false); } }} title="Upload a file, or pick media that is already in the app" style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-media' ? 'rgba(139,92,246,0.18)' : C.elevated2, color: serviceAddMenu === 'builder-media' ? '#C4B5FD' : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-media' ? '#5b21b6' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Media</button>
             <input type="file" id="show-media-input-builder" accept="image/*,video/*" style={{ display: 'none' }} onChange={addShowBuilderMedia} />
             <button onClick={() => addShowBuilderPlaceholder('Announcement')} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Announcement</button>
           </div>
@@ -249,7 +253,7 @@ return (
               <input type="text" value={cur.item.content || ''} onChange={(e) => updateShowItem(cur.sec.id, cur.ii, { content: e.target.value })} placeholder="Text / lyrics" style={{ background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px 8px', color: C.text, fontSize: 12, outline: 'none' }} />
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <input type="number" min="0" max="7200" value={cur.item.duration || 0} onChange={(e) => updateShowItem(cur.sec.id, cur.ii, { duration: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} title="Seconds on screen" style={{ width: 52, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
+              <input key={`dur-${cur.sec.id}-${cur.ii}-${cur.item.duration || 0}`} type="number" min="0" max="7200" defaultValue={cur.item.duration || 0} onBlur={(e) => updateShowItem(cur.sec.id, cur.ii, { duration: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }} title="Seconds on screen" style={{ width: 52, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
               <span style={{ fontSize: 9, color: C.faint }}>s</span>
             </div>
           </div>
@@ -259,7 +263,7 @@ return (
           {slides.length > 0 ? (
             <div style={{ display: 'grid', gridTemplateColumns: `repeat(${density}, 1fr)`, gap: 8 }}>
               {slides.map((sl, ti) => {
-                const isActive = builderTileIdx === ti && cur;
+                const isActive = tileIdx === ti && cur;
                 return (
                   <div key={ti} onClick={() => { if (cur) builderGoLive(cur, ti); }} style={{ position: 'relative', height: density <= 2 ? 130 : density === 3 ? 110 : 90, borderRadius: 8, overflow: 'hidden', background: sl.type === 'media' ? '#111' : C.input, border: isActive ? '2px solid #22c55e' : '1px solid var(--ui-border2)', cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: 8, boxSizing: 'border-box', transition: 'border 0.15s', boxShadow: isActive ? '0 0 12px rgba(34,197,94,0.25)' : 'none' }}>
                     {sl.type === 'media' && sl.url && (sl.sub === 'video' ? <video src={sl.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.5 }} muted /> : <img src={sl.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.5 }} />)}

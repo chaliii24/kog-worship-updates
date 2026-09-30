@@ -54,6 +54,32 @@ const __dirname = path.dirname(__filename);
 
 app.setPath('userData', path.join(app.getPath('appData'), 'kog-worship'));
 
+// One library, one writer: a second instance would open the same SQLite file
+// (SQLITE_BUSY/corruption), fight for LAN port 8787 and the media protocol.
+// The second launch hands off to the running one instead.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    try {
+      if (operatorWindow && !operatorWindow.isDestroyed()) {
+        if (operatorWindow.isMinimized()) operatorWindow.restore();
+        operatorWindow.focus();
+      }
+    } catch {}
+  });
+}
+
+// Backstop: the operator window quits explicitly on close, but if it is ever
+// already gone while outputs remain (crash path, updater handoff), nothing
+// else would end the process — and a headless projector keeper is exactly the
+// black-screen zombie operators report.
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    try { app.quit(); } catch {}
+  }
+});
+
 // --- LAN REMOTE (phones on the same WiFi) ---
 // Created here rather than at startup so it can read/write the pairing file
 // inside userData. Started once the window exists (see app.whenReady).
@@ -156,27 +182,50 @@ function serveFileProtocol(rootDir, request) {
   let info;
   try { info = fs.statSync(filePath); } catch (e) { info = null; }
   if (!info || info.isDirectory()) return new Response(null, { status: 404 });
-  const size = info.size;
+  const total = info.size;
   const mime = mediaMime(fileName);
   const rangeHeader = request.headers.get('Range');
   if (rangeHeader) {
+    const total = size;
+    // Suffix range (bytes=-500): the LAST 500 bytes. Some players probe this
+    // way; the old regex missed it and answered 206 with the FULL body.
+    const suffix = /bytes=-(\d+)/.exec(rangeHeader);
+    if (suffix) {
+      const n = Math.min(parseInt(suffix[1], 10) || 0, total);
+      if (n <= 0 || total === 0) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${total}` } });
+      const start = total - n;
+      return new Response(Readable.toWeb(fs.createReadStream(filePath, { start, end: total - 1 })), {
+        status: 206,
+        headers: {
+          'Content-Type': mime,
+          'Content-Length': String(n),
+          'Content-Range': `bytes ${start}-${total - 1}/${total}`,
+          'Accept-Ranges': 'bytes'
+        }
+      });
+    }
     const match = /bytes=(\d+)-(\d*)/.exec(rangeHeader);
     const start = match ? parseInt(match[1], 10) : 0;
-    const end = match && match[2] ? Math.min(parseInt(match[2], 10), size - 1) : size - 1;
+    const end = match && match[2] ? Math.min(parseInt(match[2], 10), total - 1) : total - 1;
+    // Unsatisfiable (start past EOF, end before start): 416, not a 206 with a
+    // negative Content-Length that used to throw inside createReadStream.
+    if (!match || !Number.isFinite(start) || start < 0 || start >= total || end < start) {
+      return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${total}` } });
+    }
     const chunk = fs.createReadStream(filePath, { start, end });
     return new Response(Readable.toWeb(chunk), {
       status: 206,
       headers: {
         'Content-Type': mime,
         'Content-Length': String(end - start + 1),
-        'Content-Range': `bytes ${start}-${end}/${size}`,
+        'Content-Range': `bytes ${start}-${end}/${total}`,
         'Accept-Ranges': 'bytes'
       }
     });
   }
   return new Response(Readable.toWeb(fs.createReadStream(filePath)), {
     status: 200,
-    headers: { 'Content-Type': mime, 'Content-Length': String(size), 'Accept-Ranges': 'bytes' }
+    headers: { 'Content-Type': mime, 'Content-Length': String(total), 'Accept-Ranges': 'bytes' }
   });
 }
 
@@ -222,6 +271,20 @@ const outputWindows = new Map(); // id -> { win, role, displayId, name }
 // quit, sits on the secondary display instead of the desktop, and migrates to
 // the primary when that display is unplugged.
 let isQuitting = false;
+
+// After a renderer crash win.isDestroyed() is still false while
+// win.webContents.isDestroyed() is already true — and .send() on it throws
+// "Object has been destroyed", which used to break slide propagation for the
+// REMAINING healthy outputs inside the same fan-out loop.
+function sendToOutput(win, channel, ...args) {
+  try {
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return false;
+    win.webContents.send(channel, ...args);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // Dev serves Vite from localhost; packaged builds load the bundled renderer.
 function getAppStartUrl() {
@@ -348,6 +411,7 @@ app.whenReady().then(() => {
   app.prependListener('before-quit', () => {
     isQuitting = true;
     try { closeAllOutputs(); } catch { /* noop */ }
+    try { if (monitorTimer) { clearInterval(monitorTimer); monitorTimer = null; } monitorTarget = null; } catch { /* noop */ }
   });
 
   // Record which path Chromium actually took. `gpu_compositing` / `video_decode`
@@ -549,6 +613,9 @@ function createOutputWindow(output) {
   win.loadURL(`${startUrl}${outputRoute(output)}`);
   win.webContents.on('did-finish-load', () => {
     if (win && !win.isDestroyed()) {
+      // A window that loads and stays up is healthy — a crash hours ago must
+      // not count toward a future crash loop.
+      outputCrashCount.delete(output.id);
       win.setTitle(outputTitle(output));
       win.webContents.send('update-output-aspect', output.aspect || '16:9');
       // Rotation / custom viewport / edge-blend settings for THIS window.
@@ -608,6 +675,11 @@ function createOutputWindow(output) {
     if (!cur || cur.win !== win || win.isDestroyed()) return;
     // Hung renderer (usually a wedged decoder): a reload re-pulls the live
     // slide via get-live-state. No state is lost — outputs hold no local state.
+    // Debounced: a still-wedged page re-fires unresponsive, and each reload of
+    // a hopeless page is a visible black flash, so back off after the first.
+    const now = Date.now();
+    if (cur.lastReload && now - cur.lastReload < 10000) return;
+    cur.lastReload = now;
     electronLog.warn(`[output] ${cur.title} unresponsive — reloading`);
     try { win.reload(); } catch {}
   });
@@ -630,6 +702,9 @@ function recoverOutputWindow(id, def, reason) {
     outputWindows.delete(id);
     return;
   }
+  // A sync may already have recreated this id (display unplug fires
+  // closed + displays-changed together): never stack two fullscreen windows.
+  if (outputWindows.has(id)) return;
   const n = (outputCrashCount.get(id) || 0) + 1;
   outputCrashCount.set(id, n);
   setTimeout(() => { if ((outputCrashCount.get(id) || 0) === n) outputCrashCount.delete(id); }, 30000);
@@ -702,7 +777,7 @@ function syncOutputs(outputs) {
         existing.def = { ...output };
         const fresh = existing.win && !existing.win.isDestroyed() ? existing.win : null;
         if (fresh) {
-          fresh.webContents.send('output-config', output);
+          sendToOutput(fresh, 'output-config', output);
           existing.title = outputTitle(output);
           fresh.setTitle(existing.title);
         }
@@ -754,7 +829,7 @@ let lastLiveStage = null;
 ipcMain.on('update-live-slide', (event, slideData) => {
   lastLiveSlide = slideData || null;
   for (const { win, role } of outputWindows.values()) {
-    if (role === 'lyrics' && win && !win.isDestroyed()) win.webContents.send('render-live-slide', slideData);
+    if (role === 'lyrics') sendToOutput(win, 'render-live-slide', slideData);
   }
 });
 
@@ -768,7 +843,7 @@ ipcMain.on('mobile-state', (event, snap) => {
 ipcMain.on('update-live-stage', (event, stageData) => {
   lastLiveStage = stageData || null;
   for (const { win, role } of outputWindows.values()) {
-    if (role === 'stage' && win && !win.isDestroyed()) win.webContents.send('render-live-stage', stageData);
+    if (role === 'stage') sendToOutput(win, 'render-live-stage', stageData);
   }
 });
 
@@ -783,9 +858,7 @@ ipcMain.handle('get-live-state', () => ({ slide: lastLiveSlide, stage: lastLiveS
 ipcMain.on('output-preload', (_event, payload) => {
   if (!payload || !payload.url) return;
   for (const { win, role } of outputWindows.values()) {
-    if (role === 'lyrics' && win && !win.isDestroyed()) {
-      try { win.webContents.send('output-preload', payload); } catch {}
-    }
+    if (role === 'lyrics') sendToOutput(win, 'output-preload', payload);
   }
 });
 
@@ -796,18 +869,14 @@ ipcMain.handle('output-gpu-status', () => {
 
 ipcMain.on('update-output-aspect', (event, aspect) => {
   for (const [id, { win }] of outputWindows) {
-    if (win && !win.isDestroyed()) {
-      const output = lastSyncedOutputs.find(o => o.id === id);
-      win.webContents.send('update-output-aspect', output?.aspect || aspect);
-    }
+    const output = lastSyncedOutputs.find(o => o.id === id);
+    sendToOutput(win, 'update-output-aspect', output?.aspect || aspect);
   }
 });
 
 ipcMain.on('output-content', (event, payload) => {
   const entry = payload && outputWindows.get(payload.outputId);
-  if (entry?.win && !entry.win.isDestroyed()) {
-    entry.win.webContents.send(payload.channel || 'render-live-slide', payload.data);
-  }
+  if (entry) sendToOutput(entry.win, payload.channel || 'render-live-slide', payload.data);
 });
 
 // Legacy single-window toggles kept for compatibility.
@@ -939,36 +1008,55 @@ ipcMain.handle('check-for-updates', async () => {
   }
 });
  
+let updaterDownloading = false;
+
 ipcMain.handle('download-update', async () => {
+  // One download at a time: a second click while the first is in flight used
+  // to attach a second set of once-handlers AND call downloadUpdate() twice
+  // (double download, and the loser's promise could never resolve).
+  if (updaterDownloading) return { success: false, error: 'A download is already running.' };
+  updaterDownloading = true;
   return new Promise((resolve) => {
-    const cleanup = () => {
-      autoUpdater.removeAllListeners('update-available');
-      autoUpdater.removeAllListeners('update-not-available');
-      autoUpdater.removeAllListeners('error');
-    };
-    autoUpdater.once('update-available', async () => {
+    // Named handlers so cleanup removes ONLY this call's listeners — the old
+    // removeAllListeners wipedListerers belonging to concurrent calls (and
+    // would wipe the persistent updater forwards below).
+    const onAvailable = async () => {
       try {
         await autoUpdater.downloadUpdate();
-        cleanup();
+        done();
         resolve({ success: true, error: null });
       } catch (error) {
-        cleanup();
+        done();
         resolve({ success: false, error: error.message });
       }
-    });
-    autoUpdater.once('update-not-available', () => {
-      cleanup();
+    };
+    const onNone = () => {
+      done();
       resolve({ success: false, error: 'App is up to date. No update available.' });
-    });
-    autoUpdater.once('error', (err) => {
-      cleanup();
+    };
+    const onErr = (err) => {
+      done();
       resolve({ success: false, error: err.message });
-    });
+    };
+    const done = () => {
+      updaterDownloading = false;
+      autoUpdater.removeListener('update-available', onAvailable);
+      autoUpdater.removeListener('update-not-available', onNone);
+      autoUpdater.removeListener('error', onErr);
+    };
+    autoUpdater.once('update-available', onAvailable);
+    autoUpdater.once('update-not-available', onNone);
+    autoUpdater.once('error', onErr);
     autoUpdater.checkForUpdates();
   });
 });
- 
+
+let updaterDownloadedVersion = null;
+
 ipcMain.handle('install-update', async () => {
+  // Never quit into the installer with nothing staged: an early click (or a
+  // stray invoke) used to restart the app for no reason.
+  if (!updaterDownloadedVersion) return { success: false, error: 'No downloaded update to install yet.' };
   autoUpdater.quitAndInstall(true, true);
   return { success: true };
 });
@@ -1001,8 +1089,25 @@ autoUpdater.on('download-progress', (progress) => {
 // (update-available / error reach the renderer through the invoke results;
 // download-progress above; only the completion event was missing.)
 autoUpdater.on('update-downloaded', (info) => {
+  updaterDownloading = false;
+  updaterDownloadedVersion = info?.version || null;
   if (operatorWindow && !operatorWindow.isDestroyed()) {
     try { operatorWindow.webContents.send('update-downloaded', { version: info?.version }); } catch {}
+  }
+});
+
+// Outcome forwards the renderer otherwise never sees: the boot-time
+// checkForUpdatesAndNotify result (and any background check) used to die
+// here — the console only learned about updates through a manual invoke.
+autoUpdater.on('update-available', (info) => {
+  if (operatorWindow && !operatorWindow.isDestroyed()) {
+    try { operatorWindow.webContents.send('update-available', { version: info?.version }); } catch {}
+  }
+});
+autoUpdater.on('error', (err) => {
+  updaterDownloading = false;
+  if (operatorWindow && !operatorWindow.isDestroyed()) {
+    try { operatorWindow.webContents.send('update-error', String((err && err.message) || err)); } catch {}
   }
 });
  
@@ -1020,22 +1125,32 @@ ipcMain.on('update-not-available', (event, info) => {
  
 let monitorTimer = null;
 let monitorTarget = null;
+let monitorBusy = false;
 
 async function pushOutputThumbnails() {
-  if (!monitorTarget || monitorTarget.isDestroyed()) return;
-  const entries = [];
-  for (const [id, entry] of outputWindows.entries()) {
-    const win = entry.win;
-    if (!win || win.isDestroyed()) continue;
-    try {
-      const image = await win.webContents.capturePage();
-      if (image.isEmpty()) continue;
-      const small = image.resize({ width: 480 });
-      entries.push({ id, dataUrl: 'data:image/jpeg;base64,' + small.toJPEG(60).toString('base64') });
-    } catch (e) {}
-  }
-  if (monitorTarget && !monitorTarget.isDestroyed()) {
-    monitorTarget.webContents.send('output-thumbnails', entries);
+  // No overlap: a slow capturePage (weak GPU, two 4Ks) must not stack a
+  // second round on top of the first — concurrent captures on one webContents
+  // reject, and the 1s interval used to pile them up.
+  if (monitorBusy) return;
+  if (!monitorTarget || monitorTarget.isDestroyed() || monitorTarget.webContents.isDestroyed()) return;
+  monitorBusy = true;
+  try {
+    const entries = [];
+    for (const [id, entry] of outputWindows.entries()) {
+      const win = entry.win;
+      if (!win || win.isDestroyed() || win.webContents.isDestroyed()) continue;
+      try {
+        const image = await win.webContents.capturePage();
+        if (image.isEmpty()) continue;
+        const small = image.resize({ width: 480 });
+        entries.push({ id, dataUrl: 'data:image/jpeg;base64,' + small.toJPEG(60).toString('base64') });
+      } catch (e) {}
+    }
+    if (monitorTarget && !monitorTarget.isDestroyed() && !monitorTarget.webContents.isDestroyed()) {
+      try { monitorTarget.webContents.send('output-thumbnails', entries); } catch {}
+    }
+  } finally {
+    monitorBusy = false;
   }
 }
 
@@ -1164,7 +1279,14 @@ ipcMain.handle('ai-parse-chord-chart', async (event, payload) => {
 
 // Database IPC Handlers
 ipcMain.handle('db-get-songs', (event, search, category) => getSongs(search, category));
-ipcMain.handle('db-get-song-details', (event, id) => { updateLastUsed(id); return getSongDetails(id); });
+ipcMain.handle('db-get-song-details', (event, id) => {
+  // Read first, touch last_used after: a deleted/garbage id used to throw
+  // inside updateLastUsed and the read never happened. Failure there must
+  // never fail the open.
+  const details = getSongDetails(id);
+  if (details) { try { updateLastUsed(id); } catch {} }
+  return details;
+});
 ipcMain.handle('db-save-song', (event, data) => saveSong(data));
 ipcMain.handle('db-delete-song', (event, id) => deleteSong(id));
 ipcMain.handle('db-toggle-favorite', (event, id) => toggleFavorite(id));

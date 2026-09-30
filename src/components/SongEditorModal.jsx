@@ -47,6 +47,7 @@ const aiKeyBtn = (C) => ({
 // number gets limited.
 function NumField({ value, onCommit, min = 0, max = Number.MAX_SAFE_INTEGER, decimal = false, style }) {
   const [draft, setDraft] = useState(null); // null = not editing, show `value`
+  const inputRef = useRef(null);
 
   const clamp = (n) => Math.min(max, Math.max(min, n));
   const sanitize = (s) => (decimal
@@ -66,6 +67,15 @@ function NumField({ value, onCommit, min = 0, max = Number.MAX_SAFE_INTEGER, dec
   const shown = draft !== null
     ? draft
     : (value === undefined || value === null || Number.isNaN(Number(value)) ? '' : String(value));
+
+  // While focused the draft is king (typing "2" of "220" must not snap), but
+  // a value that changes UNDERNEATH a focused field (undo, Apply-to-all, a
+  // slider drag) must not sit there stale either — resync whenever `value`
+  // moves and this field isn't the focused one.
+  useEffect(() => {
+    if (inputRef.current && document.activeElement === inputRef.current) return;
+    setDraft(null);
+  }, [value]);
 
   const onChange = (e) => {
     const raw = sanitize(e.target.value);
@@ -92,6 +102,7 @@ function NumField({ value, onCommit, min = 0, max = Number.MAX_SAFE_INTEGER, dec
 
   return (
     <input
+      ref={inputRef}
       type="text"
       inputMode={decimal ? 'decimal' : 'numeric'}
       value={shown}
@@ -260,6 +271,9 @@ export default function SongEditorModal() {
 
   const [renameIdx, setRenameIdx] = useState(null);
   const [renameFrom, setRenameFrom] = useState('strip');
+  // Identity anchor: renameIdx is positional, so a reorder/delete/split
+  // between double-click and Enter must resolve by id, not by stale index.
+  const [renameId, setRenameId] = useState(null);
   const [renameVal, setRenameVal] = useState('');
   // { i, side } insertion marker for drag-and-drop.
   const [dropHint, setDropHint] = useState(null);
@@ -429,10 +443,22 @@ export default function SongEditorModal() {
   // instead of left to the textarea, whose native undo only ever steps back
   // over TEXT: a wrong size or a deleted slide would sit there grinning.
   // preventDefault() is what hands the key to us.
+  //
+  // Plain text fields keep NATIVE undo: the canvas textarea carries
+  // data-kog-canvas (its spans ride outside the string, so only song-history
+  // undo is coherent there), but Song Title / Artist / Label / notes / rename
+  // / search inputs are ordinary text — hijacking their Ctrl+Z rewound the
+  // whole song instead of the last word typed.
   useEffect(() => {
     const onKey = (e) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       const k = (e.key || '').toLowerCase();
+      if (k !== 'z' && k !== 'y') return;
+      const t = e.target;
+      const tag = t && t.tagName;
+      const plainText = (tag === 'INPUT' || tag === 'TEXTAREA' || (t && t.isContentEditable))
+        && !(t && t.dataset && t.dataset.kogCanvas);
+      if (plainText) return; // let the field undo itself
       if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
       else if (k === 'z' || k === 'y') { e.preventDefault(); redo(); }
     };
@@ -497,11 +523,15 @@ export default function SongEditorModal() {
     // there the box sets the size, so moving it would change fill's answer.
     const refit = (next) => ({ ...next, box: fitBoxToText(next.text || '', fitStFor(next), next.box) });
     breakHist(); // one Ctrl+Z takes back the whole Apply, not 1.2s of it
-    setEditingSong({
-      ...editingSong,
-      title_cue: hasTitle ? refit({ ...editingSong.title_cue, ...patch, text: restyle(editingSong.title_cue.text) }) : editingSong.title_cue,
-      cues: cues.map((cu, i) => (hit.has(i) ? refit({ ...cu, ...patch, text: restyle(cu.text) }) : cu)),
-    });
+    // Functional: the canvas 150ms trailing write may still hold the latest
+    // keystroke/slider value — committing against this closure's stale draft
+    // would drop it. The title keeps its own words: lyric line-scales mean
+    // nothing on a one-line title and only injected junk markers into it.
+    setEditingSong((prev) => ({
+      ...prev,
+      title_cue: hasTitle ? refit({ ...(prev.title_cue || {}), ...patch }) : prev.title_cue,
+      cues: (prev.cues || []).map((cu, i) => (hit.has(i) ? refit({ ...cu, ...patch, text: restyle(cu.text) }) : cu)),
+    }));
     // The ticks have done their job. Leave every slide unchecked so the next
     // Apply has to be aimed again — otherwise the last selection is still lit
     // and a second press silently re-applies to it.
@@ -607,9 +637,11 @@ export default function SongEditorModal() {
     if (i == null || i < 0 || !cue) return;
     renameAbortedRef.current = false;
     setRenameIdx(i);
+    setRenameId(cue.id ?? null);
     setRenameVal(cue.label || '');
     setRenameFrom(from || 'strip');
-    setEditorCueIdx(i);
+    // Renaming is not navigating: opening the field no longer yanks the
+    // canvas to that slide as a side effect.
   };
 
   const commitRename = () => {
@@ -618,9 +650,19 @@ export default function SongEditorModal() {
     // not resurrect the edit Escape just threw away.
     if (renameAbortedRef.current) { renameAbortedRef.current = false; return; }
     const label = renameVal.trim();
-    const prev = (editingSong.cues || [])[renameIdx];
+    const cues = editingSong.cues || [];
+    // Resolve by id first: the row may have moved since double-click. A cue
+    // with no id (fresh duplicate) falls back to the index; a cue that no
+    // longer exists aborts instead of renaming whoever sits there now.
+    let at = renameIdx;
+    if (renameId != null) {
+      const found = cues.findIndex(c => c && c.id === renameId);
+      if (found === -1) { setRenameIdx(null); return; }
+      at = found;
+    }
+    const prev = cues[at];
     setRenameIdx(null);
-    if (label && prev && label !== (prev.label || '')) updateCue(renameIdx, { label });
+    if (label && prev && label !== (prev.label || '')) updateCue(at, { label });
   };
 
   const cancelRename = () => {
@@ -1379,7 +1421,7 @@ export default function SongEditorModal() {
                 the column; buttons and behaviour are unchanged. The divider
                 moved from bottom to top for the same reason. */}
             <div style={{ padding: '8px 12px', borderTop: '1px solid var(--ui-border2)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || []), { label: 'Verse 1', text: '', box: DEFAULT_BOX }]; setEditingSong({ ...editingSong, cues }); startRename(cues.length - 1, cues[cues.length - 1], 'strip'); }} title="Add a new slide"><Plus size={14} /> <span>New Slide</span></ToolbarBtn>
+              <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || []), { label: 'Verse 1', text: '', box: DEFAULT_BOX }]; setEditingSong({ ...editingSong, cues }); setEditorCueIdx(cues.length - 1); startRename(cues.length - 1, cues[cues.length - 1], 'strip'); }} title="Add a new slide"><Plus size={14} /> <span>New Slide</span></ToolbarBtn>
               <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || [])]; if (!cues.length) { cues.push({ label: 'Verse 1', text: '', box: DEFAULT_BOX, locked: false }); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(0); } else if (editorCueIdx >= 0 && cues[editorCueIdx] && !cues[editorCueIdx].box) { cues[editorCueIdx] = { ...cues[editorCueIdx], box: DEFAULT_BOX, locked: false }; setEditingSong({ ...editingSong, cues }); } }} title="Add/edit text box on this slide"><Type size={14} /> <span>Text</span></ToolbarBtn>
               <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
               <ToolbarBtn onClick={undo} disabled={!hist.undo} title="Undo — Ctrl+Z. Takes back the last change (typing, sizes, a deleted slide, an Apply)"><Undo2 size={14} /></ToolbarBtn>

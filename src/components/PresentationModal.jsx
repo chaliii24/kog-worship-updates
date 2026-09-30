@@ -84,7 +84,18 @@ export default function PresentationModal() {
   const resetPositions = () => patchSlide({ pos: {} });
 
   const addSlide = () => { const s = defaultSlide({ layout: 'title-bullets' }); setSlides([...deck.slides, s]); setIdx(deck.slides.length); };
-  const duplicateSlide = () => { const c = { ...deck.slides[idx], id: undefined }; const s = defaultSlide(c); const next = [...deck.slides]; next.splice(idx + 1, 0, s); setSlides(next); setIdx(idx + 1); };
+  // Row buttons act on THEIR row, not the viewed slide: duplicating row 0
+  // while viewing row 3 used to clone row 3. Moving stays on the viewed
+  // slide only when the moved row IS the viewed one.
+  const duplicateSlide = (i) => {
+    const at = (i == null ? idx : i);
+    const c = { ...deck.slides[at], id: undefined };
+    const s = defaultSlide(c);
+    const next = [...deck.slides];
+    next.splice(at + 1, 0, s);
+    setSlides(next);
+    setIdx(at + 1);
+  };
   const deleteSlide = (i) => {
     if (deck.slides.length <= 1) return;
     const next = deck.slides.filter((_, x) => x !== i);
@@ -96,7 +107,8 @@ export default function PresentationModal() {
     if (t < 0 || t >= deck.slides.length) return;
     const next = [...deck.slides];
     const tmp = next[i]; next[i] = next[t]; next[t] = tmp;
-    setSlides(next); setIdx(t);
+    setSlides(next);
+    if (i === idx) setIdx(t);
   };
 
   const doSave = async () => {
@@ -224,7 +236,7 @@ export default function PresentationModal() {
                   <span style={{ display: 'flex', gap: 1 }}>
                     <button onClick={(e) => { e.stopPropagation(); moveSlide(i, -1); }} title="Up" style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', padding: 2 }}><ChevronUp size={12} /></button>
                     <button onClick={(e) => { e.stopPropagation(); moveSlide(i, 1); }} title="Down" style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', padding: 2 }}><ChevronDown size={12} /></button>
-                    <button onClick={(e) => { e.stopPropagation(); duplicateSlide(); }} title="Duplicate" style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', padding: 2 }}><Copy size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); duplicateSlide(i); }} title="Duplicate" style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', padding: 2 }}><Copy size={12} /></button>
                     <button onClick={(e) => { e.stopPropagation(); deleteSlide(i); }} title="Delete" style={{ background: 'transparent', border: 'none', color: '#F87171', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>
                   </span>
                 </div>

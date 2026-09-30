@@ -50,6 +50,10 @@ export function TimerReadout({ start, duration, C, PINK }) {
 export function TileCanvas({ children }) {
   const ref = useRef(null);
   const [scale, setScale] = useState(0);
+  // Last measurable scale: a tile mounted at zero size (hidden panel,
+  // display:none ancestor) keeps the previous scale instead of painting
+  // scale(0) — invisible despite all layout work already done.
+  const lastScaleRef = useRef(0.2);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -58,6 +62,7 @@ export function TileCanvas({ children }) {
       const h = el.clientHeight;
       if (!w || !h) return;
       const s = Math.min(w / 1280, h / 720);
+      lastScaleRef.current = s;
       setScale(prev => (Math.abs(prev - s) < 0.0005 ? prev : s));
     };
     fit();
@@ -67,7 +72,7 @@ export function TileCanvas({ children }) {
   }, []);
   return (
     <div ref={ref} style={{ position: 'absolute', inset: 0, zIndex: 2, overflow: 'hidden', pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ width: 1280, height: 720, flexShrink: 0, position: 'relative', transform: `scale(${scale})`, transformOrigin: 'center center' }}>
+      <div style={{ width: 1280, height: 720, flexShrink: 0, position: 'relative', transform: `scale(${scale || lastScaleRef.current})`, transformOrigin: 'center center' }}>
         {children}
       </div>
     </div>

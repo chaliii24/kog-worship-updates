@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { renderLyricsLayout, DEFAULT_LYRIC_SIZE } from '../lib/lyrics';
 import { cssSpeed } from '../lib/constants';
 import PresentationSlide from './PresentationSlide';
+import { TimerFace } from './CountdownFace';
 import { BackgroundVideo } from '../lib/perf';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -78,6 +79,9 @@ function OutputPerfHud({ slideKey }) {
 
 export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
   const [win, setWin] = useState({ w: window.innerWidth, h: window.innerHeight });
+  // The wall must never throw: a null/undefined slide (boot race, corrupt
+  // payload) renders black and stays alive instead of killing the window.
+  const cs = currentSlide || {};
 
   // rAF-throttled: while a windowed output is dragged, resize fires ~60x/s and
   // each one re-ran the whole lyrics layout. On an i3 that is a visible stutter
@@ -103,12 +107,17 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
   // announces the coming background while the current slide is still live.
   // Images decode into the cache; video is fetch-warmed only — a hidden
   // preloading decoder would steal cycles from the video actually playing.
+  // Warmed URLs are tracked so rapid cueing can't pile up duplicate preload
+  // links (each used to linger 30s).
+  const warmedRef = useRef(null);
+  if (!warmedRef.current) warmedRef.current = new Set();
   useEffect(() => {
     if (!window.require) return;
     const { ipcRenderer } = window.require('electron');
     const onPreload = (_e, p) => {
       try {
-        if (!p || !p.url) return;
+        if (!p || !p.url || warmedRef.current.has(p.url)) return;
+        warmedRef.current.add(p.url);
         if (p.type === 'image') {
           const im = new Image();
           im.src = p.url;
@@ -118,7 +127,9 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
           l.as = 'video';
           l.href = p.url;
           document.head.appendChild(l);
-          setTimeout(() => l.remove(), 30000);
+          setTimeout(() => { l.remove(); warmedRef.current.delete(p.url); }, 30000);
+        } else {
+          warmedRef.current.delete(p.url);
         }
       } catch {}
     };
@@ -126,7 +137,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
     return () => ipcRenderer.removeListener('output-preload', onPreload);
   }, []);
 
-  const slideStyle = currentSlide.style || {};
+  const slideStyle = cs.style || {};
   const transitionSpeed = cssSpeed(slideStyle.speed);
   const msNum = parseInt(transitionSpeed) || 400;
   const trans = slideStyle.transition || 'none';
@@ -168,7 +179,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
   const bgKey = `${bgType}:${bgValue}`;
   const bgFade = 0.6;
   // Standby / clear: the incoming slide has no lyrics and no deck on it.
-  const blankSlide = !currentSlide.text && !currentSlide.presentation;
+  const blankSlide = !cs.text && !cs.presentation;
 
   // Dev HUD flag: read once, never subscribed — enabling it takes an output
   // restart, which is exactly right for a wall (no surprise overlays live).
@@ -275,7 +286,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
       alignItems: 'center',
       justifyContent: 'center'
     }}>
-      {perfOn && <OutputPerfHud slideKey={currentSlide.timestamp} />}
+      {perfOn && <OutputPerfHud slideKey={cs.timestamp} />}
       {/* Reset root margins & hide window scrollbars */}
       <style>{`
         html, body, #root { 
@@ -312,8 +323,8 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
       `}</style>
 
       {/* SONG BACKGROUND AUDIO (loops until the next slide changes it) */}
-      {currentSlide?.audio ? (
-        <audio key={currentSlide.audio} src={currentSlide.audio} autoPlay loop style={{ display: 'none' }} />
+      {cs.audio ? (
+        <audio key={cs.audio} src={cs.audio} autoPlay loop style={{ display: 'none' }} />
       ) : null}
 
       {/* Rotation stage: the logical viewport (swapped for 90°/270°) rotated
@@ -345,7 +356,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
           style={{ position: 'absolute', left: fx, top: fy, width: fw, height: fh, overflow: 'hidden', zIndex: 0 }}
         >
           {slideStyle.backgroundType === 'image' && (
-            <div style={{ position: 'absolute', inset: 0, background: `url(${slideStyle.backgroundValue}) center/cover no-repeat` }} />
+            <div style={{ position: 'absolute', inset: 0, background: `url("${String(slideStyle.backgroundValue || '').replace(/"/g, '%22')}") center/cover no-repeat` }} />
           )}
           {slideStyle.backgroundType === 'video' && (
             <BackgroundVideo src={slideStyle.backgroundValue} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -368,7 +379,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
           transform: `scale(${s})`,
           transformOrigin: 'top left'
         }}>
-          {/* Lyrics/deck layer. Dissolve the outgoing layer ONLY when the
+          {/* Lyrics/deck/timer layer. Dissolve the outgoing layer ONLY when the
               incoming slide carries no text (Service Order standby, clear) —
               that's what turns a song switch into a crossfade instead of a
               hard cut. When new text is coming in the old layer leaves at
@@ -378,25 +389,29 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
               drives opacity twice on the same element. */}
           <AnimatePresence custom={blankSlide} initial={false}>
             <motion.div
-              key={currentSlide.timestamp}
+              key={cs.timestamp}
               exit="out"
               variants={{ out: (fadeOut) => ({ opacity: 0, transition: { duration: fadeOut ? 0.6 : 0 } }) }}
               style={{ position: 'absolute', inset: 0 }}
             >
               <div style={{ width: '100%', height: '100%', position: 'relative', ...animStyle }}>
-                {currentSlide.presentation && currentSlide.presentation.slide ? (
-                  <PresentationSlide slide={currentSlide.presentation.slide} keepAlive />
-                ) : currentSlide.text ? (
+                {cs.timer ? (
+                  <div style={{ position: 'absolute', inset: 0 }}>
+                    <TimerFace timer={cs.timer} scale={1} />
+                  </div>
+                ) : cs.presentation && cs.presentation.slide ? (
+                  <PresentationSlide slide={cs.presentation.slide} keepAlive />
+                ) : cs.text ? (
                   (() => {
-                    const isTitleSlide = currentSlide.label === 'Song Title';
+                    const isTitleSlide = cs.label === 'Song Title';
                     const st = slideStyle.lyric || { font: slideStyle.fontFamily || 'system-ui, sans-serif', size: DEFAULT_LYRIC_SIZE, lineHeight: 1.05, align: slideStyle.textAlign || 'center', color: slideStyle.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
                     st.isTitle = isTitleSlide;
                     const box = st.box || { x: 80, y: isTitleSlide ? 140 : 100, w: 1120, h: isTitleSlide ? 440 : 480 };
-                    const artist = currentSlide.artist || '';
+                    const artist = cs.artist || '';
                     return (
                       <>
                         <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
-                          {renderLyricsLayout(currentSlide.text, st, box)}
+                          {renderLyricsLayout(cs.text, st, box)}
                         </div>
                         {isTitleSlide && artist && (
                           <div style={{ position: 'absolute', bottom: 20, right: 24, fontFamily: st.font, fontSize: 24, fontWeight: 600, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.03em', textShadow: '0 2px 8px rgba(0,0,0,0.8)', whiteSpace: 'nowrap' }}>

@@ -136,7 +136,7 @@ export default function PresentationInspector({
         <>
           <div style={{ display: 'flex', gap: 5 }}>
             {[['color', 'Color'], ['gradient', 'Gradient'], ['image', 'Image'], ['video', 'Video']].map(([t, l]) => (
-              <button key={t} onClick={() => patchSlide({ bg: { type: t, value: t === 'color' ? '#0B0F19' : t === 'gradient' ? GRADIENT_PACK[0].css : (t === 'image' ? (imageAssets[0]?.url || '') : (videoAssets[0]?.url || '')) } })} style={{ flex: 1, background: (slide.bg?.type || 'color') === t ? ACCENT : 'var(--ui-input)', border: '1px solid var(--ui-border2)', color: (slide.bg?.type || 'color') === t ? '#fff' : 'var(--ui-text)', borderRadius: 6, padding: '5px 0', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{l}</button>
+              <button key={t} onClick={() => patchSlide({ bg: { type: t, value: t === 'color' ? '#0B0F19' : t === 'gradient' ? GRADIENT_PACK[0].css : (t === 'image' ? (imageAssets[0]?.url || null) : (videoAssets[0]?.url || null)) } })} style={{ flex: 1, background: (slide.bg?.type || 'color') === t ? ACCENT : 'var(--ui-input)', border: '1px solid var(--ui-border2)', color: (slide.bg?.type || 'color') === t ? '#fff' : 'var(--ui-text)', borderRadius: 6, padding: '5px 0', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{l}</button>
             ))}
           </div>
 

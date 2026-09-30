@@ -28,6 +28,7 @@ import HotkeysModal from './components/modals/HotkeysModal';
 import AboutModal from './components/modals/AboutModal';
 import OutputsMonitorModal from './components/modals/OutputsMonitorModal';
 import ConfirmModal from './components/modals/ConfirmModal';
+import { TimerFace, DEFAULT_COUNTDOWN, nextTargetTime } from './components/CountdownFace';
 import { AppProvider } from './context/AppContext';
 
 const DEFAULT_OUTPUTS = [
@@ -51,6 +52,16 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [showWelcome, setShowWelcome] = useState(true);
   const [currentSlide, setCurrentSlide] = useState({ title: "KOG Worship", text: "", style: {}, timestamp: Date.now() });
+
+  // Monotonic live stamps: lyric/monitor layers key on `timestamp`, and two
+  // fires inside the same millisecond reused the DOM — no exit, no enter, no
+  // transition replay (a hard cut that could also strand a stale slide).
+  const liveStampRef = useRef(0);
+  const liveStamp = () => {
+    const n = Date.now();
+    liveStampRef.current = Math.max(n, liveStampRef.current + 1);
+    return liveStampRef.current;
+  };
 
   const [activeTab, setActiveTab] = useState('library'); // 'library' or 'service'
   const [themeDark, setThemeDark] = useState(() => {
@@ -84,11 +95,16 @@ export default function App() {
   // with the OLD colors first, so the recolor actually animates instead of
   // snapping (class + value change in one recalc = no transition).
   const themeFadeTimerRef = useRef(null);
+  const themeFadeRafRef = useRef(0);
   const toggleTheme = () => {
     const root = document.documentElement;
     if (themeFadeTimerRef.current) { clearTimeout(themeFadeTimerRef.current); themeFadeTimerRef.current = null; }
+    // A double-click used to queue two rAF chains, each flipping the theme —
+    // ending where it started (looking broken). One flight at a time.
+    if (themeFadeRafRef.current) { cancelAnimationFrame(themeFadeRafRef.current); themeFadeRafRef.current = 0; }
     root.classList.add('theme-fading');
-    requestAnimationFrame(() => requestAnimationFrame(() => {
+    themeFadeRafRef.current = requestAnimationFrame(() => requestAnimationFrame(() => {
+      themeFadeRafRef.current = 0;
       setThemeDark(v => !v);
       themeFadeTimerRef.current = setTimeout(() => {
         root.classList.remove('theme-fading');
@@ -153,7 +169,7 @@ export default function App() {
   });
 
   // New Command-Center Layout State
-  const [dockTab, setDockTab] = useState('shows'); // shows | media | audio | templates | scripture | functions
+  const [dockTab, setDockTab] = useState('shows'); // shows | presentations | live | media | audio | countdown | scripture | outputs | functions
   const [scheduleView, setScheduleView] = useState('schedule'); // 'schedule' | 'songs'
   const [activeMenu, setActiveMenu] = useState(null); // 'file' | 'edit' | 'view' | 'help'
   const [rightTab, setRightTab] = useState('groups'); // 'groups' | 'media'
@@ -225,6 +241,22 @@ export default function App() {
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [slideTimer, setSlideTimer] = useState({ start: null, elapsed: 0, duration: 0 });
 
+  // Countdown timer (bottom-dock tab). Config persists in localStorage; the
+  // live stamp never does — a reboot must never resurrect a stale countdown.
+  const [countdown, setCountdown] = useState(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('kog_countdown') || 'null');
+      if (raw && typeof raw === 'object') return { ...DEFAULT_COUNTDOWN, ...raw, live: null };
+    } catch {}
+    return { ...DEFAULT_COUNTDOWN };
+  });
+  useEffect(() => {
+    try {
+      const { live, ...cfg } = countdown || {};
+      localStorage.setItem('kog_countdown', JSON.stringify(cfg));
+    } catch {}
+  }, [countdown]);
+
   // Service Plan State
   const [services, setServices] = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -273,13 +305,16 @@ export default function App() {
   const canvasWrapRef = useRef(null);
   const editAreaRef = useRef(null);
   const [outputAspectState, setOutputAspectState] = useState(() => { try { return localStorage.getItem('kog_output_aspect') || '16:9'; } catch { return '16:9'; } });
-  const outputAspect = outputAspectState;
+  // Sanitized: a corrupt localStorage value or a bad IPC push used to throw
+  // inside render (undefined.replace) and take the whole console down.
+  const outputAspect = typeof outputAspectState === 'string' && outputAspectState.includes(':') ? outputAspectState : '16:9';
   const setOutputAspect = (v) => {
-    setOutputAspectState(v);
-    try { localStorage.setItem('kog_output_aspect', v); } catch {}
+    const clean = typeof v === 'string' && v.includes(':') ? v : '16:9';
+    setOutputAspectState(clean);
+    try { localStorage.setItem('kog_output_aspect', clean); } catch {}
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
-      ipcRenderer.send('update-output-aspect', v);
+      ipcRenderer.send('update-output-aspect', clean);
     }
   };
   const [previewScale, setPreviewScale] = useState(1);
@@ -347,22 +382,33 @@ export default function App() {
     return () => { alive = false; ipcRenderer.removeListener('displays-changed', onChanged); };
   }, []);
 
-  // Restore the saved output layout on startup.
+  // Restore the saved output layout on startup. Guarded: an output toggled
+  // in the milliseconds before this resolves must NOT be overwritten by the
+  // saved copy (lost toggle), so the load only lands on a still-default list.
   useEffect(() => {
     if (isOutputWindow || !window.require) return;
     const { ipcRenderer } = window.require('electron');
     ipcRenderer.invoke('outputs-load')
-      .then((saved) => { if (Array.isArray(saved) && saved.length) setOutputs(saved.map(o => ({ ...o, resolution: o.resolution || 'native', aspect: o.aspect || '16:9', enabled: false }))); })
+      .then((saved) => {
+        if (!Array.isArray(saved) || !saved.length) return;
+        setOutputs((prev) => {
+          const touched = prev.some(o => o.enabled || (o.displayId !== null && o.displayId !== undefined && o.displayId !== ''));
+          if (touched) return prev;
+          return saved.map(o => ({ ...o, resolution: o.resolution || 'native', aspect: o.aspect || '16:9', enabled: false }));
+        });
+      })
       .catch(() => {})
       .finally(() => { outputsReadyRef.current = true; });
   }, []);
 
-  // Keep main's window registry in sync with the output configuration.
+  // Keep main's window registry in sync with the output configuration. Gated
+  // on outputsReady: the mount sync used to push DEFAULT_OUTPUTS to main
+  // before the saved layout arrived (flash of wrong registry).
   useEffect(() => {
-    if (isOutputWindow || !window.require) return;
+    if (isOutputWindow || !window.require || !outputsReadyRef.current) return;
     const { ipcRenderer } = window.require('electron');
     ipcRenderer.send('outputs-sync', outputs);
-    if (outputsReadyRef.current) ipcRenderer.send('outputs-save', outputs);
+    ipcRenderer.send('outputs-save', outputs);
   }, [outputs]);
 
   // An output can close itself — pressing Esc while a frameless fullscreen
@@ -567,7 +613,12 @@ export default function App() {
     let song = null;
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
+      // Same latest-wins guard as selectSong: a fast double-click on Edit
+      // must not land song A's cues in song B's editor (and then Save them
+      // into song B).
+      const seq = ++songLoadSeqRef.current;
       song = await ipcRenderer.invoke('db-get-song-details', id);
+      if (seq !== songLoadSeqRef.current) return;
     }
     if (!song) return;
     setEditingSong(repairSongBoxes({ ...song, cues: song.cues || [] }));
@@ -723,9 +774,11 @@ export default function App() {
   // of one per keystroke (previously 5 IPC calls fired on every key press).
   useEffect(() => {
     if (isProjector || showSplash || isStage || isOutputWindow) return;
+    // activeCategory rides along: typing a query then switching category
+    // within 180ms used to fire the query against the OLD category.
     const t = setTimeout(fetchSongs, 180);
     return () => clearTimeout(t);
-  }, [searchQuery]);
+  }, [searchQuery, activeCategory]);
 
   useEffect(() => {
     try { localStorage.setItem('scriptureBgLibrary', JSON.stringify(scriptureBgLibrary.filter(p => !p.builtin))); } catch {}
@@ -872,7 +925,9 @@ export default function App() {
       // anything". Never hijack keys while the editor modal is open.
       if (isEditorOpen) return;
       // Don't handle arrow keys for slide grid when in scripture verse viewer
-      if (dockTab === 'scripture' && bibleStep === 'verses') return;
+      // (its own viewer owns Left/Right there) — but Space/B/L still drive
+      // the live song, so looking up a verse never freezes the show.
+      if (dockTab === 'scripture' && bibleStep === 'verses' && (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'ArrowDown')) return;
       if (showModalOpen) {
         if (showBuilder && (e.key === ' ' || e.key === 'ArrowRight' || e.key === 'ArrowDown')) { e.preventDefault(); builderAdvance(1); }
         if (showBuilder && (e.key === 'ArrowLeft' || e.key === 'ArrowUp')) { e.preventDefault(); builderAdvance(-1); }
@@ -882,9 +937,13 @@ export default function App() {
       // L = clear the lyrics only, leaving the background on air running.
       if (e.key === 'b' || e.key === 'B') fireCueLive({ id: 'clear', label: 'Clear', text: '' });
       if (e.key === 'l' || e.key === 'L') { if (clearLyricsRef.current) clearLyricsRef.current(); }
-      if (e.key === ' ') { e.preventDefault(); handleNextCue(); }
-      if (e.key === 'ArrowRight') { e.preventDefault(); handleNextCue(); }
-      if (e.key === 'ArrowLeft') { e.preventDefault(); handlePrevCue(); }
+      // A focused button or slider owns Space/arrows natively (click the
+      // button, move the slider) — firing slide cues on top of that advanced
+      // the show every time an operator touched a control then hit Space.
+      const onControl = tag === 'BUTTON' || (tgt && tgt.type === 'range');
+      if (e.key === ' ') { if (onControl) return; e.preventDefault(); handleNextCue(); }
+      if (e.key === 'ArrowRight') { if (onControl) return; e.preventDefault(); handleNextCue(); }
+      if (e.key === 'ArrowLeft') { if (onControl) return; e.preventDefault(); handlePrevCue(); }
       if (e.key === '?') { e.preventDefault(); setShowHotkeys(v => !v); }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -920,7 +979,7 @@ export default function App() {
         timestamp: currentPayload.timestamp || Date.now()
       },
       next: nextPayload ? { title: nextPayload.title, label: nextPayload.label, text: nextPayload.text } : null,
-      timestamp: Date.now()
+      timestamp: liveStamp()
     };
     // Keep the exact object that went to the stage window so the phone's
     // singer view renders the same current/next without recomputing it.
@@ -1093,13 +1152,18 @@ export default function App() {
     }
   };
 
+  // Latest click wins here too (same class as selectSong): a fast A-then-B
+  // must not land A's song in B's slot.
+  const builderLoadSeqRef = useRef(0);
   const selectBuilderItem = async (secIdx, itemIdx) => {
     setBuilderSheet({ secIdx, itemIdx });
     setBuilderTileIdx(0);
     const item = showBuilder?.sections?.[secIdx]?.items?.[itemIdx];
     if (item?.songId && window.require) {
       const { ipcRenderer } = window.require('electron');
+      const seq = ++builderLoadSeqRef.current;
       const details = repairSongBoxes(await ipcRenderer.invoke('db-get-song-details', item.songId));
+      if (seq !== builderLoadSeqRef.current) return;
       setBuilderActiveSong(details);
       if (details) setBuilderSongDetails(prev => ({ ...prev, [item.songId]: details }));
     } else {
@@ -1107,18 +1171,30 @@ export default function App() {
     }
   };
 
+  // Prefetch keyed on the song SET, not the builder object: every keystroke or
+  // rename creates a new showBuilder identity, and keying the effect on it
+  // refetched every song on every keystroke (with older, larger batches able
+  // to land last and merge stale details). Guarded + id-keyed instead.
+  const builderSongIds = [...new Set((showBuilder?.sections || []).flatMap(s => s.items.filter(i => i.songId).map(i => i.songId)))];
+  const builderSongIdsKey = builderSongIds.map(String).sort().join(',');
   useEffect(() => {
     if (!showModalOpen || !window.require) return;
-    const songIds = [...new Set((showBuilder?.sections || []).flatMap(s => s.items.filter(i => i.songId).map(i => i.songId)))];
+    const songIds = builderSongIdsKey ? [...new Set(builderSongIdsKey.split(','))].map(s => {
+      const orig = builderSongIds.find(o => String(o) === s);
+      return orig !== undefined ? orig : s;
+    }) : [];
     if (songIds.length === 0) return;
+    let alive = true;
     (async () => {
       const { ipcRenderer } = window.require('electron');
       const detailsArr = await Promise.all(songIds.map(id => ipcRenderer.invoke('db-get-song-details', id)));
+      if (!alive) return;
       const map = {};
       detailsArr.forEach((d, i) => { if (d) map[songIds[i]] = repairSongBoxes(d); });
       setBuilderSongDetails(prev => ({ ...prev, ...map }));
     })();
-  }, [showModalOpen, showBuilder]);
+    return () => { alive = false; };
+  }, [showModalOpen, builderSongIdsKey]);
 
   const builderItemSlideCount = (item) => {
     if (!item) return 0;
@@ -1178,9 +1254,9 @@ export default function App() {
           label: 'Song Title',
           style: { ...stageStyle, ...titleBg, lyric: cueLyricStyle(titleCue), transition: titleCue.anim || 'fade', speed: cssSpeed(titleCue.speed) },
           audio: song.audio_url || null,
-          timestamp: Date.now()
+          timestamp: liveStamp()
         };
-        setDisplays(displays.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
+        setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
         if (window.require && targetedDisplays.includes(1)) { window.require('electron').ipcRenderer.send('update-live-slide', slidePayload); }
         const nextCue = (song.cues || [])[0];
         sendStageData({ title: slidePayload.title, label: 'Song Title', text: song.title, timestamp: slidePayload.timestamp }, nextCue ? { title: song.title, label: nextCue.label, text: nextCue.text } : null);
@@ -1199,8 +1275,8 @@ export default function App() {
               : { ...stageStyle };
           return { ...base, lyric: cueLyricStyle(cue), transition: cue.anim || 'none', speed: cssSpeed(cue.speed) };
         })();
-        const slidePayload = { title: song.title, artist: song.artist || '', text: cue.text, label: cue.label || '', style: effectiveStyle, audio: song.audio_url || null, timestamp: Date.now() };
-        setDisplays(displays.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
+        const slidePayload = { title: song.title, artist: song.artist || '', text: cue.text, label: cue.label || '', style: effectiveStyle, audio: song.audio_url || null, timestamp: liveStamp() };
+        setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
         if (window.require && targetedDisplays.includes(1)) { window.require('electron').ipcRenderer.send('update-live-slide', slidePayload); }
         const cueList = song.cues || [];
         const idx = cueList.findIndex(c => c.id === cue.id);
@@ -1316,9 +1392,9 @@ export default function App() {
       label: cue?.label || '',
       style: effectiveStyle,
       audio: activeSong?.audio_url || null,
-      timestamp: Date.now() 
+      timestamp: liveStamp() 
     };
-    setDisplays(displays.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
+    setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
     if (window.require && targetedDisplays.includes(1)) {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('update-live-slide', slidePayload);
@@ -1344,6 +1420,77 @@ export default function App() {
         if (nbg && nbg.url) ipcRenderer.send('output-preload', nbg);
       }
     } catch {}
+  };
+
+  // --- COUNTDOWN TIMER (bottom-dock tab) ---
+  // Clock math is absolute: one endsAt timestamp travels with the payload and
+  // every surface (tab preview, monitor, projector, stage) derives the same
+  // remaining time from Date.now() on its own 500ms tick. No per-second IPC,
+  // no drift between screens. Wall-clock mode needs no end at all.
+  const fireCountdownLive = () => {
+    const cfg = { ...DEFAULT_COUNTDOWN, ...(countdown || {}) };
+    const now = Date.now();
+    let endsAt = null;
+    if (cfg.mode === 'duration') {
+      endsAt = now + Math.max(1, Number(cfg.durationSec) || 0) * 1000;
+    } else if (cfg.mode === 'target' && cfg.targetTime) {
+      // Rollover included: a past time today means tomorrow's service.
+      endsAt = nextTargetTime(cfg.targetTime, now);
+    }
+    // The live snapshot owns routing + timing: Stop and live config edits
+    // read showOn/endsAt from HERE, never from the (possibly since changed)
+    // form, so a mid-air picker change can't strand a surface.
+    setCountdown((prev) => ({ ...DEFAULT_COUNTDOWN, ...(prev || {}), ...cfg, live: { endsAt, startedAt: now, showOn: cfg.showOn, stamp: now } }));
+  };
+
+  // The ONE sender for live countdown payloads. fire only stamps state; this
+  // effect pushes — so title/bg/size edits made while LIVE go out on the next
+  // render with the SAME endsAt (the clock never resets under an edit).
+  // Signature-deduped: stamping live must not double-send what fire covered.
+  const countdownSentRef = useRef(null);
+  useEffect(() => {
+    if (!countdown?.live || isOutputWindow || !window.require) return;
+    const cfg = { ...DEFAULT_COUNTDOWN, ...countdown };
+    const timer = { ...cfg };
+    const sig = JSON.stringify([timer.title, timer.subtext, timer.mode, timer.durationSec, timer.targetTime, timer.showOn, timer.overtime, timer.titleSize, timer.timeSize, timer.subtextSize, timer.bgType, timer.bgValue, timer.live.endsAt, timer.live.stamp]);
+    if (countdownSentRef.current === sig) return;
+    countdownSentRef.current = sig;
+    const { ipcRenderer } = window.require('electron');
+    const stamp = timer.live.stamp || Date.now();
+    if (timer.showOn === 'both' || timer.showOn === 'main') {
+      const slidePayload = {
+        title: timer.title || '',
+        artist: '',
+        text: '',
+        label: 'Countdown Timer',
+        timer,
+        audio: null,
+        timestamp: stamp,
+        style: { backgroundType: 'color', backgroundValue: '#000000', transition: 'fade', speed: '600ms' },
+      };
+      setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
+      if (targetedDisplays.includes(1)) ipcRenderer.send('update-live-slide', slidePayload);
+    }
+    if (timer.showOn === 'both' || timer.showOn === 'stage') {
+      sendStageData({ title: timer.title || 'Countdown', label: 'Countdown Timer', text: '', timer, timestamp: stamp }, null);
+    }
+  }, [countdown]);
+
+  const stopCountdownLive = () => {
+    const snap = countdown?.live;
+    // Nothing on air: stopping must be a no-op, never a surprise blackout
+    // (the reset button sits next to Go Live even when idle).
+    if (!snap) return;
+    const showOn = snap.showOn || countdown?.showOn;
+    countdownSentRef.current = null;
+    setCountdown((prev) => ({ ...DEFAULT_COUNTDOWN, ...(prev || {}), live: null }));
+    // Stop returns the room to black: main output blackouts, stage clears.
+    if (!showOn || showOn === 'both' || showOn === 'main') {
+      fireCueLive({ id: 'clear', label: 'Clear', text: '' });
+    }
+    if (!showOn || showOn === 'both' || showOn === 'stage') {
+      sendStageData({ title: '', label: '', text: '', timestamp: liveStamp() }, null);
+    }
   };
 
   // Clear All blacks the whole output. Clear Lyrics is the softer one: only the
@@ -1386,7 +1533,7 @@ export default function App() {
       presentation: live?.presentation || null,
       meta: live?.meta || null,
       audio: activeSong?.audio_url || null,
-      timestamp: Date.now()
+      timestamp: liveStamp()
     };
     setSlideTimer({ start: null, elapsed: 0, duration: 0 });
     setDisplays(prev => prev.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
@@ -1415,13 +1562,13 @@ export default function App() {
       label: cue.label || '',
       style: previewStyle,
       audio: activeSong?.audio_url || null,
-      timestamp: Date.now(),
+      timestamp: liveStamp(),
     };
     if (window.require && targetedDisplays.includes(1)) {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('update-live-slide', slidePayload);
     }
-    setDisplays(displays.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
+    setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
   }, [activeCue, activeSong, targetedDisplays, displays, resolutionStyle]);
 
   const fireTitleLive = () => {
@@ -1443,9 +1590,9 @@ export default function App() {
       // Show Builder already uses (builderGoLive).
       style: { ...effectiveStyle, transition: titleCue.anim || 'fade' },
       audio: activeSong.audio_url || null,
-      timestamp: Date.now() 
+      timestamp: liveStamp() 
     };
-    setDisplays(displays.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
+    setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
     if (window.require && targetedDisplays.includes(1)) {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('update-live-slide', slidePayload);
@@ -1471,11 +1618,11 @@ export default function App() {
       audio: null,
       meta: { kind: 'presentation' },
       presentation: { deckTitle: deck.title, slide: s, index, total: slides.length },
-      timestamp: Date.now()
+      timestamp: liveStamp()
     };
     setActiveCue({ id: sourceId || ('pres-' + (deck.id || 'unsaved')), label: deck.title, text: '' });
     setSlideTimer({ start: Date.now(), elapsed: 0, duration: 0 });
-    setDisplays(displays.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
+    setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
     if (window.require && targetedDisplays.includes(1)) {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('update-live-slide', slidePayload);
@@ -1540,7 +1687,7 @@ export default function App() {
       style: { ...stageStyle, ...bg, transition: 'fade', speed: '600ms' },
       audio: null, // stops the outgoing song's looping pad on the switch
       standby: true,
-      timestamp: Date.now()
+      timestamp: liveStamp()
     };
     // Functional update: the await above can outlive this render's copy of
     // `displays`, and a stale array here would drop a concurrent push.
@@ -1581,8 +1728,8 @@ export default function App() {
       setActiveCue({ id: item.id, label: item.subtitle, text: item.content });
       const d = Number(item.duration) || 0;
       setSlideTimer({ start: Date.now(), elapsed: 0, duration: d });
-      const slidePayload = { title: item.title, text: item.content, label: item.subtitle, style: item.style || stageStyle, audio: activeSong?.audio_url || null, meta: item.meta || null, timestamp: Date.now() };
-      setDisplays(displays.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
+      const slidePayload = { title: item.title, text: item.content, label: item.subtitle, style: item.style || stageStyle, audio: activeSong?.audio_url || null, meta: item.meta || null, timestamp: liveStamp() };
+      setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
       if (window.require && targetedDisplays.includes(1)) {
         const { ipcRenderer } = window.require('electron');
         ipcRenderer.send('update-live-slide', slidePayload);
@@ -1687,15 +1834,19 @@ export default function App() {
   // Rename a section header in place. Collapse keys are title-based, so keep
   // them in sync when the section is renamed while collapsed.
   const renameServiceHeader = (idx, title) => {
-    const items = [...(activeService?.items || [])];
-    if (!items[idx] || items[idx].item_type !== 'section_header') return;
-    const oldTitle = items[idx].title;
-    const nextTitle = title || 'Section';
-    items[idx] = { ...items[idx], title: nextTitle };
-    setActiveService(prev => ({ ...prev, items }));
-    if (oldTitle !== nextTitle) {
-      setServiceCollapsed(prev => prev.map(t => (t === oldTitle ? nextTitle : t)));
-    }
+    // Functional: a reorder landing between read and write must not rename
+    // the wrong row — the guard re-checks the header at commit time.
+    setActiveService((prev) => {
+      const items = [...(prev?.items || [])];
+      if (!items[idx] || items[idx].item_type !== 'section_header') return prev;
+      const oldTitle = items[idx].title;
+      const nextTitle = title || 'Section';
+      items[idx] = { ...items[idx], title: nextTitle };
+      if (oldTitle !== nextTitle) {
+        setServiceCollapsed((prevC) => prevC.map((t) => (t === oldTitle ? nextTitle : t)));
+      }
+      return { ...prev, items };
+    });
   };
 
   const addCustomSlideToService = () => {
@@ -1718,57 +1869,69 @@ export default function App() {
 
   const reorderServiceItem = (from, to) => {
     if (from === null || from === undefined || from === to) return;
-    const items = [...activeService.items];
-    const [moved] = items.splice(from, 1);
-    items.splice(to, 0, moved);
-    setActiveService({ ...activeService, items });
+    // Functional: two quick drags must each see the other's result, never the
+    // same stale array (which silently dropped one of the moves).
+    setActiveService((prev) => {
+      const items = [...(prev?.items || [])];
+      if (from < 0 || from >= items.length || to < 0 || to > items.length) return prev;
+      const [moved] = items.splice(from, 1);
+      items.splice(to, 0, moved);
+      return { ...prev, items };
+    });
     setDragIndex(null);
   };
 
   const moveServiceBlock = (fromIdx, toIdx) => {
-    const items = [...(activeService?.items || [])];
-    // toIdx === items.length is legal: it is how a drop past the last row
-    // (or into an empty trailing section) says "append to the end".
-    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= items.length || toIdx > items.length) return;
-    const isHeader = items[fromIdx] && items[fromIdx].item_type === 'section_header';
-    let end;
-    if (isHeader) {
-      const ni = items.findIndex((it, i) => i > fromIdx && it.item_type === 'section_header');
-      end = ni === -1 ? items.length : ni;
-    } else {
-      end = fromIdx + 1;
-    }
-    const block = items.slice(fromIdx, end);
-    const rest = items.slice(0, fromIdx).concat(items.slice(end));
-    let at = toIdx;
-    if (toIdx > fromIdx) at = toIdx - block.length;
-    const clamped = Math.max(0, Math.min(at, rest.length));
-    const result = rest.slice(0, clamped).concat(block).concat(rest.slice(clamped));
-    setActiveService({ ...activeService, items: result });
+    setActiveService((prev) => {
+      const items = [...(prev?.items || [])];
+      // toIdx === items.length is legal: it is how a drop past the last row
+      // (or into an empty trailing section) says "append to the end".
+      if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= items.length || toIdx > items.length) return prev;
+      const isHeader = items[fromIdx] && items[fromIdx].item_type === 'section_header';
+      let end;
+      if (isHeader) {
+        const ni = items.findIndex((it, i) => i > fromIdx && it.item_type === 'section_header');
+        end = ni === -1 ? items.length : ni;
+      } else {
+        end = fromIdx + 1;
+      }
+      const block = items.slice(fromIdx, end);
+      const rest = items.slice(0, fromIdx).concat(items.slice(end));
+      let at = toIdx;
+      if (toIdx > fromIdx) at = toIdx - block.length;
+      const clamped = Math.max(0, Math.min(at, rest.length));
+      const result = rest.slice(0, clamped).concat(block).concat(rest.slice(clamped));
+      return { ...prev, items: result };
+    });
     setDragIndex(null);
   };
 
   const moveServiceItem = (index, direction) => {
-    const newItems = [...activeService.items];
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= newItems.length) return;
-    const temp = newItems[index];
-    newItems[index] = newItems[targetIndex];
-    newItems[targetIndex] = temp;
-    setActiveService({ ...activeService, items: newItems });
+    setActiveService((prev) => {
+      const newItems = [...(prev?.items || [])];
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= newItems.length) return prev;
+      const temp = newItems[index];
+      newItems[index] = newItems[targetIndex];
+      newItems[targetIndex] = temp;
+      return { ...prev, items: newItems };
+    });
   };
 
   const removeServiceItem = (index) => {
-    const newItems = activeService.items.filter((_, i) => i !== index);
-    setActiveService({ ...activeService, items: newItems });
+    setActiveService((prev) => ({ ...prev, items: (prev?.items || []).filter((_, i) => i !== index) }));
   };
 
   // --- SERVICE ORDER (G-Presenter style) ---
   const serviceOrderCount = () => (activeService?.items || []).filter(i => i.item_type !== 'section_header').length;
   const serviceSlideCount = (item) => {
     if (item.item_type === 'song') {
-      const song = songs.find(s => s.id === item.content);
-      return song ? (song.cues || []).length : 0;
+      // String compare: content round-trips through a TEXT column, so a
+      // reloaded plan holds "8" where the library holds 8.
+      const song = songs.find(s => String(s.id) === String(item.content));
+      // +1 for the title card: firing starts there (fireTitleLive), and the
+      // grid/builder both count it — the badge used to read one short.
+      return song ? (song.cues || []).length + 1 : 0;
     }
     if (item.item_type === 'presentation') {
       try { const d = JSON.parse(item.content); return (d.slides || []).length; } catch (_) { return 0; }
@@ -1795,7 +1958,9 @@ export default function App() {
     const items = (activeService?.items || []).filter(Boolean);
     if (!items.length || !activeCue || activeCue.id === 'clear') return null;
     const songRow = () => (activeSong
-      ? items.find(i => i.item_type === 'song' && Number(i.content) === activeSong.id)
+      // String compare: song ids may be numeric or UUIDs — Number(uuid) is
+      // NaN and never matched, so the live row/highlight silently broke.
+      ? items.find(i => i.item_type === 'song' && String(i.content) === String(activeSong.id))
       : null) || null;
     // Standby / title slide only ever come from a song.
     if (activeCue.id === 'standby' || activeCue.id === 'title-card') return songRow();
@@ -1860,10 +2025,10 @@ export default function App() {
       return;
     }
     const bgType = mediaType === 'video' ? 'video' : 'image';
-    const slidePayload = { title: item.title, text: '', label: item.subtitle || 'Media', style: { ...stageStyle, backgroundType: bgType, backgroundValue: mediaUrl }, audio: activeSong?.audio_url || null, timestamp: Date.now() };
+    const slidePayload = { title: item.title, text: '', label: item.subtitle || 'Media', style: { ...stageStyle, backgroundType: bgType, backgroundValue: mediaUrl }, audio: activeSong?.audio_url || null, timestamp: liveStamp() };
     setActiveCue({ id: item.id, label: item.subtitle || 'Media', text: '' });
     setSlideTimer({ start: Date.now(), elapsed: 0, duration: 0 });
-    setDisplays(displays.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
+    setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
     if (window.require && (targetedDisplays.includes(1) || true)) {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('update-live-slide', slidePayload);
@@ -1877,8 +2042,8 @@ export default function App() {
       setActiveSong(null);
       setActiveCue({ id: 'clear', label: 'Clear', text: '' });
       setSlideTimer({ start: null, elapsed: 0, duration: 0 });
-      const slidePayload = { title: '', artist: '', text: '', label: 'Clear', style: { ...stageStyle, backgroundType: 'color', backgroundValue: '#000000', transition: 'fade', speed: '600ms' }, audio: null, timestamp: Date.now() };
-      setDisplays(displays.map(d => targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d));
+      const slidePayload = { title: '', artist: '', text: '', label: 'Clear', style: { ...stageStyle, backgroundType: 'color', backgroundValue: '#000000', transition: 'fade', speed: '600ms' }, audio: null, timestamp: liveStamp() };
+      setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
       if (window.require && targetedDisplays.includes(1)) {
         const { ipcRenderer } = window.require('electron');
         ipcRenderer.send('update-live-slide', slidePayload);
@@ -1892,8 +2057,12 @@ export default function App() {
   const saveCurrentService = async () => {
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
-      const savedId = await ipcRenderer.invoke('db-save-service', activeService);
-      setActiveService({ ...activeService, id: savedId });
+      // Snapshot FIRST: rows added while the save is in flight belong to the
+      // next save, not this one — but they must survive it. The id lands via
+      // functional update so concurrent inserts aren't clobbered.
+      const snap = activeService;
+      const savedId = await ipcRenderer.invoke('db-save-service', snap);
+      setActiveService((prev) => ({ ...(prev || snap), id: savedId }));
       fetchServices();
       await appAlert('Service plan saved successfully!');
     }
@@ -1913,9 +2082,14 @@ export default function App() {
       const { ipcRenderer } = window.require('electron');
       const details = await ipcRenderer.invoke('db-get-service-details', showId);
       if (!details) return;
-      const target = activeService?.items || [];
-      const toAdd = [...(target.length ? [{ item_type: 'section_header', title: details.name, subtitle: 'Show', content: '', duration: 0 }] : []), ...(details.items || [])];
-      setActiveService({ ...(activeService || { id: null, name: '', date: '' }), items: insertAtEnd ? [...target, ...toAdd] : [...toAdd, ...target] });
+      const toAdd = (prevItems) => [...(prevItems.length ? [{ item_type: 'section_header', title: details.name, subtitle: 'Show', content: '', duration: 0 }] : []), ...(details.items || [])];
+      // Functional: rows the operator added while details were loading merge
+      // with the queued show instead of being overwritten by this closure's
+      // stale copy.
+      setActiveService((prev) => {
+        const target = prev?.items || [];
+        return { ...(prev || { id: null, name: '', date: '' }), items: insertAtEnd ? [...target, ...toAdd(target)] : [...toAdd(target), ...target] };
+      });
     }
   };
 
@@ -2010,29 +2184,39 @@ export default function App() {
   };
 
   const moveCue = (idx, dir) => {
-    const newCues = [...editingSong.cues];
     const target = idx + dir;
-    if (target < 0 || target >= newCues.length) return;
-    const tmp = newCues[idx];
-    newCues[idx] = newCues[target];
-    newCues[target] = tmp;
-    setEditingSong({ ...editingSong, cues: newCues });
+    // Functional: a throttled slider write landing between read and commit
+    // must not resurrect the pre-move order.
+    setEditingSong((prev) => {
+      const newCues = [...(prev.cues || [])];
+      if (target < 0 || target >= newCues.length) return prev;
+      const tmp = newCues[idx];
+      newCues[idx] = newCues[target];
+      newCues[target] = tmp;
+      return { ...prev, cues: newCues };
+    });
   };
 
   const duplicateCue = (idx) => {
     if (idx == null || idx < 0) return;
-    const newCues = [...editingSong.cues];
-    const copy = { ...newCues[idx] };
-    delete copy.id;
-    newCues.splice(idx + 1, 0, copy);
-    setEditingSong({ ...editingSong, cues: newCues });
+    setEditingSong((prev) => {
+      const newCues = [...(prev.cues || [])];
+      if (!newCues[idx]) return prev;
+      const copy = { ...newCues[idx] };
+      delete copy.id;
+      newCues.splice(idx + 1, 0, copy);
+      return { ...prev, cues: newCues };
+    });
   };
 
   const setCueBackground = (idx, bgType, bgValue) => {
     if (idx === -1) { updateCue(-1, { bg_type: bgType, bg_value: bgValue }); return; }
-    const newCues = [...editingSong.cues];
-    newCues[idx] = { ...newCues[idx], bg_type: bgType, bg_value: bgValue };
-    setEditingSong({ ...editingSong, cues: newCues });
+    setEditingSong((prev) => {
+      const newCues = [...(prev.cues || [])];
+      if (!newCues[idx]) return prev;
+      newCues[idx] = { ...newCues[idx], bg_type: bgType, bg_value: bgValue };
+      return { ...prev, cues: newCues };
+    });
   };
 
   const cueFileToBackground = async (idx, type, file) => {
@@ -2042,7 +2226,7 @@ export default function App() {
     }
   };
 
-  const setSongBackground = (bgType, bgValue) => setEditingSong({ ...editingSong, bg_type: bgType, bg_value: bgValue });
+  const setSongBackground = (bgType, bgValue) => setEditingSong((prev) => ({ ...prev, bg_type: bgType, bg_value: bgValue }));
 
   const songBgFileToBackground = async (type, file) => {
     if (file) {
@@ -2057,23 +2241,27 @@ export default function App() {
   const splitCuesToLines = () => {
     const n = Math.max(1, Math.floor(Number(linesPerSlide) || 4));
     const partLabel = (label) => (label || '').replace(/\s*\(Part\s+\d+\)\s*$/i, '').trim() || 'Verse 1';
-    const newCues = [];
-    editingSong.cues.forEach((cue) => {
-      const baseLabel = partLabel(cue.label);
-      const lines = (cue.text || '').split('\n').filter(l => l.trim() !== '');
-      if (lines.length === 0 || lines.length <= n) {
-        newCues.push({ ...cue, label: baseLabel });
-        return;
-      }
-      for (let i = 0; i < lines.length; i += n) {
-        const part = Math.floor(i / n) + 1;
-        // New chunk = new text = refit the box to it, so a slide carved out of
-        // a long section still shows every line at the cue's own font size.
-        // Untouched cues keep the box the operator may have dragged by hand.
-        newCues.push(fitParsedCue({ ...cue, label: `${baseLabel} (Part ${part})`, text: lines.slice(i, i + n).join('\n') }));
-      }
+    // Functional: the source cues are read at commit time, so a keystroke
+    // still sitting in the canvas throttle can't be lost — or half-applied.
+    setEditingSong((prev) => {
+      const newCues = [];
+      (prev.cues || []).forEach((cue) => {
+        const baseLabel = partLabel(cue.label);
+        const lines = (cue.text || '').split('\n').filter(l => l.trim() !== '');
+        if (lines.length === 0 || lines.length <= n) {
+          newCues.push({ ...cue, label: baseLabel });
+          return;
+        }
+        for (let i = 0; i < lines.length; i += n) {
+          const part = Math.floor(i / n) + 1;
+          // New chunk = new text = refit the box to it, so a slide carved out of
+          // a long section still shows every line at the cue's own font size.
+          // Untouched cues keep the box the operator may have dragged by hand.
+          newCues.push(fitParsedCue({ ...cue, label: `${baseLabel} (Part ${part})`, text: lines.slice(i, i + n).join('\n') }));
+        }
+      });
+      return { ...prev, cues: newCues };
     });
-    setEditingSong({ ...editingSong, cues: newCues });
   };
 
   // ---- G-PRESENTER STYLE EDITOR HELPERS ----
@@ -2121,6 +2309,26 @@ export default function App() {
     if (q.timer) return;
     updateCue(idx, patch);
     q.timer = setTimeout(() => { q.timer = null; if (q.idx != null) updateCue(q.idx, q.patch); }, 120);
+  };
+  // Drain a pending trailing write WITHOUT waiting 120ms. Returns the patch
+  // so the caller can merge it into a snapshot itself — setState is async, so
+  // merely calling updateCue() here would still save the pre-drag value.
+  const flushCueThrottle = () => {
+    const q = cueThrottleRef.current;
+    if (q.timer) { clearTimeout(q.timer); q.timer = null; }
+    const out = (q.idx != null && q.patch) ? { idx: q.idx, patch: q.patch } : null;
+    q.idx = null; q.patch = null;
+    return out;
+  };
+  const applyPatchToSnapshot = (song, idx, patch) => {
+    if (idx === -1) {
+      const cur = song.title_cue || { ...defaultTitleCue, text: song.title || defaultTitleCue.text };
+      return { ...song, title_cue: { ...cur, ...patch } };
+    }
+    const newCues = [...(song.cues || [])];
+    if (!newCues[idx]) return song;
+    newCues[idx] = { ...newCues[idx], ...patch };
+    return { ...song, cues: newCues };
   };
 
   // One click: merge a patch into every slide (title slide included).
@@ -2178,25 +2386,33 @@ export default function App() {
     const before = ta.value.slice(0, pos).trimEnd();
     const after = ta.value.slice(pos).trimStart();
     if (!after) return;
-    const cues = editingSong.cues || [];
-    const cur = cues[editorCueIdx] || {};
-    const labels = cues.map(c => c.label);
-    const base = baseGroupLabel(cur.label);
-    const letter = nextSuffixLetter(labels, base);
-    const newCues = [...cues];
-    newCues[editorCueIdx] = { ...cur, text: before };
-    newCues.splice(editorCueIdx + 1, 0, { ...cur, label: `${base}${letter}`, text: after, id: undefined, locked: false, box: cur.box || DEFAULT_BOX });
-    setEditingSong({ ...editingSong, cues: newCues });
+    // Text AND index both resolve at commit time: a reorder between opening
+    // the split prompt and confirming it splits the right slide.
+    const liveText = ta.value;
+    setEditingSong((prev) => {
+      const cues = prev.cues || [];
+      const cur = cues[editorCueIdx] || {};
+      const labels = cues.map(c => c.label);
+      const base = baseGroupLabel(cur.label);
+      const letter = nextSuffixLetter(labels, base);
+      const newCues = [...cues];
+      newCues[editorCueIdx] = { ...cur, text: liveText.slice(0, pos).trimEnd() };
+      newCues.splice(editorCueIdx + 1, 0, { ...cur, label: `${base}${letter}`, text: liveText.slice(pos).trimStart(), id: undefined, locked: false, box: cur.box || DEFAULT_BOX });
+      return { ...prev, cues: newCues };
+    });
     setEditorCueIdx(editorCueIdx + 1);
     setTimeout(() => setCanvasEdit(true), 0);
   };
 
   const reorderCues = (from, to) => {
     if (from == null || to == null || from === to) return;
-    const arr = [...(editingSong.cues || [])];
-    const [moved] = arr.splice(from, 1);
-    arr.splice(to, 0, moved);
-    setEditingSong({ ...editingSong, cues: arr });
+    setEditingSong((prev) => {
+      const arr = [...(prev.cues || [])];
+      if (from < 0 || from >= arr.length || to < 0 || to > arr.length) return prev;
+      const [moved] = arr.splice(from, 1);
+      arr.splice(to, 0, moved);
+      return { ...prev, cues: arr };
+    });
     setEditorCueIdx(to);
   };
 
@@ -2265,7 +2481,12 @@ export default function App() {
   const handleSaveSong = async () => {
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
-      await ipcRenderer.invoke('db-save-song', editingSong);
+      // A slider released <120ms ago still has its final value sitting in the
+      // throttle — merge it into the snapshot or the DB keeps the pre-drag one.
+      const pending = flushCueThrottle();
+      const snap = pending ? applyPatchToSnapshot(editingSong, pending.idx, pending.patch) : editingSong;
+      if (pending) updateCue(pending.idx, pending.patch);
+      await ipcRenderer.invoke('db-save-song', snap);
       setIsEditorOpen(false);
       fetchSongs();
       if (editingSong.id) selectSong(editingSong.id);
@@ -2594,12 +2815,16 @@ export default function App() {
   };
 
   const removeMediaAsset = async (asset) => {
-    if (!window.require) return;
-    const fileName = asset.url.split('/').pop();
+    if (!window.require || !asset) return;
+    // Builtin/library rows can carry `value` instead of `url`, or neither —
+    // the old code threw on .split and the confirm never appeared.
+    const url = asset.url || asset.value || '';
+    if (!url) return;
+    const fileName = String(url).split('/').pop() || 'this asset';
     const ok = await appConfirm(`Remove "${fileName}" from the media library?\n\nSongs that reference it will fall back to their color background.`, { confirmLabel: 'Remove' });
     if (!ok) return;
     const { ipcRenderer } = window.require('electron');
-    await ipcRenderer.invoke('db-delete-media', asset.url);
+    await ipcRenderer.invoke('db-delete-media', url);
     fetchMediaLibrary();
   };
 
@@ -2636,7 +2861,9 @@ export default function App() {
       t = t.charAt(0).toUpperCase() + t.slice(1);
     }
     t = t.trim();
-    return bibleFmt.layout === 'number' && v.verse ? `${t}` : t;
+    // Number layout prefixes the verse ("16 For God so loved…") — the old
+    // code returned `t` in both branches, so single verses never showed it.
+    return bibleFmt.layout === 'number' && v.verse ? `${v.verse} ${t}` : t;
   };
 
   // Builds one scripture slide payload. Accepts a single verse
@@ -2822,10 +3049,15 @@ export default function App() {
     return res;
   };
 
+  // Latest navigation wins: tapping chapters 1-then-5 fast must not land
+  // chapter 1's verses under chapter 5's selection (or push them live).
+  const bibleLoadSeqRef = useRef(0);
   const loadBibleChapter = async (abbrev = bibleTrans, bookIndex = bibleSel.bookIndex, chapter = bibleSel.chapter) => {
     if (!window.require || !abbrev) return;
     const { ipcRenderer } = window.require('electron');
+    const seq = ++bibleLoadSeqRef.current;
     const res = await ipcRenderer.invoke('scripture-chapter', abbrev, bookIndex, chapter);
+    if (seq !== bibleLoadSeqRef.current) return res;
     if (res && !res.error && res.verses) {
       setBibleChapter(res);
       setBibleSel({ bookIndex: res.bookIndex, bookName: res.book, chapter: res.chapter, totalChapters: res.totalChapters });
@@ -3009,6 +3241,7 @@ export default function App() {
     { id: 'live', label: 'Live', iconId: 'radio', accent: false },
     { id: 'media', label: 'Media', iconId: 'film', accent: false },
     { id: 'audio', label: 'Audio', iconId: 'music', accent: false },
+    { id: 'countdown', label: 'Countdown', iconId: 'timer', accent: false },
     { id: 'scripture', label: 'Scripture', iconId: 'book-open', accent: false },
     { id: 'outputs', label: 'Outputs', iconId: 'monitor', accent: false },
     { id: 'functions', label: 'Functions', iconId: 'settings', accent: false }
@@ -3073,11 +3306,13 @@ export default function App() {
         const result = await ipcRenderer.invoke('download-update');
         if (result.error) {
           setAboutStatus(`Download failed: ${result.error}`);
+          setUpdateReady('error');
           setUpdateProgress(null);
         }
       }
     } catch (e) {
       setAboutStatus(`Download failed: ${e.message}`);
+      setUpdateReady('error');
       setUpdateProgress(null);
     }
   };
@@ -3116,7 +3351,9 @@ export default function App() {
   const handleDockSelect = (item) => {
     if (item.id === 'outputs') { setShowOutputMonitor(true); return; }
     setDockTab(item.id);
-    setLeftOpen(item.id !== 'scripture');
+    // Countdown and Scripture own the full center width — the left tools
+    // column closes itself so the timer gets the room.
+    setLeftOpen(item.id !== 'scripture' && item.id !== 'countdown');
     if (item.id === 'live') { setRightOpen(true); } else { setScheduleView(item.id === 'shows' ? scheduleView : 'schedule'); }
   };
 
@@ -3159,7 +3396,7 @@ export default function App() {
     const bgHex = String(st.backgroundValue || '').toLowerCase();
     const isBlackColor = st.backgroundType === 'color' && (!bgHex || bgHex === '#000000' || bgHex === '#000' || bgHex === 'black');
     const hasColorBg = !!monitorContent && st.backgroundType === 'color' && !isBlackColor;
-    const valid = monitorContent && (monitorContent.text || monitorContent.presentation?.slide || hasMediaBg || hasColorBg);
+    const valid = monitorContent && (monitorContent.text || monitorContent.presentation?.slide || monitorContent.timer || hasMediaBg || hasColorBg);
     // Incoming slide is blank (standby / clear) → the outgoing lyrics dissolve.
     const blankOut = !!monitorContent && !monitorContent.text && !monitorContent.presentation;
     const transitionSpeed = cssSpeed(st.speed);
@@ -3213,7 +3450,7 @@ export default function App() {
                   style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}
                 >
                   {st.backgroundType === 'image' && (
-                    <div style={{ position: 'absolute', inset: 0, background: `url(${st.backgroundValue}) center/cover no-repeat` }} />
+                    <div style={{ position: 'absolute', inset: 0, background: `url("${String(st.backgroundValue || '').replace(/"/g, '%22')}") center/cover no-repeat` }} />
                   )}
                   {st.backgroundType === 'video' && (
                     <BackgroundVideo src={st.backgroundValue} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -3237,8 +3474,12 @@ export default function App() {
                     variants={{ out: (fadeOut) => ({ opacity: 0, transition: { duration: fadeOut ? 0.6 : 0 } }) }}
                     style={{ position: 'absolute', inset: 0 }}
                   >
-                    <div style={{ width: '100%', height: '100%', position: 'relative', animation: monitorContent && !monitorContent.presentation ? (animCSS || undefined) : undefined }}>
-                      {monitorContent && monitorContent.presentation?.slide ? (
+                    <div style={{ width: '100%', height: '100%', position: 'relative', animation: monitorContent && !monitorContent.presentation && !monitorContent.timer ? (animCSS || undefined) : undefined }}>
+                      {monitorContent && monitorContent.timer ? (
+                        <div style={{ position: 'absolute', inset: 0 }}>
+                          <TimerFace timer={monitorContent.timer} scale={1} />
+                        </div>
+                      ) : monitorContent && monitorContent.presentation?.slide ? (
                         <PresentationSlide slide={monitorContent.presentation.slide} keepAlive />
                       ) : monitorContent && monitorContent.text ? (
                         (() => {
@@ -3378,6 +3619,7 @@ export default function App() {
     baseGroupLabel, nextSuffixLetter, splitCueAtTextareaCaret, reorderCues,
     startBoxDrag, onStagePointerMove, endBoxDrag, ToolbarBtn, cueLyricStyle, handleSaveSong,
     previewAnimation,
+    fireCountdownLive, stopCountdownLive, countdown, setCountdown,
     handleDeleteSong, handleToggleFavorite, handleExport, handleImport, serviceSections, thumbBg, resolveBg,
     activeSlideIndex, groupLabels, slideGrid, renderSlideFace, applyMediaToActiveSong, importMediaAsset, removeMediaAsset,
     toggleAudioPreview, clearSongAudio, refreshBibleLib, formatBibleVerse, buildBiblePayload, queueBibleServiceSlide,

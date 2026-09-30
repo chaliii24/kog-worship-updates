@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 import PresentationWorkspace from './PresentationWorkspace';
+import CountdownPanel from './CountdownPanel';
 import Dropdown from './Dropdown';
 
 export default function CenterWorkspace() {
@@ -117,7 +118,19 @@ export default function CenterWorkspace() {
       const nextVerse = verses[nextIdx];
       if (nextVerse) {
         setBibleFocusedVerse(nextVerse.verse);
-        setBibleSelVerses([nextVerse.verse]);
+        // Shift+Arrow EXTENDS a multi-select (Ctrl+Click-built ranges survive);
+        // plain arrows move a lone caret as before.
+        if (e.shiftKey) {
+          const anchor = (bibleLastVerseRef.current != null && (bibleSelVerses || []).includes(bibleLastVerseRef.current))
+            ? bibleLastVerseRef.current
+            : current;
+          const a = verses.findIndex(v => v.verse === anchor);
+          const lo = Math.min(a < 0 ? nextIdx : a, nextIdx);
+          const hi = Math.max(a < 0 ? nextIdx : a, nextIdx);
+          setBibleSelVerses(verses.slice(lo, hi + 1).map(v => v.verse));
+        } else {
+          setBibleSelVerses([nextVerse.verse]);
+        }
         bibleLastVerseRef.current = nextVerse.verse;
         // focus the next verse element
         requestAnimationFrame(() => {
@@ -454,6 +467,8 @@ export default function CenterWorkspace() {
     </motion.div>
   ) : (dockTab === 'presentations' || activePresentation) ? (
   <PresentationWorkspace />
+  ) : (dockTab === 'countdown') ? (
+  <CountdownPanel />
   ) : (
   <motion.div key="other" initial={{ opacity: 0, x: 26 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -26 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
   <div style={{ padding: '12px 18px 8px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexShrink: 0 }}>
@@ -484,7 +499,7 @@ export default function CenterWorkspace() {
     {activeSong ? (
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridDensity}, 1fr)`, gap: 14, alignContent: 'start' }}>
         {slideGrid.map((tile, i) => (
-          <motion.div key={i} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 320, damping: 28, delay: Math.min(i * 0.03, 0.4) }} whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }} onClick={() => tile.isTitle ? fireTitleLive() : fireCueLive(tile.cue)}>
+          <motion.div key={tile.isTitle ? 'title' : (tile.cue?.id ?? `cue-${i}`)} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 320, damping: 28, delay: Math.min(i * 0.03, 0.4) }} whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }} onClick={() => tile.isTitle ? fireTitleLive() : fireCueLive(tile.cue)}>
             {renderSlideFace(tile, { aspect: (outputAspect || '16:9').replace(':', ' / ') })}
           </motion.div>
         ))}

@@ -147,7 +147,9 @@ export default function OutputsMonitorModal({
     };
     const onThumbs = (_e, list) => {
       if (!alive) return;
-      setThumbs(Object.fromEntries((list || []).map(t => [t.id, t.dataUrl])));
+      // Merge, never replace: main can emit per-output rounds, and a replace
+      // flashed every other live thumb to OFFLINE between rounds.
+      setThumbs((prev) => ({ ...prev, ...Object.fromEntries((list || []).map(t => [t.id, t.dataUrl])) }));
     };
 
     poll();
@@ -254,7 +256,10 @@ export default function OutputsMonitorModal({
             {outputs.map((out) => {
               const info = statusById[out.id];
               const isOpen = !!(info && info.open);
-              const running = !!out.enabled;
+              // Drive the button off the ACTUAL window (isOpen), not the
+              // desired flag: assigning "Off" in the display picker clears
+              // enabled while the window is still up, and the old code then
+              // offered "Start Output" over a live thumbnail.
               const accent = ROLE_COLORS[out.role] || PINK;
               const thumb = thumbs[out.id];
               const removable = out.id !== 'projector' && out.id !== 'stage';
@@ -362,11 +367,11 @@ export default function OutputsMonitorModal({
 
                     <motion.button
                       {...stubTap}
-                      onClick={() => setOutputRunning(out.id, !running)}
-                      title={running ? 'Stop this output' : 'Start this output (nothing opens until you do)'}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: running ? 'rgba(239,68,68,0.14)' : accent, border: running ? '1px solid rgba(239,68,68,0.4)' : '1px solid transparent', color: running ? '#f87171' : '#fff', padding: '7px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
+                      onClick={() => setOutputRunning(out.id, !isOpen)}
+                      title={isOpen ? 'Stop this output' : 'Start this output (nothing opens until you do)'}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: isOpen ? 'rgba(239,68,68,0.14)' : accent, border: isOpen ? '1px solid rgba(239,68,68,0.4)' : '1px solid transparent', color: isOpen ? '#f87171' : '#fff', padding: '7px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
                     >
-                      <Power size={13} /> {running ? 'Stop Output' : 'Start Output'}
+                      <Power size={13} /> {isOpen ? 'Stop Output' : 'Start Output'}
                     </motion.button>
                   </div>
                 </div>
@@ -545,23 +550,16 @@ export default function OutputsMonitorModal({
 // rotation / blend apply without a restart).
 // ---------------------------------------------------------------------------
 // Numeric input that survives real typing: clearing the box to retype a
-// 4-digit value must not snap back to the minimum mid-keystroke (the old
-// clamp-on-change handler made the field impossible to empty), while every
-// accepted value is still clamped live and re-clamped on blur. While the
-// field has focus it owns its own text; external changes ("Use display",
-// presets) land again as soon as focus leaves.
+// 4-digit value must not snap back to the minimum mid-keystroke, and the live
+// output window must not resize on every partial digit either. Commits land
+// on blur/Enter; while focused the field owns its own text, and external
+// changes ("Use display", presets) land again as soon as focus leaves.
 function NumField({ value, onCommit, min, max, style }) {
   const [draft, setDraft] = useState(String(value));
   const focused = useRef(false);
   useEffect(() => { if (!focused.current) setDraft(String(value)); }, [value]);
 
   const clamp = (n) => Math.max(min, Math.min(max, Math.round(n)));
-  const emit = (raw) => {
-    const t = String(raw).trim();
-    if (t === '' || t === '-') return; // let the box go blank / hold the minus
-    const n = Number(t);
-    if (Number.isFinite(n)) onCommit(clamp(n));
-  };
 
   return (
     <input
@@ -571,7 +569,8 @@ function NumField({ value, onCommit, min, max, style }) {
       max={max}
       style={style}
       onFocus={() => { focused.current = true; }}
-      onChange={(e) => { setDraft(e.target.value); emit(e.target.value); }}
+      onChange={(e) => { setDraft(e.target.value); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
       onBlur={() => {
         focused.current = false;
         const t = String(draft).trim();
@@ -591,7 +590,12 @@ function ScreenSetupPanel({ out, updateOutput, displays, C, PINK }) {
     w: bound ? bound.width : 1920, h: bound ? bound.height : 1080,
     ...(out.viewport || {})
   };
-  const setVp = (patch) => updateOutput(out.id, { viewport: { ...vp, ...patch } });
+  // Display-only defaults: the panel shows bound dims until the operator types
+  // their own, but ONLY touched keys are ever written back — toggling the
+  // switch used to materialize a full {x:0,y:0,w:bound…} geometry immediately.
+  // Stored keys are preserved across toggles; missing ones fall back to the
+  // bound display both here and in main.
+  const setVp = (patch) => updateOutput(out.id, { viewport: { ...(out.viewport || {}), ...patch } });
 
   const rot = out.rotation || 0;
 
