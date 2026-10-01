@@ -10,6 +10,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
   const [now, setNow] = useState(Date.now());
   // Top-level view switch: lyrics control vs countdown control.
   const [tab, setTab] = useState('lyrics');
+  const [sermonJump, setSermonJump] = useState('');
 
   // Tick only while something visibly moves — a phone on an idle screen
   // should not keep waking its CPU.
@@ -102,14 +103,14 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
         <span style={{ fontSize: 12, fontWeight: 800, color: ACCENT, textTransform: 'uppercase', letterSpacing: 1 }}>{activeCue?.label || live?.label || ''}</span>
       </div>
 
-      {/* Top tabs: lyrics control vs countdown control */}
+      {/* Top tabs: lyrics / countdown / presentation control */}
       <div style={{ padding: '0 14px 10px', display: 'flex', gap: 6 }}>
-        {[['lyrics', 'Lyrics', Music], ['countdown', 'Countdown', Clock]].map(([v, lbl, Icon]) => (
+        {[['lyrics', 'Lyrics', Music], ['countdown', 'Countdown', Clock], ['presentation', 'Presentation', MonitorPlay]].map(([v, lbl, Icon]) => (
           <button
             key={v}
             onClick={() => setTab(v)}
-            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 10, padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: tab === v ? ACCENT : C.elevated2, border: `1px solid ${tab === v ? ACCENT : C.border2}`, color: tab === v ? '#fff' : C.muted }}
-          ><Icon size={14} /> {lbl}{v === 'countdown' && cdLive ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}</button>
+            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 10, padding: '10px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: tab === v ? ACCENT : C.elevated2, border: `1px solid ${tab === v ? ACCENT : C.border2}`, color: tab === v ? '#fff' : C.muted, minWidth: 0 }}
+          ><Icon size={14} /> {lbl}{v === 'countdown' && cdLive ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}{v === 'presentation' && state?.sermon?.loaded ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}</button>
         ))}
         {state?.song ? (
           <button
@@ -255,6 +256,53 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
             </label>
           )}
         </div>
+      </>) : null}
+      {tab === 'presentation' ? (<>
+        {/* ── PRESENTATION (PowerPoint sermon) ─────────────────────────── */}
+        {(() => {
+          const sm = state?.sermon || null;
+          return (
+            <div style={{ background: C.elevated, border: `1px solid ${sm?.loaded && sm?.passthrough ? 'rgba(139,92,246,0.5)' : C.border2}`, borderRadius: 16, padding: 14, position: 'relative', overflow: 'hidden' }}>
+              {sm?.loaded && sm?.passthrough && <span style={{ position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderRadius: 3, background: '#8b5cf6' }} />}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                <MonitorPlay size={13} color={sm?.loaded ? '#4ade80' : C.faint} />
+                <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1.6, textTransform: 'uppercase', color: C.faint }}>Sermon slides</span>
+                {sm?.loaded && <span style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: sm.passthrough ? '#a78bfa' : '#4ade80', background: sm.passthrough ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)', border: `1px solid ${sm.passthrough ? 'rgba(139,92,246,0.4)' : 'rgba(34,197,94,0.4)'}`, padding: '2px 7px', borderRadius: 6 }}>{sm.passthrough ? 'POWERPOINT' : 'LYRICS'}</span>}
+              </div>
+              {!sm?.loaded ? (
+                <span style={{ fontSize: 13.5, color: C.faint, lineHeight: 1.6 }}>No sermon loaded — open a PowerPoint on the computer first, then drive it from here.</span>
+              ) : (
+                <>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sm.title || 'Sermon'}</div>
+                  <div style={{ fontSize: 26, fontWeight: 900, color: C.text, fontVariantNumeric: 'tabular-nums', margin: '2px 0 8px' }}>
+                    {sm.total ? `${sm.index || 1} / ${sm.total}` : `Slide ${sm.index || 1}`}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                    {[['kog', 'Lyrics'], ['passthrough', 'PowerPoint']].map(([v, lbl]) => {
+                      const on = (sm.passthrough ? 'passthrough' : 'kog') === v;
+                      return (
+                        <button key={v} onClick={() => send('sermonLayer', { layer: v })} style={{ flex: 1, borderRadius: 8, padding: '9px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: on ? ACCENT : C.elevated2, border: `1px solid ${on ? ACCENT : C.border2}`, color: on ? '#fff' : C.muted }}>{lbl}</button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <motion.button {...stubTap} onClick={() => send('sermonPrev')} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: C.elevated2, border: `1px solid ${C.border2}`, color: C.text, borderRadius: 10, padding: '12px 0', fontSize: 14, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit' }}>
+                      <SkipBack size={18} /> Prev
+                    </motion.button>
+                    <motion.button {...stubTap} onClick={() => send('sermonNext')} style={{ flex: 1.4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: ACCENT, border: 'none', color: '#fff', borderRadius: 10, padding: '12px 0', fontSize: 14, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit' }}>
+                      Next <SkipForward size={18} />
+                    </motion.button>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                    <input value={sermonJump} onChange={(e) => setSermonJump(e.target.value.replace(/\D/g, '').slice(0, 4))} onKeyDown={(e) => { if (e.key === 'Enter' && sermonJump) { send('sermonGoto', { index: Number(sermonJump) }); setSermonJump(''); } }} placeholder="Slide #" inputMode="numeric" style={{ flex: 1, minWidth: 0, background: C.elevated2, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.text, fontSize: 13, fontWeight: 800, padding: '9px 8px', outline: 'none', textAlign: 'center', fontFamily: 'inherit' }} />
+                    <button onClick={() => { if (sermonJump) { send('sermonGoto', { index: Number(sermonJump) }); setSermonJump(''); } }} style={{ background: C.elevated2, border: `1px solid ${C.border2}`, color: C.text2, borderRadius: 8, padding: '0 16px', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>Jump</button>
+                  </div>
+                  <button onClick={() => send('sermonClose')} style={{ width: '100%', marginTop: 8, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', borderRadius: 9, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>Close sermon</button>
+                </>
+              )}
+            </div>
+          );
+        })()}
       </>) : null}
 
       {tab === 'lyrics' ? (<>

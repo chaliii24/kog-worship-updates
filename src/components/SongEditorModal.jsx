@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, Cpu, KeyRound, Timer, Clock3, Link2, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack, Undo2, Redo2 } from 'lucide-react';
+import { Plus, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, Cpu, KeyRound, Timer, Clock3, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack, Undo2, Redo2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, FALLBACK_SYSTEM_FONTS } from '../lib/constants';
 import { renderLyricsLayout, cueLyricStyle, stripMarkup, FONT_SIZE_MIN, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, autoPadForSize, fitBoxToText, growBoxToText, restyleLineScales } from '../lib/lyrics';
@@ -135,11 +135,7 @@ export default function SongEditorModal() {
     setEditorMode,
     rawPasteText,
     setRawPasteText,
-    importUrl,
-    setImportUrl,
-    importUrlStatus,
     isParsing,
-    isFetching,
     editingSong,
     setEditingSong,
     linesPerSlide,
@@ -158,7 +154,6 @@ export default function SongEditorModal() {
     cueHasBackground,
     songHasBackground,
     processAutoPaste,
-    fetchSongFromUrl,
     moveCue,
     duplicateCue,
     setCueBackground,
@@ -240,18 +235,17 @@ export default function SongEditorModal() {
   // `renameFrom` keeps the field in the list it was opened from — both lists
   // show every slide, so two inputs for one slide would fight over focus.
   // --- split prompt (ask BEFORE parsing) -----------------------------------
-  // Parse & Build Blocks and Fetch & Parse ask first how many lyric lines
-  // each slide keeps — that count is exactly what splitCuesByLines turns into
-  // "(Part n)" groups, so the generated blocks come out accurate instead of
-  // inheriting whatever number the sidebar last held. Confirmed value also
-  // becomes the sidebar/Split default (setLinesPerSlide).
-  const [splitPrompt, setSplitPrompt] = useState(null); // null | 'parse' | 'fetch'
+  // Parse & Build Blocks asks first how many lyric lines each slide keeps —
+  // that count is exactly what splitCuesByLines turns into "(Part n)" groups,
+  // so the generated blocks come out accurate instead of inheriting whatever
+  // number the sidebar last held. Confirmed value also becomes the
+  // sidebar/Split default (setLinesPerSlide).
+  const [splitPrompt, setSplitPrompt] = useState(null); // null | 'parse'
   const [splitN, setSplitN] = useState('');
 
   const openSplitPrompt = (kind) => {
     // Nothing to parse yet? Let the action raise its own alert instead of
     // asking for a split count nobody can use.
-    if (kind === 'fetch' && !importUrl.trim()) { fetchSongFromUrl(); return; }
     if (kind === 'parse' && !rawPasteText.trim()) { processAutoPaste(); return; }
     setSplitN(String(Math.max(1, Math.min(12, Math.floor(Number(linesPerSlide) || 4)))));
     setSplitPrompt(kind);
@@ -265,8 +259,7 @@ export default function SongEditorModal() {
     setLinesPerSlide(n);
     // Passed explicitly: setState is async, the parse closure would still see
     // the OLD linesPerSlide if we relied on the state update landing first.
-    if (kind === 'fetch') fetchSongFromUrl({ linesPerSlide: n });
-    else if (kind === 'parse') processAutoPaste(undefined, { linesPerSlide: n });
+    if (kind === 'parse') processAutoPaste(undefined, { linesPerSlide: n });
   };
 
   const [renameIdx, setRenameIdx] = useState(null);
@@ -823,12 +816,12 @@ export default function SongEditorModal() {
 
     {/* ===== BUSY / LOADING OVERLAY ===== */}
     <AnimatePresence>
-      {(isParsing || isFetching) && (
+      {isParsing && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }} style={{ position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(5,5,9,0.82)', backdropFilter: 'blur(6px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
           <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.9, ease: 'linear' }} style={{ width: 52, height: 52, borderRadius: '50%', border: '3px solid rgba(139,92,246,0.22)', borderTopColor: ACCENT, boxSizing: 'border-box' }} />
-          <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>{isParsing ? 'Parsing lyrics & building blocks…' : 'Fetching & preparing page…'}</div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>Parsing lyrics & building blocks…</div>
           <div style={{ fontSize: 12, color: C.faint, maxWidth: 440, textAlign: 'center', lineHeight: 1.55 }}>
-            {isParsing ? 'Detecting sections and splitting your song into slides. This can take a few seconds.' : 'Downloading the page, then extracting the lyrics and sections.'}
+            Detecting sections and splitting your song into slides. This can take a few seconds.
           </div>
         </motion.div>
       )}
@@ -942,16 +935,8 @@ export default function SongEditorModal() {
             </div>
           )}
           <p style={{ fontSize: 12, color: C.faint, margin: '0 0 12px 0' }}>Plain lyrics or chord charts both work: chords are stripped only when the text is a chart, Google Docs and web formatting get cleaned up, and sections map into blocks using your chosen engine. Lyrics with no labels split into Verse/Chorus blocks automatically.</p>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'center' }}>
-            <Link2 size={13} color={C.accLine} />
-            <input type="text" value={importUrl} onChange={(e) => setImportUrl(e.target.value)} placeholder="Paste any song link — Ultimate Guitar, Genius, AZLyrics…" style={{ flex: 1, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '8px 10px', color: C.text, fontSize: 12, outline: 'none' }} />
-            <button onClick={() => openSplitPrompt('fetch')} disabled={isParsing || isFetching} style={{ background: C.input, border: '1px solid ' + ACCENT, color: C.accLine, padding: '8px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: (isParsing || isFetching) ? 'wait' : 'pointer', whiteSpace: 'nowrap', opacity: (isParsing || isFetching) ? 0.6 : 1 }}>{isFetching && !isParsing ? 'Fetching…' : 'Fetch & Parse'}</button>
-          </div>
-          {importUrlStatus && (
-            <div style={{ fontSize: 11, color: importUrlStatus.includes('✓') ? '#4ade80' : importUrlStatus.includes('failed') || importUrlStatus.includes('Invalid') || importUrlStatus.includes('Could') ? '#ef4444' : '#a78bfa', margin: '0 0 10px 0', fontWeight: 600, whiteSpace: 'pre-wrap' }}>{importUrlStatus}</div>
-          )}
           <textarea rows={10} value={rawPasteText} onChange={(e) => setRawPasteText(e.target.value)} placeholder="[Verse 1] or plain lyrics&#10;Paste chords (auto-stripped) or copy/paste from a lyrics site — sections are detected for you." style={{ width: '100%', background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: 12, color: C.text, fontSize: 13, fontFamily: 'monospace', outline: 'none', resize: 'vertical' }} />
-          <button onClick={() => openSplitPrompt('parse')} disabled={isParsing || isFetching} style={{ marginTop: 12, background: ACCENT, border: 'none', color: C.text, padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: (isParsing || isFetching) ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: (isParsing || isFetching) ? 0.6 : 1 }}><Wand2 size={14} /> {isParsing ? 'Parsing…' : 'Parse & Build Blocks'}</button>
+          <button onClick={() => openSplitPrompt('parse')} disabled={isParsing} style={{ marginTop: 12, background: ACCENT, border: 'none', color: C.text, padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: isParsing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: isParsing ? 0.6 : 1 }}><Wand2 size={14} /> {isParsing ? 'Parsing…' : 'Parse & Build Blocks'}</button>
           {editingSong.cues && editingSong.cues.length > 0 && (
             <div style={{ marginTop: 16, borderTop: '1px solid var(--ui-border2)', paddingTop: 16 }}>
               <label style={{ fontSize: 11, fontWeight: 700, color: '#4ade80', textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Generated Song Blocks ({editingSong.cues.length})</label>

@@ -23,7 +23,7 @@ export default function SermonPanel() {
     <motion.div key="sermon" initial={{ opacity: 0, x: 26 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -26 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
       <div style={{ padding: '12px 18px 8px 18px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
         <MonitorPlay size={16} color={s.loaded ? '#4ade80' : C.faint} />
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Sermon</h2>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Presentation</h2>
         {s.loaded && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: s.passthrough ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)', border: '1px solid ' + (s.passthrough ? 'rgba(139,92,246,0.5)' : 'rgba(34,197,94,0.5)'), color: s.passthrough ? '#a78bfa' : '#4ade80', borderRadius: 999, padding: '3px 10px', fontSize: 10, fontWeight: 800, letterSpacing: 1 }}>
             {s.passthrough ? 'POWERPOINT' : 'LYRICS'}

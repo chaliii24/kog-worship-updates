@@ -78,10 +78,8 @@ export default function LeftSidebar() {
     setIsEditorOpen,
     handleNewSong,
     toggleDevProjectorWindow,
-    toggleStageWindow,
     addNewDisplay,
     fireCueLive,
-    setRightOpen,
     saveCurrentTemplate,
     applyTemplate,
     removeTemplate,
@@ -781,26 +779,6 @@ export default function LeftSidebar() {
               </div>
             </div>
           ))}
-        </div>
-      );
-    }
-    if (dockTab === 'live') {
-      return (
-        <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'grid', gap: 14, alignContent: 'start' }}>
-          <div style={{ display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Live Outputs</span>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              <button onClick={toggleDevProjectorWindow} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '7px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer' }}>Toggle Projector</button>
-              <button onClick={toggleStageWindow} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '7px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer' }}>Toggle Stage</button>
-              <button onClick={addNewDisplay} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '7px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer' }}>Add Virtual Wall</button>
-              <button onClick={() => fireCueLive({ id: 'clear', label: 'Clear', text: '' })} style={{ background: '#1c1010', border: '1px solid #7f1d1d', color: '#fca5a5', padding: '7px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer' }}>Clear All Outputs</button>
-            </div>
-          </div>
-          <div style={{ borderTop: '1px solid var(--ui-border)', paddingTop: 12, display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Live Monitor</span>
-            <button onClick={() => setRightOpen(true)} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.heading, padding: '7px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, alignSelf: 'flex-start' }}><Monitor size={13} /> Reopen Monitor Panel</button>
-            <div style={{ fontSize: 11, color: C.faint, lineHeight: 1.6 }}>This dock button toggles the Live Output monitor (right side). Keep it open to verify what is projected before the congregation sees it.</div>
-          </div>
         </div>
       );
     }

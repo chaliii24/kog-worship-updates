@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
-import { ListVideo, Presentation, Radio, Film, Music, BookOpen, Monitor, Settings, Timer, FileText } from 'lucide-react';
+import { ListVideo, Presentation, Film, Music, BookOpen, Monitor, Settings, Timer, FileText } from 'lucide-react';
 import { motion } from 'motion/react';
 
 const ICON_MAP = {
   'list-video': ListVideo,
   'presentation': Presentation,
-  'radio': Radio,
   'film': Film,
   'music': Music,
   'book-open': BookOpen,

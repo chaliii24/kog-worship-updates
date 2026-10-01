@@ -169,7 +169,7 @@ export default function App() {
   });
 
   // New Command-Center Layout State
-  const [dockTab, setDockTab] = useState('shows'); // shows | presentations | live | media | audio | countdown | scripture | outputs | functions
+  const [dockTab, setDockTab] = useState('shows'); // shows | live | sermon | media | audio | countdown | scripture | outputs | functions
   const [scheduleView, setScheduleView] = useState('schedule'); // 'schedule' | 'songs'
   const [activeMenu, setActiveMenu] = useState(null); // 'file' | 'edit' | 'view' | 'help'
   const [rightTab, setRightTab] = useState('groups'); // 'groups' | 'media'
@@ -283,10 +283,7 @@ export default function App() {
   const [editorMode, setEditorMode] = useState('manual');
   const [newSongPromptOpen, setNewSongPromptOpen] = useState(false);
   const [rawPasteText, setRawPasteText] = useState('');
-  const [importUrl, setImportUrl] = useState('');
-  const [importUrlStatus, setImportUrlStatus] = useState(null);
   const [isParsing, setIsParsing] = useState(false);
-  const [isFetching, setIsFetching] = useState(false);
   const [editingSong, setEditingSong] = useState({ id: null, title: '', artist: '', category: 'Worship', cues: [] });
   const [linesPerSlide, setLinesPerSlide] = useState(4);
 
@@ -2283,37 +2280,6 @@ export default function App() {
 
   // ----------------------------------------------------
 
-  // --- WEB SONG IMPORT: fetch chord chart/lyrics from a URL then parse ---
-  // opts.linesPerSlide passes the split prompt's confirmed count through to
-  // the parse that follows the fetch.
-  const fetchSongFromUrl = async (opts = {}) => {
-    if (!importUrl.trim()) { await appAlert('Paste a song URL first — lyric sites and chord charts both work.'); return; }
-    setImportUrlStatus('Fetching page…');
-    setIsFetching(true);
-    try {
-      const { ipcRenderer } = window.require('electron');
-      const result = await ipcRenderer.invoke('fetch-song-url', importUrl.trim());
-      if (result && result.error) { setImportUrlStatus(result.error); return; }
-      if (result && result.text && result.text.trim()) {
-        const srcLabel = result.source ? ` (${result.source})` : '';
-        const titleLabel = result.title ? ` — “${result.title}”` : '';
-        if (result.title) {
-          setEditingSong(prev => (prev.title && prev.title.trim()) ? prev : { ...prev, title: result.title });
-        }
-        setRawPasteText(result.text);
-        setImportUrlStatus(`Fetched ${result.text.length} chars${srcLabel}${titleLabel} — parsing…`);
-        const cues = await processAutoPaste(result.text, opts);
-        setImportUrlStatus(`Imported & parsed ✓ (${(cues || []).length} blocks)${srcLabel}${titleLabel}`);
-      } else {
-        setImportUrlStatus('No readable text found.');
-      }
-    } catch (err) {
-      setImportUrlStatus('Fetch failed: ' + err.message);
-    } finally {
-      setIsFetching(false);
-    }
-  };
-
   const moveCue = (idx, dir) => {
     const target = idx + dir;
     // Functional: a throttled slider write landing between read and commit
@@ -2726,6 +2692,13 @@ export default function App() {
       countdownGo: () => { fireCountdownLive(); return true; },
       countdownStop: () => { stopCountdownLive(); return true; },
       clearWorkspace: () => { clearWorkspace(); return true; },
+      // PowerPoint sermon control from the phone (loading a file stays
+      // desktop-only — it needs the file dialog).
+      sermonLayer: ({ layer }) => { sermonSetLayer(layer === 'passthrough' ? 'passthrough' : 'kog'); return true; },
+      sermonNext: () => { sermonNav(1); return true; },
+      sermonPrev: () => { sermonNav(-1); return true; },
+      sermonGoto: ({ index }) => { sermonGoto(index); return true; },
+      sermonClose: () => { sermonClose(); return true; },
       countdownSet: (patch) => {
         if (!patch || typeof patch !== 'object') return false;
         const clean = {};
@@ -2807,6 +2780,14 @@ export default function App() {
         elapsed: slideTimer?.elapsed ?? 0,
         duration: slideTimer?.duration ?? 0,
       },
+      sermon: sermon ? {
+        loaded: !!sermon.loaded,
+        title: sermon.title || '',
+        total: Number(sermon.total) || 0,
+        index: Number(sermon.index) || 0,
+        passthrough: !!sermon.passthrough,
+        displayLabel: sermon.displayLabel || '',
+      } : null,
       countdown: countdown ? {
         title: countdown.title || '',
         subtext: countdown.subtext || '',
@@ -2825,7 +2806,7 @@ export default function App() {
   };
   pushMobileRef.current = pushMobileState;
 
-  useEffect(() => { pushMobileState(); }, [currentSlide, displays, activeSong, activeCue, activeService, slideTimer, themeDark, targetedDisplays, countdown]);
+  useEffect(() => { pushMobileState(); }, [currentSlide, displays, activeSong, activeCue, activeService, slideTimer, themeDark, targetedDisplays, countdown, sermon]);
 
   // Auto-stop: a live non-overtime timer ends itself at zero (blackout +
   // stage clear, same as the Stop button) instead of sitting on 0:00 until
@@ -3413,9 +3394,7 @@ export default function App() {
 
   const dockItems = [
     { id: 'shows', label: 'Shows', iconId: 'list-video', accent: true },
-    { id: 'presentations', label: 'Presentations', iconId: 'presentation', accent: false },
-    { id: 'live', label: 'Live', iconId: 'radio', accent: false },
-    { id: 'sermon', label: 'Sermon', iconId: 'file-text', accent: false },
+    { id: 'sermon', label: 'Presentation', iconId: 'presentation', accent: false },
     { id: 'media', label: 'Media', iconId: 'film', accent: false },
     { id: 'audio', label: 'Audio', iconId: 'music', accent: false },
     { id: 'countdown', label: 'Countdown', iconId: 'timer', accent: false },
@@ -3528,10 +3507,10 @@ export default function App() {
   const handleDockSelect = (item) => {
     if (item.id === 'outputs') { setShowOutputMonitor(true); return; }
     setDockTab(item.id);
-    // Countdown and Scripture own the full center width — the left tools
-    // column closes itself so the timer gets the room.
-    setLeftOpen(item.id !== 'scripture' && item.id !== 'countdown');
-    if (item.id === 'live') { setRightOpen(true); } else { setScheduleView(item.id === 'shows' ? scheduleView : 'schedule'); }
+    // Countdown, Scripture and Presentation own the full center width — the
+    // left tools column closes itself so the workspace gets the room.
+    setLeftOpen(item.id !== 'scripture' && item.id !== 'countdown' && item.id !== 'sermon');
+    setScheduleView(item.id === 'shows' ? scheduleView : 'schedule');
   };
 
   // New Song flow, step 1: ask HOW to start (Manual Builder vs Smart
@@ -3765,8 +3744,8 @@ export default function App() {
     showTemplateNameModal, setShowTemplateNameModal, templateNameValue, setTemplateNameValue,
     activeService, setActiveService, customSlideModal, setCustomSlideModal, newSlideData, setNewSlideData,
     isEditorOpen, setIsEditorOpen, editorMode, setEditorMode, rawPasteText, setRawPasteText,
-    importUrl, setImportUrl, importUrlStatus, setImportUrlStatus, editingSong, setEditingSong, linesPerSlide, setLinesPerSlide,
-    isParsing, setIsParsing, isFetching, setIsFetching,
+    editingSong, setEditingSong, linesPerSlide, setLinesPerSlide,
+    isParsing, setIsParsing,
     editorCueIdx, setEditorCueIdx, canvasEdit, setCanvasEdit, boxDrag, setBoxDrag, canvasScale, setCanvasScale,
     dragFrom, setDragFrom, showSlideProps, setShowSlideProps, serviceCollapsed, setServiceCollapsed,
     serviceAddMenu, setServiceAddMenu, serviceSongQuery, setServiceSongQuery, serviceTargetTitle, setServiceTargetTitle, serviceSectionTitles,
@@ -3791,7 +3770,7 @@ export default function App() {
     presentations, setPresentations, fetchPresentations, isPresentationOpen, editingDeck, setEditingDeck,
     openPresentationEditor, closePresentationEditor, openPresentation, savePresentationDeck, deletePresentationDeck, importPowerPoint,
     presentDeck, firePresentationSlide, addPresentationToService, activePresentation, stopPresentation,
-    processAutoPaste, fetchSongFromUrl, moveCue, duplicateCue, setCueBackground, cueFileToBackground, setSongBackground,
+    processAutoPaste, moveCue, duplicateCue, setCueBackground, cueFileToBackground, setSongBackground,
     songBgFileToBackground, clearCueBackground, splitCuesToLines, clampNum, editorCue, editorBox, updateCue, updateCueThrottled, applyPatchToAllCues,
     baseGroupLabel, nextSuffixLetter, splitCueAtTextareaCaret, reorderCues,
     startBoxDrag, onStagePointerMove, endBoxDrag, ToolbarBtn, cueLyricStyle, handleSaveSong,

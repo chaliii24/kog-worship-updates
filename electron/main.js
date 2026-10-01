@@ -571,6 +571,9 @@ function createOutputWindow(output) {
       alwaysOnTop: true,
       minimizable: false,
       fullscreen: false,
+      // Black native surface: on restore/minimize the compositor can show a
+      // frame before the renderer paints — default white would flash.
+      backgroundColor: '#000000',
       title: outputTitle(output),
       focusable: onPrimary,
       webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
@@ -589,6 +592,9 @@ function createOutputWindow(output) {
       minimizable: false,
       movable: false,
       autoHideMenuBar: true,
+      // Black native surface: on restore/minimize the compositor can show a
+      // frame before the renderer paints — default white would flash.
+      backgroundColor: '#000000',
       title: outputTitle(output),
       focusable: onPrimary,
       webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
@@ -605,6 +611,9 @@ function createOutputWindow(output) {
       alwaysOnTop: true,
       minimizable: false,
       fullscreen: false,
+      // Black native surface: on restore/minimize the compositor can show a
+      // frame before the renderer paints — default white would flash.
+      backgroundColor: '#000000',
       webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
     });
   }
@@ -772,30 +781,95 @@ function closeAllOutputs() {
 }
 
 // --- PROJECTION LAYERS (Plan 1: no ALT+TAB) ---
-// 'kog' — our output window restored, pinned above everything, focused: live
+// 'kog' — our output window opaque, pinned above everything: live
 // lyrics/scripture cover whatever runs beneath.
-// 'passthrough' — our window minimized (renderer stays warm for instant
-// restore) so the fullscreen PowerPoint slideshow beneath shows.
+// 'passthrough' — our window faded to fully transparent AND click-through,
+// so the fullscreen PowerPoint slideshow beneath shows and receives the
+// mouse. The window itself is NEVER minimized, restored, shown or hidden by
+// a layer switch — mapping/unmapping the surface is exactly what flashed
+// (white on restore, black on minimize), so the surface now stays mapped
+// for the life of the window and only the opacity moves.
 // Window is never closed for a layer switch: no reload, no asset re-fetch.
-function setOutputLayer(id, layer, silent) {
+//
+// Both directions crossfade (~300ms eased). Timer per output so a flip
+// mid-fade restarts cleanly instead of stacking intervals.
+const layerFadeTimers = new Map();
+function animateOutputOpacity(id, win, to, ms, done) {
+  const prev = layerFadeTimers.get(id);
+  if (prev) { try { clearInterval(prev); } catch {} }
+  const from = to === 1 ? 0 : 1;
+  try { win.setOpacity(from); } catch {}
+  const steps = Math.max(1, Math.round(ms / 16));
+  let i = 0;
+  const timer = setInterval(() => {
+    i += 1;
+    const t = Math.min(1, i / steps);
+    const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    try {
+      if (win.isDestroyed()) { clearInterval(timer); layerFadeTimers.delete(id); if (done) done(false); return; }
+      win.setOpacity(from + (to - from) * e);
+    } catch {
+      clearInterval(timer);
+      layerFadeTimers.delete(id);
+      if (done) done(false);
+      return;
+    }
+    if (t >= 1) {
+      clearInterval(timer);
+      layerFadeTimers.delete(id);
+      if (done) done(true);
+    }
+  }, 16);
+  layerFadeTimers.set(id, timer);
+}
+
+function setOutputLayer(id, layer, silent, instant) {
   const entry = outputWindows.get(id);
   if (!entry) return { ok: false, error: 'Output is not running.' };
   const next = layer === 'passthrough' ? 'passthrough' : 'kog';
   entry.layer = next;
   const win = entry.win;
+  // An output covering the operator's own screen needs keyboard focus for
+  // Esc-exit; a projector output must never steal it (moveTop orders without
+  // focusing, so typing in the console is never interrupted by a layer flip).
+  let onPrimary = true;
+  try {
+    const target = (screen.getAllDisplays() || []).find((d) => d.id === entry.displayId);
+    onPrimary = !target || target.id === screen.getPrimaryDisplay().id;
+  } catch {}
   try {
     if (!win || win.isDestroyed()) return { ok: false, error: 'Output window is gone.' };
     if (next === 'passthrough') {
-      win.setAlwaysOnTop(false);
-      win.minimize();
+      const release = () => {
+        const cur = outputWindows.get(id);
+        if (!cur || cur.win !== win || win.isDestroyed()) return;
+        // Fully transparent AND click-through: PowerPoint beneath shows and
+        // takes the mouse. alwaysOnTop stays — reasserting on return is what
+        // guarantees we come back ABOVE the slideshow.
+        try { win.setIgnoreMouseEvents(true, { forward: true }); } catch {}
+        if (onPrimary) {
+          try {
+            if (operatorWindow && !operatorWindow.isDestroyed() && !operatorWindow.isMinimized()) operatorWindow.focus();
+          } catch {}
+        }
+      };
+      if (instant) {
+        try { win.setOpacity(0); } catch {}
+        release();
+      } else {
+        animateOutputOpacity(id, win, 0, 300, release);
+      }
     } else {
-      win.restore();
-      win.show();
-      // screen-saver level: above the PowerPoint slideshow, below nothing.
-      // (Level is macOS-honored; on Windows this is plain topmost — same net
-      // effect for covering a slideshow.)
-      win.setAlwaysOnTop(true, 'screen-saver');
-      win.focus();
+      // Mute first (idempotent if already opaque), order above the slideshow
+      // without stealing focus, clicks back on, then fade in.
+      try { win.setBackgroundColor('#000000'); } catch {}
+      if (!instant) { try { win.setOpacity(0); } catch {} }
+      try { win.moveTop(); } catch {}
+      try { win.setIgnoreMouseEvents(false); } catch {}
+      try { win.setAlwaysOnTop(true, 'screen-saver'); } catch {}
+      if (onPrimary) { try { win.focus(); } catch {} }
+      if (!instant) animateOutputOpacity(id, win, 1, 350);
+      else { try { win.setOpacity(1); } catch {} }
     }
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) };
@@ -905,7 +979,7 @@ function syncOutputs(outputs) {
       const prevLayer = existing.layer || 'kog';
       closeOutputWindow(output.id);
       createOutputWindow(output);
-      if (prevLayer === 'passthrough') setOutputLayer(output.id, 'passthrough', true);
+      if (prevLayer === 'passthrough') setOutputLayer(output.id, 'passthrough', true, true);
     } else {
       existing.name = output.name || existing.name;
       const cfg = JSON.stringify(output);
