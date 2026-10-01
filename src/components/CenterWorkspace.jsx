@@ -5,6 +5,7 @@ import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 import PresentationWorkspace from './PresentationWorkspace';
 import CountdownPanel from './CountdownPanel';
+import SermonPanel from './SermonPanel';
 import Dropdown from './Dropdown';
 
 export default function CenterWorkspace() {
@@ -468,6 +469,8 @@ export default function CenterWorkspace() {
     </motion.div>
   ) : (dockTab === 'presentations' || activePresentation) ? (
   <PresentationWorkspace />
+  ) : (dockTab === 'sermon') ? (
+  <SermonPanel />
   ) : (dockTab === 'countdown') ? (
   <CountdownPanel />
   ) : (

@@ -353,6 +353,13 @@ export default function App() {
   const [outputDisplays, setOutputDisplays] = useState([]);
   const [outputs, setOutputs] = useState(DEFAULT_OUTPUTS);
   const outputsReadyRef = useRef(false);
+  // Projection layers per output id ('kog' | 'passthrough'), mirrored from
+  // main's output-layer events (own toggles + global F1/F2). The sermon tab
+  // reads "any lyrics output beneath PowerPoint" off this.
+  const [outputLayers, setOutputLayers] = useState({});
+  // PowerPoint sermon bridge state. `passthrough` mirrors outputLayers for
+  // the lyrics outputs so panel, hotkeys and arrows agree on who is visible.
+  const [sermon, setSermon] = useState({ loaded: false, file: null, title: '', total: 0, index: 0, error: null, busy: false, displayLabel: '', passthrough: false });
   const lastBibleRef = useRef(null);
   const liveBibleRef = useRef(null);
   const liveBibleSrcRef = useRef(null);
@@ -422,6 +429,27 @@ export default function App() {
     ipcRenderer.on('output-closed', onClosed);
     return () => ipcRenderer.removeListener('output-closed', onClosed);
   }, []);
+
+  // Layer echo from main (own toggles + global F1/F2): mirror per-output so
+  // the sermon tab always reports who is actually visible.
+  useEffect(() => {
+    if (isOutputWindow || !window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    const onLayer = (_e, { id, layer }) => {
+      if (id == null) return;
+      setOutputLayers(prev => ({ ...prev, [id]: layer === 'passthrough' ? 'passthrough' : 'kog' }));
+    };
+    ipcRenderer.on('output-layer', onLayer);
+    return () => ipcRenderer.removeListener('output-layer', onLayer);
+  }, []);
+
+  // Sermon passthrough follows the real windows: true when any running lyrics
+  // output sits beneath (passthrough), whatever set it — tab, F1/F2, monitor.
+  useEffect(() => {
+    if (isOutputWindow) return;
+    const anyPass = (outputs || []).some(o => o.role === 'lyrics' && o.enabled && (outputLayers[o.id] || 'kog') === 'passthrough');
+    setSermon(prev => (prev.passthrough === anyPass ? prev : { ...prev, passthrough: anyPass }));
+  }, [outputs, outputLayers, isOutputWindow]);
 
   // Sync projector output's aspect to global state so output windows receive it
   useEffect(() => {
@@ -937,6 +965,13 @@ export default function App() {
       // L = clear the lyrics only, leaving the background on air running.
       if (e.key === 'b' || e.key === 'B') fireCueLive({ id: 'clear', label: 'Clear', text: '' });
       if (e.key === 'l' || e.key === 'L') { if (clearLyricsRef.current) clearLyricsRef.current(); }
+      // Sermon layer owns the arrows: while PowerPoint shows beneath, lyrics
+      // keys drive its slides (Right/Space next, Left previous) and lyrics
+      // stop responding — the wall decides, not the tab in front.
+      if (sermon && sermon.loaded && sermon.passthrough) {
+        if (e.key === ' ' || e.key === 'ArrowRight') { e.preventDefault(); sermonNav(1); return; }
+        if (e.key === 'ArrowLeft') { e.preventDefault(); sermonNav(-1); return; }
+      }
       // A focused button or slider owns Space/arrows natively (click the
       // button, move the slider) — firing slide cues on top of that advanced
       // the show every time an operator touched a control then hit Space.
@@ -948,7 +983,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleNextCue, handlePrevCue, showModalOpen, showBuilder, builderSheet, builderTileIdx, dockTab, bibleStep, isEditorOpen]);
+  }, [handleNextCue, handlePrevCue, showModalOpen, showBuilder, builderSheet, builderTileIdx, dockTab, bibleStep, isEditorOpen, sermon]);
 
   const toggleTarget = (id) => setTargetedDisplays(prev => prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]);
   const addNewDisplay = () => {
@@ -1791,6 +1826,74 @@ export default function App() {
     setOutputs(prev => prev.map(o => (o.id === id
       ? { ...o, enabled: !!running, displayId: running && !o.displayId ? firstDisplayId() : o.displayId }
       : o)));
+  };
+
+  // Screen sermons (PowerPoint behind the lyrics output): same functional
+  // discipline as every other updater — geometry of the call never depends
+  // on which render created it.
+  const sermonSetLayer = (layer) => {
+    const anyLive = (outputs || []).some(o => o.role === 'lyrics' && o.enabled);
+    if (!anyLive) {
+      setSermon((prev) => ({ ...prev, error: 'Start an output first — there is no projector window to layer.' }));
+      return;
+    }
+    if (window.require) {
+      window.require('electron').ipcRenderer.send('output-set-layer', { all: true, layer });
+    }
+    // Optimistic; main's output-layer echo (or the poll below) confirms.
+    setSermon((prev) => ({ ...prev, passthrough: layer === 'passthrough', error: null }));
+  };
+
+  const sermonLoad = async () => {
+    if (!window.require) return;
+    setSermon((prev) => ({ ...prev, busy: true, error: null }));
+    const { ipcRenderer } = window.require('electron');
+    const res = await ipcRenderer.invoke('ppt-load');
+    if (res && res.canceled) {
+      setSermon((prev) => ({ ...prev, busy: false }));
+      return;
+    }
+    if (res && res.ok) {
+      setSermon((prev) => ({
+        ...prev, loaded: true, busy: false, error: null,
+        file: res.file || prev.file,
+        title: String(res.file || '').split(/[/\\]/).pop() || 'Sermon',
+        total: res.totalSlides || 0, index: res.index || 1,
+        displayLabel: res.displayLabel || '',
+      }));
+    } else {
+      setSermon((prev) => ({ ...prev, busy: false, error: (res && res.error) || 'Could not open the presentation.' }));
+    }
+  };
+
+  const sermonApplyNav = (res) => {
+    if (!res) return;
+    if (res.ok) {
+      setSermon((prev) => ({ ...prev, index: res.index || prev.index, total: res.totalSlides || prev.total, error: null }));
+    } else if (res.error) {
+      setSermon((prev) => ({ ...prev, error: res.error }));
+    }
+  };
+
+  const sermonNav = async (dir) => {
+    if (!window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    sermonApplyNav(await ipcRenderer.invoke(dir > 0 ? 'ppt-next' : 'ppt-prev'));
+  };
+
+  const sermonGoto = async (n) => {
+    if (!window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    sermonApplyNav(await ipcRenderer.invoke('ppt-goto', n));
+  };
+
+  const sermonClose = async () => {
+    if (window.require) {
+      try { await window.require('electron').ipcRenderer.invoke('ppt-close'); } catch {}
+    }
+    // Leave the wall showing lyrics, never a dead slideshow frame.
+    sermonSetLayer('kog');
+    setSermon({ loaded: false, file: null, title: '', total: 0, index: 0, error: null, busy: false, displayLabel: '', passthrough: false });
   };
 
   const toggleDevProjectorWindow = () => {
@@ -3312,6 +3415,7 @@ export default function App() {
     { id: 'shows', label: 'Shows', iconId: 'list-video', accent: true },
     { id: 'presentations', label: 'Presentations', iconId: 'presentation', accent: false },
     { id: 'live', label: 'Live', iconId: 'radio', accent: false },
+    { id: 'sermon', label: 'Sermon', iconId: 'file-text', accent: false },
     { id: 'media', label: 'Media', iconId: 'film', accent: false },
     { id: 'audio', label: 'Audio', iconId: 'music', accent: false },
     { id: 'countdown', label: 'Countdown', iconId: 'timer', accent: false },
@@ -3693,6 +3797,7 @@ export default function App() {
     startBoxDrag, onStagePointerMove, endBoxDrag, ToolbarBtn, cueLyricStyle, handleSaveSong,
     previewAnimation,
     fireCountdownLive, stopCountdownLive, countdown, setCountdown, sameSongId, clearWorkspace,
+    sermon, sermonLoad, sermonSetLayer, sermonNav, sermonGoto, sermonClose, outputLayers,
     handleDeleteSong, handleToggleFavorite, handleExport, handleImport, serviceSections, thumbBg, resolveBg,
     activeSlideIndex, groupLabels, slideGrid, renderSlideFace, applyMediaToActiveSong, importMediaAsset, removeMediaAsset,
     toggleAudioPreview, clearSongAudio, refreshBibleLib, formatBibleVerse, buildBiblePayload, queueBibleServiceSlide,

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, dialog, protocol, shell, session, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, dialog, protocol, shell, session, Menu, globalShortcut } from 'electron';
 import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import electronLog from 'electron-log';
@@ -46,6 +46,7 @@ import {
 } from './database.js';
 import { createLanServer } from './lanServer.js';
 import { status as decklinkStatus, listDevices as decklinkListDevices, start as decklinkStart, stop as decklinkStop } from './decklink.js';
+import { pptOpen, pptNext, pptPrev, pptGoto, pptState, pptClose, pptQuit } from './pptBridge.js';
 
 // Dead-pipe guard: when the parent stdio goes away (killed terminal, dead
 // automation harness, orphaned second copy), the next log write throws
@@ -432,6 +433,21 @@ app.whenReady().then(() => {
     try { closeAllOutputs(); } catch { /* noop */ }
     try { if (monitorTimer) { clearInterval(monitorTimer); monitorTimer = null; } monitorTarget = null; } catch { /* noop */ }
   });
+  app.on('will-quit', () => {
+    try { globalShortcut.unregisterAll(); } catch { /* noop */ }
+    try { pptQuit(); } catch { /* noop */ }
+  });
+
+  // Plan 1 global layer hotkeys: F1 brings KogWorship lyrics over the sermon
+  // slideshow on every lyrics output; F2 drops our windows to reveal
+  // PowerPoint beneath. F-keys only — arrows/Space stay in-app (global ones
+  // would hijack typing everywhere else on the machine).
+  try {
+    globalShortcut.register('F1', () => { try { setLyricsLayerEverywhere('kog'); } catch {} });
+    globalShortcut.register('F2', () => { try { setLyricsLayerEverywhere('passthrough'); } catch {} });
+  } catch (e) {
+    electronLog.warn('[hotkeys] F1/F2 registration failed:', e && e.message);
+  }
 
   // Record which path Chromium actually took. `gpu_compositing` / `video_decode`
   // reading "hardware" vs "software" is the difference between smooth and
@@ -608,6 +624,10 @@ function createOutputWindow(output) {
     // Hash of the whole config: sync pushes `output-config` (rotation /
     // edge-blend / rename) live without recreating the window.
     cfg: JSON.stringify(output),
+    // Projection layer: 'kog' (our window on top) or 'passthrough' (window
+    // minimized so whatever runs beneath — e.g. a PowerPoint slideshow —
+    // shows). Runtime-only, never persisted; always rebuilt on top.
+    layer: 'kog',
     // Full definition for crash recovery: a dead window is rebuilt from this
     // (did-finish-load re-sends aspect/config, pullLiveState restores the
     // live slide), so recreation needs no console round-trip.
@@ -751,6 +771,102 @@ function closeAllOutputs() {
   for (const id of [...outputWindows.keys()]) closeOutputWindow(id);
 }
 
+// --- PROJECTION LAYERS (Plan 1: no ALT+TAB) ---
+// 'kog' — our output window restored, pinned above everything, focused: live
+// lyrics/scripture cover whatever runs beneath.
+// 'passthrough' — our window minimized (renderer stays warm for instant
+// restore) so the fullscreen PowerPoint slideshow beneath shows.
+// Window is never closed for a layer switch: no reload, no asset re-fetch.
+function setOutputLayer(id, layer, silent) {
+  const entry = outputWindows.get(id);
+  if (!entry) return { ok: false, error: 'Output is not running.' };
+  const next = layer === 'passthrough' ? 'passthrough' : 'kog';
+  entry.layer = next;
+  const win = entry.win;
+  try {
+    if (!win || win.isDestroyed()) return { ok: false, error: 'Output window is gone.' };
+    if (next === 'passthrough') {
+      win.setAlwaysOnTop(false);
+      win.minimize();
+    } else {
+      win.restore();
+      win.show();
+      // screen-saver level: above the PowerPoint slideshow, below nothing.
+      // (Level is macOS-honored; on Windows this is plain topmost — same net
+      // effect for covering a slideshow.)
+      win.setAlwaysOnTop(true, 'screen-saver');
+      win.focus();
+    }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+  if (!silent && operatorWindow && !operatorWindow.isDestroyed()) {
+    try { operatorWindow.webContents.send('output-layer', { id, layer: next }); } catch {}
+  }
+  return { ok: true, id, layer: next };
+}
+
+function setLyricsLayerEverywhere(layer) {
+  const out = [];
+  for (const [id, entry] of outputWindows.entries()) {
+    if (entry.role === 'lyrics') out.push({ id, ...setOutputLayer(id, layer) });
+  }
+  return out;
+}
+
+ipcMain.on('output-set-layer', (event, payload) => {
+  if (!payload) return;
+  if (payload.all === true && (payload.layer === 'kog' || payload.layer === 'passthrough')) {
+    setLyricsLayerEverywhere(payload.layer);
+    return;
+  }
+  if (payload.id) setOutputLayer(payload.id, payload.layer);
+});
+
+// --- POWERPOINT SERMON BRIDGE (COM via PowerShell, no native modules) ---
+// Target display = the first running lyrics output's display (the projector);
+// falls back to the primary display. Bounds travel with the open call so the
+// slideshow lands fullscreen on the wall behind our output window.
+function sermonTargetBounds() {
+  const displays = screen.getAllDisplays();
+  for (const entry of outputWindows.values()) {
+    if (entry.role !== 'lyrics' || !entry.win || entry.win.isDestroyed()) continue;
+    const d = displays.find((x) => x.id === entry.displayId);
+    const b = d ? d.bounds : screen.getPrimaryDisplay().bounds;
+    return { x: b.x, y: b.y, w: b.width, h: b.height, label: d ? (d.label || `${b.width}×${b.height}`) : 'Primary' };
+  }
+  const p = screen.getPrimaryDisplay().bounds;
+  return { x: p.x, y: p.y, w: p.width, h: p.height, label: 'Primary (no lyrics output running)' };
+}
+
+ipcMain.handle('ppt-load', async (event, filePath) => {
+  try {
+    let file = filePath;
+    if (!file) {
+      const win = (operatorWindow && !operatorWindow.isDestroyed()) ? operatorWindow : undefined;
+      const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+        title: 'Open sermon presentation',
+        filters: [{ name: 'PowerPoint', extensions: ['pptx', 'ppt', 'ppsx'] }],
+        properties: ['openFile'],
+      });
+      if (canceled || !filePaths.length) return { ok: false, canceled: true };
+      file = filePaths[0];
+    }
+    const bounds = sermonTargetBounds();
+    const res = await pptOpen(file, bounds);
+    if (!res.ok) return res;
+    return { ...res, file, displayLabel: bounds.label };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+});
+
+ipcMain.handle('ppt-next', async () => pptNext());
+ipcMain.handle('ppt-prev', async () => pptPrev());
+ipcMain.handle('ppt-goto', async (event, index) => pptGoto(index));
+ipcMain.handle('ppt-state', async () => pptState());
+ipcMain.handle('ppt-close', async () => pptClose());
+
 function syncOutputs(outputs) {
   lastSyncedOutputs = Array.isArray(outputs) ? outputs : [];
   // Only outputs the operator has explicitly started are opened. Assignments
@@ -784,9 +900,12 @@ function syncOutputs(outputs) {
       (willWindowed && existing.resolution !== (output.resolution || 'native'))
     ) {
       // Geometry change (bound display, role, custom viewport, or a
-      // windowed output's resolution): rebuild at its new bounds.
+      // windowed output's resolution): rebuild at its new bounds. A rebuild
+      // mid-sermon must come back at the same layer, not flash over the show.
+      const prevLayer = existing.layer || 'kog';
       closeOutputWindow(output.id);
       createOutputWindow(output);
+      if (prevLayer === 'passthrough') setOutputLayer(output.id, 'passthrough', true);
     } else {
       existing.name = output.name || existing.name;
       const cfg = JSON.stringify(output);
@@ -936,6 +1055,7 @@ ipcMain.handle('get-output-status', () => {
       name: entry.name,
       role: entry.role,
       open: !!live,
+      layer: entry.layer || 'kog',
       displayId: disp ? entry.displayId : null,
       displayLabel: disp ? (disp.label || `${disp.bounds.width}×${disp.bounds.height}`) : null,
       width: disp ? disp.bounds.width : null,
