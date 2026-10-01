@@ -25,6 +25,42 @@ export const DEFAULT_COUNTDOWN = {
   live: null, // { endsAt, startedAt } while on air (endsAt null = wall clock)
 };
 
+// Animated gradient loops: layered radial blobs drifting on a dark base.
+// Rendered live at the panel's native resolution (sharper than any shipped
+// 1080p file, zero installer bytes, seamless loop). Transform-only motion,
+// so it stays GPU-cheap on low-end boxes. bgValue stores "anim:<id>".
+export const ANIMATED_GRADIENTS = [
+  {
+    id: 'aurora', name: 'Aurora',
+    base: 'linear-gradient(135deg, #031a0d 0%, #052e16 60%, #02120a 100%)',
+    blobs: [
+      { css: 'radial-gradient(circle, rgba(34,197,94,0.50) 0%, transparent 70%)', w: 900, h: 900, x: 8, y: 4, dx: 120, dy: 60, d: '11s' },
+      { css: 'radial-gradient(circle, rgba(45,212,191,0.38) 0%, transparent 70%)', w: 760, h: 760, x: 58, y: 42, dx: -140, dy: -70, d: '14s' },
+    ],
+  },
+  {
+    id: 'ember', name: 'Ember',
+    base: 'linear-gradient(135deg, #1a0803 0%, #2a0e05 60%, #120401 100%)',
+    blobs: [
+      { css: 'radial-gradient(circle, rgba(249,115,22,0.48) 0%, transparent 70%)', w: 880, h: 880, x: 10, y: 40, dx: 130, dy: -60, d: '12s' },
+      { css: 'radial-gradient(circle, rgba(234,179,8,0.34) 0%, transparent 70%)', w: 700, h: 700, x: 60, y: 6, dx: -120, dy: 80, d: '15s' },
+    ],
+  },
+  {
+    id: 'royal', name: 'Royal',
+    base: 'linear-gradient(135deg, #160b2e 0%, #1e1b4b 60%, #0b0718 100%)',
+    blobs: [
+      { css: 'radial-gradient(circle, rgba(139,92,246,0.50) 0%, transparent 70%)', w: 900, h: 900, x: 6, y: 8, dx: 140, dy: 60, d: '13s' },
+      { css: 'radial-gradient(circle, rgba(59,130,246,0.36) 0%, transparent 70%)', w: 740, h: 740, x: 60, y: 44, dx: -130, dy: -80, d: '10s' },
+    ],
+  },
+];
+
+export const animatedPresetOf = (bgValue) => {
+  const id = String(bgValue || '').replace(/^anim:/, '');
+  return ANIMATED_GRADIENTS.find((g) => g.id === id) || ANIMATED_GRADIENTS[0];
+};
+
 export const formatCountdownTime = (ms) => {
   const total = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(total / 3600);
@@ -96,18 +132,37 @@ export function TimerFace({ timer, scale = 1 }) {
   const urgent = !over && remaining != null && remaining <= 5000 && remaining > 0;
   const timeColor = (over && t.overtime) || urgent ? '#f87171' : '#ffffff';
   const face = "'CMG Sans', system-ui, sans-serif";
+  const anim = t.bgType === 'animated' ? animatedPresetOf(t.bgValue) : null;
   return (
-    <div style={{ position: 'absolute', inset: 0, background: t.bgValue || '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 * k, overflow: 'hidden', boxSizing: 'border-box', padding: 24 * k }}>
-      <style>{'@keyframes kogUrgencyShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}'}</style>
+    <div style={{ position: 'absolute', inset: 0, background: anim ? anim.base : (t.bgValue || '#000'), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 * k, overflow: 'hidden', boxSizing: 'border-box', padding: 24 * k }}>
+      <style>{'@keyframes kogUrgencyShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}@keyframes kogDrift{from{transform:translate(var(--kog-dx-neg,0px),var(--kog-dy-neg,0px))}to{transform:translate(var(--kog-dx,0px),var(--kog-dy,0px))}}'}</style>
+      {anim && anim.blobs.map((b, i) => (
+        <div
+          key={b.css + i}
+          style={{
+            position: 'absolute',
+            width: b.w * k,
+            height: b.h * k,
+            left: `${b.x}%`,
+            top: `${b.y}%`,
+            background: b.css,
+            animation: `kogDrift ${b.d} ease-in-out infinite alternate`,
+            ['--kog-dx']: `${b.dx * k}px`,
+            ['--kog-dy']: `${b.dy * k}px`,
+            ['--kog-dx-neg']: `${-b.dx * k}px`,
+            ['--kog-dy-neg']: `${-b.dy * k}px`,
+          }}
+        />
+      ))}
       {t.title ? (
-        <div style={{ fontFamily: face, fontSize: Math.max(8, t.titleSize * k), fontWeight: 700, color: '#ffffff', textAlign: 'center', lineHeight: 1.15, textShadow: '0 4px 24px rgba(0,0,0,0.55)', maxWidth: '100%' }}>{t.title}</div>
+        <div style={{ position: 'relative', zIndex: 1, fontFamily: face, fontSize: Math.max(8, t.titleSize * k), fontWeight: 700, color: '#ffffff', textAlign: 'center', lineHeight: 1.15, textShadow: '0 4px 24px rgba(0,0,0,0.55)', maxWidth: '100%' }}>{t.title}</div>
       ) : null}
-      <div style={{ fontFamily: face, fontSize: Math.max(12, t.timeSize * k), fontWeight: 800, color: timeColor, lineHeight: 1, letterSpacing: '0.01em', textShadow: '0 6px 40px rgba(0,0,0,0.55)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', animation: urgent ? 'kogUrgencyShake 0.4s ease-in-out infinite' : undefined }}>
+      <div style={{ position: 'relative', zIndex: 1, fontFamily: face, fontSize: Math.max(12, t.timeSize * k), fontWeight: 800, color: timeColor, lineHeight: 1, letterSpacing: '0.01em', textShadow: '0 6px 40px rgba(0,0,0,0.55)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', animation: urgent ? 'kogUrgencyShake 0.4s ease-in-out infinite' : undefined }}>
         {display}
         {suffix ? <span style={{ fontSize: '0.22em', fontWeight: 700, marginLeft: '0.25em', verticalAlign: 'baseline', opacity: 0.85 }}>{suffix}</span> : null}
       </div>
       {t.subtext ? (
-        <div style={{ fontFamily: face, fontSize: Math.max(7, t.subtextSize * k), fontWeight: 600, color: 'rgba(255,255,255,0.78)', textAlign: 'center', lineHeight: 1.3, textShadow: '0 2px 16px rgba(0,0,0,0.55)', maxWidth: '100%' }}>{t.subtext}</div>
+        <div style={{ position: 'relative', zIndex: 1, fontFamily: face, fontSize: Math.max(7, t.subtextSize * k), fontWeight: 600, color: 'rgba(255,255,255,0.78)', textAlign: 'center', lineHeight: 1.3, textShadow: '0 2px 16px rgba(0,0,0,0.55)', maxWidth: '100%' }}>{t.subtext}</div>
       ) : null}
     </div>
   );

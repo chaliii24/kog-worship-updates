@@ -75,7 +75,7 @@ function distDir() {
   return path.resolve(here, '..', 'dist');
 }
 
-export function createLanServer({ getDistDir = distDir, userDataDir, dev = false } = {}) {
+export function createLanServer({ getDistDir = distDir, userDataDir, dev = false, mediaDir = null, builtinMedia = [] } = {}) {
   const pairPath = userDataDir ? path.join(userDataDir, PAIR_FILE_NAME) : null;
 
   let server = null;
@@ -261,6 +261,50 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
     if (reqPath === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ ok: true, port: PORT, clients: sockets.size, pinned: pairing.tokens.length > 0, dev }));
+      return;
+    }
+
+    // Phone background images: media:// URLs only resolve inside Electron,
+    // so paired control phones fetch library images here instead. Bearer
+    // token required (same pairing as WS commands); stage phones don't render
+    // miniatures. Filenames are content-addressed uploads → immutable cache.
+    // Videos are deliberately NOT served — phones show a badge, never a stream.
+    if (reqPath === '/media' || reqPath.startsWith('/media/')) {
+      const q = new URL(req.url || '/', 'http://lan').searchParams;
+      if (!validToken(q.get('token') || '')) {
+        res.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('pairing required');
+        return;
+      }
+      const name = decodeURIComponent(reqPath.slice('/media/'.length));
+      if (!name || name.includes('\\') || name.includes('..')) { notFound(res); return; }
+      // Known builtin prefixes keep their subpath; uploads must be a bare
+      // filename. Either way the tail is basenamed — no traversal, ever.
+      let dir = mediaDir;
+      let file = name;
+      for (const b of builtinMedia) {
+        if (b && b.prefix && name.startsWith(b.prefix) && b.dir) {
+          dir = b.dir;
+          file = name.slice(b.prefix.length);
+          break;
+        }
+      }
+      if (file.includes('/')) { notFound(res); return; }
+      file = path.basename(file);
+      if (!file) { notFound(res); return; }
+      if (!dir) { notFound(res); return; }
+      const abs = path.resolve(dir, file);
+      if (abs !== path.join(dir, file) && !abs.startsWith(path.join(dir, path.sep))) { notFound(res); return; }
+      fs.stat(abs, (err, st) => {
+        if (err || !st.isFile()) { notFound(res); return; }
+        res.writeHead(200, {
+          'Content-Type': MIME[path.extname(abs).toLowerCase()] || 'application/octet-stream',
+          'Content-Length': st.size,
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'Access-Control-Allow-Origin': '*',
+        });
+        fs.createReadStream(abs).on('error', () => { try { res.destroy(); } catch {} }).pipe(res);
+      });
       return;
     }
 

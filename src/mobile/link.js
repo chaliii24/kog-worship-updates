@@ -23,6 +23,25 @@ function readToken() {
   try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
 }
 
+// Resolve a slide background for the phone miniature. http(s) passes
+// through; media:// library images become LAN URLs (bearer token attached —
+// same pairing as commands). media:// videos and anything else resolve to
+// null so the miniature falls back to dark + badge instead of streaming.
+export function mediaUrl(url) {
+  if (typeof url !== 'string' || !url) return null;
+  if (/^https?:\/\//i.test(url)) return url;
+  const m = /^media:\/\/kog-media\/(.+)$/.exec(url);
+  if (!m) return null;
+  const file = m[1];
+  if (!file || file.includes('..')) return null;
+  // Videos stay desktop-side (bandwidth + battery); images only.
+  if (/\.(mp4|webm|mov)(\?|#|$)/i.test(file)) return null;
+  const token = readToken();
+  if (!token) return null;
+  const host = (typeof location !== 'undefined' && location.hostname) || '127.0.0.1';
+  return `http://${host}:8787/media/${file}?token=${encodeURIComponent(token)}`;
+}
+
 function writeToken(token) {
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token);

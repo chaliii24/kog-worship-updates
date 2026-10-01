@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 import { TileCanvas } from '../lib/perf';
 import { GRADIENT_PACK } from '../lib/backgrounds';
-import { TimerFace, DEFAULT_COUNTDOWN } from './CountdownFace';
+import { TimerFace, DEFAULT_COUNTDOWN, ANIMATED_GRADIENTS } from './CountdownFace';
 
 const PRESETS = [
   [60, '1m'], [180, '3m'], [300, '5m'], [600, '10m'], [900, '15m'], [1800, '30m'],
@@ -144,14 +144,20 @@ export default function CountdownPanel() {
             <div>
               <label style={fieldLabel(C)}>Background</label>
               <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-                {[['color', 'Color'], ['gradient', 'Gradient']].map(([v, lbl]) => (
-                  <button key={v} onClick={() => set({ bgType: v, bgValue: v === 'color' ? '#052e16' : GRADIENT_PACK[4].css })} style={{ flex: 1, background: cfg.bgType === v ? ACCENT : C.elevated2, border: '1px solid ' + (cfg.bgType === v ? ACCENT : 'var(--ui-border2)'), color: cfg.bgType === v ? C.text : C.muted, borderRadius: 6, padding: '7px 0', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                {[['color', 'Color'], ['gradient', 'Gradient'], ['animated', 'Animated']].map(([v, lbl]) => (
+                  <button key={v} onClick={() => set({ bgType: v, bgValue: v === 'color' ? '#052e16' : v === 'animated' ? 'anim:aurora' : GRADIENT_PACK[4].css })} style={{ flex: 1, background: cfg.bgType === v ? ACCENT : C.elevated2, border: '1px solid ' + (cfg.bgType === v ? ACCENT : 'var(--ui-border2)'), color: cfg.bgType === v ? C.text : C.muted, borderRadius: 6, padding: '7px 0', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
                 ))}
               </div>
               {cfg.bgType === 'color' ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(cfg.bgValue) ? cfg.bgValue : '#052e16'} onChange={(e) => set({ bgValue: e.target.value })} style={{ width: 44, height: 30, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 6, cursor: 'pointer', padding: 2 }} />
                   <span style={{ fontSize: 11, color: C.muted }}>Solid background colour</span>
+                </div>
+              ) : cfg.bgType === 'animated' ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                  {ANIMATED_GRADIENTS.map((g) => (
+                    <button key={g.id} title={`${g.name} (animated loop)`} onClick={() => set({ bgValue: `anim:${g.id}` })} style={{ height: 52, borderRadius: 7, cursor: 'pointer', border: cfg.bgValue === `anim:${g.id}` ? '2px solid ' + ACCENT : '1px solid var(--ui-border2)', background: g.base, color: '#fff', fontSize: 10, fontWeight: 800, padding: 0 }}>{g.name}</button>
+                  ))}
                 </div>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6 }}>

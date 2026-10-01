@@ -2058,6 +2058,12 @@ export default function App() {
     sendStageData({ title: item.title, label: item.subtitle || 'Media', text: '', timestamp: slidePayload.timestamp }, null);
   };
 
+  // Clear the workspace: unload the song from the center grid back to the
+  // welcome state. Operator surface only — the live output is NEVER touched
+  // (blackout stays an explicit Clear Lyrics / Clear All decision), so the
+  // live cue is kept and the status pill stays honest.
+  const clearWorkspace = () => { setActiveSong(null); };
+
   const stopServiceItemLive = (item) => {
     if (!serviceItemIsLive(item)) return;
     if (item.item_type === 'song') {
@@ -2616,6 +2622,7 @@ export default function App() {
       // Full countdown control from the phone: same handlers as the dock tab.
       countdownGo: () => { fireCountdownLive(); return true; },
       countdownStop: () => { stopCountdownLive(); return true; },
+      clearWorkspace: () => { clearWorkspace(); return true; },
       countdownSet: (patch) => {
         if (!patch || typeof patch !== 'object') return false;
         const clean = {};
@@ -2664,6 +2671,10 @@ export default function App() {
         timestamp: live.timestamp || 0,
         presentation: live.presentation || null,
         meta: live.meta || null,
+        // Full slide look for the phone's true miniature preview (lyric
+        // style + box + background + timer). Small object, pushed on change.
+        style: live.style || null,
+        timer: live.timer || null,
       } : null,
       stage: stageSnapshotRef.current || null,
       song: activeSong ? {
@@ -2948,13 +2959,11 @@ export default function App() {
       const raw = typeof vl.text === 'string' ? vl.text : '';
       const ls = raw.split('\n');
       ls.forEach((ln, li) => {
-        let line = ln.trim();
-        // Multi-verse slides always prefix the verse number on the first line
-        // of each verse so the congregation can follow along.
-        if (verseList.length > 1 && vl.verse != null) {
-          line = li === 0 ? `${vl.verse} ${line}` : `  ${line}`;
-        }
-        bodyChunks.push(bibleFmt.bold ? `**${line}**` : line);
+        // Verse numbers already ride on the text (formatBibleVerse owns that
+        // job) — the builder must NOT prefix again or every number doubles.
+        // Wrapped continuation lines just indent under their verse.
+        const line = ln.trim();
+        bodyChunks.push(bibleFmt.bold ? `**${li === 0 ? line : `  ${line}`}**` : (li === 0 ? line : `  ${line}`));
       });
     });
     // Single verse keeps paragraph gaps; multi-verse packs lines tightly so
@@ -3683,7 +3692,7 @@ export default function App() {
     baseGroupLabel, nextSuffixLetter, splitCueAtTextareaCaret, reorderCues,
     startBoxDrag, onStagePointerMove, endBoxDrag, ToolbarBtn, cueLyricStyle, handleSaveSong,
     previewAnimation,
-    fireCountdownLive, stopCountdownLive, countdown, setCountdown, sameSongId,
+    fireCountdownLive, stopCountdownLive, countdown, setCountdown, sameSongId, clearWorkspace,
     handleDeleteSong, handleToggleFavorite, handleExport, handleImport, serviceSections, thumbBg, resolveBg,
     activeSlideIndex, groupLabels, slideGrid, renderSlideFace, applyMediaToActiveSong, importMediaAsset, removeMediaAsset,
     toggleAudioPreview, clearSongAudio, refreshBibleLib, formatBibleVerse, buildBiblePayload, queueBibleServiceSlide,

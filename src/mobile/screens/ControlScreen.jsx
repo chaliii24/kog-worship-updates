@@ -1,31 +1,43 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { SkipBack, SkipForward, Type, Square, RotateCcw, Music, Image, MonitorPlay, FileText, Smartphone, BookOpen, Clock, Play } from 'lucide-react';
+import { SkipBack, SkipForward, Type, Square, RotateCcw, Music, Image, MonitorPlay, FileText, Smartphone, BookOpen, Clock, Play, Eraser } from 'lucide-react';
 import { stubTap } from '../../lib/anim.js';
-import { stripMarkup } from '../../lib/lyrics';
 import { computeCountdown, DEFAULT_COUNTDOWN } from '../../components/CountdownFace.jsx';
-
-const clampText = (s, n) => {
-  const t = String(s || '');
-  return t.length > n ? t.slice(0, n) + '…' : t;
-};
+import MiniSlide from './MiniSlide.jsx';
 
 export default function ControlScreen({ C, T, state, status, send, onSwitchRole }) {
   const ACCENT = T.ACCENT;
   const [now, setNow] = useState(Date.now());
+  // Top-level view switch: lyrics control vs countdown control.
+  const [tab, setTab] = useState('lyrics');
 
   // Tick only while something visibly moves — a phone on an idle screen
   // should not keep waking its CPU.
   const cd = { ...DEFAULT_COUNTDOWN, ...(state?.countdown || {}) };
   const cdLive = !!cd.live;
+  // Fresh clock on Go Live: `now` goes stale while idle (nothing ticks), so
+  // the first paint after firing would compute against a minutes-old stamp
+  // and flash a garbage number before the interval catches up.
+  useEffect(() => { if (cdLive) setNow(Date.now()); }, [cdLive]);
   // Wall-clock preview ticks even idle (it IS the content); countdowns tick
   // only while on air.
-  const timerRunning = !!(state?.timer?.start) || cdLive || cd.mode === 'clock';
+  const cdTicking = cdLive || cd.mode === 'clock';
+  const timerRunning = !!(state?.timer?.start) || cdTicking;
+  // Clock skew: the phone's clock can sit seconds off the computer's, which
+  // reads as permanent countdown lag. Every snapshot carries the desktop's
+  // stamp (state.at), so measure the offset on arrival and apply it — both
+  // screens then derive the same remaining time from the same endsAt.
+  const skewRef = React.useRef(0);
+  React.useEffect(() => {
+    if (state?.at) skewRef.current = state.at - Date.now();
+  }, [state?.at]);
   useEffect(() => {
     if (!timerRunning) return undefined;
-    const id = setInterval(() => setNow(Date.now()), 1000);
+    // 500ms while the countdown moves (matches the desktop face) so both
+    // flip seconds together; the slide timer is fine at 1s.
+    const id = setInterval(() => setNow(Date.now()), cdTicking ? 500 : 1000);
     return () => clearInterval(id);
-  }, [timerRunning]);
+  }, [timerRunning, cdTicking]);
 
   const live = state?.live || null;
   const cues = state?.song?.cues || [];
@@ -54,7 +66,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
 
   // Countdown control: same handlers as the desktop dock tab.
   const cdSet = (patch) => send('countdownSet', patch);
-  const cdShown = computeCountdown(cd, now);
+  const cdShown = computeCountdown(cd, now + skewRef.current);
   const cdOver = !!cdShown.over;
   const cdMins = Math.floor((Number(cd.durationSec) || 0) / 60);
   const cdSecs = (Number(cd.durationSec) || 0) % 60;
@@ -90,19 +102,38 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
         <span style={{ fontSize: 12, fontWeight: 800, color: ACCENT, textTransform: 'uppercase', letterSpacing: 1 }}>{activeCue?.label || live?.label || ''}</span>
       </div>
 
-      <div style={{ padding: '0 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {/* ── ON AIR ───────────────────────────────────────────────────── */}
-        <div style={{ background: C.elevated, border: `1px solid ${C.border2}`, borderRadius: 16, padding: 14, position: 'relative', overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', left: 0, top: 12, bottom: 12, width: 3, borderRadius: 3, background: onAir ? '#22c55e' : C.faint2 }} />
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8, paddingLeft: 8 }}>
-            <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1.6, textTransform: 'uppercase', color: C.faint }}>On air</span>
-            {deckOnAir && <span style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#a78bfa', background: 'rgba(139,92,246,0.16)', border: '1px solid rgba(139,92,246,0.4)', padding: '3px 7px', borderRadius: 6 }}>DECK</span>}
-          </div>
+      {/* Top tabs: lyrics control vs countdown control */}
+      <div style={{ padding: '0 14px 10px', display: 'flex', gap: 6 }}>
+        {[['lyrics', 'Lyrics', Music], ['countdown', 'Countdown', Clock]].map(([v, lbl, Icon]) => (
+          <button
+            key={v}
+            onClick={() => setTab(v)}
+            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 10, padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: tab === v ? ACCENT : C.elevated2, border: `1px solid ${tab === v ? ACCENT : C.border2}`, color: tab === v ? '#fff' : C.muted }}
+          ><Icon size={14} /> {lbl}{v === 'countdown' && cdLive ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}</button>
+        ))}
+        {state?.song ? (
+          <button
+            onClick={() => send('clearWorkspace')}
+            title="Clear canvas — unload this song (live output untouched)"
+            style={{ flex: 0.7, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 10, padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: C.elevated2, border: `1px solid ${C.border2}`, color: C.muted }}
+          ><Eraser size={14} /> Clear</button>
+        ) : null}
+      </div>
 
-          {hasPicture ? (
-            <p style={{ margin: '0 0 0 8px', fontSize: 21, lineHeight: 1.35, fontWeight: 800, whiteSpace: 'pre-line', maxHeight: 168, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 6, WebkitBoxOrient: 'vertical' }}>
-              {deckOnAir && !live.text ? 'Presentation slide is on air' : stripMarkup(live.text)}
-            </p>
+      <div style={{ padding: '0 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {tab === 'lyrics' ? (<>
+        {/* ── ON AIR : actual miniature of the projection ─────────────── */}
+        <div style={{ background: C.elevated, border: `1px solid ${onAir ? 'rgba(34,197,94,0.4)' : C.border2}`, borderRadius: 16, padding: 14, position: 'relative', overflow: 'hidden' }}>
+          {onAir && <div style={{ position: 'absolute', left: 0, top: 12, bottom: 12, width: 3, borderRadius: 3, background: '#22c55e' }} />}
+          {hasPicture || live?.timer ? (
+            <MiniSlide
+              C={C}
+              text={live?.text || ''}
+              style={live?.style || null}
+              timer={live?.timer || null}
+              presentation={deckOnAir ? live.presentation : null}
+              badge={`Current${live?.label ? ` · ${live.label}` : ''}`}
+            />
           ) : (
             <div style={{ marginLeft: 8, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
               <span style={{ fontSize: 15, fontWeight: 800, color: C.muted }}>{onAir ? 'Background only — no lyrics' : 'Output is cleared'}</span>
@@ -117,19 +148,33 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
           )}
         </div>
 
-        {/* ── NEXT ─────────────────────────────────────────────────────── */}
+        {/* ── NEXT : miniature of the coming slide ─────────────────────── */}
         <div style={{ background: C.panel, border: `1px solid ${C.border2}`, borderRadius: 16, padding: 13 }}>
-          <div style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1.6, textTransform: 'uppercase', color: C.faint, marginBottom: 7 }}>Next</div>
           {nextCue ? (
             <>
-              <div style={{ fontSize: 11.5, fontWeight: 900, color: ACCENT, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>{nextCue.label}</div>
-              <p style={{ margin: 0, fontSize: 15, lineHeight: 1.4, fontWeight: 600, color: C.text2, whiteSpace: 'pre-line', maxHeight: 84, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical' }}>{clampText(stripMarkup(nextCue.text), 220)}</p>
+              <MiniSlide
+                C={C}
+                text={nextCue.text || ''}
+                style={live?.style || null}
+                timer={null}
+                presentation={null}
+                badge={`Next · ${nextCue.label || ''}`}
+              />
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 9 }}>
+                <button
+                  onClick={() => send('next')}
+                  title="Fire the next slide"
+                  style={{ width: 38, height: 38, borderRadius: '50%', background: C.elevated2, border: `1px solid ${C.border2}`, color: C.text2, fontSize: 17, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit' }}
+                >↓</button>
+              </div>
             </>
           ) : (
             <span style={{ fontSize: 13.5, color: C.faint }}>{state?.song ? 'End of song — press Next for the next item.' : 'No song loaded.'}</span>
           )}
         </div>
 
+      </>) : null}
+      {tab === 'countdown' ? (<>
         {/* ── COUNTDOWN ──────────────────────────────────────────────── */}
         <div style={{ background: C.elevated, border: `1px solid ${cdLive ? 'rgba(34,197,94,0.5)' : C.border2}`, borderRadius: 16, padding: 14, position: 'relative', overflow: 'hidden' }}>
           {cdLive && <span style={{ position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderRadius: 3, background: '#22c55e' }} />}
@@ -210,7 +255,9 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
             </label>
           )}
         </div>
+      </>) : null}
 
+      {tab === 'lyrics' ? (<>
         {/* ── SECTION JUMP ─────────────────────────────────────────────── */}
         {uniqueLabels.length > 0 && (
           <div>
@@ -260,6 +307,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
             Nothing to control yet.<br />Load a song or build a service order on the computer.
           </div>
         )}
+      </>) : null}
       </div>
 
       {/* ── TRANSPORT (fixed, thumb zone) ───────────────────────────── */}

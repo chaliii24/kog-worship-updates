@@ -93,7 +93,17 @@ app.on('window-all-closed', () => {
 // --- LAN REMOTE (phones on the same WiFi) ---
 // Created here rather than at startup so it can read/write the pairing file
 // inside userData. Started once the window exists (see app.whenReady).
-const lan = createLanServer({ userDataDir: app.getPath('userData'), dev: !app.isPackaged });
+const lan = createLanServer({
+  userDataDir: app.getPath('userData'),
+  dev: !app.isPackaged,
+  // Phone miniatures: image backgrounds served over HTTP (media:// only
+  // resolves inside Electron). Videos stay desktop-side — phones get a badge.
+  mediaDir: path.join(app.getPath('userData'), 'media'),
+  builtinMedia: [
+    { prefix: 'builtin-photos/', dir: getBuiltinPhotosDir() },
+    { prefix: 'builtin/', dir: getBuiltinVideosDir() },
+  ],
+});
 let lanQrCache = { url: '', data: '' };
 const lanInfoWithQr = async () => {
   const info = lan.info();

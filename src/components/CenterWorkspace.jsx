@@ -62,6 +62,7 @@ export default function CenterWorkspace() {
     assignScriptureDefault,
     fireCueLive,
     fireTitleLive,
+    clearWorkspace,
     activeSlideIndex,
     slideGrid,
     renderSlideFace,
@@ -492,6 +493,8 @@ export default function CenterWorkspace() {
       {[1, 2, 3, 4].map(d => (
         <button key={d} onClick={() => setGridDensity(d)} style={{ width: 26, height: 22, borderRadius: 4, background: gridDensity === d ? ACCENT : C.elevated2, color: gridDensity === d ? '#fff' : C.muted, border: '1px solid var(--ui-border2)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{d}</button>
       ))}
+      <span style={{ flex: 1 }} />
+      <button onClick={() => clearWorkspace()} title="Clear workspace — unload this song back to welcome (live output untouched)" style={{ display: 'flex', alignItems: 'center', gap: 5, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '4px 10px', fontSize: 10.5, fontWeight: 800, letterSpacing: 0.6, cursor: 'pointer', textTransform: 'uppercase' }}>Clear canvas</button>
     </div>
   )}
 
