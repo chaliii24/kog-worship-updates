@@ -443,18 +443,41 @@ export function deleteService(serviceId) {
 
 export function exportLibrary() {
   const songs = db.prepare('SELECT * FROM songs').all();
-  const fullLibrary = songs.map(song => {
-    const { title_cue_json, ...songRest } = song;
-    return {
-      ...songRest,
-      title_cue: safeParse(title_cue_json) || undefined,
-      cues: db.prepare('SELECT label, text, sequence_order, bg_type, bg_value, duration, style_json FROM cues WHERE song_id = ? ORDER BY sequence_order ASC').all(song.id).map((row) => {
-        const { style_json, ...rest } = row;
-        return { ...(safeParse(style_json) || {}), ...rest };
-      })
-    };
-  });
-  return JSON.stringify(fullLibrary, null, 2);
+  return JSON.stringify(songs.map(songToExport).filter(Boolean), null, 2);
+}
+
+// One song (or many) in EXACTLY the library shape above, so the existing
+// import path accepts full and partial backups interchangeably. Returns the
+// JSON plus every local media:// URL referenced (backgrounds + audio), so
+// the exporter can tell the operator which files must also be copied —
+// media bytes are not embedded (a 44MB video has no business in JSON).
+function songToExport(song) {
+  if (!song) return null;
+  const { title_cue_json, ...songRest } = song;
+  return {
+    ...songRest,
+    title_cue: safeParse(title_cue_json) || undefined,
+    cues: db.prepare('SELECT label, text, sequence_order, bg_type, bg_value, duration, style_json FROM cues WHERE song_id = ? ORDER BY sequence_order ASC').all(song.id).map((row) => {
+      const { style_json, ...rest } = row;
+      return { ...(safeParse(style_json) || {}), ...rest };
+    })
+  };
+}
+
+export function exportSongs(ids) {
+  const list = [];
+  const media = new Set();
+  const grab = (u) => { if (typeof u === 'string' && u.startsWith('media://')) media.add(u); };
+  for (const id of Array.isArray(ids) ? ids : []) {
+    const song = db.prepare('SELECT * FROM songs WHERE id = ?').get(id);
+    const ex = songToExport(song);
+    if (!ex) continue;
+    grab(ex.bg_value);
+    grab(ex.audio_url);
+    for (const c of ex.cues || []) grab(c.bg_value);
+    list.push(ex);
+  }
+  return { json: JSON.stringify(list, null, 2), count: list.length, media: [...media] };
 }
 
 export function importLibrary(jsonData) {

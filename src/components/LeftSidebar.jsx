@@ -119,7 +119,37 @@ export default function LeftSidebar() {
   } = app;
 
   const [sectionRenameIdx, setSectionRenameIdx] = useState(null);
-  // Which of the three panels is on screen. They used to share one narrow
+  // Per-song backup for laptop-to-laptop transfer: tick songs, export to a
+  // file, Import Library on the other machine takes it as-is.
+  const [exportMode, setExportMode] = useState(false);
+  const [exportSel, setExportSel] = useState([]);
+  const [exportMsg, setExportMsg] = useState(null);
+  const toggleExportSel = (id) => {
+    setExportMsg(null);
+    setExportSel((prev) => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  };
+  const runExportSelected = async () => {
+    if (!exportSel.length || !window.require) return;
+    setExportMsg('Preparing…');
+    try {
+      const { ipcRenderer } = window.require('electron');
+      const res = await ipcRenderer.invoke('db-export-songs', exportSel);
+      if (res && res.ok) {
+        const mediaNote = res.media && res.media.length
+          ? ` Also copy ${res.media.length} media file${res.media.length === 1 ? '' : 's'} (video/audio backgrounds) from the app-data media folder to the other laptop.`
+          : '';
+        setExportMsg(`Exported ${res.count} song${res.count === 1 ? '' : 's'}.${mediaNote}`);
+        setExportSel([]);
+        setExportMode(false);
+      } else if (res && !res.canceled) {
+        setExportMsg(res.error || 'Export failed.');
+      } else {
+        setExportMsg(null);
+      }
+    } catch (e) {
+      setExportMsg('Export failed: ' + (e.message || e));
+    }
+  };  // Which of the three panels is on screen. They used to share one narrow
   // column — three headers, a divider and a few hundred pixels split three
   // ways, so each list was only a handful of rows tall. One at a time gives
   // every section room. Cross-list adds no longer lean on drag (two panels
@@ -699,16 +729,32 @@ export default function LeftSidebar() {
                 <input id="song-search-input" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search songs…" style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: '6px 8px 6px 27px', color: 'var(--ui-text)', fontSize: 12, outline: 'none' }} />
               </div>
               <button onClick={(e) => { e.stopPropagation(); handleNewSong(); }} title="New song" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '4px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}><Plus size={12} /> New</button>
+              <button onClick={(e) => { e.stopPropagation(); setExportMsg(null); if (exportMode) setExportSel([]); setExportMode(!exportMode); }} title={exportMode ? 'Done selecting' : 'Tick songs to back up for transfer'} style={{ background: exportMode ? 'rgba(139,92,246,0.16)' : 'rgba(255,255,255,0.04)', border: '1px solid ' + (exportMode ? 'rgba(139,92,246,0.5)' : 'var(--ui-border)'), color: exportMode ? '#C4B5FD' : 'var(--ui-text2)', padding: '4px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>Export</button>
             </div>
+            {exportMode && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px 6px 10px', flexShrink: 0 }}>
+                <span style={{ fontSize: 10.5, color: C.faint || 'var(--ui-faint)', fontWeight: 700 }}>{exportSel.length} selected</span>
+                <span style={{ flex: 1 }} />
+                <button onClick={runExportSelected} disabled={!exportSel.length} title="Save the ticked songs to a backup file" style={{ background: exportSel.length ? ACCENT : 'rgba(255,255,255,0.04)', border: 'none', color: '#fff', padding: '5px 12px', borderRadius: 7, fontSize: 10.5, fontWeight: 800, cursor: exportSel.length ? 'pointer' : 'default', opacity: exportSel.length ? 1 : 0.5 }}>Back up selected</button>
+              </div>
+            )}
+            {exportMsg && (
+              <div style={{ fontSize: 10.5, color: 'var(--ui-text2)', lineHeight: 1.5, background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.35)', borderRadius: 7, padding: '6px 8px', margin: '0 10px 6px 10px', flexShrink: 0 }}>{exportMsg}</div>
+            )}
             <>
             <div style={{ flex: 1, overflowY: 'auto', padding: '4px 8px 10px 8px', display: 'grid', gap: 6, alignContent: 'start' }}>
               {/* Same as the shows list: the order is on another tab, so a
                   row is a plain click-to-open, not a drag handle. */}
               {songs.map(song => (
-                <div key={song.id} className="row" onClick={() => selectSong(song.id)} title="Click to open this song · hover the row for + Plan" style={{ background: activeSong?.id === song.id ? 'rgba(139,92,246,0.15)' : 'var(--ui-elev2)', border: activeSong?.id === song.id ? '1px solid rgba(139,92,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '7px 11px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ minWidth: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--ui-text)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{song.title}</span>
-                    <span style={{ fontSize: 10.5, color: 'var(--ui-muted)', marginTop: 2, display: 'block' }}>{song.artist || 'Unknown'} • {song.category}</span>
+                <div key={song.id} className="row" onClick={() => (exportMode ? toggleExportSel(song.id) : selectSong(song.id))} title={exportMode ? 'Tick to include in backup' : 'Click to open this song · hover the row for + Plan'} style={{ background: exportMode && exportSel.includes(song.id) ? 'rgba(139,92,246,0.16)' : activeSong?.id === song.id ? 'rgba(139,92,246,0.15)' : 'var(--ui-elev2)', border: exportMode && exportSel.includes(song.id) ? '1px solid rgba(139,92,246,0.6)' : activeSong?.id === song.id ? '1px solid rgba(139,92,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '7px 11px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {exportMode && (
+                      <input type="checkbox" checked={exportSel.includes(song.id)} onChange={() => toggleExportSel(song.id)} onClick={(e) => e.stopPropagation()} style={{ width: 15, height: 15, accentColor: '#8b5cf6', cursor: 'pointer', flexShrink: 0 }} />
+                    )}
+                    <div style={{ minWidth: 0 }}>
+                      <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--ui-text)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{song.title}</span>
+                      <span style={{ fontSize: 10.5, color: 'var(--ui-muted)', marginTop: 2, display: 'block' }}>{song.artist || 'Unknown'} • {song.category}</span>
+                    </div>
                   </div>
                   {/* The whole cluster waits for hover — star included — so a
                       list of songs reads as titles and artists rather than as

@@ -26,8 +26,9 @@ import {
   addMediaAsset,
   deleteMediaAsset,
   getLibraryStats,
-  exportLibrary, 
-  importLibrary, 
+  exportLibrary,
+  exportSongs,
+  importLibrary,
   getServices, 
   getServiceDetails, 
   saveServicePlan,
@@ -2735,6 +2736,19 @@ ipcMain.handle('db-export', async () => {
     return true;
   }
   return false;
+});
+
+// Selected-songs backup for laptop-to-laptop transfer: same JSON shape as a
+// full backup (the regular Import accepts it), plus the list of local media
+// files referenced so the operator knows what else to copy.
+ipcMain.handle('db-export-songs', async (event, ids) => {
+  const { json, count, media } = exportSongs(ids);
+  if (!count) return { ok: false, error: 'No songs found for those ids.' };
+  const stamp = new Date().toISOString().split('T')[0];
+  const { filePath } = await dialog.showSaveDialog({ title: `Export ${count} song${count === 1 ? '' : 's'}`, defaultPath: `kog-songs-${stamp}.json`, filters: [{ name: 'JSON Files', extensions: ['json'] }] });
+  if (!filePath) return { ok: false, canceled: true };
+  fs.writeFileSync(filePath, json);
+  return { ok: true, count, media };
 });
 
 ipcMain.handle('db-import', async () => {

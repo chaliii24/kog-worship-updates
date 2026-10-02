@@ -173,7 +173,7 @@ export default function CountdownPanel() {
           <div style={{ flex: 1, minWidth: 300, display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 12, overflow: 'hidden', background: '#000', border: '1px solid var(--ui-border2)' }}>
               <TileCanvas>
-                <TimerFace timer={{ ...cfg, live: null }} scale={1} />
+                <TimerFace timer={cfg} scale={1} />
               </TileCanvas>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>

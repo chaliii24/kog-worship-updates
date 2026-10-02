@@ -2581,11 +2581,24 @@ export default function App() {
       // A slider released <120ms ago still has its final value sitting in the
       // throttle — merge it into the snapshot or the DB keeps the pre-drag one.
       const pending = flushCueThrottle();
+      const wasNew = editingSong.id == null;
       const snap = pending ? applyPatchToSnapshot(editingSong, pending.idx, pending.patch) : editingSong;
       if (pending) updateCue(pending.idx, pending.patch);
-      await ipcRenderer.invoke('db-save-song', snap);
-      setIsEditorOpen(false);
+      const savedId = await ipcRenderer.invoke('db-save-song', snap);
       fetchSongs();
+      if (wasNew && savedId) {
+        // New-song smart-paste flow: saving lands straight into the editor on
+        // the manual canvas (full details reloaded so boxes/styles are exact),
+        // instead of closing back to the library.
+        const details = await ipcRenderer.invoke('db-get-song-details', savedId);
+        if (details) {
+          setEditingSong(repairSongBoxes(details));
+          setEditorMode('manual');
+          setEditorCueIdx(-1);
+          return;
+        }
+      }
+      setIsEditorOpen(false);
       if (editingSong.id) selectSong(editingSong.id);
     }
   };
