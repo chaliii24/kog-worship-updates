@@ -190,6 +190,27 @@ export function getSongDetails(songId) {
   return { ...songRest, title_cue: safeParse(title_cue_json) || undefined, cues: parsedCues };
 }
 
+// Batch twin of getSongDetails for medleys: ONE songs query + ONE cues query
+// for the whole id set (same parse, same shape), instead of N round trips.
+export function getSongDetailsMany(ids) {
+  const list = [...new Set((Array.isArray(ids) ? ids : []).filter((id) => id != null))];
+  if (!list.length) return [];
+  const ph = list.map(() => '?').join(',');
+  const songs = db.prepare(`SELECT * FROM songs WHERE id IN (${ph})`).all(...list);
+  const cueRows = db.prepare(`SELECT * FROM cues WHERE song_id IN (${ph}) ORDER BY song_id ASC, sequence_order ASC`).all(...list);
+  const bySong = new Map();
+  for (const row of cueRows) {
+    const { style_json, ...rest } = row;
+    const cue = { ...(safeParse(style_json) || {}), ...rest };
+    if (!bySong.has(row.song_id)) bySong.set(row.song_id, []);
+    bySong.get(row.song_id).push(cue);
+  }
+  return songs.map((song) => {
+    const { title_cue_json, ...songRest } = song;
+    return { ...songRest, title_cue: safeParse(title_cue_json) || undefined, cues: bySong.get(song.id) || [] };
+  });
+}
+
 export function saveSong(songData) {
   const { id, title, artist, category, cues, bg_type, bg_value, audio_url, title_cue } = songData;
   const titleCueJson = title_cue ? JSON.stringify(title_cue) : null;

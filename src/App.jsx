@@ -22,7 +22,9 @@ import NewSongPrompt from './components/NewSongPrompt';
 import PresentationModal from './components/PresentationModal';
 import PresentationSlide from './components/PresentationSlide';
 import ShowBuilderModal from './components/ShowBuilderModal';
+import { parseMedleyDef, flattenMedley, medleySongIds, medleyTitleId, basePartLabel } from './lib/medley';
 import CustomSlideModal from './components/modals/CustomSlideModal';
+import MedleyModal from './components/MedleyModal';
 import TemplateNameModal from './components/modals/TemplateNameModal';
 import HotkeysModal from './components/modals/HotkeysModal';
 import AboutModal from './components/modals/AboutModal';
@@ -896,9 +898,159 @@ export default function App() {
     if (e.target) e.target.value = '';
   };
 
+  // --- MEDLEY BUILDER (Continuous Flow Mode) ---
+  // A medley row links stanzas of secondary songs to the end of an anchor
+  // song; slides flow anchor → link 1 → link 2 with no secondary titles.
+  // The session lives in a ref (slides + songs + index): firing sets
+  // activeSong/activeCue per slide through the normal paths, so tiles,
+  // monitor, stage, mobile and Stop all keep working untouched.
+  const medleyRef = useRef(null);
+  const fireMedleySlideRef = useRef(null);
+
+  const lookupMedleySong = (songs, songId) => {
+    if (!songs || songId == null) return null;
+    const get = songs instanceof Map ? ((k) => songs.get(k)) : ((k) => songs[k]);
+    return get(songId) ?? get(String(songId)) ?? get(Number(songId)) ?? null;
+  };
+
+  const loadMedleySongs = async (ids) => {
+    if (!window.require) return new Map();
+    const { ipcRenderer } = window.require('electron');
+    // Batch first (two queries for the whole set), singles as fallback.
+    try {
+      const arr = await ipcRenderer.invoke('db-get-songs-details', ids);
+      if (Array.isArray(arr) && arr.length) {
+        const m = new Map();
+        for (const s of arr) {
+          if (s) {
+            const fixed = repairSongBoxes(s);
+            m.set(fixed.id ?? s.id, fixed);
+          }
+        }
+        return m;
+      }
+    } catch {}
+    const m = new Map();
+    for (const id of ids || []) {
+      try {
+        const d = await ipcRenderer.invoke('db-get-song-details', id);
+        if (d) {
+          const fixed = repairSongBoxes(d);
+          m.set(fixed.id ?? id, fixed);
+        }
+      } catch {}
+    }
+    return m;
+  };
+
+  // Medley background rule: the whole flow wears the ANCHOR song's
+  // background. A linked song's own video/image/color bg is replaced, and
+  // its per-cue overrides are stripped (they'd pop mid-flow otherwise) —
+  // explicit cue bgs on the ANCHOR still win, as before. If the anchor
+  // itself is plain, every song keeps its own bg (no surprise blackout).
+  // In-memory only: the session map is freshly loaded per Go, never written
+  // back (edits save through editingSong), so the library is untouched.
+  const applyMedleyAnchorBg = (songs, def) => {
+    if (!songs || !(songs instanceof Map) || !def) return songs;
+    const pick = (id) => songs.get(id) ?? songs.get(String(id)) ?? songs.get(Number(id)) ?? null;
+    const anchor = pick(def.anchor.songId);
+    if (!anchor || isPlainBg(anchor.bg_type, anchor.bg_value)) return songs;
+    const { bg_type, bg_value } = anchor;
+    for (const l of def.links || []) {
+      for (const k of [l.songId, String(l.songId), Number(l.songId)]) {
+        const s = songs.get(k);
+        if (!s) continue;
+        const stripCue = (c) => {
+          if (!c || isPlainBg(c.bg_type, c.bg_value)) return c;
+          const { bg_type: _t, bg_value: _v, ...rest } = c;
+          return rest;
+        };
+        songs.set(k, {
+          ...s,
+          bg_type,
+          bg_value,
+          cues: Array.isArray(s.cues) ? s.cues.map(stripCue) : s.cues,
+          ...(s.title_cue ? { title_cue: stripCue(s.title_cue) } : null),
+        });
+      }
+    }
+    return songs;
+  };
+
+  const fireMedleySlide = (session, index) => {
+    const slide = session.slides[index];
+    if (!slide) return false;
+    const song = lookupMedleySong(session.songs, slide.songId);
+    if (!song) return false;
+    session.index = index;
+    medleyRef.current = session;
+    setActiveSong(song);
+    if (slide.kind === 'title') fireTitleLive(song, slide.cue);
+    else fireCueLive(slide.cue, song);
+    return true;
+  };
+  fireMedleySlideRef.current = fireMedleySlide;
+
+  const fireMedleyItemLive = async (item) => {
+    const def = parseMedleyDef(item);
+    if (!def) return;
+    // Ground truth in devtools: what the flow was actually built from.
+    try { console.info('[medley] go', JSON.stringify(def)); } catch {}
+    const songs = await loadMedleySongs(medleySongIds(def));
+    applyMedleyAnchorBg(songs, def);
+    const slides = flattenMedley(def, songs);
+    if (!slides.length) {
+      await appAlert('That medley has no slides — its songs may have been deleted.');
+      return;
+    }
+    // Composition proof: per-song section breakdown of what was ACTUALLY
+    // built (not what the modal displayed). One Go press settles every
+    // "verses still appear" dispute on sight.
+    try {
+      const breakdown = {};
+      for (const s of slides) {
+        const k = `${s.songId}|${s.kind === 'title' ? '(title)' : basePartLabel(s.cue?.label)}`;
+        breakdown[k] = (breakdown[k] || 0) + 1;
+      }
+      console.info('[medley] slides', slides.length, JSON.stringify(breakdown));
+    } catch {}
+    fireMedleySlide({ itemId: item.id, slides, songs, index: 0 }, 0);
+    // Badge count follows reality even if songs changed since linking.
+    if (item.slideCount !== slides.length) {
+      const n = slides.length;
+      setActiveService((prev) => ({
+        ...prev,
+        items: (prev?.items || []).map((it) => (it === item || it.id === item.id ? { ...it, slideCount: n } : it)),
+      }));
+    }
+  };
+
+  // Grid clicks inside a live medley flow: fire by FLOW index (the tile knows
+  // its position), so jumping around never leaves the session.
+  const fireMedleySlideAt = (index) => {
+    const med = medleyRef.current;
+    if (med && med.slides.length) fireMedleySlide(med, index);
+  };
+
   // --- KEYBOARD SHORTCUTS ---
+  // Medley sessions ride here too: if a medley slide is on air, arrows walk
+  // the flattened medley (across songs) instead of the grid's single song.
+  // Validation is by identity — if the operator fired something else since
+  // (grid click, bible, countdown), the session is over and normal nav resumes.
+  const medleyIndexOfCue = (cueId) => {
+    const med = medleyRef.current;
+    if (!med || !cueId) return -1;
+    return med.slides.findIndex(s => (s.cue ? s.cue.id : medleyTitleId(s.songId)) === cueId);
+  };
   const handleNextCue = useCallback(() => {
     if (activePresentation) { presentationNextRef.current && presentationNextRef.current(1); return; }
+    const med = medleyRef.current;
+    if (med && med.slides.length) {
+      const at = medleyIndexOfCue(activeCue?.id);
+      if (at > -1 && at < med.slides.length - 1) { fireMedleySlideRef.current(med, at + 1); return; }
+      if (at > -1) return; // medley end: hold the last slide
+      medleyRef.current = null; // jumped elsewhere — session over
+    }
     if (!activeSong?.cues) return;
     const currentIndex = activeSong.cues.findIndex(c => c.id === activeCue?.id);
     if (currentIndex === -1 && activeCue?.id !== 'title-card') {
@@ -915,6 +1067,13 @@ export default function App() {
 
   const handlePrevCue = useCallback(() => {
     if (activePresentation) { presentationNextRef.current && presentationNextRef.current(-1); return; }
+    const med = medleyRef.current;
+    if (med && med.slides.length) {
+      const at = medleyIndexOfCue(activeCue?.id);
+      if (at > 0) { fireMedleySlideRef.current(med, at - 1); return; }
+      if (at === 0) return; // medley start: hold the first slide
+      medleyRef.current = null; // jumped elsewhere — session over
+    }
     if (!activeSong?.cues) return;
     const currentIndex = activeSong.cues.findIndex(c => c.id === activeCue?.id);
     if (currentIndex > 0) {
@@ -1028,14 +1187,14 @@ export default function App() {
 
   const songHasBackground = (song) => song && !isPlainBg(song.bg_type, song.bg_value);
 
-  const songBackgroundStyle = () => {
-    if (songHasBackground(activeSong)) {
-      return { ...stageStyle, backgroundType: activeSong.bg_type || 'color', backgroundValue: activeSong.bg_value || '#000000' };
+  const songBackgroundStyle = (song = activeSong) => {
+    if (songHasBackground(song)) {
+      return { ...stageStyle, backgroundType: song.bg_type || 'color', backgroundValue: song.bg_value || '#000000' };
     }
     return stageStyle;
   };
 
-  const resolutionStyle = (cue) => {
+  const resolutionStyle = (cue, song = activeSong) => {
     // Clear / Stop always lands on black and always DISSOLVES there. A clear
     // cue has no background of its own, so it used to inherit the live song's
     // background (or plain stageStyle) and inherit its transition — stopping
@@ -1046,7 +1205,7 @@ export default function App() {
     }
     const base = cueHasBackground(cue)
       ? { ...stageStyle, backgroundType: cue.bg_type || 'color', backgroundValue: cue.bg_value || '#000000' }
-      : songBackgroundStyle();
+      : songBackgroundStyle(song);
     if (cue && cue.id !== 'clear') {
       return {
         ...base,
@@ -1406,7 +1565,10 @@ export default function App() {
   // The clock now ticks inside the tiny display components (LiveBadge /
   // TimerReadout in src/lib/perf.jsx) so only a <span> updates per tick.
 
-  const fireCueLive = (cue) => {
+  const fireCueLive = (cue, songOverride) => {
+    // songOverride lets medley slides fire with their OWN song's title, art,
+    // audio and background instead of whatever the grid has selected.
+    const song = songOverride || activeSong;
     liveBibleRef.current = null;
     liveBibleSrcRef.current = null;
     setActiveCue(cue);
@@ -1416,14 +1578,14 @@ export default function App() {
       const d = Number(cue?.duration) || 0;
       setSlideTimer({ start: Date.now(), elapsed: 0, duration: d });
     }
-    const effectiveStyle = resolutionStyle(cue);
+    const effectiveStyle = resolutionStyle(cue, song);
     const slidePayload = { 
-      title: activeSong?.title || '', 
-      artist: activeSong?.artist || '',
+      title: song?.title || '', 
+      artist: song?.artist || '',
       text: cue && cue.id !== 'clear' ? cue.text : '',
       label: cue?.label || '',
       style: effectiveStyle,
-      audio: activeSong?.audio_url || null,
+      audio: song?.audio_url || null,
       timestamp: liveStamp() 
     };
     setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
@@ -1432,12 +1594,12 @@ export default function App() {
       ipcRenderer.send('update-live-slide', slidePayload);
     }
     // Stage feed: current + next cue
-    const cueList = activeSong?.cues || [];
+    const cueList = song?.cues || [];
     const idx = cue?.id ? cueList.findIndex(c => c.id === cue.id) : -1;
     const nextCue = idx > -1 ? cueList[idx + 1] : (cueList.length > 0 ? cueList[0] : null);
     sendStageData(
       { title: slidePayload.title, label: cue?.label || 'Song Title', text: cue?.id === 'clear' ? '' : slidePayload.text, timestamp: slidePayload.timestamp },
-      nextCue ? { title: activeSong?.title, label: nextCue.label, text: nextCue.text } : null
+      nextCue ? { title: song?.title, label: nextCue.label, text: nextCue.text } : null
     );
     // Warm the OUTPUT's cache for the next cue's background while this slide
     // is on screen, so a song switch mounts warm instead of decoding cold
@@ -1603,15 +1765,17 @@ export default function App() {
     setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
   }, [activeCue, activeSong, targetedDisplays, displays, resolutionStyle]);
 
-  const fireTitleLive = (songOverride) => {
+  const fireTitleLive = (songOverride, cueOverride) => {
     const song = songOverride || activeSong;
     if (!song) return;
     liveBibleRef.current = null;
     liveBibleSrcRef.current = null;
-    const titleCue = song.title_cue || { id: 'title-card', label: 'Song Title', text: song.title, box: { x: 80, y: 140, w: 1120, h: 440 }, size: DEFAULT_LYRIC_SIZE, align: 'center', color: '#ffffff' };
+    // cueOverride lets medley titles carry their synthetic tracking id
+    // (medley-title-<songId>) instead of the shared 'title-card'.
+    const titleCue = cueOverride || song.title_cue || { id: 'title-card', label: 'Song Title', text: song.title, box: { x: 80, y: 140, w: 1120, h: 440 }, size: DEFAULT_LYRIC_SIZE, align: 'center', color: '#ffffff' };
     setActiveCue(titleCue);
     setSlideTimer({ start: Date.now(), elapsed: 0, duration: 0 });
-    const effectiveStyle = resolutionStyle(titleCue);
+    const effectiveStyle = resolutionStyle(titleCue, song);
     const slidePayload = { 
       title: song.artist || '', 
       artist: song.artist || '',
@@ -1739,6 +1903,122 @@ export default function App() {
   // `undefined === undefined` would light up every id-less row at once.
   const genServiceItemId = () => `si-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
+  // Medley Builder modal state: { anchor:{songId,title}, itemIdx, existing }.
+  // The modal edits links; saving converts the row (or back to plain song).
+  const [medleyModal, setMedleyModal] = useState(null);
+
+  const openMedleyForRow = async (item, idx) => {
+    if (!item) return;
+    // Resolve against the FULL library, never the filtered `songs` view: a
+    // search/category filter in the Songs tab used to hide songs from title
+    // lookup (fallback "Song") and from the modal's own search.
+    let lib = songs || [];
+    if (window.require) {
+      try {
+        const full = await window.require('electron').ipcRenderer.invoke('db-get-songs', '', 'All');
+        if (Array.isArray(full) && full.length) lib = full;
+      } catch {}
+    }
+    const titleOf = (songId, fallback = 'Song') => {
+      const s = lib.find(x => sameSongId(x.id, songId));
+      return s?.title || fallback;
+    };
+    if (item.item_type === 'medley') {
+      const def = parseMedleyDef(item);
+      if (!def) return;
+      setMedleyModal({
+        anchor: { songId: def.anchor.songId, title: titleOf(def.anchor.songId, item.title), parts: def.anchor.includedParts },
+        itemIdx: idx,
+        existing: def.links.map(l => ({ songId: l.songId, title: titleOf(l.songId), parts: l.includedParts, skip: l.skipTitleSlide })),
+      });
+      return;
+    }
+    if (item.item_type === 'song') {
+      setMedleyModal({ anchor: { songId: item.content, title: item.title }, itemIdx: idx, existing: null });
+    }
+  };
+
+  const saveMedley = ({ links, slideCount, anchorParts }) => {
+    const m = medleyModal;
+    if (!m) return;
+    const rowId = activeService?.items?.[m.itemIdx]?.id ?? null;
+    const liveMed = medleyRef.current;
+    const liveRow = liveMed && rowId != null && String(liveMed.itemId) === String(rowId);
+    // Normalize both link shapes (modal sends parts/skip; be liberal).
+    const normLinks = (links || []).map((l) => ({
+      songId: l.songId,
+      title: l.title || 'Song',
+      parts: l.parts !== undefined ? l.parts : l.includedParts,
+      skip: l.skip !== undefined ? l.skip : l.skipTitleSlide,
+    }));
+    // The row subtitle names the saved parts verbatim — what you see here
+    // is exactly what Go will flatten (no more guessing what got stored).
+    const linkBits = normLinks.map(l => `${l.title || 'Song'} (${(l.parts && l.parts.length ? l.parts : ['ALL']).join(', ')})`);
+    setActiveService((prev) => {
+      const items = [...(prev?.items || [])];
+      if (m.itemIdx == null || m.itemIdx < 0 || m.itemIdx >= items.length) return prev;
+      const cur = items[m.itemIdx] || {};
+      const keepId = cur.id != null ? { id: cur.id } : {};
+      if (!normLinks.length) {
+        // Unlinked: back to the plain anchor song row — and out of any live
+        // flow for it (the verse on air now belongs to the plain song row).
+        if (liveRow) medleyRef.current = null;
+        const s = (songs || []).find(x => sameSongId(x.id, m.anchor.songId));
+        items[m.itemIdx] = {
+          ...keepId, item_type: 'song', title: m.anchor.title,
+          subtitle: `${s?.artist || 'Worship'} • Song`, content: m.anchor.songId,
+        };
+        return { ...prev, items };
+      }
+      const def = {
+        anchor: { songId: m.anchor.songId, includedParts: Array.isArray(anchorParts) && anchorParts.length ? anchorParts : ['ALL'] },
+        links: normLinks.map(l => ({ songId: l.songId, includedParts: l.parts, skipTitleSlide: l.skip !== false })),
+      };
+      items[m.itemIdx] = {
+        ...keepId,
+        item_type: 'medley',
+        title: m.anchor.title,
+        subtitle: `Medley • ${linkBits.join(' + ')}`,
+        content: JSON.stringify(def),
+        slideCount: Math.max(1, Number(slideCount) || 1),
+      };
+      return { ...prev, items };
+    });
+    setMedleyModal(null);
+    // Save receipt: states EXACTLY what was stored, so a "verses still play"
+    // report traces to the save or the build with one screenshot.
+    try {
+      toast.add({
+        title: 'Medley saved',
+        description: linkBits.length ? linkBits.join(' + ') : 'Unlinked back to a plain song',
+        type: 'success',
+        duration: 6000,
+      });
+    } catch {}
+    // Live refresh: this medley's flow is on air RIGHT NOW — rebuild it from
+    // the just-saved def so the screen follows the edit. Output untouched
+    // (no refire); position snaps to the current cue when it survives, else
+    // restarts at the top. Without this, edits only applied on the next Go.
+    if (liveRow && normLinks.length) {
+      const def = {
+        anchor: { songId: m.anchor.songId, includedParts: Array.isArray(anchorParts) && anchorParts.length ? anchorParts : ['ALL'] },
+        links: normLinks.map(l => ({ songId: l.songId, includedParts: l.parts, skipTitleSlide: l.skip !== false })),
+      };
+      loadMedleySongs(medleySongIds(def)).then((songsMap) => {
+        if (!medleyRef.current || String(medleyRef.current.itemId) !== String(rowId)) return;
+        applyMedleyAnchorBg(songsMap, def);
+        const slides = flattenMedley(def, songsMap);
+        if (!slides.length) return;
+        // activeCue here is save-time stale by ~100ms — prefer it (usually
+        // still current), else keep the old position clamped into the new
+        // flow. Arrows re-derive from the live cue on every press regardless.
+        const prevIdx = medleyRef.current.index;
+        const at = slides.findIndex(s => (s.cue ? s.cue.id : medleyTitleId(s.songId)) === activeCue?.id);
+        medleyRef.current = { itemId: rowId, slides, songs: songsMap, index: at > -1 ? at : Math.min(prevIdx, slides.length - 1) };
+      }).catch(() => {});
+    }
+  };
+
   // Song-id matching, in ONE place. Service rows round-trip through a TEXT
   // column, and old plans carry float strings like "42.0" for song 42 — so
   // neither === nor String() compares match. Numeric-aware: "42", 42 and
@@ -1777,6 +2057,8 @@ export default function App() {
     } else if (item.item_type === 'media') {
       if (activeCue?.id === item.id) return;
       fireServiceMediaLive(item);
+    } else if (item.item_type === 'medley') {
+      fireMedleyItemLive(item);
     } else if (item.item_type === 'presentation') {
       firePresentationFromItem(item);
     } else {
@@ -2049,6 +2331,9 @@ export default function App() {
   // --- SERVICE ORDER (G-Presenter style) ---
   const serviceOrderCount = () => (activeService?.items || []).filter(i => i.item_type !== 'section_header').length;
   const serviceSlideCount = (item) => {
+    // Medleys carry their flattened count from link time (refreshed on Go);
+    // songs count title + cues, matching the grid and builder.
+    if (item.item_type === 'medley') return Number(item.slideCount) || 1;
     if (item.item_type === 'song') {
       // Numeric-aware match (see sameSongId): reloaded plans hold "42.0"
       // where the library holds 42.
@@ -2081,6 +2366,14 @@ export default function App() {
   const liveServiceItem = (() => {
     const items = (activeService?.items || []).filter(Boolean);
     if (!items.length || !activeCue || activeCue.id === 'clear') return null;
+    // A medley session names its own row outright — the live cue belongs to
+    // one of its linked songs, which a plain song row could also claim.
+    const med = medleyRef.current;
+    if (med && med.slides.length) {
+      const s = med.slides[med.index];
+      const mine = s && ((s.cue && s.cue.id === activeCue.id) || (!s.cue && activeCue.id === medleyTitleId(s.songId)));
+      if (mine) return items.find(i => i.id === med.itemId) || null;
+    }
     const songRow = () => (activeSong
       ? items.find(i => i.item_type === 'song' && sameSongId(i.content, activeSong.id))
       : null) || null;
@@ -2090,6 +2383,17 @@ export default function App() {
     if (byCue) return byCue;
     // A song's own verse is on air: still that song's row, not nothing.
     if (activeSong && (activeSong.cues || []).some(c => c.id === activeCue.id)) return songRow();
+    // Verse belongs to a medley-linked song but no session is tracking it
+    // (e.g. fired from the grid after the medley ended): light the medley row
+    // so Stop still lands in the right place.
+    if (activeSong) {
+      const medRow = items.find(i => {
+        if (i.item_type !== 'medley') return false;
+        const def = parseMedleyDef(i);
+        return def ? medleySongIds(def).some(id => sameSongId(id, activeSong.id)) : false;
+      });
+      if (medRow) return medRow;
+    }
     return null;
   })();
 
@@ -2166,6 +2470,22 @@ export default function App() {
 
   const stopServiceItemLive = (item) => {
     if (!serviceItemIsLive(item)) return;
+    // Medley stop: same blackout as a song, plus the session ends so arrows
+    // go back to the grid instead of walking a dead flow.
+    if (item.item_type === 'medley') {
+      medleyRef.current = null;
+      setActiveSong(null);
+      setActiveCue({ id: 'clear', label: 'Clear', text: '' });
+      setSlideTimer({ start: null, elapsed: 0, duration: 0 });
+      const slidePayload = { title: '', artist: '', text: '', label: 'Clear', style: { ...stageStyle, backgroundType: 'color', backgroundValue: '#000000', transition: 'fade', speed: '600ms' }, audio: null, timestamp: liveStamp() };
+      setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
+      if (window.require && targetedDisplays.includes(1)) {
+        const { ipcRenderer } = window.require('electron');
+        ipcRenderer.send('update-live-slide', slidePayload);
+      }
+      sendStageData({ title: '', label: 'Clear', text: '', timestamp: slidePayload.timestamp }, null);
+      return;
+    }
     if (item.item_type === 'song') {
       setActiveSong(null);
       setActiveCue({ id: 'clear', label: 'Clear', text: '' });
@@ -2842,9 +3162,9 @@ export default function App() {
     return () => ipcRenderer.removeListener('mobile-refresh', onRefresh);
   }, [isOutputWindow]);
 
-  const thumbBg = (cue) => {
+  const thumbBg = (cue, song = activeSong) => {
     if (cueHasBackground(cue)) return cue.bg_type === 'color' ? cue.bg_value : NEBULA;
-    if (songHasBackground(activeSong)) return activeSong.bg_type === 'color' ? activeSong.bg_value : NEBULA;
+    if (songHasBackground(song)) return song.bg_type === 'color' ? song.bg_value : NEBULA;
     return NEBULA;
   };
 
@@ -2856,6 +3176,12 @@ export default function App() {
 
   const activeSlideIndex = (() => {
     if (activeCue == null || activeCue.id === 'clear') return -1;
+    // A live medley counts position in the FLOW, not in one song's grid.
+    const med = medleyRef.current;
+    if (med && med.slides.length) {
+      const at = medleyIndexOfCue(activeCue.id);
+      if (at > -1) return at;
+    }
     if (activeCue.id === 'title-card') return 0;
     const idx = (activeSong?.cues || []).findIndex(c => c.id === activeCue.id);
     return idx >= 0 ? idx + 1 : -1;
@@ -2868,6 +3194,19 @@ export default function App() {
   })();
 
   const slideGrid = (() => {
+    // A live medley shows the WHOLE flow as one grid — anchor title through
+    // the last linked stanza — instead of only the current slide's song.
+    // Tiles carry their own song (medSong) so faces render per-song.
+    const med = medleyRef.current;
+    if (med && med.slides.length && activeCue && medleyIndexOfCue(activeCue.id) > -1) {
+      const rowTitle = (activeService?.items || []).find(i => i.id === med.itemId)?.title || null;
+      return med.slides.map((s, i) => {
+        const song = lookupMedleySong(med.songs, s.songId);
+        return s.kind === 'title'
+          ? { isTitle: true, medSong: song, medIdx: i, medTitle: rowTitle }
+          : { cue: s.cue, num: i, medSong: song, medIdx: i, medTitle: rowTitle };
+      });
+    }
     const tiles = [];
     if (activeSong) tiles.push({ isTitle: true });
     (activeSong?.cues || []).forEach(c => tiles.push({ cue: c, num: tiles.length }));
@@ -2892,37 +3231,41 @@ export default function App() {
   const renderSlideFace = (tile, { height = '150px', aspect, radius = '10px', bg, media } = {}) => {
     const cue = tile.cue;
     const isTitle = tile.isTitle;
+    // Medley tiles bring their own song; plain tiles use the open song.
+    const song = tile.medSong || activeSong;
+    if (!song) return null;
     // Same title-cue resolution fireTitleLive uses, so the tile shows the
     // exact text/style that would go live.
-    const titleCue = activeSong.title_cue || { id: 'title-card', label: 'Song Title', text: activeSong.title, box: { x: 80, y: 140, w: 1120, h: 440 }, size: DEFAULT_LYRIC_SIZE, align: 'center', color: '#ffffff' };
-    const text = isTitle ? (titleCue.text || activeSong.title || '') : (cue?.text || '');
+    const titleCue = song.title_cue || { id: 'title-card', label: 'Song Title', text: song.title, box: { x: 80, y: 140, w: 1120, h: 440 }, size: DEFAULT_LYRIC_SIZE, align: 'center', color: '#ffffff' };
+    const text = isTitle ? (titleCue.text || song.title || '') : (cue?.text || '');
     const label = isTitle ? 'Title' : (cue?.label || 'Slide');
     const st = { ...cueLyricStyle(isTitle ? titleCue : cue), layoutMode: 'static' };
     st.isTitle = isTitle;
     const box = st.box || { x: 80, y: isTitle ? 140 : 100, w: 1120, h: isTitle ? 440 : 480 };
     const bgInfo = (() => {
       if (isTitle) {
-        if (songHasBackground(activeSong)) return { type: activeSong.bg_type, value: activeSong.bg_value };
+        if (songHasBackground(song)) return { type: song.bg_type, value: song.bg_value };
         return null;
       }
       if (cueHasBackground(cue)) return { type: cue.bg_type, value: cue.bg_value };
-      if (songHasBackground(activeSong)) return { type: activeSong.bg_type, value: activeSong.bg_value };
+      if (songHasBackground(song)) return { type: song.bg_type, value: song.bg_value };
       return null;
     })();
-    const faceBg = bg || (bgInfo && bgInfo.type === 'color' ? bgInfo.value : (isTitle ? NEBULA : thumbBg(cue)));
+    const faceBg = bg || (bgInfo && bgInfo.type === 'color' ? bgInfo.value : (isTitle ? NEBULA : thumbBg(cue, song)));
     const mediaLayer = media || (bgInfo && bgInfo.type !== 'color' ? { type: bgInfo.type, url: bgInfo.value } : null);
-    const isLive = activeCue != null && activeCue.id !== 'clear' && ((isTitle && activeCue.id === 'title-card') || (!isTitle && cue && activeCue.id === cue.id));
+    const isLive = activeCue != null && activeCue.id !== 'clear' && ((isTitle && (activeCue.id === 'title-card' || activeCue.id === medleyTitleId(song.id))) || (!isTitle && cue && activeCue.id === cue.id));
     const hasMedia = !!mediaLayer;
     // Live tiles always rebuild (LIVE pill timer + pink ring must be fresh).
     // Anything else cached: song/theme/nebula identity invalidates, aspect
-    // rides the key, explicit bg/media overrides bypass.
+    // rides the key, explicit bg/media overrides bypass. The song id rides
+    // the key too, so two songs' tiles never share a cache entry.
     const cc = tileFaceCacheRef.current;
     if (cc.song !== activeSong || cc.theme !== C || cc.nebula !== NEBULA) {
       tileFaceCacheRef.current = { song: activeSong, theme: C, nebula: NEBULA, map: new Map() };
     }
     const faceCache = tileFaceCacheRef.current.map;
     const cacheable = !isLive && !bg && !media;
-    const faceKey = `${aspect || ''}|${isTitle ? 'title' : (cue?.id || ('n' + tile.num))}`;
+    const faceKey = `${aspect || ''}|${song?.id ?? ''}|${isTitle ? 'title' : (cue?.id || ('n' + tile.num))}`;
     if (cacheable) {
       const hit = faceCache.get(faceKey);
       if (hit) return hit;
@@ -2950,9 +3293,10 @@ export default function App() {
         <div style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, background: 'rgba(0,0,0,0.45)', color: isLive ? PINK : '#ddd6fe', borderRadius: 6, padding: '1px 6px', fontSize: 9, fontWeight: 800 }}>
           {isTitle ? '♬' : `#${tile.num}`}
         </div>
-        {/* Section chip: compact pill so the real render behind it stays visible. */}
+        {/* Section chip: compact pill so the real render behind it stays visible. Medley tiles add their song tag. */}
         <div style={{ position: 'absolute', bottom: 6, left: 8, zIndex: 2, display: 'flex', alignItems: 'center', gap: 4, maxWidth: 'calc(100% - 16px)' }}>
           <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '1.5px', textTransform: 'uppercase', color: isLive ? PINK : '#ddd6fe', background: 'rgba(0,0,0,0.45)', borderRadius: 6, padding: '2px 6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+          {tile.medSong && <span style={{ flexShrink: 0, fontSize: 8, fontWeight: 800, color: '#c4b5fd', background: 'rgba(0,0,0,0.45)', borderRadius: 4, padding: '2px 5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110 }}>{tile.medSong.title || 'Song'}</span>}
           {hasMedia && mediaLayer && mediaLayer.type && <span style={{ flexShrink: 0, fontSize: 8, background: 'rgba(192,132,252,0.25)', border: '1px solid rgba(192,132,252,0.5)', color: '#d8b4fe', borderRadius: 4, padding: '0 4px' }}>{String(mediaLayer.type).toUpperCase()}</span>}
         </div>
       </div>
@@ -3776,6 +4120,7 @@ export default function App() {
     removeShowSection, moveShowSection, showTotalSeconds, createShow, selectBuilderItem, builderItemSlideCount,
     builderFlatItems, builderTotalSlides, builderCurrentEntry, builderGoLive, builderAdvance, builderUpNext,
     addShowBuilderMedia, addShowBuilderExistingMedia, addShowBuilderPlaceholder, fireCueLive, fireTitleLive, fireServiceItemLive,
+    openMedleyForRow, saveMedley, fireMedleySlideAt,
     toggleDevProjectorWindow, toggleStageWindow, addSongToService, addHeaderToService, renameServiceHeader, addCustomSlideToService,
     reorderServiceItem, moveServiceBlock, moveServiceItem, removeServiceItem, serviceOrderCount, serviceSlideCount,
     serviceStatusIcon, serviceItemIsLive, toggleServiceCollapse, expandAllServiceSections, collapseAllServiceSections,
@@ -3790,7 +4135,7 @@ export default function App() {
     previewAnimation,
     fireCountdownLive, stopCountdownLive, countdown, setCountdown, sameSongId, clearWorkspace,
     sermon, sermonLoad, sermonSetLayer, sermonNav, sermonGoto, sermonClose, outputLayers,
-    handleDeleteSong, handleToggleFavorite, handleExport, handleImport, serviceSections, thumbBg, resolveBg,
+    handleDeleteSong, handleToggleFavorite, handleExport, handleImport, serviceSections, thumbBg, resolveBg, appConfirm, appAlert,
     activeSlideIndex, groupLabels, slideGrid, renderSlideFace, applyMediaToActiveSong, importMediaAsset, removeMediaAsset,
     toggleAudioPreview, clearSongAudio, refreshBibleLib, formatBibleVerse, buildBiblePayload, queueBibleServiceSlide,
     addScriptureToPlan,
@@ -3927,6 +4272,19 @@ export default function App() {
           setNewSlideData={setNewSlideData}
           onCancel={() => setCustomSlideModal(false)}
           onAdd={addCustomSlideToService}
+        />
+      )}
+      </AnimatePresence>
+
+      {/* MEDLEY BUILDER MODAL — link secondary songs' stanzas to an anchor.
+          Saves convert the row (or back to a plain song when unlinked). */}
+      <AnimatePresence>
+      {medleyModal && (
+        <MedleyModal
+          anchor={medleyModal.anchor}
+          existing={medleyModal.existing}
+          onSave={saveMedley}
+          onClose={() => setMedleyModal(null)}
         />
       )}
       </AnimatePresence>

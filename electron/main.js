@@ -15,7 +15,8 @@ import { pptxExportImages, pptxReadText } from './pptxImport.js';
 import { parseReference, matchBook } from './bibleResolve.js';
 import { 
   getSongs, 
-  getSongDetails, 
+  getSongDetails,
+  getSongDetailsMany,
   saveSong, 
   deleteSong, 
   toggleFavorite, 
@@ -1501,6 +1502,8 @@ ipcMain.handle('db-get-song-details', (event, id) => {
   if (details) { try { updateLastUsed(id); } catch {} }
   return details;
 });
+// Medley batch load: whole id set in two queries (see getSongDetailsMany).
+ipcMain.handle('db-get-songs-details', (event, ids) => getSongDetailsMany(ids));
 ipcMain.handle('db-save-song', (event, data) => saveSong(data));
 ipcMain.handle('db-delete-song', (event, id) => deleteSong(id));
 ipcMain.handle('db-toggle-favorite', (event, id) => toggleFavorite(id));

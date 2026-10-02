@@ -63,6 +63,7 @@ export default function CenterWorkspace() {
     assignScriptureDefault,
     fireCueLive,
     fireTitleLive,
+    fireMedleySlideAt,
     clearWorkspace,
     activeSlideIndex,
     slideGrid,
@@ -477,8 +478,8 @@ export default function CenterWorkspace() {
   <motion.div key="other" initial={{ opacity: 0, x: 26 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -26 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
   <div style={{ padding: '12px 18px 8px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexShrink: 0 }}>
     <div style={{ minWidth: 0 }}>
-      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeSong?.title || 'Welcome to KOGWorship'}</h2>
-      <p style={{ margin: '3px 0 0 0', fontSize: 11.5, color: C.faint }}>{activeSong?.artist ? `${activeSong.artist} • ` : ''}{activeSong?.cues ? `${activeSong.cues.length} slides` : 'Build your set, then project every lyric and verse with confidence.'}</p>
+      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{slideGrid[0]?.medTitle ? `${slideGrid[0].medTitle} • Medley` : (activeSong?.title || 'Welcome to KOGWorship')}</h2>
+      <p style={{ margin: '3px 0 0 0', fontSize: 11.5, color: C.faint }}>{slideGrid[0]?.medTitle ? `${slideGrid.length} slides in flow` : (activeSong?.artist ? `${activeSong.artist} • ` : '')}{slideGrid[0]?.medTitle ? '' : (activeSong?.cues ? `${activeSong.cues.length} slides` : 'Build your set, then project every lyric and verse with confidence.')}</p>
     </div>
     {activeSong && (
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
@@ -505,7 +506,7 @@ export default function CenterWorkspace() {
     {activeSong ? (
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridDensity}, 1fr)`, gap: 14, alignContent: 'start' }}>
         {slideGrid.map((tile, i) => (
-          <motion.div key={tile.isTitle ? 'title' : (tile.cue?.id ?? `cue-${i}`)} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 320, damping: 28, delay: Math.min(i * 0.03, 0.4) }} whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }} onClick={() => tile.isTitle ? fireTitleLive() : fireCueLive(tile.cue)}>
+          <motion.div key={tile.medIdx != null ? `med-${tile.medIdx}` : (tile.isTitle ? 'title' : (tile.cue?.id ?? `cue-${i}`))} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 320, damping: 28, delay: Math.min(i * 0.03, 0.4) }} whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }} onClick={() => tile.medIdx != null ? fireMedleySlideAt(tile.medIdx) : (tile.isTitle ? fireTitleLive() : fireCueLive(tile.cue))}>
             {renderSlideFace(tile, { aspect: (outputAspect || '16:9').replace(':', ' / ') })}
           </motion.div>
         ))}

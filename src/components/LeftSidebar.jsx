@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, Images, PanelLeftClose, Music, MonitorPlay, Pencil, FileUp, BookOpen } from 'lucide-react';
+import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, Images, PanelLeftClose, Music, MonitorPlay, Pencil, FileUp, BookOpen, Link2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { slidesFromPptx } from '../lib/backgrounds';
@@ -70,6 +70,7 @@ export default function LeftSidebar() {
     removeServiceItem,
     fireServiceItemLive,
     stopServiceItemLive,
+    openMedleyForRow,
     handleToggleFavorite,
     handleDeleteSong,
     setEditingSong,
@@ -685,8 +686,8 @@ export default function LeftSidebar() {
                   const isLive = serviceItemIsLive(row.item);
                   const slideCount = serviceSlideCount(row.item);
                   const isScripture = !!(row.item.meta && row.item.meta.kind === 'bible');
-                  const icon = row.item.item_type === 'song' ? <Music size={11} /> : isScripture ? <BookOpen size={11} /> : row.item.item_type === 'media' ? <ImageIcon size={11} /> : row.item.item_type === 'presentation' ? <MonitorPlay size={11} /> : <FileText size={11} />;
-                  const iconColor = row.item.item_type === 'song' ? '#8b5cf6' : isScripture ? '#f59e0b' : 'var(--ui-muted)';
+                  const icon = row.item.item_type === 'song' ? <Music size={11} /> : row.item.item_type === 'medley' ? <Link2 size={11} /> : isScripture ? <BookOpen size={11} /> : row.item.item_type === 'media' ? <ImageIcon size={11} /> : row.item.item_type === 'presentation' ? <MonitorPlay size={11} /> : <FileText size={11} />;
+                  const iconColor = row.item.item_type === 'song' ? '#8b5cf6' : row.item.item_type === 'medley' ? '#C4B5FD' : isScripture ? '#f59e0b' : 'var(--ui-muted)';
                   return (
                     <div key={`i-${ri}`} className="row" data-drop-idx={row.idx} draggable onDragStart={(e) => { internalDrag.current = true; e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { internalDrag.current = false; setDrop(null, null); }} onClick={() => { if (row.item.item_type === 'song') selectSong(row.item.content); else if (isLive) return; else fireServiceItemLive(row.item); }} title="Drag to reorder · click to go live" style={{ position: 'relative', background: isLive ? 'rgba(34,197,94,0.10)' : (row.item.item_type === 'song' && sameSongId(row.item.content, activeSong?.id)) || (row.item.item_type === 'custom_slide' && activeCue?.id === row.item.id) ? 'rgba(139,92,246,0.12)' : 'var(--ui-elev2)', border: isLive ? '1px solid rgba(34,197,94,0.55)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '6px 8px', cursor: 'grab', display: 'grid', gridTemplateColumns: '14px 20px 18px 1fr auto', gap: 6, alignItems: 'center', boxShadow: dropRow === row.idx ? '0 0 0 2px rgba(139,92,246,0.6)' : 'none' }}>
                       {isLive && <div style={{ position: 'absolute', left: 0, top: 4, bottom: 4, width: 3, borderRadius: 3, background: '#22c55e', boxShadow: '0 0 8px rgba(34,197,94,0.8)' }} />}
@@ -701,6 +702,9 @@ export default function LeftSidebar() {
                         <span style={{ fontSize: 10, color: 'var(--ui-faint)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.item.subtitle || (row.item.item_type === 'song' ? 'Song' : row.item.item_type === 'media' ? 'Media' : 'Slide')}</span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+                        {(row.item.item_type === 'song' || row.item.item_type === 'medley') && (
+                          <button onClick={(e) => { e.stopPropagation(); openMedleyForRow(row.item, row.idx); }} title={row.item.item_type === 'medley' ? 'Edit medley links' : 'Link songs into a medley'} style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: row.item.item_type === 'medley' ? '#C4B5FD' : C.faint, padding: '3px 6px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Link2 size={12} /></button>
+                        )}
                         {isLive ? (
                           <button onClick={(e) => { e.stopPropagation(); stopServiceItemLive(row.item); }} title="Stop — take this item off air" style={{ background: 'rgba(239,68,68,0.18)', border: '1px solid rgba(239,68,68,0.55)', color: '#F87171', borderRadius: 6, fontSize: 9.5, fontWeight: 700, padding: '3px 8px', cursor: 'pointer' }}>■ Stop</button>
                         ) : (
