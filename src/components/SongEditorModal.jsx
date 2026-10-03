@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, Cpu, KeyRound, Timer, Clock3, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack, Undo2, Redo2 } from 'lucide-react';
+import { Plus, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, KeyRound, Timer, Clock3, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack, Undo2, Redo2, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, FALLBACK_SYSTEM_FONTS } from '../lib/constants';
 import { renderLyricsLayout, cueLyricStyle, stripMarkup, FONT_SIZE_MIN, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, autoPadForSize, fitBoxToText, growBoxToText, restyleLineScales } from '../lib/lyrics';
@@ -148,9 +148,8 @@ export default function SongEditorModal() {
     setDragFrom,
     showSlideProps,
     setShowSlideProps,
-    selectedAiModel,
-    setSelectedAiModel,
     aiStatus,
+    processAiAutofix,
     cueHasBackground,
     songHasBackground,
     processAutoPaste,
@@ -883,21 +882,12 @@ export default function SongEditorModal() {
               <Wand2 size={14} /> Paste lyrics or a chord chart
             </label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.input, border: '1px solid var(--ui-border2)', padding: '4px 8px', borderRadius: 8 }}>
-                <Cpu size={13} color={C.accLine} />
-                <select value={selectedAiModel} onChange={(e) => setSelectedAiModel(e.target.value)} style={{ background: 'transparent', color: C.text, border: 'none', fontSize: 11, fontWeight: 700, outline: 'none', cursor: 'pointer' }}>
-                  <option value="gemini-1.5-flash" style={{ background: C.input }}>Gemini 3.6 Flash (Online)</option>
-                  <option value="gemini-1.5-pro" style={{ background: C.input }}>Gemini Pro (Online)</option>
-                  <option value="ollama" style={{ background: C.input }}>Local Ollama (Offline)</option>
-                </select>
-              </div>
               {aiStatus && (
                 <span style={{ fontSize: 10, background: aiStatus.includes('Online') ? 'rgba(34,197,94,0.2)' : 'rgba(139,92,246,0.2)', color: aiStatus.includes('Online') ? '#4ade80' : '#a78bfa', padding: '4px 8px', borderRadius: 8, fontWeight: 700, border: aiStatus.includes('Online') ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(139,92,246,0.4)' }}>{aiStatus}</span>
               )}
             </div>
           </div>
-          {selectedAiModel !== 'ollama' && (
-            <div style={{ background: C.input, border: `1px solid ${aiKey && aiKey.hasKey ? 'rgba(34,197,94,0.35)' : 'var(--ui-border2)'}`, borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
+          <div style={{ background: C.input, border: `1px solid ${aiKey && aiKey.hasKey ? 'rgba(34,197,94,0.35)' : 'var(--ui-border2)'}`, borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <KeyRound size={13} color={aiKey && aiKey.hasKey ? '#4ade80' : C.accLine} />
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: C.text }}>
@@ -933,10 +923,14 @@ export default function SongEditorModal() {
                 <div style={{ fontSize: 11, marginTop: 6, fontWeight: 700, color: aiKeyMsg.ok ? '#4ade80' : '#f87171' }}>{aiKeyMsg.text}</div>
               )}
             </div>
-          )}
-          <p style={{ fontSize: 12, color: C.faint, margin: '0 0 12px 0' }}>Plain lyrics or chord charts both work: chords are stripped only when the text is a chart, Google Docs and web formatting get cleaned up, and sections map into blocks using your chosen engine. Lyrics with no labels split into Verse/Chorus blocks automatically.</p>
+          <p style={{ fontSize: 12, color: C.faint, margin: '0 0 12px 0' }}>Parsing is local and instant: the offline engine strips chords only when the text is a chart, cleans up Google Docs and web formatting, and maps sections into blocks (unlabeled lyrics split into Verse/Chorus automatically). If the blocks come out wrong, AI Auto-Fix re-parses with Gemini using your key above — nothing else ever leaves this computer for parsing.</p>
           <textarea rows={10} value={rawPasteText} onChange={(e) => setRawPasteText(e.target.value)} placeholder="[Verse 1] or plain lyrics&#10;Paste chords (auto-stripped) or copy/paste from a lyrics site — sections are detected for you." style={{ width: '100%', background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: 12, color: C.text, fontSize: 13, fontFamily: 'monospace', outline: 'none', resize: 'vertical' }} />
-          <button onClick={() => openSplitPrompt('parse')} disabled={isParsing} style={{ marginTop: 12, background: ACCENT, border: 'none', color: C.text, padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: isParsing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: isParsing ? 0.6 : 1 }}><Wand2 size={14} /> {isParsing ? 'Parsing…' : 'Parse & Build Blocks'}</button>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            <button onClick={() => openSplitPrompt('parse')} disabled={isParsing} style={{ background: ACCENT, border: 'none', color: C.text, padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: isParsing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: isParsing ? 0.6 : 1 }}><Wand2 size={14} /> {isParsing ? 'Parsing…' : 'Parse & Build Blocks'}</button>
+            {editingSong.cues && editingSong.cues.length > 0 && (
+              <button onClick={() => processAiAutofix(undefined, { linesPerSlide: Number(linesPerSlide) || 4 })} disabled={isParsing} title="Blocks look wrong? Re-parse with Gemini using your saved key. Only runs when you click it." style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.text2, padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: isParsing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: isParsing ? 0.6 : 1 }}><Sparkles size={14} /> {isParsing ? 'Working…' : 'AI Auto-Fix'}</button>
+            )}
+          </div>
           {editingSong.cues && editingSong.cues.length > 0 && (
             <div style={{ marginTop: 16, borderTop: '1px solid var(--ui-border2)', paddingTop: 16 }}>
               <label style={{ fontSize: 11, fontWeight: 700, color: '#4ade80', textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Generated Song Blocks ({editingSong.cues.length})</label>
@@ -1643,7 +1637,10 @@ export default function SongEditorModal() {
     <div style={{ position: 'relative', padding: '10px 16px', borderTop: '1px solid var(--ui-border2)', display: 'flex', justifyContent: 'flex-end', gap: 10, flexShrink: 0 }}>
       {/* APPLY TO — centred at the bottom of the modal, themed like every
           other segmented control here: the pill picks the target, the Apply
-          button beside it is what actually writes. */}
+          button beside it is what actually writes. Hidden while smart-parsing
+          a NEW song (nothing exists to copy between yet) — it belongs to the
+          Manual Builder and to editing existing songs. */}
+      {(editorMode === 'manual' || editingSong?.id != null) && (
       <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', display: 'flex', alignItems: 'center', gap: 9 }}>
         <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 1.4, textTransform: 'uppercase', color: C.faint, whiteSpace: 'nowrap' }}>Apply to</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: 3 }}>
@@ -1712,6 +1709,7 @@ export default function SongEditorModal() {
         })()}
         <span style={{ width: 1, height: 22, background: 'var(--ui-border2)' }} />
       </div>
+      )}
       <motion.button {...stubTap} onClick={() => setIsEditorOpen(false)} style={{ background: C.border, border: 'none', color: C.text, padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</motion.button>
       <motion.button {...stubTap} onClick={handleSaveSong} style={{ background: ACCENT, border: 'none', color: C.text, padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Save Song</motion.button>
     </div>

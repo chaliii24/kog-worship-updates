@@ -6,6 +6,8 @@ import { modalOverlay, modalPanel, stubTap } from '../../lib/anim';
 const SHORTCUTS = [
   ['Space / →', 'Advance to the next slide'],
   ['←', 'Go to previous slide (or song title card)'],
+  ['V', 'Jump to the next Verse of the song on air'],
+  ['C', 'Jump to the next Chorus of the song on air'],
   ['L', 'Clear the lyrics, keep the background'],
   ['B', 'Clear all output (words and background)'],
   ['?', 'Toggle this shortcut guide'],

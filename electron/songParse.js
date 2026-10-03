@@ -228,60 +228,216 @@ function stanzaKey(lines) {
   return k || raw;
 }
 
+// Word-multiset similarity (Sørensen–Dice, 0..1): "My chains are gone /
+// been set free" vs the same + "today" scores ~0.9, while two distinct
+// verses sharing one refrain line score ~0.3. Multiset (not set) so
+// repeated words ("holy holy") still count.
+function stanzaSim(a, b) {
+  const ta = String(a || '').split(' ').filter(Boolean);
+  const tb = String(b || '').split(' ').filter(Boolean);
+  if (!ta.length || !tb.length) return 0;
+  const counts = new Map();
+  for (const w of ta) counts.set(w, (counts.get(w) || 0) + 1);
+  let inter = 0;
+  for (const w of tb) {
+    const c = counts.get(w) || 0;
+    if (c > 0) { counts.set(w, c - 1); inter += 1; }
+  }
+  return (2 * inter) / (ta.length + tb.length);
+}
+
+// Per-line repeat key: case/punctuation-insensitive, with hyphens and
+// apostrophes VANISHING (not spacing) — so "kasing-kasing" meets its
+// "kasingkasing" spelling variant and "o Dios," meets "o Dios". Original
+// text is always preserved; keys are only for matching.
+function repeatKey(line) {
+  return String(line || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim();
+}
+
+// All non-overlapping repeated contiguous runs (≥2 lines) in a wall.
+// Single-line echoes ("Hallelujah" ×3) do NOT count — the legacy anchor
+// logic owns those. Bounded (60-line windows) so pathological pastes stay
+// instant.
+function wallRepeats(lineKeys) {
+  const n = lineKeys.length;
+  const reps = [];
+  const maxLen = Math.min(60, Math.floor(n / 2));
+  for (let len = maxLen; len >= 2; len--) {
+    const occ = new Map();
+    for (let i = 0; i + len <= n; i++) {
+      const k = lineKeys.slice(i, i + len).join('\n');
+      if (!k.trim()) continue;
+      if (!occ.has(k)) occ.set(k, []);
+      occ.get(k).push(i);
+    }
+    for (const [k, ps] of occ) {
+      const non = [];
+      for (const p of ps) { if (!non.length || p >= non[non.length - 1] + len) non.push(p); }
+      if (non.length >= 2) reps.push({ key: k, len, pos: non });
+    }
+  }
+  return reps;
+}
+
+// One contiguous run (V V C): every occurrence starts where the previous
+// ends. A repeat bunched like that is a verse reprise, never chorus material.
+function isSingleRun(rep) {
+  return rep.pos.every((p, i) => i === 0 || p === rep.pos[i - 1] + rep.len);
+}
+
+// Unsegmented wall WITH repeated multi-line spans: cut the wall at the
+// winning repeat. The chorus is the best spread-out repeat (length ×
+// occurrences, then longest, then latest) — verse-only bunches never
+// qualify. Without a qualifying repeat the wall is segmented by its longest
+// repeat as VERSE spans (still far better than anchor-chopping); with no
+// multi-line repeat at all, null (caller keeps the legacy single-line path).
+// Returns [{ label, text }] or null.
+function segmentWallByRepeat(lines) {
+  const n = lines.length;
+  let reps = wallRepeats(lines.map(repeatKey));
+  if (!reps.length) return null;
+  // Shadow repeats: a longer span shadowed by a SHORTER repeat occurring
+  // STRICTLY more often at aligned spots (chorus + verse-fragment glued by
+  // a following chorus) always loses to it. Strictness matters: a repeat
+  // whose shorter core occurs at exactly the same spots is NOT a shadow
+  // (that reading would discard every repeat via its own prefixes).
+  const shadows = new Set();
+  for (const x of reps) {
+    const xk = x.key.split('\n');
+    for (const y of reps) {
+      if (x === y || y.len >= x.len) continue;
+      const yk = y.key.split('\n');
+      let off = -1;
+      for (let s = 0; s + yk.length <= xk.length; s++) {
+        if (xk.slice(s, s + yk.length).join('\n') === y.key) { off = s; break; }
+      }
+      if (off < 0) continue;
+      if (y.pos.length > x.pos.length && x.pos.every((p) => y.pos.some((q) => p - q === off))) shadows.add(x);
+    }
+  }
+  reps = reps.filter((r) => !shadows.has(r));
+  if (!reps.length) return null;
+  // The chorus is the best spread-out repeat: length × occurrences first
+  // (substance that returns), then tighter spans (short refrains beat long
+  // verse parts on ties), then latest arrival (choruses come after verses).
+  // Verse-only bunches (one contiguous run, e.g. V V C) never qualify.
+  // Two-line spans are held to a stricter bar — NO adjacent occurrence pair
+  // at all: a 2-line verse fragment restated back-to-back ([X,Y,X,Y] inside
+  // a longer verse) must not pass, while spread restatements ([X,Y] … [X,Y]
+  // around other material) do. Longer spans keep the looser single-run
+  // rule, so [..., C, C] double-chorus endings still qualify.
+  const noTouchingPair = (r) => r.pos.every((p, i) => i === 0 || p > r.pos[i - 1] + r.len);
+  const qualifying = reps.filter((r) => (r.len >= 3 ? !isSingleRun(r) : noTouchingPair(r)));
+  qualifying.sort((a, b) => (b.len * b.pos.length - a.len * a.pos.length) || (a.len - b.len) || (b.pos[0] - a.pos[0]));
+  const chorus = qualifying[0] || null;
+  const seg = chorus || reps.slice().sort((a, b) => (b.len - a.len) || (b.pos.length - a.pos.length) || (a.pos[0] - b.pos[0]))[0];
+  const starts = new Set(seg.pos);
+  const spans = [];
+  let cur = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (starts.has(i)) {
+      if (cur.length) { spans.push({ chorus: false, lines: cur }); cur = []; }
+      spans.push({ chorus: !!chorus, lines: lines.slice(i, i + seg.len) });
+      i += seg.len;
+    } else { cur.push(lines[i]); i += 1; }
+  }
+  if (cur.length) spans.push({ chorus: false, lines: cur });
+  if (spans.length < 2) return null;
+  // Verse spans share numbers when near-identical (same line count, ≥85%
+  // shared words); distinct spans number onward. Chorus spans unite.
+  const verseGroups = [];
+  let verseN = 0;
+  return spans.map((b) => {
+    if (b.chorus) return { label: 'Chorus', text: b.lines.join('\n') };
+    const k = stanzaKey(b.lines);
+    let g = verseGroups.find((gg) => gg.lines.length === b.lines.length && stanzaSim(gg.key, k) >= 0.85);
+    if (!g) { verseN += 1; g = { key: k, lines: b.lines, n: verseN }; verseGroups.push(g); }
+    return { label: `Verse ${g.n}`, text: b.lines.join('\n') };
+  });
+}
+
 // Headerless lyrics: stanzas become Verse 1..N in order of first
 // appearance; a repeating stanza becomes the Chorus.
 //
-// Choosing the chorus among multiple repeating stanzas scores, in order:
-//   1. most occurrences (a chorus repeats most),
-//   2. FEWEST lines on average (a chorus is tighter than a verse) —
-//      this is what fixes the identical-verse trap: in V C V C where the
-//      verse text repeats VERBATIM, "first repeat wins" used to label the
-//      VERSE as Chorus and the chorus as Verse 1,
-//   3. a non-opening stanza (songs usually open with a verse; when
-//      everything ties, prefer the later repeat),
-//   4. earliest first appearance.
+// Near-identical stanzas (same line count, ≥85% shared words) are grouped
+// FIRST — a chorus sung with slight variation ("…ransomed me" vs
+// "…ransomed me today", ~0.97) is still one section, while verse pairs
+// differing by a content word ("line one here" vs "line two here", 0.80)
+// stay apart. The same-line-count guard keeps distinct verses apart
+// (under-merging only costs a missed repeat; over-merging would hand out
+// wrong labels — same discipline as stanzaKey). `allowFuzzy` is false for
+// anchor-split walls: those blocks alternate chorus/verse bits BY
+// CONSTRUCTION, so merging them back together would defeat the split.
+//
+// Choosing the chorus among repeating groups scores, in order:
+//   1. an opening stanza that STRICTLY out-occurs every other repeat is a
+//      verse reprise (V C V C V), never the chorus — excluded. Ties stay
+//      eligible, because C V C V opens ON its chorus;
+//   2. most occurrences (a chorus repeats most);
+//   3. FEWEST lines on average (a chorus is tighter than a verse) —
+//      this keeps the identical-verse trap fixed: in V C V C where the
+//      verse repeats VERBATIM, the shorter chorus still wins the tie;
+//   4. a non-opening stanza;
+//   5. later first appearance (choruses arrive after verses).
 // If NOTHING repeats there is no chorus — plain Verse 1..N, as before.
-function labelStanzas(stanzas) {
-  const order = [];
-  const counts = new Map();
-  const totalLines = new Map();
-  const keys = stanzas.map(lines => {
-    const k = stanzaKey(lines);
-    if (counts.has(k)) counts.set(k, counts.get(k) + 1);
-    else { counts.set(k, 1); order.push(k); }
-    totalLines.set(k, (totalLines.get(k) || 0) + lines.length);
-    return k;
-  });
-
-  const repeated = order.filter(k => counts.get(k) > 1);
-  let chorusKey = null;
-  if (repeated.length === 1) {
-    chorusKey = repeated[0];
-  } else if (repeated.length > 1) {
-    const opener = order[0];
-    let best = null;
-    for (const k of repeated) {
-      if (best === null) { best = k; continue; }
-      const nk = counts.get(k), nb = counts.get(best);
-      if (nk !== nb) { if (nk > nb) best = k; continue; }
-      const ak = totalLines.get(k) / nk, ab = totalLines.get(best) / nb;
-      if (ak !== ab) { if (ak < ab) best = k; continue; }
-      const ok = k === opener ? 0 : 1, ob = best === opener ? 0 : 1;
-      if (ok > ob) best = k;
+// (Exact ties on all five are genuinely ambiguous — e.g. V-C-B all twice
+// at equal length — and fall to rule 5 by documented coin flip.)
+function labelStanzas(stanzas, allowFuzzy = true) {
+  const keys = stanzas.map(stanzaKey);
+  const lineCounts = stanzas.map((s) => s.length);
+  const groupOf = keys.map((_, i) => i);
+  const find = (i) => {
+    while (groupOf[i] !== i) { groupOf[i] = groupOf[groupOf[i]]; i = groupOf[i]; }
+    return i;
+  };
+  for (let i = 0; i < keys.length; i++) {
+    for (let j = i + 1; j < keys.length; j++) {
+      if (lineCounts[i] !== lineCounts[j]) continue;
+      if (!allowFuzzy) continue;
+      if (stanzaSim(keys[i], keys[j]) >= 0.85) {
+        const ri = find(i), rj = find(j);
+        if (ri !== rj) groupOf[Math.max(ri, rj)] = Math.min(ri, rj);
+      }
     }
-    chorusKey = best;
+  }
+  const groups = new Map(); // root -> { count, totalLines, firstIdx }
+  keys.forEach((k, i) => {
+    const r = find(i);
+    if (!groups.has(r)) groups.set(r, { count: 0, totalLines: 0, firstIdx: i });
+    const g = groups.get(r);
+    g.count += 1;
+    g.totalLines += stanzas[i].length;
+  });
+  const openerRoot = keys.length ? find(0) : null;
+  const repeated = [...groups.entries()].filter(([, g]) => g.count > 1);
+  const maxOther = Math.max(0, ...repeated.filter(([r]) => r !== openerRoot).map(([, g]) => g.count));
+  const openCount = (openerRoot !== null && groups.get(openerRoot)?.count) || 0;
+  let chorusRoot = null;
+  for (const [r, g] of repeated) {
+    if (r === openerRoot && maxOther > 0 && openCount > maxOther) continue;
+    if (chorusRoot === null) { chorusRoot = r; continue; }
+    const gb = groups.get(chorusRoot);
+    if (g.count !== gb.count) { if (g.count > gb.count) chorusRoot = r; continue; }
+    const aAvg = g.totalLines / g.count, bAvg = gb.totalLines / gb.count;
+    if (aAvg !== bAvg) { if (aAvg < bAvg) chorusRoot = r; continue; }
+    const aOp = r === openerRoot ? 0 : 1, bOp = chorusRoot === openerRoot ? 0 : 1;
+    if (aOp !== bOp) { if (aOp > bOp) chorusRoot = r; continue; }
+    if (g.firstIdx !== gb.firstIdx && g.firstIdx > gb.firstIdx) chorusRoot = r;
   }
 
   // Number the rest Verse 1..N in order of first appearance, skipping the
   // chorus group so labels never start at "Verse 2".
-  const labelOf = new Map();
+  const labelOfRoot = new Map();
   let verseN = 0;
-  for (const k of order) {
-    if (k === chorusKey) labelOf.set(k, 'Chorus');
-    else { verseN += 1; labelOf.set(k, `Verse ${verseN}`); }
-  }
+  [...groups.keys()]
+    .sort((a, b) => groups.get(a).firstIdx - groups.get(b).firstIdx)
+    .forEach((r) => {
+      if (r === chorusRoot) labelOfRoot.set(r, 'Chorus');
+      else { verseN += 1; labelOfRoot.set(r, `Verse ${verseN}`); }
+    });
 
-  return stanzas.map((lines, i) => ({ label: labelOf.get(keys[i]), text: lines.join('\n') }));
+  return stanzas.map((lines, i) => ({ label: labelOfRoot.get(find(i)), text: lines.join('\n') }));
 }
 
 /**
@@ -419,9 +575,21 @@ export function parseSongBlocks(rawText, linesPerSlide = 4) {
     if (role && role[2].trim()) line = role[2].trim();
 
     // --- Section markers: [Verse 1], (Chorus), CHORUS, Verse 1: ---
+    // A bare "C" (or "[C]") in a chordy paste is the C chord — NEVER a
+    // shorthand Chorus header. sectionLabel with allowBare reads bare "C"
+    // as Chorus, which used to chop every verse into phantom Chorus blocks
+    // at each lone C chord line (same for "V"; "B" is gated too so it can
+    // only ever read as the chord, never Bridge). Numbered/multi-letter
+    // shorthand (V1, C2, Ch, Br, PC) is deliberately NOT gated: it is either
+    // not a valid chord token at all, or (C2) an established header form.
+    // Full-word headers can never be single chord letters, so gating just
+    // this case loses nothing: [Chorus], Verse 1, V1 all still parse. In
+    // non-chordy pastes (pure lyrics) the gate stays off entirely.
+    const debracket = line.replace(/^\[(.*)\]$/s, '$1').replace(/^\((.*)\)$/s, '$2');
+    const bareChordLetter = chordy && /^[vcb]$/i.test(debracket.trim());
     const sq = line.startsWith('[') && line.endsWith(']');
     const pr = !sq && line.startsWith('(') && line.endsWith(')');
-    if (sq || pr) {
+    if ((sq || pr) && !bareChordLetter) {
       const inner = line.slice(1, -1).trim();
       const sec = sectionLabel(inner, allowBare);
       if (sec) { sawHeader = true; items.push({ t: 'label', v: sec }); continue; }
@@ -436,12 +604,18 @@ export function parseSongBlocks(rawText, linesPerSlide = 4) {
       }
       // Non-section "(…)" text falls through as an ordinary lyric line,
       // e.g. "(Oh no)" must never become a section called "Oh no".
-    } else {
+    } else if (!bareChordLetter) {
       const sec = sectionLabel(line, allowBare);
       if (sec) { sawHeader = true; items.push({ t: 'label', v: sec }); continue; }
       if (line.endsWith(':') && line.length < 25) {
-        const lab = normalizeGeneric(line.replace(/[:：]+$/, ''));
-        if (lab) { sawHeader = true; items.push({ t: 'label', v: lab }); continue; }
+        const head = line.replace(/[:：]+$/, '').trim();
+        // "B:" / "C:" / "Am:" in a chord chart are chord cues, not sections —
+        // a head that is itself a chord token never opens a label here.
+        // Full words ("Chorus:") can never be chord tokens, so they still do.
+        if (!(chordy && CHORD_RE.test(head))) {
+          const lab = normalizeGeneric(head);
+          if (lab) { sawHeader = true; items.push({ t: 'label', v: lab }); continue; }
+        }
       }
       // Inline header ("Chorus: Amazing grace", "Verse 1 - Hallelujah"): the
       // head parses as a section AND a colon/dash separates it from real
@@ -450,7 +624,9 @@ export function parseSongBlocks(rawText, linesPerSlide = 4) {
       // head is not a section.
       const inline = /^(.*?)\s*[:：]\s*(.+)$/.exec(line) || /^(.*?)\s+[–—-]\s*(.+)$/.exec(line);
       if (inline && inline[2].length > 3) {
-        const head = sectionLabel(inline[1], allowBare);
+        // Bare chord-letter heads ("C: …") stay chord cues in chordy pastes.
+        const headRaw = inline[1].trim();
+        const head = (chordy && /^[vcb]$/i.test(headRaw)) ? null : sectionLabel(headRaw, allowBare);
         if (head) {
           sawHeader = true;
           items.push({ t: 'label', v: head });
@@ -508,6 +684,14 @@ export function parseSongBlocks(rawText, linesPerSlide = 4) {
     if (stanzas.length === 0) return whole();
     if (stanzas.length === 1) {
       const lines = stanzas[0];
+      // Unsegmented wall WITH repeated multi-line spans (the no-blank-lines
+      // paste): the longest spread-out repeat is the chorus — e.g. a 7-line
+      // chorus sung 3× around verse spans. Verse-only bunches never qualify
+      // (V V C), and single-line echoes fall through to the legacy anchor
+      // logic below. Verse spans stay whole (no recursion: inner repeats
+      // would mislabel verse chunks as Chorus).
+      const wall = segmentWallByRepeat(lines);
+      if (wall) return wall;
       // A wall of text with a repeated line ("Hallelujah" ×3) is usually
       // verses around a chorus: split at each repeat and let the normal
       // stanza machinery (repeat → Chorus) label them, instead of blindly
@@ -531,7 +715,62 @@ export function parseSongBlocks(rawText, linesPerSlide = 4) {
         }
         if (cur.length) blocks.push(cur);
         if (blocks.length > 1) {
-          const labeled = labelStanzas(blocks);
+          // Hook-bunch chorus: tight anchor clusters (≤3 lines between
+          // consecutive occurrences) backed by an anchor DESERT (≥3
+          // anchor-less lines on either side) ARE the chorus — e.g. "Kanimo
+          // Kanimo lang" at lines 2 and 4 with 12 verse lines after, or a
+          // middle chorus with verse on both sides. Evenly spread anchors
+          // ("Hallelujah" opening every stanza) fail the desert test and
+          // keep the old numbering below.
+          const isAnchor = (l) => l.trim().toLowerCase() === anchor;
+          const occ = [];
+          lines.forEach((l, i) => { if (isAnchor(l)) occ.push(i); });
+          const bunches = [];
+          let run = [];
+          for (const p of occ) {
+            // Gap ≤2 stays one section (hook restated inside it); gap ≥3 is
+            // a structural boundary (a bridge between two choruses).
+            if (run.length && p - run[run.length - 1] - 1 > 2) { bunches.push(run); run = []; }
+            run.push(p);
+          }
+          if (run.length) bunches.push(run);
+          const good = bunches.filter((b) => b.length >= 2 && (b[0] >= 3 || lines.length - 1 - b[b.length - 1] >= 3));
+          if (good.length) {
+            // Cut chorus spans (each extended back over a ≤2-line
+            // anchor-free pickup — but only when the whole lead-in is that
+            // short, so a verse tail is never eaten); the rest are verse
+            // spans, grouped when near-identical.
+            const spans = [];
+            let pos = 0;
+            const sorted = good.slice().sort((a, b) => a[0] - b[0]);
+            for (const b of sorted) {
+              let start = b[0];
+              // Opening pickup only (pos === 0): a ≤2-line anchor-free
+              // lead-in at the very top belongs to the chorus. Mid-song
+              // short spans (bridges, tags) stand alone — never eaten.
+              const lead = lines.slice(pos, start);
+              if (pos === 0 && lead.length && lead.length <= 2 && !lead.some(isAnchor)) start = pos;
+              if (start > pos) spans.push({ chorus: false, lines: lines.slice(pos, start) });
+              spans.push({ chorus: true, lines: lines.slice(start, b[b.length - 1] + 1) });
+              pos = b[b.length - 1] + 1;
+            }
+            if (pos < lines.length) spans.push({ chorus: false, lines: lines.slice(pos) });
+            const verseGroups = [];
+            let verseN = 0;
+            const out = [];
+            for (const s of spans) {
+              if (!s.lines.length) continue;
+              if (s.chorus) { out.push({ label: 'Chorus', text: s.lines.join('\n') }); continue; }
+              const k = stanzaKey(s.lines);
+              let g = verseGroups.find((gg) => gg.lines.length === s.lines.length && stanzaSim(gg.key, k) >= 0.85);
+              if (!g) { verseN += 1; g = { key: k, lines: s.lines, n: verseN }; verseGroups.push(g); }
+              out.push({ label: `Verse ${g.n}`, text: s.lines.join('\n') });
+            }
+            return out.length ? out : labelStanzas(blocks, false);
+          }
+          // No fuzzy here (see labelStanzas): anchor blocks alternate by
+          // construction, so near-merging them would undo the split.
+          const labeled = labelStanzas(blocks, false);
           // A trailing lone anchor ("…Hallelujah" alone at the end) is the
           // chorus restated, not a third verse — but only when the anchor is
           // substantial; a two-word tag ("oh oh") stays put.

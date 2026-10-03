@@ -37,9 +37,10 @@ jobs:
       # NOTE: no step bundles GEMINI_API_KEY into the installer, and
       # package.json must never list .env in extraResources. The installer is
       # published as a public release asset, so any secret packed inside it is
-      # readable by anyone who downloads it. Smart Paste instead reads the
-      # operator's own key from userData\.env (set in the song editor) and
-      # falls back to local Ollama / regex when none is set.
+      # readable by anyone who downloads it. Smart Paste parses locally with
+      # the Regex engine by default; Gemini AI Auto-Fix reads the operator's
+      # own key from userData\.env (set in the song editor) and never runs
+      # unless explicitly clicked.
 
       - name: Verify bundled backgrounds are present
         run: |

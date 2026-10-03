@@ -9,7 +9,7 @@ import { songSections } from '../lib/medley';
 // (Chorus, Bridge…) → Link to Song. Repeat per link. Saving hands the link
 // list back; App turns the row into a medley item (or back into a plain
 // song row when every link is removed).
-export default function MedleyModal({ anchor, existing, onSave, onClose }) {
+export default function MedleyModal({ anchor, existing, onSave, onClose, anchorArranged }) {
   const { C, ACCENT, songs, appConfirm } = useApp();
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState(null); // { song, sections }
@@ -214,6 +214,11 @@ export default function MedleyModal({ anchor, existing, onSave, onClose }) {
         {anchorSections.length > 0 && (
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 10, color: C.faint, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>Anchor song parts — {anchor?.title || ''}</div>
+            {anchorArranged && (
+              <div style={{ fontSize: 11, color: '#C4B5FD', background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.4)', borderRadius: 7, padding: '6px 9px', marginBottom: 7 }}>
+                Anchor plays a custom arrangement — the flow follows it. Change it with the Arrange button on the service row.
+              </div>
+            )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {anchorSections.map((part) => {
                 const on = anchorChecked.includes(part);

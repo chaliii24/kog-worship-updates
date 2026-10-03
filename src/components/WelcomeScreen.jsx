@@ -144,9 +144,6 @@ export default function WelcomeScreen({ services, C, PINK, ACCENT, logoImage, on
           </div>
         )}
 
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.3, duration: 0.6 }} style={{ fontSize: 11, color: C.faint, marginTop: 30 }}>
-          Designed &amp; Built by <span style={{ color: '#f3f4f6', fontWeight: 700 }}>Charles Arradaza</span>
-        </motion.div>
       </motion.div>
     </motion.div>
   );

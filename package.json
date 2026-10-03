@@ -1,7 +1,7 @@
 {
   "name": "kog-worship",
   "private": true,
-  "version": "1.1.25",
+  "version": "1.1.26",
   "description": "KOG Worship presentation suite",
   "author": "Charles Arradaza",
   "type": "module",
@@ -26,7 +26,6 @@
     "konva": "^10.6.0",
     "lucide-react": "^1.45.0",
     "motion": "^13.4.0",
-    "ollama": "^0.6.3",
     "pptxgenjs": "^4.0.1",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",

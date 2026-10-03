@@ -23,8 +23,11 @@ import PresentationModal from './components/PresentationModal';
 import PresentationSlide from './components/PresentationSlide';
 import ShowBuilderModal from './components/ShowBuilderModal';
 import { parseMedleyDef, flattenMedley, medleySongIds, medleyTitleId, basePartLabel } from './lib/medley';
+import { resolveArrangementFlow } from './lib/arrangement';
+import { loadIconTheme, saveIconTheme } from './lib/icons';
 import CustomSlideModal from './components/modals/CustomSlideModal';
 import MedleyModal from './components/MedleyModal';
+import ArrangementModal from './components/ArrangementModal';
 import TemplateNameModal from './components/modals/TemplateNameModal';
 import HotkeysModal from './components/modals/HotkeysModal';
 import AboutModal from './components/modals/AboutModal';
@@ -66,8 +69,7 @@ export default function App() {
   };
 
   const [activeTab, setActiveTab] = useState('library'); // 'library' or 'service'
-  const [themeDark, setThemeDark] = useState(() => {
-    // Read + apply synchronously so there's no dark flash on boot for
+  const [themeDark, setThemeDark] = useState(() => {    // Read + apply synchronously so there's no dark flash on boot for
     // light-mode users; the effect below keeps it in sync afterwards.
     let dark = true;
     try {
@@ -90,6 +92,14 @@ export default function App() {
     document.documentElement.style.colorScheme = themeDark ? 'dark' : 'light';
     document.documentElement.classList.toggle('dark-mode', !!themeDark);
   }, [themeDark]);
+  // Prism Slate icon theme (Settings → Appearance): 'prism' gives every
+  // function-kind of icon its own hue; 'mono' is the old quiet behavior.
+  const [iconTheme, setIconThemeState] = useState(loadIconTheme);
+  const setIconTheme = (v) => {
+    const clean = v === 'mono' ? 'mono' : 'prism';
+    setIconThemeState(clean);
+    saveIconTheme(clean);
+  };
   // Cross-fade the flip: .theme-fading (index.css) enables a short
   // background/border/color transition on every element, but ONLY while a
   // toggle is in flight — zero transition overhead any other time. The
@@ -167,6 +177,21 @@ export default function App() {
       title: opts.title || 'Notice',
       message,
       confirmLabel: opts.confirmLabel || 'OK',
+    });
+  });
+
+  // Three-way choice (shares the confirm dialog + resolver): resolves true
+  // (confirm), 'extra' (third action) or false (cancel). Used by the quit
+  // gate: Quit Without Saving / Save & Quit / Cancel.
+  const appChoice = (message, opts = {}) => new Promise(resolve => {
+    confirmResolverRef.current = resolve;
+    setConfirmDialog({
+      mode: 'confirm',
+      title: opts.title || 'Confirm',
+      message,
+      confirmLabel: opts.confirmLabel || 'Confirm',
+      cancelLabel: opts.cancelLabel || 'Cancel',
+      extraLabel: opts.extraLabel || null,
     });
   });
 
@@ -259,6 +284,19 @@ export default function App() {
     } catch {}
   }, [countdown]);
 
+  // Countdown media templates: named snapshots of the MEDIA setup only (kind,
+  // images, video, framing, watermark) — titles/durations stay weekly. One
+  // source for the desktop panel, the mobile snapshot, and phone apply.
+  const [cdTemplates, setCdTemplates] = useState(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('kog_countdown_templates') || '[]');
+      return Array.isArray(raw) ? raw.filter((t) => t && t.name && t.bgMedia) : [];
+    } catch { return []; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('kog_countdown_templates', JSON.stringify(cdTemplates || [])); } catch {}
+  }, [cdTemplates]);
+
   // Service Plan State
   const [services, setServices] = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -330,7 +368,6 @@ export default function App() {
   }, []);
   
   // AI Selection & Status
-  const [selectedAiModel, setSelectedAiModel] = useState('gemini-1.5-flash'); // 'gemini-1.5-flash', 'gemini-1.5-pro', or 'ollama'
   const [aiStatus, setAiStatus] = useState(null);
 
   const [stageStyle, setStageStyle] = useState({
@@ -591,6 +628,14 @@ export default function App() {
   const applyTemplate = async (templateId) => {
     const tpl = templates.find(t => t.id === templateId);
     if (!tpl) return;
+    // A template REPLACES the working order — guard unsaved work first.
+    if (serviceDirty) {
+      const ok = await appConfirm(
+        `Apply "${tpl.name || 'template'}"? Unsaved changes to "${activeService?.name || 'the service order'}" will be lost.`,
+        { confirmLabel: 'Discard & Apply' }
+      );
+      if (!ok) return;
+    }
     let items = [];
     try { items = JSON.parse(tpl.items_json || '[]'); } catch (_) { items = []; }
     setActiveService({ ...activeService, name: (tpl.name || '').replace(/ Template$/, ''), items: Array.isArray(items) ? items : [] });
@@ -838,7 +883,9 @@ export default function App() {
 
   useEffect(() => {
     if (dockTab === 'media' || dockTab === 'audio') fetchMediaLibrary();
-    if (dockTab === 'functions') { fetchLibraryStats(); fetchAppInfo(); }
+    // Settings tab warms every section's data on visit (stats, version,
+    // templates, Bible catalog) so rows never show stale numbers.
+    if (dockTab === 'settings') { fetchLibraryStats(); fetchAppInfo(); fetchTemplates(); refreshBibleLib(); }
   }, [dockTab]);
 
   useEffect(() => {
@@ -991,14 +1038,47 @@ export default function App() {
   };
   fireMedleySlideRef.current = fireMedleySlide;
 
+  // The row's arrangement object, passed through to the editor (which
+  // converts legacy cue-id orders into section flows itself).
+  const arrangementOf = (item) => item?.meta?.arrangement ?? null;
+
+  // ONE loader for every medley build (Go + save-while-live refresh): batch
+  // songs, anchor background rule, unified flatten. Callers only re-point.
+  const loadMedleyFlow = async (item, def) => {
+    const songs = await loadMedleySongs(medleySongIds(def));
+    applyMedleyAnchorBg(songs, def);
+    // Anchor arrangement (v2 flow or legacy order) resolves against the
+    // LOADED anchor song, then rides in as a plain id list.
+    let orders = null;
+    const arr = item?.meta?.arrangement;
+    if (arr && ((Array.isArray(arr.flow) && arr.flow.length) || (Array.isArray(arr.order) && arr.order.length))) {
+      const pick = (id) => songs.get(id) ?? songs.get(String(id)) ?? songs.get(Number(id)) ?? null;
+      const anchorSong = pick(def.anchor.songId);
+      if (anchorSong) orders = { [String(def.anchor.songId)]: resolveArrangementFlow(anchorSong, arr) };
+    }
+    return { songs, slides: flattenMedley(def, songs, orders) };
+  };
+
+  // Live refresh: rebuild the on-air flow from a (possibly just-edited) row
+  // WITHOUT refiring — position snaps to the current cue when it survives.
+  const refreshLiveMedleyFlow = (rowId, item) => {
+    const def = parseMedleyDef(item);
+    if (!def) return;
+    loadMedleyFlow(item, def).then(({ songs, slides }) => {
+      if (!medleyRef.current || String(medleyRef.current.itemId) !== String(rowId)) return;
+      if (!slides.length) return;
+      const prevIdx = medleyRef.current.index;
+      const at = slides.findIndex(s => (s.cue ? s.cue.id : medleyTitleId(s.songId)) === activeCue?.id);
+      medleyRef.current = { itemId: rowId, slides, songs, index: at > -1 ? at : Math.min(prevIdx, slides.length - 1) };
+    }).catch(() => {});
+  };
+
   const fireMedleyItemLive = async (item) => {
     const def = parseMedleyDef(item);
     if (!def) return;
     // Ground truth in devtools: what the flow was actually built from.
     try { console.info('[medley] go', JSON.stringify(def)); } catch {}
-    const songs = await loadMedleySongs(medleySongIds(def));
-    applyMedleyAnchorBg(songs, def);
-    const slides = flattenMedley(def, songs);
+    const { songs, slides } = await loadMedleyFlow(item, def);
     if (!slides.length) {
       await appAlert('That medley has no slides — its songs may have been deleted.');
       return;
@@ -1032,6 +1112,129 @@ export default function App() {
     if (med && med.slides.length) fireMedleySlide(med, index);
   };
 
+  // --- SONG ARRANGEMENTS -------------------------------------------------
+  // A service row can carry its own play order (item.meta.arrangement.order,
+  // a list of cue ids, repeats allowed). The library song is never touched.
+  // Session mirrors the medley one: set on Go, walked by the arrows, cleared
+  // on Stop / anything-else-live. Grid clicks still fire directly — if the
+  // clicked slide is in the order, the arrows continue from it.
+  const arrangeRef = useRef(null); // { itemId, songId, order } or null
+
+  // Cue objects in arrangement order for THIS song, or null when no session
+  // (or a different song) is on air. Shape-agnostic: v2 section flows and
+  // legacy cue-id orders both resolve here. Normalizes live: slides deleted
+  // from the library since linking are skipped, never fatal.
+  const resolvedArrangementCues = (song, arr) => {
+    const byId = new Map((song?.cues || []).map((c) => [c.id, c]));
+    return resolveArrangementFlow(song, arr).map((id) => byId.get(id)).filter(Boolean);
+  };
+  const arrangementForSong = (song) => {
+    const a = arrangeRef.current;
+    if (!a || !song || !sameSongId(a.songId, song.id)) return null;
+    const ordered = resolvedArrangementCues(song, a.arr);
+    return ordered.length ? ordered : null;
+  };
+
+  const [arrangementModal, setArrangementModal] = useState(null); // { songId, title, itemIdx, existing }
+  // Declared here (not in the medley section below): the keyboard effect
+  // above reads it in its dep array at render time — anything declared after
+  // the effect is TDZ-dead on first render and whitescreens the app.
+  const [medleyModal, setMedleyModal] = useState(null);
+
+  const openArrangementForRow = (item, idx) => {
+    if (!item) return;
+    // UNIFIED: medley rows arrange their ANCHOR song (the flow follows it —
+    // see loadMedleyFlow). Plain song rows arrange themselves.
+    if (item.item_type === 'medley') {
+      const def = parseMedleyDef(item);
+      if (!def) return;
+      setArrangementModal({
+        songId: def.anchor.songId,
+        title: item.title,
+        itemIdx: idx,
+        existing: arrangementOf(item),
+        forAnchor: true,
+      });
+      return;
+    }
+    if (item.item_type !== 'song') return;
+    setArrangementModal({
+      songId: item.content,
+      title: item.title,
+      itemIdx: idx,
+      existing: arrangementOf(item),
+    });
+  };
+
+  // arr: v2 { flow:[{part}], slideCount } | legacy { order:[ids] } | null.
+  // The modal always saves v2; legacy rows keep working untouched.
+  const saveArrangement = ({ arr, summary }) => {
+    const m = arrangementModal;
+    if (!m) return;
+    const rowId = activeService?.items?.[m.itemIdx]?.id ?? null;
+    const hasArr = arr && ((Array.isArray(arr.flow) && arr.flow.length) || (Array.isArray(arr.order) && arr.order.length));
+    const slideN = arr && Number(arr.slideCount) > 0 ? Number(arr.slideCount)
+      : (Array.isArray(arr?.order) ? arr.order.length : (Array.isArray(arr?.flow) ? arr.flow.length : 0));
+    // UNIFIED medley branch needs the row's next meta for the live rebuild.
+    let nextMeta = null;
+    setActiveService((prev) => {
+      const items = [...(prev?.items || [])];
+      if (m.itemIdx == null || m.itemIdx < 0 || m.itemIdx >= items.length) return prev;
+      const cur = items[m.itemIdx] || {};
+      const keepId = cur.id != null ? { id: cur.id } : {};
+      const keepMeta = { ...(cur.meta || {}) };
+      if (!hasArr) delete keepMeta.arrangement;
+      else keepMeta.arrangement = arr;
+      nextMeta = keepMeta;
+      if (m.forAnchor) {
+        // Medley anchor: the flow (links, subtitle, count) is untouched —
+        // only the anchor's play order changes.
+        items[m.itemIdx] = {
+          ...cur, ...keepId, item_type: 'medley',
+          ...(Object.keys(keepMeta).length ? { meta: keepMeta } : {}),
+        };
+        if (!Object.keys(keepMeta).length) delete items[m.itemIdx].meta;
+      } else if (!hasArr) {
+        // Removed: back to the song's own order.
+        const s = (songs || []).find(x => sameSongId(x.id, m.songId));
+        items[m.itemIdx] = {
+          ...keepId, item_type: 'song', title: m.title,
+          subtitle: `${s?.artist || 'Worship'} • Song`, content: m.songId,
+          ...(Object.keys(keepMeta).length ? { meta: keepMeta } : {}),
+        };
+      } else {
+        // Row subtitle previews the flow verbatim — what you see is what Go walks.
+        items[m.itemIdx] = {
+          ...keepId, item_type: 'song', title: m.title,
+          subtitle: summary ? `Arranged · ${summary}` : 'Arranged song',
+          content: m.songId, meta: keepMeta,
+        };
+      }
+      return { ...prev, items };
+    });
+    setArrangementModal(null);
+    // Live refresh: this row's song is on air RIGHT NOW — re-point the
+    // session at the just-saved arrangement (no refire, output untouched).
+    if (rowId != null && arrangeRef.current && String(arrangeRef.current.itemId) === String(rowId)) {
+      if (!hasArr) arrangeRef.current = null;
+      else arrangeRef.current = { ...arrangeRef.current, arr };
+    }
+    // UNIFIED live refresh: this medley's flow is on air — rebuild it with
+    // the new anchor order (no refire, position preserved).
+    if (m.forAnchor && rowId != null && medleyRef.current && String(medleyRef.current.itemId) === String(rowId)) {
+      const cur = activeService?.items?.[m.itemIdx] || {};
+      refreshLiveMedleyFlow(rowId, { ...cur, id: rowId, meta: nextMeta || {} });
+    }
+    try {
+      toast.add({
+        title: hasArr ? 'Arrangement saved' : 'Arrangement removed',
+        description: hasArr ? `${slideN} slides in custom order` : 'Back to the song order',
+        type: 'success',
+        duration: 4000,
+      });
+    } catch {}
+  };
+
   // --- KEYBOARD SHORTCUTS ---
   // Medley sessions ride here too: if a medley slide is on air, arrows walk
   // the flattened medley (across songs) instead of the grid's single song.
@@ -1050,6 +1253,19 @@ export default function App() {
       if (at > -1 && at < med.slides.length - 1) { fireMedleySlideRef.current(med, at + 1); return; }
       if (at > -1) return; // medley end: hold the last slide
       medleyRef.current = null; // jumped elsewhere — session over
+    }
+    // Arrangement session: title-card steps into the custom order (NOT the
+    // library's first slide); walking holds at the end; a foreign slide on
+    // air ends the session. Standby/clear fall through to the normal path.
+    const arrNext = arrangementForSong(activeSong);
+    if (arrNext) {
+      const at = arrNext.findIndex(c => c.id === activeCue?.id);
+      if (at > -1) {
+        if (at < arrNext.length - 1) fireCueLive(arrNext[at + 1]);
+        return; // arrangement end: hold the last slide
+      }
+      if (activeCue?.id === 'title-card') { fireCueLive(arrNext[0]); return; }
+      if (activeCue && activeCue.id !== 'standby' && activeCue.id !== 'clear') arrangeRef.current = null;
     }
     if (!activeSong?.cues) return;
     const currentIndex = activeSong.cues.findIndex(c => c.id === activeCue?.id);
@@ -1074,6 +1290,15 @@ export default function App() {
       if (at === 0) return; // medley start: hold the first slide
       medleyRef.current = null; // jumped elsewhere — session over
     }
+    // Arrangement session: walk backwards through the custom order, hold at
+    // the start. Title-card keeps its normal re-fire below.
+    const arrPrev = arrangementForSong(activeSong);
+    if (arrPrev) {
+      const at = arrPrev.findIndex(c => c.id === activeCue?.id);
+      if (at > 0) { fireCueLive(arrPrev[at - 1]); return; }
+      if (at === 0) return; // arrangement start: hold the first slide
+      if (activeCue && activeCue.id !== 'title-card' && activeCue.id !== 'standby' && activeCue.id !== 'clear') arrangeRef.current = null;
+    }
     if (!activeSong?.cues) return;
     const currentIndex = activeSong.cues.findIndex(c => c.id === activeCue?.id);
     if (currentIndex > 0) {
@@ -1081,6 +1306,43 @@ export default function App() {
     } else if (currentIndex === 0 || activeCue?.id === 'title-card') {
       fireTitleLive();
     }
+  }, [activeSong, activeCue, activePresentation]);
+
+  // Context-aware section jump (unified engine): V = next Verse, C = next
+  // Chorus — of the song that's on air RIGHT NOW, never another song's.
+  // Inside a medley flow the search stays inside the current song's remaining
+  // slides; inside an arrangement it follows the custom order; otherwise the
+  // library order. B is deliberately NOT bound: B clears all output, and a
+  // destructive key must never gain a second meaning mid-show.
+  const jumpToSection = useCallback((kind) => {
+    if (activePresentation) return; // sermon owns the keys while visible
+    const want = kind === 'V' ? 'verse' : 'chorus';
+    const match = (label) => String(label || '').replace(/\s*\(Part\s+\d+\)\s*$/i, '').trim().toLowerCase().startsWith(want);
+    const noMore = (songTitle) => {
+      try {
+        toast.add({
+          title: `No more ${want === 'verse' ? 'verses' : 'choruses'} from here`,
+          description: songTitle || 'End of the flow',
+          duration: 2500,
+        });
+      } catch {}
+    };
+    const med = medleyRef.current;
+    if (med && med.slides.length) {
+      const at = medleyIndexOfCue(activeCue?.id);
+      const curSong = at > -1 ? med.slides[at].songId : med.slides[0]?.songId;
+      const nxt = med.slides.findIndex((s, i) => i > at && String(s.songId) === String(curSong) && s.kind === 'cue' && match(s.cue?.label));
+      if (nxt > -1) { fireMedleySlideRef.current(med, nxt); return; }
+      const song = lookupMedleySong(med.songs, curSong);
+      noMore(song?.title);
+      return;
+    }
+    if (!activeSong?.cues) return;
+    const list = arrangementForSong(activeSong) || activeSong.cues;
+    const ci = activeCue ? list.findIndex(c => c.id === activeCue.id) : -1;
+    const nxt = list.findIndex((c, i) => i > ci && match(c.label));
+    if (nxt > -1) { fireCueLive(list[nxt]); return; }
+    noMore(activeSong.title);
   }, [activeSong, activeCue, activePresentation]);
 
   // Derived book list for the 3-column drill-down (filtered by testament + text query)
@@ -1121,6 +1383,13 @@ export default function App() {
       // L = clear the lyrics only, leaving the background on air running.
       if (e.key === 'b' || e.key === 'B') fireCueLive({ id: 'clear', label: 'Clear', text: '' });
       if (e.key === 'l' || e.key === 'L') { if (clearLyricsRef.current) clearLyricsRef.current(); }
+      // V / C = next Verse / Chorus of the song on air (unified section
+      // jump). Same input/editor guards as above; never while a builder
+      // modal is open (search inputs live there) and never over a visible
+      // sermon deck. B stays unbound (blackout) on purpose.
+      if ((e.key === 'v' || e.key === 'V' || e.key === 'c' || e.key === 'C') && !medleyModal && !arrangementModal && !(sermon && sermon.loaded && sermon.passthrough)) {
+        e.preventDefault(); jumpToSection(e.key.toLowerCase() === 'v' ? 'V' : 'C');
+      }
       // Sermon layer owns the arrows: while PowerPoint shows beneath, lyrics
       // keys drive its slides (Right/Space next, Left previous) and lyrics
       // stop responding — the wall decides, not the tab in front.
@@ -1139,7 +1408,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleNextCue, handlePrevCue, showModalOpen, showBuilder, builderSheet, builderTileIdx, dockTab, bibleStep, isEditorOpen, sermon]);
+  }, [handleNextCue, handlePrevCue, jumpToSection, medleyModal, arrangementModal, showModalOpen, showBuilder, builderSheet, builderTileIdx, dockTab, bibleStep, isEditorOpen, sermon]);
 
   const toggleTarget = (id) => setTargetedDisplays(prev => prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]);
   const addNewDisplay = () => {
@@ -1155,6 +1424,20 @@ export default function App() {
       const filePath = (webUtils && webUtils.getPathForFile) ? webUtils.getPathForFile(file) : (file.path || '');
       if (!filePath) return null;
       return await ipcRenderer.invoke('add-media-file', filePath);
+    } catch (e) {
+      return null;
+    }
+  };
+
+  // Countdown-private twin: files land in countdown-media/ with NO library
+  // registration — the Media tab and song background pickers never see them.
+  const persistCountdownFile = async (file) => {
+    if (!window.require || !file) return null;
+    try {
+      const { ipcRenderer, webUtils } = window.require('electron');
+      const filePath = (webUtils && webUtils.getPathForFile) ? webUtils.getPathForFile(file) : (file.path || '');
+      if (!filePath) return null;
+      return await ipcRenderer.invoke('add-countdown-file', filePath);
     } catch (e) {
       return null;
     }
@@ -1593,8 +1876,12 @@ export default function App() {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('update-live-slide', slidePayload);
     }
-    // Stage feed: current + next cue
-    const cueList = song?.cues || [];
+    // Stage feed: current + next cue. Inside an arrangement session the
+    // "next" slide is the next in the CUSTOM order, not the library order
+    // (and the output preload below follows it too). Medley sessions win
+    // outright — the two flows never mix.
+    const medLive = medleyRef.current && medleyRef.current.slides.length;
+    const cueList = (!medLive && arrangementForSong(song)) || song?.cues || [];
     const idx = cue?.id ? cueList.findIndex(c => c.id === cue.id) : -1;
     const nextCue = idx > -1 ? cueList[idx + 1] : (cueList.length > 0 ? cueList[0] : null);
     sendStageData(
@@ -1646,7 +1933,7 @@ export default function App() {
     if (!countdown?.live || isOutputWindow || !window.require) return;
     const cfg = { ...DEFAULT_COUNTDOWN, ...countdown };
     const timer = { ...cfg };
-    const sig = JSON.stringify([timer.title, timer.subtext, timer.mode, timer.durationSec, timer.targetTime, timer.showOn, timer.overtime, timer.titleSize, timer.timeSize, timer.subtextSize, timer.bgType, timer.bgValue, timer.live.endsAt, timer.live.stamp]);
+    const sig = JSON.stringify([timer.title, timer.subtext, timer.mode, timer.durationSec, timer.targetTime, timer.showOn, timer.overtime, timer.titleSize, timer.timeSize, timer.subtextSize, timer.bgType, timer.bgValue, timer.bgMedia, timer.live.endsAt, timer.live.stamp]);
     if (countdownSentRef.current === sig) return;
     countdownSentRef.current = sig;
     const { ipcRenderer } = window.require('electron');
@@ -1794,7 +2081,9 @@ export default function App() {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('update-live-slide', slidePayload);
     }
-    const nextCue = song.cues && song.cues.length > 0 ? song.cues[0] : null;
+    const medLiveTitle = medleyRef.current && medleyRef.current.slides.length;
+    const titleFlow = (!medLiveTitle && arrangementForSong(song)) || song.cues || [];
+    const nextCue = titleFlow.length > 0 ? titleFlow[0] : null;
     sendStageData(
       { title: slidePayload.title, label: 'Song Title', text: song.title, timestamp: slidePayload.timestamp },
       nextCue ? { title: song.title, label: nextCue.label, text: nextCue.text } : null
@@ -1903,9 +2192,9 @@ export default function App() {
   // `undefined === undefined` would light up every id-less row at once.
   const genServiceItemId = () => `si-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // Medley Builder modal state: { anchor:{songId,title}, itemIdx, existing }.
+  // Medley Builder modal state lives near the top (see arrangementModal):
+  // the keyboard effect reads it before this section runs.
   // The modal edits links; saving converts the row (or back to plain song).
-  const [medleyModal, setMedleyModal] = useState(null);
 
   const openMedleyForRow = async (item, idx) => {
     if (!item) return;
@@ -1930,6 +2219,7 @@ export default function App() {
         anchor: { songId: def.anchor.songId, title: titleOf(def.anchor.songId, item.title), parts: def.anchor.includedParts },
         itemIdx: idx,
         existing: def.links.map(l => ({ songId: l.songId, title: titleOf(l.songId), parts: l.includedParts, skip: l.skipTitleSlide })),
+        anchorArranged: Array.isArray(item.meta?.arrangement?.order) && item.meta.arrangement.order.length > 0,
       });
       return;
     }
@@ -1959,9 +2249,13 @@ export default function App() {
       if (m.itemIdx == null || m.itemIdx < 0 || m.itemIdx >= items.length) return prev;
       const cur = items[m.itemIdx] || {};
       const keepId = cur.id != null ? { id: cur.id } : {};
+      // Row arrangement survives medley re-saves (unified engine: the anchor
+      // order lives in meta, the song links in content — neither clobbers).
+      const keepMeta = { ...(cur.meta || {}) };
+      const metaPatch = Object.keys(keepMeta).length ? { meta: keepMeta } : {};
       if (!normLinks.length) {
-        // Unlinked: back to the plain anchor song row — and out of any live
-        // flow for it (the verse on air now belongs to the plain song row).
+        // Unlinked: back to a PLAIN anchor song row — arrangement included in
+        // the reset (the toast says plain, so plain it is).
         if (liveRow) medleyRef.current = null;
         const s = (songs || []).find(x => sameSongId(x.id, m.anchor.songId));
         items[m.itemIdx] = {
@@ -1981,6 +2275,7 @@ export default function App() {
         subtitle: `Medley • ${linkBits.join(' + ')}`,
         content: JSON.stringify(def),
         slideCount: Math.max(1, Number(slideCount) || 1),
+        ...metaPatch,
       };
       return { ...prev, items };
     });
@@ -1997,25 +2292,15 @@ export default function App() {
     } catch {}
     // Live refresh: this medley's flow is on air RIGHT NOW — rebuild it from
     // the just-saved def so the screen follows the edit. Output untouched
-    // (no refire); position snaps to the current cue when it survives, else
-    // restarts at the top. Without this, edits only applied on the next Go.
+    // (no refire). Without this, edits only applied on the next Go.
     if (liveRow && normLinks.length) {
       const def = {
         anchor: { songId: m.anchor.songId, includedParts: Array.isArray(anchorParts) && anchorParts.length ? anchorParts : ['ALL'] },
         links: normLinks.map(l => ({ songId: l.songId, includedParts: l.parts, skipTitleSlide: l.skip !== false })),
       };
-      loadMedleySongs(medleySongIds(def)).then((songsMap) => {
-        if (!medleyRef.current || String(medleyRef.current.itemId) !== String(rowId)) return;
-        applyMedleyAnchorBg(songsMap, def);
-        const slides = flattenMedley(def, songsMap);
-        if (!slides.length) return;
-        // activeCue here is save-time stale by ~100ms — prefer it (usually
-        // still current), else keep the old position clamped into the new
-        // flow. Arrows re-derive from the live cue on every press regardless.
-        const prevIdx = medleyRef.current.index;
-        const at = slides.findIndex(s => (s.cue ? s.cue.id : medleyTitleId(s.songId)) === activeCue?.id);
-        medleyRef.current = { itemId: rowId, slides, songs: songsMap, index: at > -1 ? at : Math.min(prevIdx, slides.length - 1) };
-      }).catch(() => {});
+      // The row's anchor arrangement (if any) survives medley re-saves —
+      // refresh through the unified loader so the flow keeps following it.
+      refreshLiveMedleyFlow(rowId, { id: rowId, meta: activeService?.items?.[m.itemIdx]?.meta, content: JSON.stringify(def) });
     }
   };
 
@@ -2037,6 +2322,12 @@ export default function App() {
     liveBibleRef.current = (item.meta && item.meta.kind === 'bible') ? item : null;
     liveBibleSrcRef.current = (item.meta && item.meta.kind === 'bible') ? (item.meta.source || null) : null;
     if (item.item_type === 'song') {
+      // Arrangement session: this row carries a custom play order (v2 section
+      // flow or legacy cue-id order) — the arrows walk it (see handleNextCue).
+      // Anything else clears it.
+      const arrObj = item.meta?.arrangement;
+      const hasArr = arrObj && ((Array.isArray(arrObj.flow) && arrObj.flow.length) || (Array.isArray(arrObj.order) && arrObj.order.length));
+      arrangeRef.current = hasArr ? { itemId: item.id, songId: item.content, arr: arrObj } : null;
       if (activeCue && activeCue.id !== 'clear') {
         // Output already shows something: stage this song's background first.
         // A black/cleared output just loads the song, as before.
@@ -2055,13 +2346,17 @@ export default function App() {
         selectSong(item.content);
       }
     } else if (item.item_type === 'media') {
+      arrangeRef.current = null;
       if (activeCue?.id === item.id) return;
       fireServiceMediaLive(item);
     } else if (item.item_type === 'medley') {
+      arrangeRef.current = null;
       fireMedleyItemLive(item);
     } else if (item.item_type === 'presentation') {
+      arrangeRef.current = null;
       firePresentationFromItem(item);
     } else {
+      arrangeRef.current = null;
       if (item.meta && item.meta.kind === 'bible') lastBibleRef.current = item;
       setActiveCue({ id: item.id, label: item.subtitle, text: item.content });
       const d = Number(item.duration) || 0;
@@ -2335,6 +2630,14 @@ export default function App() {
     // songs count title + cues, matching the grid and builder.
     if (item.item_type === 'medley') return Number(item.slideCount) || 1;
     if (item.item_type === 'song') {
+      // Arranged rows count title + custom order, matching what Go walks.
+      // v2 flows carry their expanded slideCount from save time (the library
+      // list has no cues to count from); legacy orders count their ids.
+      const ma = item.meta?.arrangement;
+      if (ma && ((Array.isArray(ma.flow) && ma.flow.length) || (Array.isArray(ma.order) && ma.order.length))) {
+        if (Number(ma.slideCount) > 0) return Number(ma.slideCount) + 1;
+        return ((ma.flow || ma.order) || []).length + 1;
+      }
       // Numeric-aware match (see sameSongId): reloaded plans hold "42.0"
       // where the library holds 42.
       const song = songs.find(s => sameSongId(s.id, item.content));
@@ -2487,6 +2790,8 @@ export default function App() {
       return;
     }
     if (item.item_type === 'song') {
+      // Arrangement session ends with the song — arrows go back to the grid.
+      arrangeRef.current = null;
       setActiveSong(null);
       setActiveCue({ id: 'clear', label: 'Clear', text: '' });
       setSlideTimer({ start: null, elapsed: 0, duration: 0 });
@@ -2502,6 +2807,49 @@ export default function App() {
     fireCueLive({ id: 'clear', label: 'Clear', text: '' });
   };
 
+  // --- SERVICE PLAN DIRTY TRACKING ---------------------------------------
+  // The working order vs the last saved/loaded state. Volatile fields are
+  // stripped from the comparison: row `id`s (fireServiceItemLive assigns
+  // them in place on Go — going live must NOT dirty the plan) and medley
+  // `slideCount`s (recomputed from reality on every Go).
+  const servicePlanSnap = (svc) => {
+    try {
+      return JSON.stringify({
+        name: svc?.name || '',
+        items: (svc?.items || []).map((it) => {
+          if (!it || typeof it !== 'object') return it;
+          const { id: _id, slideCount: _n, ...rest } = it;
+          return rest;
+        }),
+      });
+    } catch {
+      return null;
+    }
+  };
+  const serviceSnapRef = useRef(null);
+  const [serviceDirty, setServiceDirty] = useState(false);
+  // Re-entrant X guard: a second close request while the quit dialog is open
+  // is ignored (the first dialog owns the decision).
+  const closeDecidingRef = useRef(false);
+  const markServicePlanSaved = (svc) => {
+    const snap = servicePlanSnap(svc);
+    if (snap !== null) {
+      serviceSnapRef.current = snap;
+      setServiceDirty(false);
+    }
+  };
+  useEffect(() => {
+    const snap = servicePlanSnap(activeService);
+    if (snap === null) return;
+    if (serviceSnapRef.current === null) {
+      // Boot: the opening blank order is clean by definition.
+      serviceSnapRef.current = snap;
+      setServiceDirty(false);
+      return;
+    }
+    setServiceDirty(snap !== serviceSnapRef.current);
+  }, [activeService]);
+
   const saveCurrentService = async () => {
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
@@ -2511,18 +2859,63 @@ export default function App() {
       const snap = activeService;
       const savedId = await ipcRenderer.invoke('db-save-service', snap);
       setActiveService((prev) => ({ ...(prev || snap), id: savedId }));
+      markServicePlanSaved({ ...(snap || {}), id: savedId });
       fetchServices();
       await appAlert('Service plan saved successfully!');
     }
   };
 
   const loadService = async (serviceId) => {
+    // Unsaved work guard: loading a show replaces the working order.
+    if (serviceDirty && serviceId !== activeService?.id) {
+      const ok = await appConfirm(
+        `Load this show? Unsaved changes to "${activeService?.name || 'the service order'}" will be lost.`,
+        { confirmLabel: 'Discard & Load' }
+      );
+      if (!ok) return;
+    }
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
       const details = await ipcRenderer.invoke('db-get-service-details', serviceId);
-      if (details) setActiveService(details);
+      if (details) {
+        setActiveService(details);
+        markServicePlanSaved(details);
+      }
     }
   };
+
+  // Quit gate: main blocks operator-window close and asks here. Clean plan →
+  // quit now; dirty plan → Save & Quit / Quit Without Saving / Cancel.
+  // Update installs bypass in main (forceQuit) and never reach this dialog.
+  // Placed AFTER saveCurrentService (dep array reads it at render — anything
+  // earlier is TDZ-dead). Deps re-subscribe on change so Save always writes
+  // the CURRENT plan; a stale closure here would save an outdated order.
+  useEffect(() => {
+    if (isOutputWindow || !window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    const onCloseRequest = async () => {
+      if (closeDecidingRef.current) return;
+      closeDecidingRef.current = true;
+      try {
+        if (!serviceDirty) { ipcRenderer.send('app-close-decision', 'quit'); return; }
+        const choice = await appChoice(
+          `"${activeService?.name || 'Service order'}" has unsaved changes.\n\nSave the plan before quitting?`,
+          { title: 'Unsaved service order', confirmLabel: 'Quit Without Saving', cancelLabel: 'Cancel', extraLabel: 'Save & Quit' }
+        );
+        if (choice === 'extra') {
+          await saveCurrentService();
+          ipcRenderer.send('app-close-decision', 'quit');
+        } else if (choice === true) {
+          ipcRenderer.send('app-close-decision', 'quit');
+        }
+        // Cancel → stay; main keeps the window open.
+      } finally {
+        closeDecidingRef.current = false;
+      }
+    };
+    ipcRenderer.on('app-close-request', onCloseRequest);
+    return () => ipcRenderer.removeListener('app-close-request', onCloseRequest);
+  }, [isOutputWindow, serviceDirty, activeService, appChoice, saveCurrentService]);
 
   // Step 5 (FreeShow flow): queue a saved show into the active Service Plan
   const queueShowIntoService = async (showId, insertAtEnd = true) => {
@@ -2543,10 +2936,11 @@ export default function App() {
 
   // --- HYBRID AI / FALLBACK SMART AUTO-PASTE PARSER ---
   // Works for chord charts AND plain lyrics — with or without section
-  // markers. The AI gets first shot; whatever comes back (AI, IPC failsafe
-  // or the local fallback) is normalised and split to linesPerSlide through
-  // the shared parser in electron/songParse.js, so a lyrics-site paste with
-  // no [Verse]/Chorus labels still builds real blocks.
+  // Regex-Primary paste: the LOCAL engine runs by default — instant, fully
+  // offline, no key, no model, no IPC round-trip (the parser is bundled into
+  // the renderer too). Whatever the text is — chord chart, marked lyrics or
+  // plain walls — it is normalised and split to linesPerSlide through the
+  // shared parser in electron/songParse.js.
   // `opts.linesPerSlide` lets the split prompt run THIS parse with the number
   // just confirmed — setState alone would still be stale inside this closure.
   const processAutoPaste = async (textOverride, opts = {}) => {
@@ -2556,34 +2950,11 @@ export default function App() {
       return;
     }
 
-    if (selectedAiModel === 'ollama' && text.length > 5000) {
-      await appAlert("Text is too long for local Ollama! Please trim your text or switch to Gemini 3.6 Flash.");
-      return;
-    }
-
     const nLines = Math.max(1, Math.floor(Number(opts.linesPerSlide ?? linesPerSlide) || 4));
     setIsParsing(true);
     try {
-      let cues = null;
-      try {
-        if (window.require) {
-          const { ipcRenderer } = window.require('electron');
-          const result = await ipcRenderer.invoke('ai-parse-chord-chart', { text, model: selectedAiModel, linesPerSlide: nLines });
-          if (result && Array.isArray(result.cues) && result.cues.length > 0) {
-            cues = splitCuesByLines(result.cues, nLines);
-            setAiStatus(result.modelUsed);
-          }
-        }
-      } catch (err) {
-        console.log('AI Parser IPC failed, falling back to the local parser...', err);
-      }
-
-      // No AI/IPC result? Build the blocks locally — same parser the main
-      // process uses, so pure lyrics behave identically offline.
-      if (!cues || cues.length === 0) {
-        cues = splitCuesByLines(parseSongBlocks(text, nLines), nLines);
-        setAiStatus('Local Parser (Offline)');
-      }
+      let cues = splitCuesByLines(parseSongBlocks(text, nLines), nLines);
+      setAiStatus('Local Parser (Offline)');
       if (cues.length === 0) cues = [{ label: 'Verse 1', text }];
 
       // Both parse engines land here: give every block the default size and a
@@ -2591,6 +2962,42 @@ export default function App() {
       // full 140px instead of being shrunk into the stock box.
       cues = cues.map(fitParsedCue);
 
+      setEditingSong(prev => ({ ...prev, cues }));
+      return cues;
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
+  // Gemini on-demand Auto-Fix: runs ONLY when the operator explicitly clicks
+  // it after poor Regex results. Never automatic, never a fallback chain —
+  // failures alert and leave the local blocks untouched.
+  const processAiAutofix = async (textOverride, opts = {}) => {
+    const text = (typeof textOverride === 'string') ? textOverride : rawPasteText;
+    if (!text || !text.trim()) {
+      await appAlert("Please paste lyrics or a chord chart first!");
+      return;
+    }
+    if (!window.require) return;
+
+    const nLines = Math.max(1, Math.floor(Number(opts.linesPerSlide ?? linesPerSlide) || 4));
+    setIsParsing(true);
+    try {
+      const { ipcRenderer } = window.require('electron');
+      const status = await ipcRenderer.invoke('gemini-status').catch(() => null);
+      if (!status?.hasKey) {
+        await appAlert("AI Auto-Fix needs your free Gemini key — paste it in the key box above first. Parsing stays local until then.");
+        return;
+      }
+      const result = await ipcRenderer.invoke('ai-autofix-song', { text, linesPerSlide: nLines });
+      if (!result || result.error || !Array.isArray(result.cues) || result.cues.length === 0) {
+        await appAlert(`AI Auto-Fix failed: ${(result && result.error) || 'no usable sections.'}\n\nYour local blocks are untouched.`);
+        return;
+      }
+      let cues = splitCuesByLines(result.cues, nLines);
+      if (cues.length === 0) cues = [{ label: 'Verse 1', text }];
+      cues = cues.map(fitParsedCue);
+      setAiStatus(result.modelUsed || 'Gemini Auto-Fix (Online)');
       setEditingSong(prev => ({ ...prev, cues }));
       return cues;
     } finally {
@@ -3035,12 +3442,16 @@ export default function App() {
       countdownSet: (patch) => {
         if (!patch || typeof patch !== 'object') return false;
         const clean = {};
-        for (const k of ['title', 'subtext', 'mode', 'durationSec', 'targetTime', 'showOn', 'overtime', 'titleSize', 'timeSize', 'subtextSize']) {
+        for (const k of ['title', 'subtext', 'mode', 'durationSec', 'targetTime', 'showOn', 'overtime', 'titleSize', 'timeSize', 'subtextSize', 'bgType', 'bgValue', 'bgMedia']) {
           if (patch[k] !== undefined) clean[k] = patch[k];
         }
         // `live` never travels in: timing stays owned by Go/Stop.
         if (clean.mode && !['duration', 'target', 'clock'].includes(clean.mode)) delete clean.mode;
         if (clean.showOn && !['both', 'main', 'stage'].includes(clean.showOn)) delete clean.showOn;
+        if (clean.bgType && !['color', 'gradient', 'animated', 'media'].includes(clean.bgType)) delete clean.bgType;
+        // Media from a paired phone is apply-only: shape-checked, URLs pass
+        // through untouched (they already resolve on every surface).
+        if (clean.bgMedia !== undefined && (typeof clean.bgMedia !== 'object' || !clean.bgMedia)) delete clean.bgMedia;
         if (clean.durationSec !== undefined) clean.durationSec = Math.max(0, Math.floor(Number(clean.durationSec) || 0));
         setCountdown((prev) => ({ ...DEFAULT_COUNTDOWN, ...(prev || {}), ...clean }));
         return true;
@@ -3132,7 +3543,18 @@ export default function App() {
         titleSize: Number(countdown.titleSize) || 64,
         timeSize: Number(countdown.timeSize) || 360,
         subtextSize: Number(countdown.subtextSize) || 40,
+        bgType: countdown.bgType || 'gradient',
+        bgValue: countdown.bgValue || '',
+        bgMedia: countdown.bgMedia || null,
         live: countdown.live ? { endsAt: countdown.live.endsAt ?? null, startedAt: countdown.live.startedAt ?? null } : null,
+        // One-click setups for the phone: name + kind + slide count + the
+        // full media object apply needs. Small strings; pushed on change.
+        templates: (cdTemplates || []).map((t) => ({
+          name: t.name || '',
+          kind: (t.bgMedia || {}).kind || 'slideshow',
+          slides: ((t.bgMedia || {}).images || []).length,
+          bgMedia: t.bgMedia || null,
+        })),
       } : null,
     };
     ipcRenderer.send('mobile-state', snap);
@@ -3183,6 +3605,14 @@ export default function App() {
       if (at > -1) return at;
     }
     if (activeCue.id === 'title-card') return 0;
+    // A live arrangement counts position in the CUSTOM flow too (repeats
+    // share one cue id, so repeats read the first occurrence — same as
+    // medleys; the Arr. pill is the precise readout).
+    const arrCues = arrangementForSong(activeSong);
+    if (arrCues) {
+      const ai = arrCues.findIndex(c => c.id === activeCue.id);
+      return ai >= 0 ? ai + 1 : -1;
+    }
     const idx = (activeSong?.cues || []).findIndex(c => c.id === activeCue.id);
     return idx >= 0 ? idx + 1 : -1;
   })();
@@ -3202,15 +3632,39 @@ export default function App() {
       const rowTitle = (activeService?.items || []).find(i => i.id === med.itemId)?.title || null;
       return med.slides.map((s, i) => {
         const song = lookupMedleySong(med.songs, s.songId);
+        // Song Title Divider support: the grid renders a header above the
+        // first tile of each song so the operator sees where flows cross.
+        const firstOfSong = i === 0 || String(med.slides[i - 1].songId) !== String(s.songId);
         return s.kind === 'title'
-          ? { isTitle: true, medSong: song, medIdx: i, medTitle: rowTitle }
-          : { cue: s.cue, num: i, medSong: song, medIdx: i, medTitle: rowTitle };
+          ? { isTitle: true, medSong: song, medIdx: i, medTitle: rowTitle, medFirstOfSong: firstOfSong }
+          : { cue: s.cue, num: i, medSong: song, medIdx: i, medTitle: rowTitle, medFirstOfSong: firstOfSong };
       });
     }
     const tiles = [];
     if (activeSong) tiles.push({ isTitle: true });
+    // A live arrangement reorders the GRID into the custom flow (repeats
+    // included, keyed by position) — the operator sees and clicks what Go
+    // actually walks, exactly like a medley flow. Library order returns the
+    // moment the session ends.
+    const arrTiles = arrangementForSong(activeSong);
+    if (arrTiles) {
+      arrTiles.forEach((c, i) => tiles.push({ cue: c, num: i + 1, arrIdx: i }));
+      return tiles;
+    }
     (activeSong?.cues || []).forEach(c => tiles.push({ cue: c, num: tiles.length }));
     return tiles;
+  })();
+
+  // Arrangement live position: which step of the custom order is on air.
+  // (Ref read at render, same as medleyRef in slideGrid — every session
+  // change re-renders via activeCue/activeSong anyway.)
+  const arrangementStatus = (() => {
+    const a = arrangeRef.current;
+    if (!a || !activeSong || !sameSongId(a.songId, activeSong.id)) return null;
+    const ordered = resolvedArrangementCues(activeSong, a.arr);
+    if (!ordered.length) return null;
+    const at = activeCue ? ordered.findIndex(c => c.id === activeCue.id) : -1;
+    return { pos: at > -1 ? at + 1 : null, total: ordered.length, onTitle: activeCue?.id === 'title-card' };
   })();
 
   // Tile-face cache: on a cue change only the two tiles whose live ring flips
@@ -3757,7 +4211,7 @@ export default function App() {
     { id: 'countdown', label: 'Countdown', iconId: 'timer', accent: false },
     { id: 'scripture', label: 'Scripture', iconId: 'book-open', accent: false },
     { id: 'outputs', label: 'Outputs', iconId: 'monitor', accent: false },
-    { id: 'functions', label: 'Functions', iconId: 'settings', accent: false }
+    { id: 'settings', label: 'Settings', iconId: 'settings', accent: false }
   ];
 
   const menuItems = {
@@ -3856,10 +4310,6 @@ export default function App() {
   }, []);
 
   const handleInstallUpdate = () => installUpdateVersion(updateVersion);
-
-  const handleOpenGuide = () => {
-    setAboutStatus('The KOGWorship User Guide is not available yet.');
-  };
 
   const handleDockSelect = (item) => {
     if (item.id === 'outputs') { setShowOutputMonitor(true); return; }
@@ -4075,7 +4525,10 @@ export default function App() {
 
   const appValue = {
     logoImage,
-    themeDark, setThemeDark,
+    themeDark, setThemeDark, toggleTheme, iconTheme, setIconTheme,
+    // Settings tab (updater UI moved here from the About modal).
+    aboutStatus, updateReady, updateProgress, updateVersion,
+    handleCheckUpdates, handleDownloadUpdate, handleInstallUpdate,
     ACCENT, ACCENT_SOFT, ACCENT_SOFT_2, C, PINK, ACCENT_PINK, PINK_SOFT, PINK_SOFT_2, NEBULA, PINK2, ACCENCY,
     isProjector, setIsProjector, isStage, setIsStage, showSplash, setShowSplash, showWelcome, setShowWelcome,
     currentSlide, setCurrentSlide,
@@ -4096,7 +4549,7 @@ export default function App() {
     builderTargetSecId, setBuilderTargetSecId, builderTargetSectionId,
     builderDensity, setBuilderDensity, gridDensity, setGridDensity, builderTileIdx, setBuilderTileIdx, builderCollapsed, setBuilderCollapsed,
     builderRehearse, setBuilderRehearse, builderActiveSong, setBuilderActiveSong, builderSongDetails, setBuilderSongDetails,
-    selectedServiceId, setSelectedServiceId, slideTimer, setSlideTimer, services, setServices, templates, setTemplates,
+    selectedServiceId, setSelectedServiceId, serviceDirty, slideTimer, setSlideTimer, services, setServices, templates, setTemplates,
     selectedTemplateId, setSelectedTemplateId, dragIndex, setDragIndex,
     showTemplateNameModal, setShowTemplateNameModal, templateNameValue, setTemplateNameValue,
     activeService, setActiveService, customSlideModal, setCustomSlideModal, newSlideData, setNewSlideData,
@@ -4107,20 +4560,20 @@ export default function App() {
     dragFrom, setDragFrom, showSlideProps, setShowSlideProps, serviceCollapsed, setServiceCollapsed,
     serviceAddMenu, setServiceAddMenu, serviceSongQuery, setServiceSongQuery, serviceTargetTitle, setServiceTargetTitle, serviceSectionTitles,
     serviceMediaPicker, setServiceMediaPicker,
-    previewScale, setPreviewScale, outputAspect, setOutputAspect, selectedAiModel, setSelectedAiModel, aiStatus, setAiStatus,
+    previewScale, setPreviewScale, outputAspect, setOutputAspect, aiStatus, setAiStatus, processAiAutofix,
     stageStyle, setStageStyle, displays, setDisplays, targetedDisplays, setTargetedDisplays,
     outputDisplays, outputs, updateOutput, addOutput, removeOutput, setOutputRunning, selectOutputDisplay, selectStageDisplay, showOutputMonitor, setShowOutputMonitor,
     bibleLastVerseRef, canvasWrapRef, editAreaRef, previewObsRef, setPreviewWrapRef,
     fetchSongs, fetchServices, fetchMediaLibrary, fetchLibraryStats, fetchAppInfo, fetchTemplates,
     applyTemplate, saveCurrentTemplate, confirmSaveTemplate, removeTemplate, selectSong, editSong,
-    selectBibleMedia, importBibleMedia, selectBibleMediaLive, handleNextCue, handlePrevCue, toggleTarget, addNewDisplay, persistMediaFile,
+    selectBibleMedia, importBibleMedia, selectBibleMediaLive, handleNextCue, handlePrevCue, toggleTarget, addNewDisplay, persistMediaFile, persistCountdownFile,
     sendStageData, isPlainBg, cueHasBackground,
     songHasBackground, songBackgroundStyle, resolutionStyle, defaultShowSections, openNewShow, closeShowModal,
     addSongToSection, addSlideToSection, updateShowItem, removeShowItem, addShowSection, renameShowSection,
     removeShowSection, moveShowSection, showTotalSeconds, createShow, selectBuilderItem, builderItemSlideCount,
     builderFlatItems, builderTotalSlides, builderCurrentEntry, builderGoLive, builderAdvance, builderUpNext,
     addShowBuilderMedia, addShowBuilderExistingMedia, addShowBuilderPlaceholder, fireCueLive, fireTitleLive, fireServiceItemLive,
-    openMedleyForRow, saveMedley, fireMedleySlideAt,
+    openMedleyForRow, saveMedley, fireMedleySlideAt, openArrangementForRow, arrangementStatus,
     toggleDevProjectorWindow, toggleStageWindow, addSongToService, addHeaderToService, renameServiceHeader, addCustomSlideToService,
     reorderServiceItem, moveServiceBlock, moveServiceItem, removeServiceItem, serviceOrderCount, serviceSlideCount,
     serviceStatusIcon, serviceItemIsLive, toggleServiceCollapse, expandAllServiceSections, collapseAllServiceSections,
@@ -4133,7 +4586,7 @@ export default function App() {
     baseGroupLabel, nextSuffixLetter, splitCueAtTextareaCaret, reorderCues,
     startBoxDrag, onStagePointerMove, endBoxDrag, ToolbarBtn, cueLyricStyle, handleSaveSong,
     previewAnimation,
-    fireCountdownLive, stopCountdownLive, countdown, setCountdown, sameSongId, clearWorkspace,
+    fireCountdownLive, stopCountdownLive, countdown, setCountdown, cdTemplates, setCdTemplates, sameSongId, clearWorkspace,
     sermon, sermonLoad, sermonSetLayer, sermonNav, sermonGoto, sermonClose, outputLayers,
     handleDeleteSong, handleToggleFavorite, handleExport, handleImport, serviceSections, thumbBg, resolveBg, appConfirm, appAlert,
     activeSlideIndex, groupLabels, slideGrid, renderSlideFace, applyMediaToActiveSong, importMediaAsset, removeMediaAsset,
@@ -4192,8 +4645,7 @@ export default function App() {
         toggleDevProjectorWindow={toggleDevProjectorWindow}
         toggleStageWindow={toggleStageWindow}
         openNewShow={openNewShow}
-        themeDark={themeDark}
-        toggleTheme={toggleTheme}
+        iconTheme={iconTheme}
         ACCENT={ACCENT}
       />
 
@@ -4203,7 +4655,7 @@ export default function App() {
            grid (51 tiles x renderLyricsLayout) and the live panel behind the
            panel — that was the lag. It is the page in this slot now: while it
            is open the console subtree is not mounted at all, so an edit only
-           renders the editor. TopHeader stays (menus, LIVE status, theme). */}
+           renders the editor. TopHeader stays (menus, LIVE status, quick actions). */}
       {isEditorOpen ? (
         <SongEditorModal />
       ) : (
@@ -4258,6 +4710,7 @@ export default function App() {
         dockTab={dockTab}
         activeId={showOutputMonitor ? 'outputs' : undefined}
         onSelect={handleDockSelect}
+        iconTheme={iconTheme}
       />
       </>
       )}
@@ -4285,6 +4738,22 @@ export default function App() {
           existing={medleyModal.existing}
           onSave={saveMedley}
           onClose={() => setMedleyModal(null)}
+          anchorArranged={medleyModal.anchorArranged}
+        />
+      )}
+      </AnimatePresence>
+
+      {/* ARRANGEMENT MODAL — custom play order for one service song row.
+          The library song is never touched; Go/arrows walk the saved order. */}
+      <AnimatePresence>
+      {arrangementModal && (
+        <ArrangementModal
+          songId={arrangementModal.songId}
+          title={arrangementModal.title}
+          existing={arrangementModal.existing}
+          onSave={saveArrangement}
+          onClose={() => setArrangementModal(null)}
+          forAnchor={arrangementModal.forAnchor}
         />
       )}
       </AnimatePresence>
@@ -4330,7 +4799,7 @@ export default function App() {
       {showHotkeys && <HotkeysModal C={C} ACCENT={ACCENT} onClose={() => setShowHotkeys(false)} />}
       </AnimatePresence>
 
-      {/* ABOUT KOGWORSHIP */}
+      {/* ABOUT KOGWORSHIP — product card only. Updates moved to Settings. */}
       <AnimatePresence>
       {showAbout && (
         <AboutModal
@@ -4338,14 +4807,6 @@ export default function App() {
           ACCENT={ACCENT}
           PINK={PINK}
           version={appInfo?.version || '1.0.0'}
-          status={aboutStatus}
-          updateReady={updateReady}
-          updateProgress={updateProgress}
-          updateVersion={updateVersion}
-          onCheckUpdates={handleCheckUpdates}
-          onDownloadUpdate={handleDownloadUpdate}
-          onInstallUpdate={handleInstallUpdate}
-          onOpenGuide={handleOpenGuide}
           onClose={() => { setShowAbout(false); }}
         />
       )}
@@ -4381,6 +4842,8 @@ export default function App() {
           message={confirmDialog.message}
           confirmLabel={confirmDialog.confirmLabel}
           cancelLabel={confirmDialog.cancelLabel}
+          extraLabel={confirmDialog.extraLabel}
+          onExtra={() => resolveConfirmDialog('extra')}
           onConfirm={() => resolveConfirmDialog(true)}
           onCancel={() => resolveConfirmDialog(false)}
         />

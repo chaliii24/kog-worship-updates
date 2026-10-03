@@ -244,6 +244,23 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
             ))}
           </div>
 
+          {(state?.countdown?.templates || []).length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1.4, textTransform: 'uppercase', color: C.faint, marginBottom: 6 }}>Slideshow setups</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {(state.countdown.templates || []).map((t) => (
+                  <button
+                    key={t.name}
+                    onClick={() => cdSet({ bgType: 'media', bgMedia: t.bgMedia })}
+                    style={{ textAlign: 'left', borderRadius: 8, padding: '9px 11px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: C.elevated2, border: `1px solid ${C.border2}`, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  >{t.name}
+                    <span style={{ color: C.muted, fontWeight: 600 }}> · {t.kind === 'video' ? 'video' : `${t.slides || 0} slides`}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
             <input key={`cdt-${cd.title || ''}`} defaultValue={cd.title || ''} onBlur={(e) => { if (e.target.value !== (cd.title || '')) cdSet({ title: e.target.value }); }} placeholder="Title" style={{ ...cdNum(C), flex: 1, minWidth: 0 }} />
             <input key={`cds-${cd.subtext || ''}`} defaultValue={cd.subtext || ''} onBlur={(e) => { if (e.target.value !== (cd.subtext || '')) cdSet({ subtext: e.target.value }); }} placeholder="Subtext" style={{ ...cdNum(C), flex: 1, minWidth: 0 }} />

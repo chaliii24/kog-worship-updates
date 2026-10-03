@@ -20,8 +20,11 @@ export const DEFAULT_COUNTDOWN = {
   titleSize: 64,
   timeSize: 360,
   subtextSize: 40,
-  bgType: 'gradient',
+  bgType: 'gradient', // color | gradient | animated | media
   bgValue: 'linear-gradient(135deg, #052e16 0%, #166534 55%, #031a0d 100%)',
+  // Custom Media mode (bgType 'media'): slideshow carousel and/or loop video.
+  // URLs are media:// (persisted to userData, survive restarts) — never bytes.
+  bgMedia: null, // { kind:'slideshow'|'video', images:[], slideSec:5, video:null, loop:true }
   live: null, // { endsAt, startedAt } while on air (endsAt null = wall clock)
 };
 
@@ -113,6 +116,32 @@ export const nextTargetTime = (targetTime, now) => {
   return d.getTime();
 };
 
+// Carousel index for slideshow backgrounds, derived from a SHARED epoch —
+// the same absolute-clock trick the countdown time itself uses — so preview,
+// projector, monitor, stage and phone show the SAME slide at the same
+// moment instead of each counting from its own mount time.
+//   * live (Go pressed): epoch = live.startedAt, identical on every surface;
+//   * idle preview: a local epoch, reset whenever the image set changes
+//     (nothing else is showing it, so local is exact).
+// `ticking` tells the hook the parent already repaints (live 500ms tick):
+// idle previews get their own cheap 1s repaint instead.
+export function useCountdownCarousel(images, slideSec, epoch, ticking) {
+  const list = Array.isArray(images) ? images.filter(Boolean) : [];
+  const key = list.join('|');
+  const ms = Math.max(1000, (Number(slideSec) || 5) * 1000);
+  const [localEpoch, setLocalEpoch] = useState(() => Date.now());
+  useEffect(() => { setLocalEpoch(Date.now()); }, [key]);
+  const [, setPaint] = useState(0);
+  useEffect(() => {
+    if (ticking || list.length < 2) return undefined;
+    const id = setInterval(() => setPaint((x) => x + 1), 1000);
+    return () => clearInterval(id);
+  }, [ticking, list.length, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const base = Number.isFinite(Number(epoch)) ? Number(epoch) : localEpoch;
+  const idx = list.length ? Math.floor(Math.max(0, Date.now() - base) / ms) % list.length : 0;
+  return { list, idx };
+}
+
 export function TimerFace({ timer, scale = 1 }) {
   const t = { ...DEFAULT_COUNTDOWN, ...(timer || {}) };
   // The interval exists only while something visibly moves (live countdown or
@@ -133,6 +162,87 @@ export function TimerFace({ timer, scale = 1 }) {
   const timeColor = (over && t.overtime) || urgent ? '#f87171' : '#ffffff';
   const face = "'CMG Sans', system-ui, sans-serif";
   const anim = t.bgType === 'animated' ? animatedPresetOf(t.bgValue) : null;
+  // Custom Media mode: Lower Third Ticker layout — media fills the top, the
+  // timer rides a fixed black banner at the bottom. Empty media falls back
+  // to the centered layout on black (never a broken frame).
+  const media = t.bgType === 'media' ? (t.bgMedia || null) : null;
+  // Custom Media framing: position (object-position %) + zoom. Cover fills
+  // the frame; these nudge/zoom it so any screen shape fits the setup.
+  const posX = Number.isFinite(Number(media?.posX)) ? Number(media.posX) : 50;
+  const posY = Number.isFinite(Number(media?.posY)) ? Number(media.posY) : 50;
+  const zoom = Math.min(300, Math.max(25, Number.isFinite(Number(media?.scale)) ? Number(media.scale) : 100));
+  const frameStyle = {
+    position: 'absolute', inset: 0, width: '100%', height: '100%',
+    objectFit: 'cover', objectPosition: `${posX}% ${posY}%`,
+    transform: `scale(${zoom / 100})`, transformOrigin: 'center',
+  };
+  const mediaOn = !!media && (media.kind === 'video' ? !!media.video : (media.images || []).filter(Boolean).length > 0);
+  // Shared media epoch: live.startedAt travels in the timer payload to every
+  // surface (phone snapshots carry it too — stamp does NOT, so epoch keys on
+  // startedAt, never stamp). Live config edits keep the same startedAt, so
+  // media never restarts under an edit — only Go starts a new epoch.
+  const mediaEpoch = t.live?.startedAt ?? null;  const { list: slides, idx: slideIdx } = useCountdownCarousel(mediaOn && media.kind !== 'video' ? media.images : [], media?.slideSec, mediaEpoch, ticking);
+  if (mediaOn) {
+    const bannerH = 210 * k;
+  // Slideshow watermark (logo badge): image overlay pinned to a corner of
+  // the MEDIA area (never the banner), like a broadcast bug. Slideshow only.
+  const wm = mediaOn && media.kind !== 'video' ? (media.watermark || null) : null;
+  const wmOn = !!(wm && wm.url);
+  const wmSize = Math.min(400, Math.max(32, Number.isFinite(Number(wm?.size)) ? Number(wm.size) : 160));
+  const wmOpacity = Math.min(100, Math.max(10, Number.isFinite(Number(wm?.opacity)) ? Number(wm.opacity) : 100)) / 100;
+  const wmPad = 24 * k;
+  const wmCorner = { tl: { top: wmPad, left: wmPad }, tr: { top: wmPad, right: wmPad }, bl: { bottom: wmPad, left: wmPad }, br: { bottom: wmPad, right: wmPad } }[wm?.pos] || { top: wmPad, left: wmPad };
+    return (
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: '#000', overflow: 'hidden', boxSizing: 'border-box' }}>
+        <style>{'@keyframes kogUrgencyShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}'}</style>
+        <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden', background: '#000' }}>
+          {media.kind === 'video' ? (
+            <video
+              key={`${media.video}|${mediaEpoch ?? 'idle'}`}
+              src={media.video}
+              autoPlay
+              muted
+              playsInline
+              preload="auto"
+              loop={media.loop !== false}
+              style={{ ...frameStyle }}
+            />
+          ) : (
+            slides.map((src, i) => (
+              <img
+                key={`${src}|${i}`}
+                src={src}
+                alt=""
+                draggable={false}
+                style={{ ...frameStyle, opacity: i === slideIdx ? 1 : 0, transition: 'opacity 0.9s ease-in-out' }}
+              />
+            ))
+          )}
+          {wmOn && (
+            <img
+              src={wm.url}
+              alt=""
+              draggable={false}
+              title="Slideshow watermark"
+              style={{ position: 'absolute', zIndex: 2, width: wmSize * k, height: wmSize * k, borderRadius: '50%', objectFit: 'cover', opacity: wmOpacity, pointerEvents: 'none', ...wmCorner }}
+            />
+          )}
+        </div>
+        <div style={{ height: bannerH, flexShrink: 0, background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 * k, padding: `0 ${24 * k}px`, boxSizing: 'border-box', overflow: 'hidden' }}>
+          {t.title ? (
+            <div style={{ fontFamily: face, fontSize: Math.max(8, Math.min(t.titleSize, 40) * k), fontWeight: 700, color: '#ffffff', textAlign: 'center', lineHeight: 1.15, textShadow: '0 4px 24px rgba(0,0,0,0.55)', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
+          ) : null}
+          <div style={{ fontFamily: face, fontSize: Math.max(12, Math.min(t.timeSize, 132) * k), fontWeight: 800, color: timeColor, lineHeight: 1, letterSpacing: '0.01em', textShadow: '0 6px 40px rgba(0,0,0,0.55)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', animation: urgent ? 'kogUrgencyShake 0.4s ease-in-out infinite' : undefined }}>
+            {display}
+            {suffix ? <span style={{ fontSize: '0.22em', fontWeight: 700, marginLeft: '0.25em', verticalAlign: 'baseline', opacity: 0.85 }}>{suffix}</span> : null}
+          </div>
+          {t.subtext ? (
+            <div style={{ fontFamily: face, fontSize: Math.max(7, Math.min(t.subtextSize, 28) * k), fontWeight: 600, color: 'rgba(255,255,255,0.78)', textAlign: 'center', lineHeight: 1.3, textShadow: '0 2px 16px rgba(0,0,0,0.55)', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.subtext}</div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
   return (
     <div style={{ position: 'absolute', inset: 0, background: anim ? anim.base : (t.bgValue || '#000'), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 * k, overflow: 'hidden', boxSizing: 'border-box', padding: 24 * k }}>
       <style>{'@keyframes kogUrgencyShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}@keyframes kogDrift{from{transform:translate(var(--kog-dx-neg,0px),var(--kog-dy-neg,0px))}to{transform:translate(var(--kog-dx,0px),var(--kog-dy,0px))}}'}</style>

@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, Images, PanelLeftClose, Music, MonitorPlay, Pencil, FileUp, BookOpen, Link2 } from 'lucide-react';
+import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, Images, PanelLeftClose, Music, MonitorPlay, Pencil, FileUp, BookOpen, Link2, ListMusic } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { slidesFromPptx } from '../lib/backgrounds';
+import { ROW_KIND, iconHue } from '../lib/icons';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import Dropdown from './Dropdown';
+import SettingsPanel from './SettingsPanel';
 // Untitled UI — migration phase 3 (tabs): RAC-backed Tabs for the Service
 // Order / Shows / Songs switcher (mirror layout documented in NewSongPrompt).
 import { Tabs, TabList, Tab } from '../untitledui/components/application/tabs/tabs';
@@ -20,6 +22,7 @@ export default function LeftSidebar() {
     C,
     PINK,
     ACCENT,
+    iconTheme,
     leftOpen,
     setLeftOpen,
     viewTab,
@@ -71,6 +74,7 @@ export default function LeftSidebar() {
     fireServiceItemLive,
     stopServiceItemLive,
     openMedleyForRow,
+    openArrangementForRow,
     handleToggleFavorite,
     handleDeleteSong,
     setEditingSong,
@@ -92,6 +96,7 @@ export default function LeftSidebar() {
     toggleAudioPreview,
     clearSongAudio,
     saveCurrentService,
+    serviceDirty,
     handleExport,
     handleImport,
     shellOpenDataFolder,
@@ -346,7 +351,17 @@ export default function LeftSidebar() {
       <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.5 }}>{dockTab} Tools</span>
     )}
     {dockTab === 'shows' && (
-      <motion.button {...stubTap} onClick={saveCurrentService} style={{ background: 'transparent', border: '1px solid #8b5cf6', color: '#C4B5FD', padding: '5px 11px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>Save Plan</motion.button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        {/* Unsaved-plan warning: amber dot + label whenever the working order
+            differs from the last saved/loaded state. Going live never trips
+            it — only real edits do. */}
+        {serviceDirty && (
+          <span title="This service order has unsaved changes — press Save Plan before switching shows" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 800, color: '#fbbf24', whiteSpace: 'nowrap' }}>
+            <span style={{ width: 8, height: 8, borderRadius: 999, background: '#fbbf24', boxShadow: '0 0 8px rgba(251,191,36,0.9)' }} /> Unsaved
+          </span>
+        )}
+        <motion.button {...stubTap} onClick={saveCurrentService} style={{ background: serviceDirty ? '#8b5cf6' : 'transparent', border: '1px solid #8b5cf6', color: serviceDirty ? '#fff' : '#C4B5FD', padding: '5px 11px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>Save Plan</motion.button>
+      </div>
     )}
     <motion.button {...iconBtnTap} onClick={() => setLeftOpen(false)} title="Minimize command center" style={{ background: 'transparent', border: 'none', color: 'var(--ui-faint)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}><PanelLeftClose size={16} /></motion.button>
   </div>
@@ -688,12 +703,16 @@ export default function LeftSidebar() {
                   const isScripture = !!(row.item.meta && row.item.meta.kind === 'bible');
                   const icon = row.item.item_type === 'song' ? <Music size={11} /> : row.item.item_type === 'medley' ? <Link2 size={11} /> : isScripture ? <BookOpen size={11} /> : row.item.item_type === 'media' ? <ImageIcon size={11} /> : row.item.item_type === 'presentation' ? <MonitorPlay size={11} /> : <FileText size={11} />;
                   const iconColor = row.item.item_type === 'song' ? '#8b5cf6' : row.item.item_type === 'medley' ? '#C4B5FD' : isScripture ? '#f59e0b' : 'var(--ui-muted)';
+                  // Prism Slate: the row's function-kind owns its hue (song,
+                  // medley, media, presentation, scripture) on every surface.
+                  const rowKind = row.item.item_type === 'song' ? 'song' : row.item.item_type === 'medley' ? 'medley' : isScripture ? 'scripture' : (ROW_KIND[row.item.item_type] || null);
+                  const rowIconColor = iconTheme === 'prism' && rowKind ? iconHue(rowKind, C) : iconColor;
                   return (
                     <div key={`i-${ri}`} className="row" data-drop-idx={row.idx} draggable onDragStart={(e) => { internalDrag.current = true; e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { internalDrag.current = false; setDrop(null, null); }} onClick={() => { if (row.item.item_type === 'song') selectSong(row.item.content); else if (isLive) return; else fireServiceItemLive(row.item); }} title="Drag to reorder · click to go live" style={{ position: 'relative', background: isLive ? 'rgba(34,197,94,0.10)' : (row.item.item_type === 'song' && sameSongId(row.item.content, activeSong?.id)) || (row.item.item_type === 'custom_slide' && activeCue?.id === row.item.id) ? 'rgba(139,92,246,0.12)' : 'var(--ui-elev2)', border: isLive ? '1px solid rgba(34,197,94,0.55)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '6px 8px', cursor: 'grab', display: 'grid', gridTemplateColumns: '14px 20px 18px 1fr auto', gap: 6, alignItems: 'center', boxShadow: dropRow === row.idx ? '0 0 0 2px rgba(139,92,246,0.6)' : 'none' }}>
                       {isLive && <div style={{ position: 'absolute', left: 0, top: 4, bottom: 4, width: 3, borderRadius: 3, background: '#22c55e', boxShadow: '0 0 8px rgba(34,197,94,0.8)' }} />}
                       <GripVertical size={12} color="var(--ui-faint)" />
                       <span style={{ fontSize: 10, fontWeight: 800, color: isLive ? '#22c55e' : 'var(--ui-faint)', fontFamily: 'monospace' }}>{isLive ? '▶' : itemNum}</span>
-                      <span style={{ fontSize: 12, fontWeight: 800, color: iconColor, textAlign: 'center' }}>{icon}</span>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: rowIconColor, textAlign: 'center' }}>{icon}</span>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--ui-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.item.title}</span>
@@ -704,6 +723,9 @@ export default function LeftSidebar() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
                         {(row.item.item_type === 'song' || row.item.item_type === 'medley') && (
                           <button onClick={(e) => { e.stopPropagation(); openMedleyForRow(row.item, row.idx); }} title={row.item.item_type === 'medley' ? 'Edit medley links' : 'Link songs into a medley'} style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: row.item.item_type === 'medley' ? '#C4B5FD' : C.faint, padding: '3px 6px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Link2 size={12} /></button>
+                        )}
+                        {(row.item.item_type === 'song' || row.item.item_type === 'medley') && (
+                          <button onClick={(e) => { e.stopPropagation(); openArrangementForRow(row.item, row.idx); }} title={row.item.item_type === 'medley' ? 'Custom play order for the anchor song' : (row.item.meta?.arrangement?.order?.length ? 'Edit song arrangement' : 'Custom play order for this song')} style={{ background: row.item.meta?.arrangement?.order?.length ? 'rgba(139,92,246,0.16)' : 'transparent', border: '1px solid ' + (row.item.meta?.arrangement?.order?.length ? 'rgba(139,92,246,0.5)' : 'var(--ui-border)'), color: row.item.meta?.arrangement?.order?.length ? '#C4B5FD' : C.faint, padding: '3px 6px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><ListMusic size={12} /></button>
                         )}
                         {isLive ? (
                           <button onClick={(e) => { e.stopPropagation(); stopServiceItemLive(row.item); }} title="Stop — take this item off air" style={{ background: 'rgba(239,68,68,0.18)', border: '1px solid rgba(239,68,68,0.55)', color: '#F87171', borderRadius: 6, fontSize: 9.5, fontWeight: 700, padding: '3px 8px', cursor: 'pointer' }}>■ Stop</button>
@@ -1036,50 +1058,8 @@ if (dockTab === 'audio') {
       );
     }
 
-    if (dockTab === 'functions') {
-      const stats = libraryStats;
-      return (
-        <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'grid', gap: 12, alignContent: 'start' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-            {[
-              { label: 'Songs', value: stats?.songs ?? '—' },
-              { label: 'Slides', value: stats?.cues ?? '—' },
-              { label: 'Services', value: stats?.services ?? '—' },
-              { label: 'Templates', value: stats?.templates ?? '—' },
-              { label: 'Media Assets', value: stats?.mediaAssets ?? '—' }
-            ].map(s => (
-              <div key={s.label} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '10px 12px' }}>
-                <div style={{ fontSize: 20, fontWeight: 800, color: C.heading }}>{s.value}</div>
-                <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>{s.label}</div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Data</span>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              <button onClick={handleExport} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '7px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Download size={12} /> Backup Library</button>
-              <button onClick={handleImport} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '7px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Upload size={12} /> Import Library</button>
-              {appInfo && <button onClick={() => shellOpenDataFolder()} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '7px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer' }}>Open Data Folder</button>}
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Outputs</span>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              <button onClick={toggleDevProjectorWindow} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '7px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer' }}>Toggle Projector</button>
-              <button onClick={addNewDisplay} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '7px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer' }}>Add Virtual Wall</button>
-            </div>
-          </div>
-
-          {appInfo && (
-            <div style={{ fontSize: 10.5, color: C.faint2, lineHeight: 1.7, borderTop: '1px solid var(--ui-border)', paddingTop: 10 }}>
-              <div>KOGWorship v{appInfo.version}</div>
-              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Data: {appInfo.dbPath}</div>
-            </div>
-          )}
-        </div>
-      );
+    if (dockTab === 'settings' || dockTab === 'functions') {
+      return <SettingsPanel />;
     }
     return null;
   })()}

@@ -7,10 +7,9 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { Readable } from 'stream';
 import { GoogleGenAI } from '@google/genai';
-import ollama from 'ollama';
 import PptxGenJS from 'pptxgenjs';
 import dotenv from 'dotenv';
-import { parseSongBlocks, sanitizeCues } from './songParse.js';
+import { sanitizeCues } from './songParse.js';
 import { pptxExportImages, pptxReadText } from './pptxImport.js';
 import { parseReference, matchBook } from './bibleResolve.js';
 import { 
@@ -105,6 +104,9 @@ const lan = createLanServer({
   builtinMedia: [
     { prefix: 'builtin-photos/', dir: getBuiltinPhotosDir() },
     { prefix: 'builtin/', dir: getBuiltinVideosDir() },
+    // Countdown-private uploads (media://kog-media/cd/…): same auth +
+    // traversal rules, own folder, still no listing endpoint.
+    { prefix: 'cd/', dir: path.join(app.getPath('userData'), 'countdown-media') },
   ],
 });
 let lanQrCache = { url: '', data: '' };
@@ -262,6 +264,14 @@ function serveMediaProtocol() {
       const url = new URL(request.url);
       if (url.pathname.startsWith('/builtin-photos/')) return serveFileProtocol(builtinPhotosDir, request);
       if (url.pathname.startsWith('/builtin/')) return serveFileProtocol(builtinDir, request);
+      // Countdown-private uploads (media://kog-media/cd/...) live in their
+      // own folder: same bytes-on-disk serving, zero library registration.
+      // serveFileProtocol resolves the last path segment, so no prefix
+      // stripping is needed here.
+      if (url.pathname.startsWith('/cd/')) {
+        try { fs.mkdirSync(COUNTDOWN_DIR, { recursive: true }); } catch {}
+        return serveFileProtocol(COUNTDOWN_DIR, request);
+      }
       return serveFileProtocol(MEDIA_DIR, request);
     } catch (e) {
       return new Response(null, { status: 500 });
@@ -281,6 +291,25 @@ ipcMain.handle('add-media-file', async (event, sourcePath) => {
     const kind = ['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext) ? 'image' : ['.mp4', '.webm', '.mov'].includes(ext) ? 'video' : 'audio';
     addMediaAsset(url, kind, fileName);
     return url;
+  } catch (e) {
+    return null;
+  }
+});
+
+// Countdown-private uploads: same copy + media:// serving, but NEVER
+// registered via addMediaAsset — so countdown slideshows, videos and
+// watermarks stay out of the Media tab and out of song background pickers
+// (both read the media_assets table, never the disk).
+const COUNTDOWN_DIR = path.join(app.getPath('userData'), 'countdown-media');
+ipcMain.handle('add-countdown-file', async (event, sourcePath) => {
+  try {
+    if (!sourcePath || !fs.existsSync(sourcePath)) return null;
+    const ext = path.extname(sourcePath).toLowerCase();
+    if (!['.mp4', '.webm', '.mov', '.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext)) return null;
+    fs.mkdirSync(COUNTDOWN_DIR, { recursive: true });
+    const fileName = `cd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+    fs.copyFileSync(sourcePath, path.join(COUNTDOWN_DIR, fileName));
+    return `media://kog-media/cd/${encodeURIComponent(fileName)}`;
   } catch (e) {
     return null;
   }
@@ -342,7 +371,38 @@ function createWindow() {
   });
 
   operatorWindow.on('closed', () => app.quit());
+  armOperatorCloseGate();
 }
+
+// Quit gate: closing the operator window with an unsaved service order asks
+// first (Save & Quit / Quit Without Saving / Cancel). Update installs bypass
+// it — quitAndInstall must never hang on a dialog.
+let forceQuit = false;
+let quitFallbackTimer = null;
+function armOperatorCloseGate() {
+  if (!operatorWindow || operatorWindow.isDestroyed()) return;
+  operatorWindow.on('close', (e) => {
+    if (forceQuit) return; // update install / forced path sails through
+    if (!operatorWindow || operatorWindow.isDestroyed()) return;
+    e.preventDefault();
+    try { operatorWindow.webContents.send('app-close-request'); } catch {}
+    // A dead renderer must never hang quit: force through after 15s.
+    try { clearTimeout(quitFallbackTimer); } catch {}
+    quitFallbackTimer = setTimeout(() => {
+      forceQuit = true;
+      try { if (operatorWindow && !operatorWindow.isDestroyed()) operatorWindow.close(); } catch {}
+    }, 15000);
+  });
+}
+
+ipcMain.on('app-close-decision', (event, decision) => {
+  try { clearTimeout(quitFallbackTimer); } catch {}
+  if (decision === 'quit') {
+    forceQuit = true;
+    try { if (operatorWindow && !operatorWindow.isDestroyed()) operatorWindow.close(); } catch {}
+  }
+  // anything else (Cancel) → window stays open, timer already cleared.
+});
 
 autoUpdater.logger = electronLog;
 autoUpdater.logger.transports.file.level = 'info';
@@ -1272,6 +1332,7 @@ ipcMain.handle('install-update', async () => {
   // Never quit into the installer with nothing staged: an early click (or a
   // stray invoke) used to restart the app for no reason.
   if (!updaterDownloadedVersion) return { success: false, error: 'No downloaded update to install yet.' };
+  forceQuit = true; // sail through the unsaved-plan quit gate
   autoUpdater.quitAndInstall(true, true);
   return { success: true };
 });
@@ -1381,114 +1442,66 @@ ipcMain.on('monitor-stop', () => {
   monitorTarget = null;
 });
 
-// --- HYBRID AI PARSER HANDLER (GEMINI / OLLAMA / REGEX FAILSAFE) ---
+// --- REGEX-PRIMARY PARSER + GEMINI ON-DEMAND AUTO-FIX ----------------------
+// Architecture: the local Regex engine is the ONLY default. It runs first,
+// instantly, fully offline, with no key and no model. Gemini is strictly an
+// explicit fallback: it runs solely inside 'ai-autofix-song', i.e. only when
+// the operator clicks AI Auto-Fix after seeing poor Regex results. There is
+// no auto-fallback chain, no Ollama, no model selection — and Gemini auth is
+// exclusively the operator's own key from userData\.env (never a server).
 const promptInstruction = `You are an expert worship presentation software assistant. Parse the raw song text below — it may be plain lyrics (no chords) or a guitar chord chart.
 1. If it is a chord chart, completely strip out all guitar chords (e.g., C#m, A, E, D/F#), capo/transpose markers and structural tab markers, keeping only the clean lyrics. If it is plain lyrics with no chords, keep every word exactly as written — do NOT remove words that merely look like chords (such as "A" or "am").
 2. Organize the lyrics into logical sections (Verse 1, Chorus, Bridge, etc.). Use explicit markers such as [Verse 1], "Chorus:" or (Bridge) when the text has them. If the text has NO section markers, split it by blank-line stanzas and label them "Verse 1", "Verse 2", … in order of first appearance; when the same stanza repeats (the chorus), label EVERY occurrence of that repeated stanza "Chorus".
 3. Return ONLY a valid JSON array of objects, where each object has a "label" (string) and "text" (string of lyrics). Do not include markdown formatting blocks like \`\`\`json, just the raw JSON string.
 4. NEVER invent, guess, translate, paraphrase, or rewrite lyrics. Use ONLY words that appear in the provided text.
 5. If the provided text does not contain actual song lyrics (for example it is website navigation, menus, comments, ads, or unrelated content), return exactly [].`;
+// Helper function to extract array regardless of root JSON key
+const extractCuesArray = (parsedObj) => {
+  if (Array.isArray(parsedObj)) return parsedObj;
+  if (parsedObj && typeof parsedObj === 'object') {
+    const keys = ['cues', 'sections', 'data', 'lyrics', 'result', 'song'];
+    for (const key of keys) {
+      if (Array.isArray(parsedObj[key])) return parsedObj[key];
+    }
+    // Return first key that contains an array
+    const firstArrayKey = Object.keys(parsedObj).find(k => Array.isArray(parsedObj[k]));
+    if (firstArrayKey) return parsedObj[firstArrayKey];
+  }
+  return [];
+};
 
-ipcMain.handle('ai-parse-chord-chart', async (event, payload) => {
+ipcMain.handle('ai-autofix-song', async (event, payload) => {
   const rawText = typeof payload === 'object' ? payload.text : payload;
-  const requestedModel = typeof payload === 'object' ? payload.model : 'gemini-1.5-flash';
   const linesPerSlide = (typeof payload === 'object' && payload && Number(payload.linesPerSlide)) || 4;
 
   if (!rawText || !rawText.trim()) {
-    return { cues: [], modelUsed: 'None' };
+    return { cues: [], error: 'Nothing to fix — paste lyrics first.' };
+  }
+  const key = rawGeminiKey();
+  if (key.length < 20) {
+    return { cues: [], error: 'No Gemini key saved. Paste your free key in the song editor first.' };
   }
 
-  // Helper function to extract array regardless of root JSON key
-  const extractCuesArray = (parsedObj) => {
-    if (Array.isArray(parsedObj)) return parsedObj;
-    if (parsedObj && typeof parsedObj === 'object') {
-      const keys = ['cues', 'sections', 'data', 'lyrics', 'result', 'song'];
-      for (const key of keys) {
-        if (Array.isArray(parsedObj[key])) return parsedObj[key];
-      }
-      // Return first key that contains an array
-      const firstArrayKey = Object.keys(parsedObj).find(k => Array.isArray(parsedObj[k]));
-      if (firstArrayKey) return parsedObj[firstArrayKey];
-    }
-    return [];
-  };
-
-  // 1. Try Gemini Online Mode
-  const hasGeminiKey = Boolean(String(process.env.GEMINI_API_KEY || '').trim());
-  const wantsGemini = requestedModel !== 'ollama';
-  let geminiError = null;
-  let ollamaError = null;
-
-  if (hasGeminiKey && wantsGemini) {
-    try {
-      const cleanKey = process.env.GEMINI_API_KEY.trim().replace(/^["']|["']$/g, '');
-      const ai = new GoogleGenAI({ apiKey: cleanKey });
-      
-      // Flash uses the pinned 3.6 model; "Pro" maps to the live pro alias
-      // (gemini-3.6-pro does not exist and 404s).
-      let targetModel = 'gemini-3.6-flash';
-      if (requestedModel.includes('pro')) {
-        targetModel = 'gemini-pro-latest';
-      }
-
-      const response = await ai.models.generateContent({
-        model: targetModel,
-        contents: `${promptInstruction}\n\nRaw Text to parse:\n${rawText}`
-      });
-
-      const rawResponseText = response.text || (response.response && response.response.text ? response.response.text() : '');
-      let cleanJsonString = rawResponseText.trim().replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
-      const parsedObj = JSON.parse(cleanJsonString);
-      const cuesArray = sanitizeCues(extractCuesArray(parsedObj));
-
-      if (cuesArray.length > 0) {
-        const displayModel = requestedModel.includes('pro') ? 'Gemini Pro (Online)' : 'Gemini 3.6 Flash (Online)';
-        return { cues: cuesArray, modelUsed: displayModel };
-      }
-    } catch (onlineError) {
-      geminiError = onlineError;
-      console.log('Gemini API Error:', onlineError.message, '-> Switching to local Ollama fallback...');
-    }
-  }
-
-  // 2. Try Ollama Offline Mode
   try {
-    const ollamaResponse = await ollama.chat({
-      model: 'llama3.2:3b', 
-      messages: [
-        { role: 'system', content: String(promptInstruction) },
-        { role: 'user', content: String(rawText) }
-      ],
-      format: 'json'
+    const ai = new GoogleGenAI({ apiKey: key });
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.6-flash',
+      contents: promptInstruction + '\n\nRaw Text to parse:\n' + rawText
     });
 
-    let localJsonString = ollamaResponse.message.content.trim().replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
-    const parsedObj = JSON.parse(localJsonString);
+    const rawResponseText = response.text || (response.response && response.response.text ? response.response.text() : '');
+    const cleanJsonString = rawResponseText.trim().replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
+    const parsedObj = JSON.parse(cleanJsonString);
     const cuesArray = sanitizeCues(extractCuesArray(parsedObj));
 
     if (cuesArray.length > 0) {
-      return { cues: cuesArray, modelUsed: 'Ollama (llama3.2:3b - Offline)' };
+      return { cues: cuesArray, modelUsed: 'Gemini Auto-Fix (Online)' };
     }
-  } catch (offlineError) {
-    ollamaError = offlineError;
-    console.log('Ollama failed or returned unparseable structure. Switching to the Local Parser...');
+    return { cues: [], error: 'Gemini returned no usable sections — your local blocks are untouched.' };
+  } catch (e) {
+    console.log('AI Auto-Fix failed:', e && e.message);
+    return { cues: [], error: String((e && e.message) || 'Request failed.').slice(0, 220) };
   }
-
-  // 3. Guarantee Failsafe Local Parser (Never returns empty). Shared with
-  //    the renderer fallback in App.jsx so chord charts, marker-driven
-  //    lyrics AND plain lyrics with no markers all build real blocks.
-  const sections = parseSongBlocks(rawText, linesPerSlide);
-
-  // Make the badge say WHY the AI was skipped, so "offline" is diagnosable.
-  let fallbackLabel = 'Local Parser (Offline)';
-  if (wantsGemini && !hasGeminiKey) fallbackLabel = 'No API Key - Local Parser (Offline)';
-  else if (geminiError) fallbackLabel = 'Gemini Failed - Local Parser (Offline)';
-  else if (ollamaError && requestedModel === 'ollama') fallbackLabel = 'Ollama Unavailable - Local Parser (Offline)';
-
-  return {
-    cues: sections,
-    modelUsed: fallbackLabel
-  };
 });
 // -------------------------------------------------------------
 
@@ -2633,14 +2646,46 @@ ipcMain.handle('scripture-resolve', async (event, abbrev, reference) => {
   };
 });
 
-ipcMain.handle('app-info', () => ({
-  version: app.getVersion(),
-  userData: app.getPath('userData'),
-  mediaDir: MEDIA_DIR,
-  dbPath: path.join(app.getPath('userData'), 'kog-worship.db')
-}));
+ipcMain.handle('app-info', () => {
+  // Storage accounting for Settings → Application (best-effort: any stat
+  // failure yields 0, never a throw — this runs on every Settings visit).
+  let dbBytes = 0;
+  let bibleBytes = 0;
+  try { dbBytes = fs.statSync(path.join(app.getPath('userData'), 'kog-worship.db')).size || 0; } catch {}
+  try {
+    if (fs.existsSync(BIBLE_DIR)) {
+      for (const f of fs.readdirSync(BIBLE_DIR)) {
+        try { bibleBytes += fs.statSync(path.join(BIBLE_DIR, f)).size || 0; } catch {}
+      }
+    }
+  } catch {}
+  return {
+    version: app.getVersion(),
+    userData: app.getPath('userData'),
+    mediaDir: MEDIA_DIR,
+    dbPath: path.join(app.getPath('userData'), 'kog-worship.db'),
+    storage: { dbBytes, bibleBytes },
+  };
+});
 
 ipcMain.handle('open-data-folder', () => shell.openPath(app.getPath('userData')));
+
+// Settings → Diagnostic log: reveal the electron-log file itself.
+ipcMain.handle('open-log-file', () => shell.openPath(path.join(app.getPath('userData'), 'logs', 'main.log')));
+
+// Settings → Website / What's New: external links through an allowlist, so
+// renderer clicks can never be turned into an open-arbitrary-URL primitive.
+ipcMain.handle('open-external', (event, url) => {
+  try {
+    const u = new URL(String(url || ''));
+    if ((u.protocol === 'https:' && /(^|\.)github\.com$/.test(u.hostname))) {
+      return shell.openExternal(u.toString());
+    }
+    return 'Blocked: only github.com links may open from Settings.';
+  } catch (e) {
+    return String((e && e.message) || e);
+  }
+});
 
 // --- LAN REMOTE IPC ---
 ipcMain.handle('lan-info', () => lanInfoWithQr());

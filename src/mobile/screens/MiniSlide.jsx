@@ -32,6 +32,24 @@ export default function MiniSlide({ C, text, style, timer, presentation, badge, 
     if (onCopy) onCopy();
   };
 
+  // Countdown media on phones: slideshow images + watermark resolve through
+  // the paired LAN endpoint (same as lyric backgrounds); video stays
+  // desktop-side per policy, so a video countdown degrades to the centered
+  // timer face instead of a dead stream. Framing rides along untouched.
+  const pt = timer && timer.bgType === 'media' && timer.bgMedia
+    ? {
+        ...timer,
+        bgMedia: {
+          ...timer.bgMedia,
+          images: (timer.bgMedia.images || []).map((u) => mediaUrl(u)).filter(Boolean),
+          video: mediaUrl(timer.bgMedia.video),
+          watermark: timer.bgMedia.watermark?.url
+            ? { ...timer.bgMedia.watermark, url: mediaUrl(timer.bgMedia.watermark.url) }
+            : timer.bgMedia.watermark,
+        },
+      }
+    : timer;
+
   const bgType = style?.backgroundType || 'color';
   const bgValue = style?.backgroundValue || '#000000';
   // Images: http(s) direct, media:// library via the paired LAN endpoint.
@@ -68,7 +86,7 @@ export default function MiniSlide({ C, text, style, timer, presentation, badge, 
             )}
             {timer ? (
               <div style={{ position: 'absolute', inset: 0 }}>
-                <TimerFace timer={timer} scale={1} />
+                <TimerFace timer={pt} scale={1} />
               </div>
             ) : presentation ? (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 60 }}>

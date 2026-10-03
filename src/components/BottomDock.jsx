@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ListVideo, Presentation, Film, Music, BookOpen, Monitor, Settings, Timer, FileText } from 'lucide-react';
 import { motion } from 'motion/react';
+import { DOCK_KIND, iconHue } from '../lib/icons';
 
 const ICON_MAP = {
   'list-video': ListVideo,
@@ -52,7 +53,7 @@ function DockTooltip({ label, children }) {
   );
 }
 
-export default function BottomDock({ C, PINK, dockItems, dockTab, onSelect, activeId }) {
+export default function BottomDock({ C, PINK, dockItems, dockTab, onSelect, activeId, iconTheme }) {
   const currentId = activeId ?? dockTab;
   return (
     // No entrance animation — same as the right panel: the console remounts
@@ -80,6 +81,11 @@ export default function BottomDock({ C, PINK, dockItems, dockTab, onSelect, acti
       {dockItems.map(item => {
         const active = currentId === item.id;
         const Icon = ICON_MAP[item.iconId] || Settings;
+        // Prism Slate: each tab's icon keeps its function hue in every state;
+        // the active tab still reads through the bold label. Mono keeps the
+        // old muted/purple behavior.
+        const prism = iconTheme === 'prism';
+        const iconColor = prism ? iconHue(DOCK_KIND[item.iconId], C) : (active ? '#C4B5FD' : C.muted);
         return (
           <DockTooltip key={item.id} label={item.label}>
             <button
@@ -98,10 +104,10 @@ export default function BottomDock({ C, PINK, dockItems, dockTab, onSelect, acti
                 cursor: 'pointer',
                 background: 'transparent',
                 border: '1px solid transparent',
-                color: active ? '#C4B5FD' : C.muted,
+                color: prism ? C.text2 : (active ? '#C4B5FD' : C.muted),
               }}
             >
-              <Icon size={18} strokeWidth={active ? 2.4 : 1.8} />
+              <Icon size={18} strokeWidth={active ? 2.4 : 1.8} color={iconColor} />
               <span style={{ fontSize: 10, fontWeight: active ? 800 : 600, letterSpacing: 0.3, lineHeight: 1 }}>{item.label}</span>
             </button>
           </DockTooltip>

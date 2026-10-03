@@ -1,142 +1,60 @@
 import React from 'react';
-import { RefreshCw, BookOpen, Download, RotateCw } from 'lucide-react';
 import { motion } from 'motion/react';
 import { modalOverlay, modalPanel, stubTap } from '../../lib/anim';
 import logoImage from '../../assets/logo.png';
 
-const FEATURES = [
-  ['Scripture Browser', 'Fast 3-column Bible lookup with support for custom offline translations.'],
-  ['Service Order Planner', 'Flexible playlist management for songs, presentations, and local media.'],
-  ['Multi-Display Control', 'Independent output routing for main projectors, side displays, and stage confidence monitors.']
+// Product card only — the updater used to live here; it moved to
+// Settings → Application. No dead buttons: the User Guide stub is gone too.
+const HIGHLIGHTS = [
+  ['Medleys & Arrangements', 'Chain songs into one continuous flow, or reorder any song per service — verses, choruses, repeats.'],
+  ['Live outputs', 'Projector, stage and monitor feeds with DeckLink SDI, edge blending and per-output aspects.'],
+  ['Sermon layer', 'Drive PowerPoint beneath the lyrics with a crossfade — no minimize, no flash.'],
+  ['Countdown & Scripture', 'Synced timers on every screen, offline Bible lookup, and a LAN remote for phones.'],
 ];
 
-function formatBytes(bytes) {
-  if (!bytes || bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
-}
-
-function formatSpeed(bytesPerSec) {
-  if (!bytesPerSec) return '';
-  return formatBytes(bytesPerSec) + '/s';
-}
-
-export default function AboutModal({ C, ACCENT, PINK, version, status, updateReady, updateProgress, updateVersion, onCheckUpdates, onDownloadUpdate, onInstallUpdate, onOpenGuide, onClose }) {
-  // One control, one phase at a time: idle → checking → downloading →
-  // downloaded → installing → complete (plus uptodate / available / error).
-  const phase = updateReady || 'idle';
-  const pct = Math.round(updateProgress?.percent || 0);
-  const busy = phase === 'checking' || phase === 'downloading' || phase === 'installing';
-  const phaseBtn = {
-    display: 'inline-flex', alignItems: 'center', gap: 6, background: ACCENT, border: 'none',
-    color: '#fff', padding: '10px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: 700,
-  };
+export default function AboutModal({ C, ACCENT, PINK, version, onClose }) {
   return (
     <motion.div {...modalOverlay} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }} onClick={onClose}>
-      <style>{'@keyframes kogSpin{to{transform:rotate(360deg)}}'}</style>
-      <motion.div {...modalPanel} onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: '14px', width: '540px', maxWidth: '92vw', maxHeight: 'calc(100vh - 80px)', overflowY: 'auto', padding: '24px', boxSizing: 'border-box' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <img src={logoImage} alt="KOGWorship" style={{ width: 44, height: 44, objectFit: 'contain', borderRadius: '9px' }} />
-          <div>
-            <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 900, letterSpacing: 0.4 }}>KOG<span style={{ color: PINK }}>Worship</span></h2>
-            <div style={{ fontSize: '12px', color: C.muted, fontWeight: 700, marginTop: 2 }}>Version {version}</div>
+      <motion.div {...modalPanel} onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: '16px', width: '520px', maxWidth: '92vw', maxHeight: 'calc(100vh - 80px)', overflowY: 'auto', padding: 0, boxSizing: 'border-box', overflow: 'hidden' }}>
+        {/* Banner */}
+        <div style={{ background: 'radial-gradient(130% 160% at 20% 0%, rgba(139,92,246,0.35), rgba(139,92,246,0.05) 55%, transparent 80%), var(--ui-elev)', borderBottom: '1px solid var(--ui-border)', padding: '26px 26px 20px 26px', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <img src={logoImage} alt="KOGWorship" style={{ width: 56, height: 56, objectFit: 'contain', borderRadius: 12 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900, letterSpacing: 0.4 }}>KOG<span style={{ color: PINK }}>Worship</span></h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, color: '#fff', background: ACCENT, borderRadius: 999, padding: '2px 10px' }}>v{version}</span>
+              <span style={{ fontSize: 11.5, color: C.muted, fontWeight: 600 }}>Free worship presentation</span>
+            </div>
           </div>
         </div>
 
-        <p style={{ fontSize: '13px', lineHeight: 1.7, color: C.text2, margin: '16px 0 0 0' }}>
-          KOGWorship is a modern, reliable worship presentation software designed for seamless service management, live media playback, and multi-display projection control.
-        </p>
+        <div style={{ padding: '18px 26px 24px 26px' }}>
+          <p style={{ fontSize: 13, lineHeight: 1.7, color: C.text2, margin: '0 0 16px 0' }}>
+            Built for zero-distraction Sundays: plan the service, project every lyric and verse with confidence, and keep the stage in sync — all from one machine.
+          </p>
 
-        <h3 style={{ fontSize: '11.5px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.2, color: C.accLine, margin: '22px 0 10px 0' }}>Core Features</h3>
-        <div style={{ display: 'grid', gap: '8px' }}>
-          {FEATURES.map(([title, desc]) => (
-            <div key={title} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: '8px', padding: '10px 14px' }}>
-              <div style={{ fontSize: '12.5px', fontWeight: 800 }}>{title}</div>
-              <div style={{ fontSize: '12px', color: C.text2, marginTop: 3, lineHeight: 1.6 }}>{desc}</div>
-            </div>
-          ))}
-        </div>
-
-        <h3 style={{ fontSize: '11.5px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.2, color: C.accLine, margin: '22px 0 10px 0' }}>Credits</h3>
-        <p style={{ fontSize: '13px', lineHeight: 1.7, color: C.text2, margin: 0 }}>
-          Designed and Developed by Charles Darius Arradaza, a servant of God.
-        </p>
-
-        {updateProgress && (
-          <div style={{ marginTop: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: C.muted, marginBottom: '6px' }}>
-              <span>{formatBytes(updateProgress.transferred)} of {formatBytes(updateProgress.total)}</span>
-              <span>{Math.round(updateProgress.percent)}%</span>
-            </div>
-            <div style={{ width: '100%', height: '6px', background: C.elevated2, borderRadius: '3px', overflow: 'hidden' }}>
-              <div style={{ width: `${updateProgress.percent}%`, height: '100%', background: ACCENT, borderRadius: '3px', transition: 'width 0.3s ease' }} />
-            </div>
-            {updateProgress.bytesPerSecond > 0 && (
-              <div style={{ fontSize: '11px', color: C.muted, marginTop: '4px', textAlign: 'center' }}>{formatSpeed(updateProgress.bytesPerSecond)}</div>
-            )}
+          <div style={{ display: 'grid', gap: 8 }}>
+            {HIGHLIGHTS.map(([title, desc]) => (
+              <div key={title} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                <span style={{ width: 7, height: 7, borderRadius: 999, background: ACCENT, marginTop: 6, flexShrink: 0 }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 800, color: C.text }}>{title}</div>
+                  <div style={{ fontSize: 12, color: C.text2, lineHeight: 1.6 }}>{desc}</div>
+                </div>
+              </div>
+            ))}
           </div>
-        )}
 
-        {status && !updateProgress && (
-          <div style={{ marginTop: '16px', fontSize: '12px', color: C.muted, textAlign: 'center' }}>{status}</div>
-        )}
-
-        {phase === 'checking' && (
-          <div style={{ marginTop: '12px', textAlign: 'center' }}>
-            <button disabled style={{ ...phaseBtn, opacity: 0.85, cursor: 'wait' }}>
-              <RefreshCw size={13} style={{ animation: 'kogSpin 1s linear infinite' }} /> Checking for updates…
-            </button>
+          <div style={{ fontSize: 12, color: C.faint2, lineHeight: 1.7, marginTop: 16 }}>
+            Designed and developed by <b style={{ color: C.text2 }}>Charles Darius Arradaza</b>, a servant of God.
           </div>
-        )}
-
-        {phase === 'downloading' && (
-          <div style={{ marginTop: '12px', textAlign: 'center' }}>
-            <button disabled style={{ ...phaseBtn, opacity: 0.85, cursor: 'wait' }}>
-              <Download size={13} /> Downloading update — {pct}%
-            </button>
+          <div style={{ fontSize: 11.5, color: C.faint2, marginTop: 6 }}>
+            Updates live in Settings → Application.
           </div>
-        )}
 
-        {phase === 'downloaded' && (
-          <div style={{ marginTop: '12px', textAlign: 'center' }}>
-            <motion.button {...stubTap} onClick={onInstallUpdate} style={{ ...phaseBtn, cursor: 'pointer' }}>
-              <RotateCw size={13} /> Restart &amp; Install{updateVersion ? ` v${updateVersion}` : ''}
-            </motion.button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 18 }}>
+            <motion.button {...stubTap} onClick={onClose} style={{ background: ACCENT, border: 'none', color: '#fff', padding: '10px 26px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>Close</motion.button>
           </div>
-        )}
-
-        {phase === 'installing' && (
-          <div style={{ marginTop: '12px', textAlign: 'center' }}>
-            <button disabled style={{ ...phaseBtn, opacity: 0.85, cursor: 'wait' }}>
-              <RefreshCw size={13} style={{ animation: 'kogSpin 1s linear infinite' }} /> Installing update…
-            </button>
-          </div>
-        )}
-
-        {phase === 'complete' && (
-          <div style={{ marginTop: '12px', textAlign: 'center' }}>
-            <motion.button {...stubTap} onClick={onClose} style={{ ...phaseBtn, cursor: 'pointer' }}>
-              <RotateCw size={13} /> Launch updated KOG Worship
-            </motion.button>
-          </div>
-        )}
-
-<div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '22px', flexWrap: 'wrap' }}>
-          {phase === 'available' && !updateProgress && (
-            <motion.button {...stubTap} onClick={onDownloadUpdate} style={{ display: 'flex', alignItems: 'center', gap: 6, background: ACCENT, border: 'none', color: '#fff', padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-              <Download size={13} /> Download Update
-            </motion.button>
-          )}
-          {!busy && (
-          <motion.button {...stubTap} onClick={onCheckUpdates} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-            <RefreshCw size={13} /> Check for Updates
-          </motion.button>
-          )}
-          <motion.button {...stubTap} onClick={onOpenGuide} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
-            <BookOpen size={13} /> User Guide
-          </motion.button>
-          <motion.button {...stubTap} onClick={onClose} style={{ background: ACCENT, border: 'none', color: '#fff', padding: '10px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>Close</motion.button>
         </div>
       </motion.div>
     </motion.div>

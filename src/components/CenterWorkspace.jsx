@@ -64,6 +64,7 @@ export default function CenterWorkspace() {
     fireCueLive,
     fireTitleLive,
     fireMedleySlideAt,
+    arrangementStatus,
     clearWorkspace,
     activeSlideIndex,
     slideGrid,
@@ -479,10 +480,13 @@ export default function CenterWorkspace() {
   <div style={{ padding: '12px 18px 8px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexShrink: 0 }}>
     <div style={{ minWidth: 0 }}>
       <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{slideGrid[0]?.medTitle ? `${slideGrid[0].medTitle} • Medley` : (activeSong?.title || 'Welcome to KOGWorship')}</h2>
-      <p style={{ margin: '3px 0 0 0', fontSize: 11.5, color: C.faint }}>{slideGrid[0]?.medTitle ? `${slideGrid.length} slides in flow` : (activeSong?.artist ? `${activeSong.artist} • ` : '')}{slideGrid[0]?.medTitle ? '' : (activeSong?.cues ? `${activeSong.cues.length} slides` : 'Build your set, then project every lyric and verse with confidence.')}</p>
+      <p style={{ margin: '3px 0 0 0', fontSize: 11.5, color: C.faint }}>{slideGrid[0]?.medTitle ? `${slideGrid.length} slides in flow` : (arrangementStatus ? `${arrangementStatus.total} slides in arrangement` : (activeSong?.artist ? `${activeSong.artist} • ` : ''))}{slideGrid[0]?.medTitle || arrangementStatus ? '' : (activeSong?.cues ? `${activeSong.cues.length} slides` : 'Build your set, then project every lyric and verse with confidence.')}</p>
     </div>
     {activeSong && (
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+        {arrangementStatus && !slideGrid[0]?.medTitle && (
+          <span title="Custom play order from the service row — arrows walk this, not the song order" style={{ fontSize: 11, fontWeight: 800, color: '#C4B5FD', background: 'rgba(139,92,246,0.16)', border: '1px solid rgba(139,92,246,0.5)', borderRadius: 999, padding: '4px 10px' }}>Arr. {arrangementStatus.pos != null ? `${arrangementStatus.pos}/${arrangementStatus.total}` : (arrangementStatus.onTitle ? `title · ${arrangementStatus.total}` : `${arrangementStatus.total} steps`)}</span>
+        )}
         <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '4px 10px' }}>{activeSlideIndex >= 0 ? `Slide ${activeSlideIndex}/${slideGrid.length - 1}` : `${slideGrid.length} slides`}</span>
         <motion.button {...stubTap} onClick={() => { setEditingSong(activeSong); setEditorMode('manual'); setRawPasteText(''); setIsEditorOpen(true); }} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '6px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Edit3 size={12} /> Edit</motion.button>
       </div>
@@ -506,9 +510,20 @@ export default function CenterWorkspace() {
     {activeSong ? (
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridDensity}, 1fr)`, gap: 14, alignContent: 'start' }}>
         {slideGrid.map((tile, i) => (
-          <motion.div key={tile.medIdx != null ? `med-${tile.medIdx}` : (tile.isTitle ? 'title' : (tile.cue?.id ?? `cue-${i}`))} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 320, damping: 28, delay: Math.min(i * 0.03, 0.4) }} whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }} onClick={() => tile.medIdx != null ? fireMedleySlideAt(tile.medIdx) : (tile.isTitle ? fireTitleLive() : fireCueLive(tile.cue))}>
-            {renderSlideFace(tile, { aspect: (outputAspect || '16:9').replace(':', ' / ') })}
-          </motion.div>
+          <React.Fragment key={tile.medIdx != null ? `med-${tile.medIdx}` : (tile.arrIdx != null ? `arr-${tile.arrIdx}` : (tile.isTitle ? 'title' : (tile.cue?.id ?? `cue-${i}`)))}>
+            {/* Song Title Divider: full-width header where the flow crosses
+                into another song (skipped before the very first tile). */}
+            {tile.medFirstOfSong && tile.medIdx > 0 && (
+              <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+                <div style={{ flex: 1, height: 1, background: 'var(--ui-border2)' }} />
+                <span style={{ fontSize: 11, fontWeight: 800, color: ACCENT, letterSpacing: 0.6, whiteSpace: 'nowrap' }}>{tile.medSong?.title || 'Next song'}</span>
+                <div style={{ flex: 1, height: 1, background: 'var(--ui-border2)' }} />
+              </div>
+            )}
+            <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 320, damping: 28, delay: Math.min(i * 0.03, 0.4) }} whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }} onClick={() => tile.medIdx != null ? fireMedleySlideAt(tile.medIdx) : (tile.isTitle ? fireTitleLive() : fireCueLive(tile.cue))}>
+              {renderSlideFace(tile, { aspect: (outputAspect || '16:9').replace(':', ' / ') })}
+            </motion.div>
+          </React.Fragment>
         ))}
       </div>
     ) : (

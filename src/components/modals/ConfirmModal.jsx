@@ -3,7 +3,7 @@ import { AlertTriangle, HelpCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { modalOverlay, modalPanel, stubTap } from '../../lib/anim';
 
-export default function ConfirmModal({ C, ACCENT, mode = 'confirm', title, message, confirmLabel = 'OK', cancelLabel = 'Cancel', onConfirm, onCancel }) {
+export default function ConfirmModal({ C, ACCENT, mode = 'confirm', title, message, confirmLabel = 'OK', cancelLabel = 'Cancel', extraLabel, onExtra, onConfirm, onCancel }) {
   const confirmRef = useRef(null);
 
   useEffect(() => {
@@ -83,6 +83,16 @@ export default function ConfirmModal({ C, ACCENT, mode = 'confirm', title, messa
           >
             {confirmLabel}
           </motion.button>
+          {/* Optional third action (e.g. Save & Quit): primary accent, rightmost. */}
+          {isConfirm && extraLabel && onExtra && (
+            <motion.button
+              {...stubTap}
+              onClick={onExtra}
+              style={{ background: ACCENT, border: 'none', color: '#fff', padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+            >
+              {extraLabel}
+            </motion.button>
+          )}
         </div>
       </motion.div>
     </motion.div>

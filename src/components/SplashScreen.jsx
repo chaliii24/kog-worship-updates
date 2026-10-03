@@ -63,9 +63,6 @@ export default function SplashScreen({ C, logoImage }) {
         style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 2, transformOrigin: 'left center', background: `linear-gradient(90deg, rgba(167,139,250,0) 0%, ${C.accLine} 100%)`, zIndex: 1 }}
       />
 
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.3, duration: 0.8 }} style={{ position: 'absolute', bottom: 26, zIndex: 1, fontSize: 12.5, color: C.faint }}>
-        Designed &amp; Built by <span style={{ color: '#f3f4f6', fontWeight: 700 }}>Charles Arradaza</span>
-      </motion.div>
     </motion.div>
   );
 }

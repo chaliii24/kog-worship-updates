@@ -96,10 +96,17 @@ function titleSlide(songId, song) {
 // Missing songs, empty lyrics and fully-filtered songs contribute nothing —
 // a link that yields zero slides vanishes instead of breaking the flow.
 //
+// UNIFIED with arrangements (see lib/arrangement.js): each participant can
+// carry its own play order, applied BEFORE the part filter —
+//   * ordersBySong[songId] (a cue-id list, from the row's arrangement)
+//     reorders that song's cues, new slides appended (never dropped);
+//   * otherwise a link's picked parts play in PICK order (the modal's tick
+//     sequence), each part in song order within itself — the ProPresenter
+//     "groups in sequence" semantic. ['ALL'] keeps library order.
 // Song lookup is shape-tolerant (numeric 42, "42", even legacy "42.0" refs
 // all hit): service rows round-trip through a TEXT column, so exact-key
 // matching silently dropped whole songs from the flow.
-export function flattenMedley(def, songsById) {
+export function flattenMedley(def, songsById, ordersBySong) {
   if (!def) return [];
   const get = (id) => {
     if (songsById == null || id == null) return null;
@@ -108,16 +115,44 @@ export function flattenMedley(def, songsById) {
     }
     return songsById[id] ?? songsById[String(id)] ?? null;
   };
+  const orderOf = (songId) => {
+    if (!ordersBySong) return null;
+    const o = ordersBySong instanceof Map
+      ? (ordersBySong.get(songId) ?? ordersBySong.get(String(songId)) ?? null)
+      : (ordersBySong[songId] ?? ordersBySong[String(songId)] ?? null);
+    return Array.isArray(o) && o.length ? o : null;
+  };
   const slides = [];
-  const pushSong = (songId, includedParts, skipTitle) => {
+  const pushSong = (songId, includedParts, skipTitle, partOrder) => {
     const song = get(songId);
     if (!song) return;
-    const cues = (song.cues || []).filter((c) => cueIncluded(c, includedParts));
+    let cues = (song.cues || []).filter((c) => cueIncluded(c, includedParts));
+    const ord = orderOf(songId);
+    if (ord) {
+      // Row arrangement wins: custom cue order, then the part filter.
+      const byId = new Map(cues.map((c) => [c.id, c]));
+      const arranged = ord.map((id) => byId.get(id)).filter(Boolean);
+      const seen = new Set(arranged.map((c) => c.id));
+      for (const c of cues) if (!seen.has(c.id)) arranged.push(c);
+      cues = arranged;
+    } else if (Array.isArray(partOrder) && partOrder.length && !includedParts.includes('ALL')) {
+      // Link part order: picked parts play in tick sequence, song order
+      // inside each part. Renamed-since-linking slides still play (appended).
+      const want = partOrder.map((p) => String(p).toLowerCase());
+      const grouped = [];
+      for (const p of want) {
+        for (const c of cues) {
+          if (basePartLabel(c.label).toLowerCase() === p && !grouped.includes(c)) grouped.push(c);
+        }
+      }
+      for (const c of cues) if (!grouped.includes(c)) grouped.push(c);
+      cues = grouped;
+    }
     if (!skipTitle) slides.push(titleSlide(songId, song));
     else if (cues.length === 0) return; // nothing to show, drop the song
     for (const cue of cues) slides.push({ kind: 'cue', songId, cue });
   };
-  pushSong(def.anchor.songId, def.anchor.includedParts, false);
-  for (const link of def.links) pushSong(link.songId, link.includedParts, link.skipTitleSlide);
+  pushSong(def.anchor.songId, def.anchor.includedParts, false, def.anchor.includedParts);
+  for (const link of def.links) pushSong(link.songId, link.includedParts, link.skipTitleSlide, link.includedParts);
   return slides;
 }
