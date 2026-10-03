@@ -23,7 +23,7 @@ export default function AboutModal({ C, ACCENT, PINK, version, onClose }) {
             <h2 style={{ margin: 0, fontSize: 22, fontWeight: 900, letterSpacing: 0.4 }}>KOG<span style={{ color: PINK }}>Worship</span></h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
               <span style={{ fontSize: 11, fontWeight: 800, color: '#fff', background: ACCENT, borderRadius: 999, padding: '2px 10px' }}>v{version}</span>
-              <span style={{ fontSize: 11.5, color: C.muted, fontWeight: 600 }}>Free worship presentation</span>
+              <span style={{ fontSize: 11.5, color: C.muted, fontWeight: 600 }}> Presentation Suite</span>
             </div>
           </div>
         </div>
