@@ -40,10 +40,8 @@ import {
   getPresentationDetails,
   savePresentation,
   deletePresentation,
-  getBuiltinVideosDir,
-  getBuiltinPhotosDir,
   getBuiltinVideoAssets,
-  getBuiltinPhotoAssets
+  getBuiltinPhotoAssets,
 } from './database.js';
 import { createLanServer } from './lanServer.js';
 import { status as decklinkStatus, listDevices as decklinkListDevices, start as decklinkStart, stop as decklinkStop } from './decklink.js';
@@ -102,8 +100,6 @@ const lan = createLanServer({
   // resolves inside Electron). Videos stay desktop-side — phones get a badge.
   mediaDir: path.join(app.getPath('userData'), 'media'),
   builtinMedia: [
-    { prefix: 'builtin-photos/', dir: getBuiltinPhotosDir() },
-    { prefix: 'builtin/', dir: getBuiltinVideosDir() },
     // Countdown-private uploads (media://kog-media/cd/…): same auth +
     // traversal rules, own folder, still no listing endpoint.
     { prefix: 'cd/', dir: path.join(app.getPath('userData'), 'countdown-media') },
@@ -255,19 +251,13 @@ function serveFileProtocol(rootDir, request) {
 
 function serveMediaProtocol() {
   fs.mkdirSync(MEDIA_DIR, { recursive: true });
-  const builtinDir = getBuiltinVideosDir();
-  const builtinPhotosDir = getBuiltinPhotosDir();
   protocol.handle('media', async (request) => {
     try {
-      // Bundled backgrounds are served under media://kog-media/builtin/... (videos)
-      // and media://kog-media/builtin-photos/... (photos).
-      const url = new URL(request.url);
-      if (url.pathname.startsWith('/builtin-photos/')) return serveFileProtocol(builtinPhotosDir, request);
-      if (url.pathname.startsWith('/builtin/')) return serveFileProtocol(builtinDir, request);
       // Countdown-private uploads (media://kog-media/cd/...) live in their
       // own folder: same bytes-on-disk serving, zero library registration.
       // serveFileProtocol resolves the last path segment, so no prefix
       // stripping is needed here.
+      const url = new URL(request.url);
       if (url.pathname.startsWith('/cd/')) {
         try { fs.mkdirSync(COUNTDOWN_DIR, { recursive: true }); } catch {}
         return serveFileProtocol(COUNTDOWN_DIR, request);
@@ -1523,8 +1513,8 @@ ipcMain.handle('db-toggle-favorite', (event, id) => toggleFavorite(id));
 ipcMain.handle('db-set-song-bg', (event, id, bgType, bgValue) => setSongBackground(id, bgType, bgValue));
 ipcMain.handle('db-set-song-audio', (event, id, audioUrl) => setSongAudio(id, audioUrl));
 ipcMain.handle('db-get-media', () => getMediaLibrary());
-// Bundled stock backgrounds (videos + photos) so the renderer can seed the
-// scripture background picker on first run.
+// Built-in packs removed (house gradients carry the load now): always empty,
+// channel kept so old renderers never break on the call.
 ipcMain.handle('list-builtin-assets', () => ({
   videos: getBuiltinVideoAssets(),
   photos: getBuiltinPhotoAssets()

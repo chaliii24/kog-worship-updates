@@ -1,18 +1,16 @@
 // Offline "download-free" background pack: vector CSS gradients (no image files,
 // so they work with zero internet and add nothing to the installer size).
+// Exactly 7 — the curated house set offered in every background picker
+// (songs, slides, countdown, presentations). Saved songs store the css
+// string itself, so trimming the pack never breaks old songs.
 export const GRADIENT_PACK = [
   { id: 'g-midnight', name: 'Midnight', css: 'linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0b1220 100%)' },
   { id: 'g-ocean', name: 'Deep Ocean', css: 'linear-gradient(135deg, #0b1220 0%, #0e4b6e 55%, #071b2b 100%)' },
   { id: 'g-royal', name: 'Royal', css: 'linear-gradient(135deg, #1e1b4b 0%, #4c1d95 55%, #160b2e 100%)' },
   { id: 'g-ember', name: 'Ember', css: 'linear-gradient(135deg, #2a0e05 0%, #7c2d12 55%, #1a0803 100%)' },
   { id: 'g-forest', name: 'Forest', css: 'linear-gradient(135deg, #052e16 0%, #166534 55%, #031a0d 100%)' },
-  { id: 'g-rose', name: 'Rose', css: 'linear-gradient(135deg, #3f0d2b 0%, #9d174d 55%, #210616 100%)' },
-  { id: 'g-slate', name: 'Slate', css: 'linear-gradient(135deg, #111827 0%, #334155 55%, #0b1220 100%)' },
-  { id: 'g-gold', name: 'Gold', css: 'linear-gradient(135deg, #1c1917 0%, #78350f 55%, #0c0a09 100%)' },
-  { id: 'g-violet', name: 'Violet Haze', css: 'radial-gradient(circle at 30% 20%, #4c1d95 0%, #0b1220 60%)' },
-  { id: 'g-glow', name: 'Blue Glow', css: 'radial-gradient(circle at 50% 15%, #1d4ed8 0%, #0b1220 62%)' },
   { id: 'g-sunrise', name: 'Sunrise', css: 'linear-gradient(135deg, #1e1b4b 0%, #b45309 70%, #0f172a 100%)' },
-  { id: 'g-mono', name: 'Mono', css: 'linear-gradient(135deg, #000000 0%, #1f2937 60%, #000000 100%)' }
+  { id: 'g-violet', name: 'Violet Haze', css: 'radial-gradient(circle at 30% 20%, #4c1d95 0%, #0b1220 60%)' }
 ];
 
 export const PRESENTATION_LAYOUTS = [

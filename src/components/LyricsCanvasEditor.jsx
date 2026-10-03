@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { Stage, Layer, Group, Rect, Transformer } from 'react-konva';
 import { renderLyricsLayout, computeLyricsFontSize, lyricsLayoutMetrics, FONT_SIZE_MIN, FONT_SIZE_MAX, LINE_SCALE_PRESETS, ingestSpans, emitSpans, remapSpans, applySpanPatch, rangeAttrs, spanCovers, lineSpanRange, lineIndexAt } from '../lib/lyrics';
 import { transitionAnimation } from '../lib/constants';
+import AnimatedBg from './AnimatedBg';
 
 const CANVAS_W = 1280;
 const CANVAS_H = 720;
@@ -911,6 +912,12 @@ export default function LyricsCanvasEditor({
       )}
       {bgType === 'video' && bgValue && (
         <video key={`bg-${bgValue}`} src={bgValue} autoPlay loop muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }} />
+      )}
+      {bgType === 'gradient' && !!bgValue && (
+        <div style={{ position: 'absolute', inset: 0, background: bgValue, zIndex: 0 }} />
+      )}
+      {bgType === 'animated' && (
+        <AnimatedBg value={bgValue} k={1} />
       )}
 
       {/* z1 — the real lyrics, same renderer as the projector */}

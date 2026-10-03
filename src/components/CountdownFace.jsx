@@ -57,6 +57,38 @@ export const ANIMATED_GRADIENTS = [
       { css: 'radial-gradient(circle, rgba(59,130,246,0.36) 0%, transparent 70%)', w: 740, h: 740, x: 60, y: 44, dx: -130, dy: -80, d: '10s' },
     ],
   },
+  {
+    id: 'ocean', name: 'Ocean',
+    base: 'linear-gradient(135deg, #04121f 0%, #0b2f4a 60%, #02090f 100%)',
+    blobs: [
+      { css: 'radial-gradient(circle, rgba(34,211,238,0.42) 0%, transparent 70%)', w: 860, h: 860, x: 10, y: 30, dx: 130, dy: -70, d: '12s' },
+      { css: 'radial-gradient(circle, rgba(59,130,246,0.40) 0%, transparent 70%)', w: 720, h: 720, x: 58, y: 10, dx: -120, dy: 80, d: '15s' },
+    ],
+  },
+  {
+    id: 'sunset', name: 'Sunset',
+    base: 'linear-gradient(135deg, #1c0a12 0%, #3b0f1e 60%, #0d0408 100%)',
+    blobs: [
+      { css: 'radial-gradient(circle, rgba(251,146,60,0.46) 0%, transparent 70%)', w: 880, h: 880, x: 8, y: 36, dx: 140, dy: -60, d: '11s' },
+      { css: 'radial-gradient(circle, rgba(244,114,182,0.34) 0%, transparent 70%)', w: 700, h: 700, x: 62, y: 8, dx: -130, dy: 70, d: '14s' },
+    ],
+  },
+  {
+    id: 'violet', name: 'Violet',
+    base: 'linear-gradient(135deg, #150826 0%, #241040 60%, #0a0414 100%)',
+    blobs: [
+      { css: 'radial-gradient(circle, rgba(232,121,249,0.44) 0%, transparent 70%)', w: 900, h: 900, x: 12, y: 10, dx: -140, dy: 70, d: '13s' },
+      { css: 'radial-gradient(circle, rgba(167,139,250,0.38) 0%, transparent 70%)', w: 740, h: 740, x: 56, y: 46, dx: 120, dy: -70, d: '10s' },
+    ],
+  },
+  {
+    id: 'mono', name: 'Mono',
+    base: 'linear-gradient(135deg, #09090b 0%, #18181b 60%, #030304 100%)',
+    blobs: [
+      { css: 'radial-gradient(circle, rgba(161,161,170,0.30) 0%, transparent 70%)', w: 840, h: 840, x: 10, y: 20, dx: 120, dy: 60, d: '16s' },
+      { css: 'radial-gradient(circle, rgba(82,82,91,0.34) 0%, transparent 70%)', w: 700, h: 700, x: 60, y: 40, dx: -110, dy: -60, d: '13s' },
+    ],
+  },
 ];
 
 export const animatedPresetOf = (bgValue) => {

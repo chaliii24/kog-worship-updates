@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { renderLyricsLayout, DEFAULT_LYRIC_SIZE } from '../../lib/lyrics';
 import { TimerFace } from '../../components/CountdownFace.jsx';
+import AnimatedBg from '../../components/AnimatedBg.jsx';
 import { mediaUrl } from '../link.js';
 
 // True miniature of the projected slide: same renderer, same lyric style and
@@ -76,6 +77,10 @@ export default function MiniSlide({ C, text, style, timer, presentation, badge, 
           <div style={{ position: 'absolute', left: 0, top: 0, width: 1280, height: 720, transform: `scale(${s})`, transformOrigin: 'top left' }}>
             {bgType === 'color' ? (
               <div style={{ position: 'absolute', inset: 0, background: bgValue }} />
+            ) : bgType === 'gradient' && bgValue ? (
+              <div style={{ position: 'absolute', inset: 0, background: bgValue }} />
+            ) : bgType === 'animated' ? (
+              <AnimatedBg value={bgValue} k={0.25} />
             ) : imgSrc ? (
               <img src={imgSrc} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
             ) : (

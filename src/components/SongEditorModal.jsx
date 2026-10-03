@@ -5,6 +5,9 @@ import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, FALLBACK_SYS
 import { renderLyricsLayout, cueLyricStyle, stripMarkup, FONT_SIZE_MIN, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, autoPadForSize, fitBoxToText, growBoxToText, restyleLineScales } from '../lib/lyrics';
 import { useApp } from '../context/AppContext';
 import { stubTap, iconBtnTap } from '../lib/anim';
+import { GRADIENT_PACK } from '../lib/backgrounds';
+import { animatedPresetOf, ANIMATED_GRADIENTS } from './CountdownFace';
+import AnimatedBg from './AnimatedBg';
 import { Tabs, TabList, Tab, TabPanel } from '../untitledui/components/application/tabs/tabs';
 import { toast } from '../untitledui/components/ui/toast';
 import LyricsCanvasEditor from './LyricsCanvasEditor';
@@ -1441,12 +1444,15 @@ export default function SongEditorModal() {
               <div style={{ display: 'grid', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
                 {/* Title Slide Thumbnail */}
                 <div onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); dropCue(dragFrom, 0, 'before', false); }} onClick={(e) => slideClick(e, -1)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: editorCueIdx === -1 ? 'rgba(139,92,246,0.16)' : C.elevated, border: dragFrom != null ? '1px dashed ' + ACCENT : (editorCueIdx === -1 ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(-1) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
-                  <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 5, background: songHasBackground(editingSong) && editingSong.bg_type === 'color' ? editingSong.bg_value : '#0a0a0a', position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 5, background: songHasBackground(editingSong) && (editingSong.bg_type === 'color' || editingSong.bg_type === 'gradient') ? editingSong.bg_value : (songHasBackground(editingSong) && editingSong.bg_type === 'animated' ? animatedPresetOf(editingSong.bg_value).base : '#0a0a0a'), position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {editingSong.bg_type === 'image' && editingSong.bg_value && (
                       <img draggable={false} src={editingSong.bg_value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                     )}
                     {editingSong.bg_type === 'video' && editingSong.bg_value && (
                       <TileVideo src={editingSong.bg_value} animate={editorCueIdx === -1} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                    )}
+                    {editingSong.bg_type === 'animated' && (
+                      <AnimatedBg value={editingSong.bg_value} k={0.3} />
                     )}
                     <div style={{ position: 'relative', zIndex: 2, color: '#f5f5f4', fontSize: 10, fontWeight: 800, textAlign: 'center', padding: '0 6px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{editingSong.title || 'Song Title'}</div>
                     {applySel.includes(-1) && (
@@ -1477,12 +1483,15 @@ export default function SongEditorModal() {
                             {dropHint && dropHint.i === i && (
                               <span style={{ position: 'absolute', top: 0, bottom: 0, [dropHint.side === 'before' ? 'left' : 'right']: 0, width: 3, background: ACCENT, borderRadius: 3, zIndex: 6 }} />
                             )}
-                            <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 5, background: (resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'color' ? resolveBg(c, editingSong).value : '#0a0a0a'), position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 5, background: (resolveBg(c, editingSong) && (resolveBg(c, editingSong).type === 'color' || resolveBg(c, editingSong).type === 'gradient') ? resolveBg(c, editingSong).value : (resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'animated' ? animatedPresetOf(resolveBg(c, editingSong).value).base : '#0a0a0a')), position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'image' && (
                                 <img key={`tb-${resolveBg(c, editingSong).value}`} draggable={false} src={resolveBg(c, editingSong).value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
                               )}
                               {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'video' && (
                                 <TileVideo key={`tb-${resolveBg(c, editingSong).value}`} src={resolveBg(c, editingSong).value} animate={i === editorCueIdx} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                              )}
+                              {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'animated' && (
+                                <AnimatedBg key={`tba-${resolveBg(c, editingSong).value}`} value={resolveBg(c, editingSong).value} k={0.3} />
                               )}
                               {(() => {
                                 // 1:1 with the canvas and the projector: the
@@ -1564,6 +1573,24 @@ export default function SongEditorModal() {
                   <button onClick={() => setSongBackground('color', '#000000')} style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.muted, padding: '4px 7px', borderRadius: 5, fontSize: 10, cursor: 'pointer' }}>Clear</button>
                 )}
               </div>
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>Gradients</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
+                  {GRADIENT_PACK.map((g) => (
+                    <div key={g.id} onClick={() => setSongBackground('gradient', g.css)} title={g.name} style={{ aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: editingSong.bg_type === 'gradient' && editingSong.bg_value === g.css ? '2px solid #22c55e' : '1px solid var(--ui-border2)', background: g.css }} />
+                  ))}
+                </div>
+              </div>
+              <div style={{ marginBottom: (mediaLibrary || []).some(a => a.kind === 'image' || a.kind === 'video') ? 8 : 0 }}>
+                <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>Animated</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
+                  {ANIMATED_GRADIENTS.map((g) => (
+                    <div key={g.id} onClick={() => setSongBackground('animated', `anim:${g.id}`)} title={`${g.name} (animated loop)`} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: editingSong.bg_type === 'animated' && editingSong.bg_value === `anim:${g.id}` ? '2px solid #22c55e' : '1px solid var(--ui-border2)', background: g.base }}>
+                      <span style={{ position: 'absolute', bottom: 2, left: 0, right: 0, textAlign: 'center', fontSize: 7, fontWeight: 800, color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{g.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
               {(mediaLibrary || []).some(a => a.kind === 'image' || a.kind === 'video') && (
                 <div>
                   <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>From Media Library</div>
@@ -1598,6 +1625,24 @@ export default function SongEditorModal() {
                   {cueHasBackground(editorCue) && (
                     <button onClick={() => clearCueBackground(editorCueIdx)} style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.muted, padding: '4px 7px', borderRadius: 5, fontSize: 10, cursor: 'pointer' }}>Clear</button>
                   )}
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>Gradients</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+                    {GRADIENT_PACK.map((g) => (
+                      <div key={g.id} onClick={() => setCueBackground(editorCueIdx, 'gradient', g.css)} title={g.name} style={{ aspectRatio: '16 / 9', borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: editorCue.bg_type === 'gradient' && editorCue.bg_value === g.css ? '2px solid #22c55e' : '1px solid var(--ui-border2)', background: g.css }} />
+                    ))}
+                  </div>
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>Animated</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+                    {ANIMATED_GRADIENTS.map((g) => (
+                      <div key={g.id} onClick={() => setCueBackground(editorCueIdx, 'animated', `anim:${g.id}`)} title={`${g.name} (animated loop)`} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: editorCue.bg_type === 'animated' && editorCue.bg_value === `anim:${g.id}` ? '2px solid #22c55e' : '1px solid var(--ui-border2)', background: g.base }}>
+                        <span style={{ position: 'absolute', bottom: 1, left: 0, right: 0, textAlign: 'center', fontSize: 7, fontWeight: 800, color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{g.name}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 {(mediaLibrary || []).some(a => a.kind === 'image' || a.kind === 'video') && (
                   <div style={{ marginBottom: 10 }}>

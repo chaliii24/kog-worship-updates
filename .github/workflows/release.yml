@@ -42,14 +42,18 @@ jobs:
       # own key from userData\.env (set in the song editor) and never runs
       # unless explicitly clicked.
 
-      - name: Verify bundled backgrounds are present
+      # House backgrounds are pure CSS (7 static + 7 animated gradients, zero
+      # installer bytes), so there are no bundled media folders to verify. The
+      # counts below guard the catalogs against accidental trims instead.
+
+      - name: Verify gradient catalogs are complete
         run: |
-          if (-not (Test-Path "VideBackground")) { Write-Error "VideBackground folder missing — builtin videos would not ship"; exit 1 }
-          if (-not (Test-Path "Photos")) { Write-Error "Photos folder missing — builtin photos would not ship"; exit 1 }
-          $v = (Get-ChildItem "VideBackground" -File | Measure-Object).Count
-          $p = (Get-ChildItem "Photos" -File | Measure-Object).Count
-          Write-Host "Bundled backgrounds: $v videos, $p photos"
-          if ($v -eq 0 -or $p -eq 0) { Write-Error "One of the background folders is empty"; exit 1 }
+          $g = (Select-String -Path "src/lib/backgrounds.js" -Pattern "id: 'g-" | Measure-Object).Count
+          Write-Host "Static gradients: $g"
+          if ($g -ne 7) { Write-Error "GRADIENT_PACK must hold exactly 7 (found $g)"; exit 1 }
+          $a = (Select-String -Path "src/components/CountdownFace.jsx" -Pattern 'blobs: \[' | Measure-Object).Count
+          Write-Host "Animated gradients: $a"
+          if ($a -ne 7) { Write-Error "ANIMATED_GRADIENTS must hold exactly 7 (found $a)"; exit 1 }
 
       - name: Build & Package
         run: npm run dist
@@ -63,15 +67,14 @@ jobs:
           echo "---- latest.yml ----"
           type release\latest.yml
 
-      - name: Verify installer embeds the backgrounds
+      - name: Verify no bundled media ships
         run: |
           $out = Get-ChildItem "release\win-unpacked\resources" -ErrorAction SilentlyContinue
           if (-not $out) { Write-Host "win-unpacked not present (ok for publish-only runs)"; exit 0 }
           foreach ($d in @("builtin-videos", "builtin-photos")) {
-            if (-not (Test-Path "release\win-unpacked\resources\$d")) { Write-Error "$d was NOT embedded in the package"; exit 1 }
-            $n = (Get-ChildItem "release\win-unpacked\resources\$d" -File | Measure-Object).Count
-            Write-Host "Embedded ${d}: $n file(s)"
+            if (Test-Path "release\win-unpacked\resources\$d") { Write-Error "$d must NOT ship anymore — house gradients replaced it"; exit 1 }
           }
+          Write-Host "No bundled media folders — installer stays lean"
 
       - name: Delete old release if exists
         env:

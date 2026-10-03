@@ -323,7 +323,7 @@ export default function CountdownPanel() {
                   <div style={{ fontSize: 11, color: C.faint2, lineHeight: 1.5 }}>Timer rides a black banner at the bottom; media fills the top — preview shows exactly what the room sees.</div>
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
                   {GRADIENT_PACK.map((g) => (
                     <button key={g.id} title={g.name} onClick={() => set({ bgValue: g.css })} style={{ aspectRatio: '1 / 1', borderRadius: 7, background: g.css, border: '2px solid ' + (cfg.bgValue === g.css ? ACCENT : 'var(--ui-border2)'), cursor: 'pointer', padding: 0 }} />
                   ))}

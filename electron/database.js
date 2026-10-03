@@ -273,8 +273,8 @@ export function getMediaLibrary() {
     seen.add(r.url);
     list.push({ url: r.url, kind: r.kind || 'image' });
   }
-  // Bundled video + photo backgrounds ship with the installer so they exist on
-  // every machine, with or without the original folders on disk.
+  // House gradients need no registration (pure CSS, zero bytes); user media
+  // arrives via media_assets plus any media:// refs already on songs/cues.
   for (const b of [...getBuiltinVideoAssets(), ...getBuiltinPhotoAssets()]) {
     if (seen.has(b.url)) continue;
     seen.add(b.url);
@@ -283,51 +283,25 @@ export function getMediaLibrary() {
   return list;
 }
 
-// Bundled video backgrounds: packaged builds read <resources>/builtin-videos,
-// dev/unpackaged builds read ./VideBackground at the project root.
+// Built-in media REMOVED (v1.1.26+): the house backgrounds are the 7 vector
+// gradients + 7 animated gradients (zero installer bytes), so these bundled
+// file packs no longer exist. Stubs stay so old callers keep working — they
+// just find nothing.
 export function getBuiltinVideosDir() {
-  const candidates = [];
-  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'builtin-videos'));
-  candidates.push(path.join(process.cwd(), 'VideBackground'));
-  for (const dir of candidates) {
-    try { if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) return dir; } catch (_) {}
-  }
-  return candidates[0];
+  return null;
 }
 
 export function getBuiltinVideoAssets() {
-  const dir = getBuiltinVideosDir();
-  let names = [];
-  try { names = fs.readdirSync(dir).filter(n => /\.(mp4|webm|mov)$/i.test(n)); } catch (_) { return []; }
-  return names.sort().map((fileName) => {
-    const base = fileName.replace(/\.[^.]+$/, '');
-    const title = base.replace(/[\-_]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Video Background';
-    return { url: `media://kog-media/builtin/${encodeURIComponent(fileName)}`, kind: 'video', builtin: true, name: title };
-  });
+  return [];
 }
 
-// Bundled photo backgrounds: packaged builds read <resources>/builtin-photos,
-// dev/unpackaged builds read ./Photos at the project root. Same contract as
-// the videos above, served under media://kog-media/builtin-photos/...
+// Bundled photo backgrounds: same removal as above — stubs return nothing.
 export function getBuiltinPhotosDir() {
-  const candidates = [];
-  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'builtin-photos'));
-  candidates.push(path.join(process.cwd(), 'Photos'));
-  for (const dir of candidates) {
-    try { if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) return dir; } catch (_) {}
-  }
-  return candidates[0];
+  return null;
 }
 
 export function getBuiltinPhotoAssets() {
-  const dir = getBuiltinPhotosDir();
-  let names = [];
-  try { names = fs.readdirSync(dir).filter(n => /\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(n)); } catch (_) { return []; }
-  return names.sort().map((fileName) => {
-    const base = fileName.replace(/\.[^.]+$/, '');
-    const title = base.replace(/[\-_]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Photo Background';
-    return { url: `media://kog-media/builtin-photos/${encodeURIComponent(fileName)}`, kind: 'image', builtin: true, name: title };
-  });
+  return [];
 }
 
 export function addMediaAsset(url, kind = 'image', name = '') {

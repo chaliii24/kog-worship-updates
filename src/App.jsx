@@ -33,7 +33,8 @@ import HotkeysModal from './components/modals/HotkeysModal';
 import AboutModal from './components/modals/AboutModal';
 import OutputsMonitorModal from './components/modals/OutputsMonitorModal';
 import ConfirmModal from './components/modals/ConfirmModal';
-import { TimerFace, DEFAULT_COUNTDOWN, nextTargetTime } from './components/CountdownFace';
+import { TimerFace, DEFAULT_COUNTDOWN, nextTargetTime, animatedPresetOf } from './components/CountdownFace';
+import AnimatedBg from './components/AnimatedBg';
 import { AppProvider } from './context/AppContext';
 
 const DEFAULT_OUTPUTS = [
@@ -1898,7 +1899,9 @@ export default function App() {
         const nbg = cueHasBackground(nextCue)
           ? { type: nextCue.bg_type, url: nextCue.bg_value }
           : (songHasBackground(activeSong) ? { type: activeSong.bg_type, url: activeSong.bg_value } : null);
-        if (nbg && nbg.url) ipcRenderer.send('output-preload', nbg);
+        // File media only: gradients/animated are pure CSS (nothing to warm,
+        // and a css string must never travel as a preload URL).
+        if (nbg && (nbg.type === 'image' || nbg.type === 'video') && nbg.url) ipcRenderer.send('output-preload', nbg);
       }
     } catch {}
   };
@@ -3585,8 +3588,9 @@ export default function App() {
   }, [isOutputWindow]);
 
   const thumbBg = (cue, song = activeSong) => {
-    if (cueHasBackground(cue)) return cue.bg_type === 'color' ? cue.bg_value : NEBULA;
-    if (songHasBackground(song)) return song.bg_type === 'color' ? song.bg_value : NEBULA;
+    const plain = (t, v) => (t === 'color' || t === 'gradient' ? v : (t === 'animated' ? animatedPresetOf(v).base : NEBULA));
+    if (cueHasBackground(cue)) return plain(cue.bg_type, cue.bg_value);
+    if (songHasBackground(song)) return plain(song.bg_type, song.bg_value);
     return NEBULA;
   };
 
@@ -3705,8 +3709,9 @@ export default function App() {
       if (songHasBackground(song)) return { type: song.bg_type, value: song.bg_value };
       return null;
     })();
-    const faceBg = bg || (bgInfo && bgInfo.type === 'color' ? bgInfo.value : (isTitle ? NEBULA : thumbBg(cue, song)));
-    const mediaLayer = media || (bgInfo && bgInfo.type !== 'color' ? { type: bgInfo.type, url: bgInfo.value } : null);
+    const faceBg = bg || (bgInfo && (bgInfo.type === 'color' || bgInfo.type === 'gradient') ? bgInfo.value : (bgInfo && bgInfo.type === 'animated' ? animatedPresetOf(bgInfo.value).base : (isTitle ? NEBULA : thumbBg(cue, song))));
+    const mediaLayer = media || (bgInfo && (bgInfo.type === 'image' || bgInfo.type === 'video') ? { type: bgInfo.type, url: bgInfo.value } : null);
+    const isAnimatedFace = !!(!media && bgInfo && bgInfo.type === 'animated');
     const isLive = activeCue != null && activeCue.id !== 'clear' && ((isTitle && (activeCue.id === 'title-card' || activeCue.id === medleyTitleId(song.id))) || (!isTitle && cue && activeCue.id === cue.id));
     const hasMedia = !!mediaLayer;
     // Live tiles always rebuild (LIVE pill timer + pink ring must be fresh).
@@ -3718,8 +3723,10 @@ export default function App() {
       tileFaceCacheRef.current = { song: activeSong, theme: C, nebula: NEBULA, map: new Map() };
     }
     const faceCache = tileFaceCacheRef.current.map;
-    const cacheable = !isLive && !bg && !media;
-    const faceKey = `${aspect || ''}|${song?.id ?? ''}|${isTitle ? 'title' : (cue?.id || ('n' + tile.num))}`;
+    // Animated faces never cache (every cache hit would freeze the motion);
+    // gradient faces join the key by value so per-cue colors never collide.
+    const cacheable = !isLive && !bg && !media && !isAnimatedFace;
+    const faceKey = `${aspect || ''}|${song?.id ?? ''}|${isTitle ? 'title' : (cue?.id || ('n' + tile.num))}|${bgInfo ? `${bgInfo.type}:${bgInfo.type === 'animated' ? '' : (bgInfo.value || '')}` : ''}`;
     if (cacheable) {
       const hit = faceCache.get(faceKey);
       if (hit) return hit;
@@ -3732,6 +3739,11 @@ export default function App() {
           ) : (
             <TileVideo key={`bgvid-${mediaLayer.url}`} src={mediaLayer.url} animate={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }} />
           )
+        )}
+        {isAnimatedFace && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+            <AnimatedBg value={bgInfo.value} k={0.25} />
+          </div>
         )}
         {/* Lyrics exactly as the projector draws them: same renderer, same
             1280×720 canvas, contain-fit to the tile. No darkening overlay or
@@ -4351,7 +4363,7 @@ export default function App() {
 
   const renderOutputPreview = () => {
     const st = monitorContent?.style || {};
-    const isMediaStyle = (st.backgroundType === 'image' || st.backgroundType === 'video') && !!st.backgroundValue;
+    const isMediaStyle = (st.backgroundType === 'image' || st.backgroundType === 'video' || st.backgroundType === 'gradient' || st.backgroundType === 'animated') && !!st.backgroundValue;
     const hasMediaBg = !!monitorContent && isMediaStyle;
     // Service Order standby can sit on a plain-colour background (a song with
     // no media bg). Only a genuinely black one means "nothing on screen",
@@ -4417,6 +4429,12 @@ export default function App() {
                   )}
                   {st.backgroundType === 'video' && (
                     <BackgroundVideo src={st.backgroundValue} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                  )}
+                  {st.backgroundType === 'gradient' && !!st.backgroundValue && (
+                    <div style={{ position: 'absolute', inset: 0, background: st.backgroundValue }} />
+                  )}
+                  {st.backgroundType === 'animated' && (
+                    <AnimatedBg value={st.backgroundValue} k={1} />
                   )}
                   {st.backgroundType === 'color' && st.backgroundValue && (
                     <div style={{ position: 'absolute', inset: 0, background: st.backgroundValue }} />

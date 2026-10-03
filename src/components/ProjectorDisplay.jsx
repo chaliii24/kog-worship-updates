@@ -3,6 +3,7 @@ import { renderLyricsLayout, DEFAULT_LYRIC_SIZE } from '../lib/lyrics';
 import { cssSpeed } from '../lib/constants';
 import PresentationSlide from './PresentationSlide';
 import { TimerFace } from './CountdownFace';
+import AnimatedBg from './AnimatedBg';
 import { BackgroundVideo } from '../lib/perf';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -360,6 +361,12 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
           )}
           {slideStyle.backgroundType === 'video' && (
             <BackgroundVideo src={slideStyle.backgroundValue} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+          )}
+          {slideStyle.backgroundType === 'gradient' && !!slideStyle.backgroundValue && (
+            <div style={{ position: 'absolute', inset: 0, background: slideStyle.backgroundValue }} />
+          )}
+          {slideStyle.backgroundType === 'animated' && (
+            <AnimatedBg value={slideStyle.backgroundValue} k={1} />
           )}
           {slideStyle.backgroundType === 'color' && (
             <div style={{ position: 'absolute', inset: 0, background: slideStyle.backgroundValue || '#000' }} />
