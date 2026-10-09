@@ -218,14 +218,13 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
     return m && Number(m[2]) ? Number(m[1]) / Number(m[2]) : 0;
   };
   const ar = ratioOf(cfg.aspect) || ratioOf(aspect) || 16 / 9;
-  // 16:9 is FIT-TO-SCREEN: it always fills the window edge to edge. A panel
-  // whose reported ratio drifts (16:10 laptop, EDID rounding, DPI division)
-  // must NEVER show a letterbox while the operator has 16:9 selected — the
-  // background simply runs to all four edges, exactly as it did before the
-  // aspect frame existed. Every OTHER ratio is an explicit shape request and
-  // letterboxes on purpose (that is what the control is for).
+  // Fill = edge-to-edge on ANY display (LED wall, ultrawide, big TV): no bars
+  // ever, the window's native pixels win. 16:9 keeps its historic FIT-TO-SCREEN
+  // behavior; every OTHER ratio is an explicit shape request and letterboxes
+  // on purpose (that is what the control is for).
+  const fill = String(cfg.aspect || '').toLowerCase() === 'fill' || String(aspect || '').toLowerCase() === 'fill';
   const isFit = Math.abs(ar - 16 / 9) < 0.01;
-  const snap = isFit || Math.abs(vw / vh - ar) / ar <= 0.02;
+  const snap = fill || isFit || Math.abs(vw / vh - ar) / ar <= 0.02;
   const fw = snap ? vw : Math.min(vw, vh * ar);
   const fh = snap ? vh : Math.min(vh, vw / ar);
   const fx = (vw - fw) / 2;
@@ -403,7 +402,12 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
             >
               <div style={{ width: '100%', height: '100%', position: 'relative', ...animStyle }}>
                 {cs.timer ? (
-                  <div style={{ position: 'absolute', inset: 0 }}>
+                  // Countdown fills the ASPECT FRAME (not just the 16:9 design
+                  // canvas): on ultrawide walls the photo runs edge to edge
+                  // instead of center-pillaring. Coordinates are design px
+                  // (frame ÷ scale); k stays 1 so type scales exactly like
+                  // the lyrics canvas. On 16:9 this math is the identity.
+                  <div style={{ position: 'absolute', left: (fx - cx) / (s || 1), top: (fy - cy) / (s || 1), width: fw / (s || 1), height: fh / (s || 1), overflow: 'hidden' }}>
                     <TimerFace timer={cs.timer} scale={1} />
                   </div>
                 ) : cs.presentation && cs.presentation.slide ? (

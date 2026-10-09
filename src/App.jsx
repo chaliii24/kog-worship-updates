@@ -23,17 +23,22 @@ import PresentationModal from './components/PresentationModal';
 import PresentationSlide from './components/PresentationSlide';
 import ShowBuilderModal from './components/ShowBuilderModal';
 import { parseMedleyDef, flattenMedley, medleySongIds, medleyTitleId, basePartLabel } from './lib/medley';
+import { mediaLabel } from './lib/backgrounds';
+import { audioEngine } from './lib/audioEngine';
 import { resolveArrangementFlow } from './lib/arrangement';
+import { DEFAULT_STAGE_CFG } from './lib/stageLayout';
 import { loadIconTheme, saveIconTheme } from './lib/icons';
 import CustomSlideModal from './components/modals/CustomSlideModal';
 import MedleyModal from './components/MedleyModal';
+import ScriptureMediaPicker from './components/ScriptureMediaPicker';
 import ArrangementModal from './components/ArrangementModal';
 import TemplateNameModal from './components/modals/TemplateNameModal';
 import HotkeysModal from './components/modals/HotkeysModal';
 import AboutModal from './components/modals/AboutModal';
 import OutputsMonitorModal from './components/modals/OutputsMonitorModal';
 import ConfirmModal from './components/modals/ConfirmModal';
-import { TimerFace, DEFAULT_COUNTDOWN, nextTargetTime, animatedPresetOf } from './components/CountdownFace';
+import { DEFAULT_COUNTDOWN, nextTargetTime, animatedPresetOf } from './components/CountdownFace';
+import CountdownPreview, { countdownProof } from './components/CountdownPreview';
 import AnimatedBg from './components/AnimatedBg';
 import { AppProvider } from './context/AppContext';
 
@@ -410,6 +415,23 @@ export default function App() {
   const mobileCmdsRef = useRef({});
   // Last stage payload sent to the stage window, reused for the singer view.
   const stageSnapshotRef = useRef(null);
+  // Mirror of that payload as STATE, so the Stage tab preview re-renders on
+  // every cue instead of reading a ref that React does not watch.
+  const [stageSnap, setStageSnap] = useState(null);
+  // Stage display config (layout preset, clock, alert, traffic light, flow
+  // tracker, chords, contrast) — owned by the console, edited in the Stage
+  // dock tab, persisted, and pushed to the stage window over the
+  // `update-stage-config` channel (main caches the last value + fans it out).
+  const [stageCfg, setStageCfg] = useState(() => {
+    try { return { ...DEFAULT_STAGE_CFG, ...(JSON.parse(localStorage.getItem('kog_stage_cfg')) || {}) }; }
+    catch { return { ...DEFAULT_STAGE_CFG }; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('kog_stage_cfg', JSON.stringify(stageCfg)); } catch { /* quota */ }
+  }, [stageCfg]);
+  // Stage WINDOW side: the feed received from main ({ cfg, flow, chord }).
+  // Output windows never push — they only render what arrives here.
+  const [stageFeed, setStageFeed] = useState(null);
   // Lets main.js ask for a fresh snapshot when the LAN server (re)starts,
   // instead of phones waiting for the next cue to happen.
   const pushMobileRef = useRef(null);
@@ -714,6 +736,10 @@ export default function App() {
         .then((state) => {
           const payload = wantStage ? state?.stage : state?.slide;
           if (payload) setCurrentSlide(payload);
+          // Stage config feed (cfg + flow + chord chart) rides the same pull:
+          // a stage window opened after the operator set things up starts
+          // already dressed, not with factory defaults.
+          if (wantStage && state?.config) setStageFeed(state.config);
         })
         .catch(() => {});
     };
@@ -724,6 +750,9 @@ export default function App() {
         const { ipcRenderer } = window.require('electron');
         ipcRenderer.on('render-live-stage', (event, stageData) => {
           setCurrentSlide(stageData);
+        });
+        ipcRenderer.on('render-stage-config', (event, feed) => {
+          setStageFeed(feed);
         });
       }
       pullLiveState(true);
@@ -739,6 +768,11 @@ export default function App() {
         });
         ipcRenderer.on('render-live-stage', (event, stageData) => {
           setCurrentSlide(stageData);
+        });
+        // An output bound to the stage role renders StageDisplay too, so it
+        // needs the config feed as well (main only ever sends to role=stage).
+        ipcRenderer.on('render-stage-config', (event, feed) => {
+          setStageFeed(feed);
         });
         // Screen hardware for THIS output (rotation / custom viewport /
         // edge blend). A push can land before this effect runs, so also
@@ -914,7 +948,9 @@ export default function App() {
       const value = (a && (a.value || a.url)) || null;
       if ((type !== 'image' && type !== 'video') || !value || seen.has(value)) return;
       seen.add(value);
-      out.push({ value, label: a.name ? String(a.name).replace(/\.[^.]+$/, '') : type, type, name: a.name || null });
+      // Real name only — mediaLabel strips the "<timestamp>-<rand>-" upload
+      // prefix so the pickers never show raw hashes.
+      out.push({ value, label: mediaLabel(a.name, type), type, name: a.name || null });
     };
     (scriptureBgLibrary || []).forEach(push);
     (mediaLibrary || []).forEach(push);
@@ -944,6 +980,32 @@ export default function App() {
       fetchMediaLibrary();
     }
     if (e.target) e.target.value = '';
+  };
+
+  // Scripture media picker → bg. Three source shapes: a folder file
+  // ({type,value,name} with a media://…/bf/… url served in place), an
+  // already-imported library item (same shape), or an upload ({file}) that
+  // lands in the library first. Picked items are remembered in
+  // scriptureBgLibrary so they show up in "In the app" and the defaults.
+  const chooseScriptureMedia = async (source, asDefault) => {
+    if (!source) return;
+    let bg = null;
+    if (source.file) {
+      const url = await persistMediaFile(source.file);
+      if (!url) return;
+      bg = { type: source.file.type.startsWith('video/') ? 'video' : 'image', value: url, name: source.file.name };
+      fetchMediaLibrary();
+    } else if (source.value && (source.type === 'image' || source.type === 'video')) {
+      bg = { type: source.type, value: source.value, name: source.name || null };
+    }
+    if (!bg) return;
+    setScriptureBgLibrary(prev => prev.some(p => p.value === bg.value) ? prev : [...prev, bg]);
+    if (asDefault) setScriptureDefault(bg);
+    // Apply it as well — the operator picked it to see it, and applyScriptureBg
+    // re-fires a scripture slide that is already live so the output updates
+    // in place instead of on the next push.
+    applyScriptureBg(bg);
+    setScripturePicker(null);
   };
 
   // --- MEDLEY BUILDER (Continuous Flow Mode) ---
@@ -1113,6 +1175,16 @@ export default function App() {
     if (med && med.slides.length) fireMedleySlide(med, index);
   };
 
+  // Shared tile-fire used by the song grid AND the sidebar Up Next card, so
+  // both advance a flow identically (medley by flow index, everything else
+  // by cue, title cards through the title path).
+  const fireGridTile = (tile) => {
+    if (!tile) return;
+    if (tile.medIdx != null) fireMedleySlideAt(tile.medIdx);
+    else if (tile.isTitle) fireTitleLive();
+    else if (tile.cue) fireCueLive(tile.cue);
+  };
+
   // --- SONG ARRANGEMENTS -------------------------------------------------
   // A service row can carry its own play order (item.meta.arrangement.order,
   // a list of cue ids, repeats allowed). The library song is never touched.
@@ -1141,6 +1213,10 @@ export default function App() {
   // above reads it in its dep array at render time — anything declared after
   // the effect is TDZ-dead on first render and whitescreens the app.
   const [medleyModal, setMedleyModal] = useState(null);
+  // Scripture media popup: null | 'session' (live override now) | 'default'
+  // (attaches to new scripture). Opened from the Bible popover and the Live
+  // Output sidebar instead of the old hashed-name dropdowns.
+  const [scripturePicker, setScripturePicker] = useState(null);
 
   const openArrangementForRow = (item, idx) => {
     if (!item) return;
@@ -1451,6 +1527,10 @@ export default function App() {
         title: currentPayload.title || '',
         label: currentPayload.label || '',
         text: currentPayload.text || '',
+        // Countdown on stage: the timer rides on the current payload so the
+        // monitor shows the SAME TimerFace as the wall (it used to be
+        // silently dropped here, leaving the stage timerless).
+        ...(currentPayload.timer ? { timer: currentPayload.timer } : {}),
         timestamp: currentPayload.timestamp || Date.now()
       },
       next: nextPayload ? { title: nextPayload.title, label: nextPayload.label, text: nextPayload.text } : null,
@@ -1459,6 +1539,8 @@ export default function App() {
     // Keep the exact object that went to the stage window so the phone's
     // singer view renders the same current/next without recomputing it.
     stageSnapshotRef.current = payload;
+    // …and mirror it into state so the Stage tab preview stays live.
+    if (!isOutputWindow) setStageSnap(payload);
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('update-live-stage', payload);
@@ -1904,6 +1986,11 @@ export default function App() {
         if (nbg && (nbg.type === 'image' || nbg.type === 'video') && nbg.url) ipcRenderer.send('output-preload', nbg);
       }
     } catch {}
+    // First lyric slide takes the room: the BGM playlist fades out over the
+    // configured seconds. Backing-track audio rides the slide payload itself.
+    if (cue?.id !== 'clear' && idx === 0) {
+      try { audioEngine.autoTake(); } catch {}
+    }
   };
 
   // --- COUNTDOWN TIMER (bottom-dock tab) ---
@@ -1925,6 +2012,8 @@ export default function App() {
     // read showOn/endsAt from HERE, never from the (possibly since changed)
     // form, so a mid-air picker change can't strand a surface.
     setCountdown((prev) => ({ ...DEFAULT_COUNTDOWN, ...(prev || {}), ...cfg, live: { endsAt, startedAt: now, showOn: cfg.showOn, stamp: now } }));
+    // Go Live takes the room: BGM fades out over the configured seconds.
+    try { audioEngine.autoTake(); } catch {}
   };
 
   // The ONE sender for live countdown payloads. fire only stamps state; this
@@ -1939,6 +2028,7 @@ export default function App() {
     const sig = JSON.stringify([timer.title, timer.subtext, timer.mode, timer.durationSec, timer.targetTime, timer.showOn, timer.overtime, timer.titleSize, timer.timeSize, timer.subtextSize, timer.bgType, timer.bgValue, timer.bgMedia, timer.live.endsAt, timer.live.stamp]);
     if (countdownSentRef.current === sig) return;
     countdownSentRef.current = sig;
+    try { console.info('[countdown] push', countdownProof(timer)); } catch {}
     const { ipcRenderer } = window.require('electron');
     const stamp = timer.live.stamp || Date.now();
     if (timer.showOn === 'both' || timer.showOn === 'main') {
@@ -1967,6 +2057,10 @@ export default function App() {
     if (!snap) return;
     const showOn = snap.showOn || countdown?.showOn;
     countdownSentRef.current = null;
+    // Countdown leaving the air hands the room to the service: the whole
+    // pre-service soundbed (BGM + pads) fades out. Idle reset hits the
+    // no-op guard above and never touches audio.
+    try { audioEngine.countdownFinished(); } catch {}
     setCountdown((prev) => ({ ...DEFAULT_COUNTDOWN, ...(prev || {}), live: null }));
     // Stop returns the room to black: main output blackouts, stage clears.
     if (!showOn || showOn === 'both' || showOn === 'main') {
@@ -2091,6 +2185,8 @@ export default function App() {
       { title: slidePayload.title, label: 'Song Title', text: song.title, timestamp: slidePayload.timestamp },
       nextCue ? { title: song.title, label: nextCue.label, text: nextCue.text } : null
     );
+    // Title slide is the song's first moment — same BGM take as lyric one.
+    try { audioEngine.autoTake(); } catch {}
   };
 
   // --- PRESENTATION (SERMON DECK) LIVE CONTROLS ---
@@ -2421,16 +2517,17 @@ export default function App() {
     setSermon((prev) => ({ ...prev, passthrough: layer === 'passthrough', error: null }));
   };
 
-  const sermonLoad = async () => {
+  const sermonLoad = async (filePath) => {
     if (!window.require) return;
     setSermon((prev) => ({ ...prev, busy: true, error: null }));
     const { ipcRenderer } = window.require('electron');
-    const res = await ipcRenderer.invoke('ppt-load');
+    const res = await ipcRenderer.invoke('ppt-load', filePath || undefined);
     if (res && res.canceled) {
       setSermon((prev) => ({ ...prev, busy: false }));
       return;
     }
     if (res && res.ok) {
+      clearSermonShots();
       setSermon((prev) => ({
         ...prev, loaded: true, busy: false, error: null,
         file: res.file || prev.file,
@@ -2439,6 +2536,7 @@ export default function App() {
         displayLabel: res.displayLabel || '',
       }));
     } else {
+      clearSermonShots();
       setSermon((prev) => ({ ...prev, busy: false, error: (res && res.error) || 'Could not open the presentation.' }));
     }
   };
@@ -2464,12 +2562,81 @@ export default function App() {
     sermonApplyNav(await ipcRenderer.invoke('ppt-goto', n));
   };
 
+  // Operator slide thumbnails for the Presentation tab (current + next).
+  // Cache: string = image ready, null = export failed (don't retry-storm),
+  // missing = not tried yet. Keyed by slide number only, so it is cleared
+  // on every load and close — never a stale deck's slides.
+  const [sermonShots, setSermonShots] = useState({});
+  const sermonShotsRef = useRef({});
+  const clearSermonShots = () => {
+    sermonShotsRef.current = {};
+    sermonShotCoolRef.current = 0;
+    sermonShotFailsRef.current = 0;
+    setSermonShots({});
+  };
+
+  // Debounced so arrow-spam only exports the settled slide, not every
+  // intermediate one (each export costs a COM round-trip). Fetches current +
+  // next together; failures cache as null so the panel shows "unavailable"
+  // instead of spinning forever.
+  // Crash guard: PowerPoint can fall over if Export lands mid-transition or
+  // hammers a struggling deck, so exports wait until navigation has settled
+  // (900ms), batches stay ≥2.5s apart, and 3 consecutive failures silence
+  // exports for the rest of the deck (cleared on load). Current + next go
+  // first, then the filmstrip backfill follows in the same batch.
+  // Navigation itself never waits on any of this.
+  const sermonShotCoolRef = useRef(0);
+  const sermonShotFailsRef = useRef(0);
+  useEffect(() => {
+    if (isOutputWindow || !window.require) return;
+    if (!sermon.loaded || !sermon.index || sermon.index < 1) return;
+    if (sermonShotFailsRef.current >= 3) return;
+    const wait = Math.max(900, 2500 - (Date.now() - sermonShotCoolRef.current));
+    let dead = false;
+    const t = setTimeout(async () => {
+      const { ipcRenderer } = window.require('electron');
+      // Current + next first (what the operator is looking at), then the rest
+      // of the deck in order so the filmstrip fills in behind. Cached slides
+      // (images AND failures) are skipped, so re-runs cost nothing.
+      const ordered = [sermon.index, sermon.index + 1];
+      if (sermon.total) for (let k = 1; k <= sermon.total; k++) ordered.push(k);
+      const seen = new Set();
+      const want = ordered.filter((i) => {
+        if (seen.has(i)) return false;
+        seen.add(i);
+        return i >= 1 && (!sermon.total || i <= sermon.total);
+      });
+      sermonShotCoolRef.current = Date.now();
+      for (const idx of want) {
+        if (dead) return;
+        if (idx in sermonShotsRef.current) continue;
+        try {
+          const r = await ipcRenderer.invoke('ppt-shot', idx);
+          if (dead) return;
+          const url = r && r.ok && r.dataUrl ? r.dataUrl : null;
+          if (url) sermonShotFailsRef.current = 0;
+          else sermonShotFailsRef.current += 1;
+          sermonShotsRef.current[idx] = url;
+          setSermonShots((prev) => ({ ...prev, [idx]: url }));
+        } catch {
+          if (dead) return;
+          sermonShotFailsRef.current += 1;
+          sermonShotsRef.current[idx] = null;
+          setSermonShots((prev) => ({ ...prev, [idx]: null }));
+        }
+      }
+    }, wait);
+    return () => { dead = true; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOutputWindow, sermon.loaded, sermon.index, sermon.total, sermon.file]);
+
   const sermonClose = async () => {
     if (window.require) {
       try { await window.require('electron').ipcRenderer.invoke('ppt-close'); } catch {}
     }
     // Leave the wall showing lyrics, never a dead slideshow frame.
     sermonSetLayer('kog');
+    clearSermonShots();
     setSermon({ loaded: false, file: null, title: '', total: 0, index: 0, error: null, busy: false, displayLabel: '', passthrough: false });
   };
 
@@ -3499,7 +3666,17 @@ export default function App() {
         style: live.style || null,
         timer: live.timer || null,
       } : null,
-      stage: stageSnapshotRef.current || null,
+      stage: stageSnapshotRef.current
+        // Full stage feed for the singer view: payload + config + flow +
+        // chords, so a phone mirrors the monitor (clock, alert, tracker,
+        // contrast) without a second channel.
+        ? {
+          ...stageSnapshotRef.current,
+          cfg: stageCfg,
+          flow: stageFlow,
+          chord: activeSong ? { text: activeSong.chord_chart || '', key: activeSong.chord_key || 'C' } : null,
+        }
+        : null,
       song: activeSong ? {
         id: activeSong.id,
         title: activeSong.title || '',
@@ -3559,12 +3736,25 @@ export default function App() {
           bgMedia: t.bgMedia || null,
         })),
       } : null,
-    };
+        // Live-output shape for the phone's Outputs tab: global aspect drives
+        // the miniature 1:1 with the desktop preview, and the outputs list
+        // mirrors which feeds are up (read-only on the phone).
+        outputAspect: outputAspect || '16:9',
+        outputs: (outputs || []).map((o) => ({
+          id: o.id,
+          name: o.name || '',
+          role: o.role || 'lyrics',
+          aspect: o.aspect || '16:9',
+          resolution: o.resolution || 'native',
+          enabled: !!o.enabled,
+          bound: o.displayId != null && o.displayId !== '',
+        })),
+      };
     ipcRenderer.send('mobile-state', snap);
   };
   pushMobileRef.current = pushMobileState;
 
-  useEffect(() => { pushMobileState(); }, [currentSlide, displays, activeSong, activeCue, activeService, slideTimer, themeDark, targetedDisplays, countdown, sermon]);
+  useEffect(() => { pushMobileState(); }, [currentSlide, displays, activeSong, activeCue, activeService, slideTimer, themeDark, targetedDisplays, countdown, sermon, outputAspect, outputs, stageCfg]);
 
   // Auto-stop: a live non-overtime timer ends itself at zero (blackout +
   // stage clear, same as the Stop button) instead of sitting on 0:00 until
@@ -3575,7 +3765,10 @@ export default function App() {
     if (!live || (countdown?.mode !== 'duration' && countdown?.mode !== 'target')) return undefined;
     if (countdown?.overtime || live.endsAt == null) return undefined;
     const wait = Math.max(0, live.endsAt - Date.now());
-    const id = setTimeout(() => { stopCountdownLive(); }, wait);
+    const id = setTimeout(() => {
+      // Timer hit zero — stopCountdownLive owns the soundbed fade (single path).
+      stopCountdownLive();
+    }, wait);
     return () => clearTimeout(id);
   }, [countdown?.live, countdown?.mode, countdown?.overtime]);
 
@@ -3586,13 +3779,6 @@ export default function App() {
     ipcRenderer.on('mobile-refresh', onRefresh);
     return () => ipcRenderer.removeListener('mobile-refresh', onRefresh);
   }, [isOutputWindow]);
-
-  const thumbBg = (cue, song = activeSong) => {
-    const plain = (t, v) => (t === 'color' || t === 'gradient' ? v : (t === 'animated' ? animatedPresetOf(v).base : NEBULA));
-    if (cueHasBackground(cue)) return plain(cue.bg_type, cue.bg_value);
-    if (songHasBackground(song)) return plain(song.bg_type, song.bg_value);
-    return NEBULA;
-  };
 
   const resolveBg = (cue, song) => {
     if (cueHasBackground(cue)) return { type: cue.bg_type, value: cue.bg_value };
@@ -3626,6 +3812,55 @@ export default function App() {
     (activeSong?.cues || []).forEach(c => { if (c.label && !seen.includes(c.label)) seen.push(c.label); });
     return seen;
   })();
+
+  // Song-flow tracker for the stage ("Intro › V1 › Chorus …"): part labels
+  // with consecutive duplicates collapsed, plus which run is live. Medley
+  // sessions read their own slide list (incl. title dividers); everything
+  // else reads the arrangement order when one is active, else song order.
+  const stageFlow = (() => {
+    const med = medleyRef.current;
+    let entries = null;
+    if (med && med.slides.length) {
+      entries = med.slides.map((s) => ({
+        label: s.kind === 'title' ? 'Song Title' : (s.cue?.label || 'Slide'),
+        id: s.cue ? s.cue.id : medleyTitleId(s.songId),
+      }));
+    } else if (activeSong && (activeSong.cues || []).length) {
+      const list = arrangementForSong(activeSong) || activeSong.cues;
+      entries = list.map((c) => ({ label: c.label || 'Slide', id: c.id }));
+    }
+    if (!entries || !entries.length) return null;
+    const runs = [];
+    entries.forEach((e, i) => {
+      if (runs.length && runs[runs.length - 1].label === e.label) runs[runs.length - 1].to = i;
+      else runs.push({ label: e.label, from: i, to: i });
+    });
+    let index = -1;
+    const curId = activeCue && activeCue.id !== 'clear' ? activeCue.id : null;
+    if (curId) {
+      const pos = entries.findIndex((e) => e.id === curId);
+      if (pos >= 0) index = runs.findIndex((r) => pos >= r.from && pos <= r.to);
+    }
+    return { labels: runs.map((r) => r.label), index };
+  })();
+
+  // Push the stage config feed (cfg + flow + chord chart) to the stage
+  // window. main.js caches the last payload and fans it to role=stage
+  // windows, and `get-live-state` hands it to a window opened later — so a
+  // freshly started stage monitor is already dressed. Console-only push:
+  // output windows hold the RECEIVED copy (stageFeed) and never echo it back.
+  // Signature-deduped on the flow so cue clicks don't re-send unchanged cfg.
+  const stageFlowSig = stageFlow ? `${stageFlow.index}|${stageFlow.labels.join('>')}` : '';
+  useEffect(() => {
+    if (isOutputWindow || !window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    ipcRenderer.send('update-stage-config', {
+      cfg: stageCfg,
+      flow: stageFlow,
+      chord: activeSong ? { text: activeSong.chord_chart || '', key: activeSong.chord_key || 'C' } : null,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stageCfg, stageFlowSig, activeSong?.chord_chart, activeSong?.chord_key, isOutputWindow]);
 
   const slideGrid = (() => {
     // A live medley shows the WHOLE flow as one grid — anchor title through
@@ -3709,7 +3944,7 @@ export default function App() {
       if (songHasBackground(song)) return { type: song.bg_type, value: song.bg_value };
       return null;
     })();
-    const faceBg = bg || (bgInfo && (bgInfo.type === 'color' || bgInfo.type === 'gradient') ? bgInfo.value : (bgInfo && bgInfo.type === 'animated' ? animatedPresetOf(bgInfo.value).base : (isTitle ? NEBULA : thumbBg(cue, song))));
+    const faceBg = bg || (bgInfo && (bgInfo.type === 'color' || bgInfo.type === 'gradient') ? bgInfo.value : (bgInfo && bgInfo.type === 'animated' ? animatedPresetOf(bgInfo.value).base : '#000'));
     const mediaLayer = media || (bgInfo && (bgInfo.type === 'image' || bgInfo.type === 'video') ? { type: bgInfo.type, url: bgInfo.value } : null);
     const isAnimatedFace = !!(!media && bgInfo && bgInfo.type === 'animated');
     const isLive = activeCue != null && activeCue.id !== 'clear' && ((isTitle && (activeCue.id === 'title-card' || activeCue.id === medleyTitleId(song.id))) || (!isTitle && cue && activeCue.id === cue.id));
@@ -3836,26 +4071,44 @@ export default function App() {
     }
   };
 
-  const formatBibleVerse = (v) => {
+  // `fmt` defaults to state but can be passed explicitly: a format toggle
+  // re-fires the live slide in the same tick the state is still stale, so the
+  // rebuild must be handed the NEW rules, not the ones it is about to replace.
+  const formatBibleVerse = (v, fmt = bibleFmt) => {
     let t = typeof v.text === 'string' ? v.text : '';
-    if (bibleFmt.caps) t = t.toUpperCase();
-    if (bibleFmt.layout !== 'sentence') {
+    // Rebuilds run over payload text that was ALREADY formatted on the way in
+    // (live bg/format re-fire reads meta.source, and services saved before
+    // this carried finished text). Strip a leading "<verse> " first so the
+    // number below can never stack as "16 16 For God…".
+    if (v.verse != null && t.startsWith(`${v.verse} `)) t = t.slice(String(v.verse).length + 1);
+    if (fmt.caps) t = t.toUpperCase();
+    if (fmt.layout !== 'sentence') {
       t = t.charAt(0).toUpperCase() + t.slice(1);
     }
     t = t.trim();
     // Number layout prefixes the verse ("16 For God so loved…") — the old
     // code returned `t` in both branches, so single verses never showed it.
-    return bibleFmt.layout === 'number' && v.verse ? `${v.verse} ${t}` : t;
+    return fmt.layout === 'number' && v.verse ? `${v.verse} ${t}` : t;
   };
 
   // Builds one scripture slide payload. Accepts a single verse
   // ({ verse, text }) or a combined selection ({ verses: [{verse,text}, ...] })
   // so multi-verse output is always ONE fullscreen slide, never N slides.
-  const buildBiblePayload = (src, bgOverride) => {
+  // `fmt` defaults to state but takes an override so a format toggle can
+  // rebuild with the rules it JUST switched to (state has not flushed yet).
+  const buildBiblePayload = (src, bgOverride, fmt = bibleFmt) => {
     const { book, chapter, verse, text, verses } = src || {};
-    const verseList = Array.isArray(verses) && verses.length
+    const inList = Array.isArray(verses) && verses.length
       ? verses
       : [{ verse, text: text || '' }];
+    // Formatting happens HERE rather than at selection time. meta.source
+    // therefore keeps the raw chapter lines, which is what lets a live format
+    // toggle (or a background switch) rebuild the SAME passage under new
+    // rules instead of stacking them on text that already carries the old
+    // ones. formatBibleVerse also strips a stale "<verse> " prefix first, so
+    // services saved by older builds — where source was pre-formatted — still
+    // rebuild cleanly instead of printing "16 16 For God…".
+    const verseList = inList.map(v => ({ verse: v.verse, text: formatBibleVerse(v, fmt) }));
     const first = verseList[0]?.verse;
     const last = verseList[verseList.length - 1]?.verse;
     const refTail = verseList.length > 1 && first !== last ? `${first}-${last}` : (first != null ? `${first}` : '');
@@ -3870,7 +4123,7 @@ export default function App() {
         // job) — the builder must NOT prefix again or every number doubles.
         // Wrapped continuation lines just indent under their verse.
         const line = ln.trim();
-        bodyChunks.push(bibleFmt.bold ? `**${li === 0 ? line : `  ${line}`}**` : (li === 0 ? line : `  ${line}`));
+        bodyChunks.push(fmt.bold ? `**${li === 0 ? line : `  ${line}`}**` : (li === 0 ? line : `  ${line}`));
       });
     });
     // Single verse keeps paragraph gaps; multi-verse packs lines tightly so
@@ -3917,11 +4170,51 @@ export default function App() {
         chapter,
         verse: first,
         translation: bibleTrans,
-        source: { book, chapter, verses: verseList },
+        // RAW lines, never the formatted copy: every rebuild (background
+        // switch, format toggle) re-derives from here so rules change
+        // instead of stacking.
+        source: { book, chapter, verses: inList },
       },
     };
     lastBibleRef.current = payload;
     return payload;
+  };
+
+  // Rebuild the scripture that is on the wall right now and push it in place.
+  // Shared by the background switch and the format toggles so both apply the
+  // same guard: the passage must still be what the output is actually
+  // showing. Clear Lyrics blanks the screen but keeps liveBibleSrcRef, and a
+  // toggle must not resurrect that text.
+  const refireLiveScripture = (bgOverride, fmt) => {
+    const src = liveBibleSrcRef.current;
+    if (!src) return false;
+    // Read the payload off the displays this session actually drives — not the
+    // operator's own currentSlide, which never receives render-live-slide.
+    const live = (displays || [])
+      .filter(d => targetedDisplays.includes(d.id) && d.content)
+      .map(d => d.content)
+      .find(c => c.meta && c.meta.kind === 'bible' && c.text) || null;
+    if (!live) return false;
+    // Reproduce the wall's own background unless the caller is changing it. The
+    // stage default is NOT reproduced as an override — that would stamp the
+    // global bg into media_url — so it falls through to bibleMedia /
+    // scriptureDefault like any fresh build. Only a passage-specific bg is
+    // carried across, which is what stops a cleared session override from
+    // swapping the art mid-restyling.
+    const st = live.style || {};
+    const isStageDefault = st.backgroundType === (stageStyle && stageStyle.backgroundType)
+      && st.backgroundValue === (stageStyle && stageStyle.backgroundValue);
+    const bg = bgOverride
+      || (!isStageDefault && st.backgroundValue ? { type: st.backgroundType || 'color', value: st.backgroundValue } : null);
+    // This is the SAME slide wearing a new look, so hold on to what makes it
+    // that slide. buildBiblePayload mints a fresh id, and a fresh id reads as
+    // a different cue: the service row would flip from Stop back to Go.
+    const keepTimer = slideTimer;
+    const payload = buildBiblePayload(src, bg, fmt);
+    payload.id = (liveBibleRef.current && liveBibleRef.current.id) || payload.id;
+    fireServiceItemLive(payload);
+    setSlideTimer(keepTimer);
+    return true;
   };
 
   // Background assigned to scripture is applied ONLY to scripture (never to
@@ -3929,12 +4222,22 @@ export default function App() {
   // background re-fires it immediately so the output updates in place.
   const applyScriptureBg = (next) => {
     setBibleMedia(next);
-    if (next && liveBibleSrcRef.current) {
-      fireServiceItemLive(buildBiblePayload(liveBibleSrcRef.current, next));
-    }
+    if (next) refireLiveScripture(next);
   };
 
   const selectBibleMediaLive = (type, value, name) => applyScriptureBg(type && value ? { type, value, name } : null);
+
+  // Format (Vv./Plain/Flow, B, Aa) is a LIVE control: the operator toggles it
+  // while the passage is already on the wall, so state alone is not enough —
+  // the payload has to be rebuilt from raw source and re-fired. `next` is
+  // passed into the builder explicitly because React state has not flushed in
+  // the same tick. With nothing on air it is a plain state set; the next push
+  // picks the rules up.
+  const setBibleFmtLive = (updater) => {
+    const next = typeof updater === 'function' ? updater(bibleFmt) : updater;
+    setBibleFmt(next);
+    refireLiveScripture(null, next);
+  };
 
   // Lands at the end of the section the operator is working in (via
   // insertServiceItem, which honours serviceTargetTitle) instead of piling up
@@ -3961,7 +4264,9 @@ export default function App() {
     if (!res || res.error || !Array.isArray(res.verses) || !res.verses.length) {
       return { error: (res && res.error) || 'That chapter could not be loaded.' };
     }
-    let verses = res.verses.map(v => ({ verse: v.verse, text: formatBibleVerse(v) }));
+    // Raw on purpose — buildBiblePayload owns formatting, so the queued
+    // slide's meta.source can be rebuilt under any later format rules.
+    let verses = res.verses.map(v => ({ verse: v.verse, text: v.text }));
 
     // Optional range: "16", "16-18", "16 – 18". Blank = whole chapter, which is
     // also what the Scripture tab does with no verses selected.
@@ -3994,9 +4299,11 @@ export default function App() {
   // Ordered list of currently selected verses (empty selection = whole chapter).
   const selectedBibleVerses = () => {
     if (!bibleChapter) return [];
+    // Raw text: buildBiblePayload applies bibleFmt, so a slide queued now can
+    // still be re-formatted later from its stored source.
     return (bibleChapter.verses || [])
       .filter(v => bibleSelVerses.length === 0 || bibleSelVerses.includes(v.verse))
-      .map(v => ({ verse: v.verse, text: formatBibleVerse(v) }));
+      .map(v => ({ verse: v.verse, text: v.text }));
   };
 
   // One combined slide for the whole selection — multi-verse output is a
@@ -4009,6 +4316,30 @@ export default function App() {
       chapter: bibleChapter.chapter,
       verses,
     });
+  };
+
+  // Scripture Up Next for the sidebar: the verse AFTER the live selection,
+  // resolved against the open chapter (same book + chapter as what's on
+  // air). Hidden unless a bible slide is actually live and its chapter is
+  // open — no guessing across translations.
+  const bibleUpNext = (() => {
+    const item = liveBibleRef.current;
+    if (!item || !item.meta || item.meta.kind !== 'bible') return null;
+    if (!activeCue || activeCue.id !== item.id) return null;
+    const src = item.meta.source || {};
+    const liveVerses = src.verses || [];
+    if (!liveVerses.length) return null;
+    if (!bibleChapter || bibleChapter.book !== src.book || Number(bibleChapter.chapter) !== Number(src.chapter)) return null;
+    const lastNum = Number(liveVerses[liveVerses.length - 1].verse);
+    const nxt = (bibleChapter.verses || []).find((v) => Number(v.verse) === lastNum + 1);
+    if (!nxt) return null;
+    return { book: src.book, chapter: src.chapter, verse: nxt.verse, ref: `${src.book} ${src.chapter}:${nxt.verse}`, text: formatBibleVerse(nxt) };
+  })();
+  const fireBibleUpNext = () => {
+    if (!bibleUpNext || !bibleChapter) return;
+    const v = (bibleChapter.verses || []).find((x) => Number(x.verse) === Number(bibleUpNext.verse));
+    if (!v) return;
+    fireBibleLive({ book: bibleUpNext.book, chapter: bibleUpNext.chapter, verses: [{ verse: v.verse, text: v.text }] });
   };
 
   const queueBibleSelection = () => {
@@ -4221,6 +4552,7 @@ export default function App() {
     { id: 'media', label: 'Media', iconId: 'film', accent: false },
     { id: 'audio', label: 'Audio', iconId: 'music', accent: false },
     { id: 'countdown', label: 'Countdown', iconId: 'timer', accent: false },
+    { id: 'stage', label: 'Stage', iconId: 'monitor-play', accent: false },
     { id: 'scripture', label: 'Scripture', iconId: 'book-open', accent: false },
     { id: 'outputs', label: 'Outputs', iconId: 'monitor', accent: false },
     { id: 'settings', label: 'Settings', iconId: 'settings', accent: false }
@@ -4326,9 +4658,14 @@ export default function App() {
   const handleDockSelect = (item) => {
     if (item.id === 'outputs') { setShowOutputMonitor(true); return; }
     setDockTab(item.id);
-    // Countdown, Scripture and Presentation own the full center width — the
-    // left tools column closes itself so the workspace gets the room.
-    setLeftOpen(item.id !== 'scripture' && item.id !== 'countdown' && item.id !== 'sermon');
+    // Countdown, Scripture, Presentation, Media, Audio and Stage own the full
+    // center width — the left tools column closes itself so the workspace
+    // gets the room.
+    setLeftOpen(item.id !== 'scripture' && item.id !== 'countdown' && item.id !== 'sermon' && item.id !== 'media' && item.id !== 'audio' && item.id !== 'stage');
+    // The Countdown editor brings its own live preview + Go Live, so the
+    // global right sidebar steps aside for the full workspace (reopenable
+    // from the Countdown header; every other tab restores it).
+    setRightOpen(item.id !== 'countdown');
     setScheduleView(item.id === 'shows' ? scheduleView : 'schedule');
   };
 
@@ -4457,9 +4794,7 @@ export default function App() {
                   >
                     <div style={{ width: '100%', height: '100%', position: 'relative', animation: monitorContent && !monitorContent.presentation && !monitorContent.timer ? (animCSS || undefined) : undefined }}>
                       {monitorContent && monitorContent.timer ? (
-                        <div style={{ position: 'absolute', inset: 0 }}>
-                          <TimerFace timer={monitorContent.timer} scale={1} />
-                        </div>
+                        <CountdownPreview timer={monitorContent.timer} aspect="16 / 9" framed={false} where="monitor" />
                       ) : monitorContent && monitorContent.presentation?.slide ? (
                         <PresentationSlide slide={monitorContent.presentation.slide} keepAlive />
                       ) : monitorContent && monitorContent.text ? (
@@ -4508,12 +4843,12 @@ export default function App() {
   };
 
   if (isStage) {
-    return <StageDisplay currentSlide={currentSlide} C={C} />;
+    return <StageDisplay currentSlide={currentSlide} C={C} cfg={stageFeed?.cfg || null} flow={stageFeed?.flow || null} chord={stageFeed?.chord || null} />;
   }
 
   if (isOutput) {
     return outputRole === 'stage'
-      ? <StageDisplay currentSlide={currentSlide} C={C} />
+      ? <StageDisplay currentSlide={currentSlide} C={C} cfg={stageFeed?.cfg || null} flow={stageFeed?.flow || null} chord={stageFeed?.chord || null} />
       : <ProjectorDisplay currentSlide={currentSlide} C={C} aspect={outputAspect} config={outputCfg} />;
   }
 
@@ -4550,6 +4885,8 @@ export default function App() {
     ACCENT, ACCENT_SOFT, ACCENT_SOFT_2, C, PINK, ACCENT_PINK, PINK_SOFT, PINK_SOFT_2, NEBULA, PINK2, ACCENCY,
     isProjector, setIsProjector, isStage, setIsStage, showSplash, setShowSplash, showWelcome, setShowWelcome,
     currentSlide, setCurrentSlide,
+    // Stage dock tab: config (edited), flow (computed), last payload (preview).
+    stageCfg, setStageCfg, stageFlow, stageSnap,
     activeTab, setActiveTab, songs, setSongs, searchQuery, setSearchQuery, showsQuery, setShowsQuery,
     showsCollapsed, setShowsCollapsed, songsCollapsed, setSongsCollapsed, serviceDragOver, setServiceDragOver,
     activeCategory, setActiveCategory, activeSong, setActiveSong, activeCue, setActiveCue,
@@ -4560,8 +4897,12 @@ export default function App() {
     bibleDL, setBibleDL, bibleLibQuery, setBibleLibQuery, bibleLibLoading, setBibleLibLoading, bibleTransOpen, setBibleTransOpen,
     bibleHelpOpen, setBibleHelpOpen, bibleMedia, setBibleMedia, bibleMediaOpen, setBibleMediaOpen, bibleTestament, setBibleTestament,
     scriptureDefault, setScriptureDefault, scriptureDefaultOptions, assignScriptureDefault,
+    scripturePicker, setScripturePicker, chooseScriptureMedia,
     bibleBookQuery, setBibleBookQuery, bibleRef, setBibleRef, bibleSearchQuery, setBibleSearchQuery, bibleSearchResults, setBibleSearchResults,
-    bibleSelVerses, setBibleSelVerses, bibleFocusedVerse, setBibleFocusedVerse, bibleFmt, setBibleFmt,
+    // setBibleFmt is the LIVE setter everywhere: toggling format in the
+    // Scripture header or in Live Output both re-fire a passage that is
+    // already on the wall, instead of only affecting the next push.
+    bibleSelVerses, setBibleSelVerses, bibleFocusedVerse, setBibleFocusedVerse, bibleFmt, setBibleFmt: setBibleFmtLive,
     showModalOpen, setShowModalOpen, showBuilder, setShowBuilder,
     builderSongQuery, setBuilderSongQuery, builderSrcSongQuery, setBuilderSrcSongQuery, builderSheet, setBuilderSheet,
     builderTargetSecId, setBuilderTargetSecId, builderTargetSectionId,
@@ -4605,8 +4946,8 @@ export default function App() {
     startBoxDrag, onStagePointerMove, endBoxDrag, ToolbarBtn, cueLyricStyle, handleSaveSong,
     previewAnimation,
     fireCountdownLive, stopCountdownLive, countdown, setCountdown, cdTemplates, setCdTemplates, sameSongId, clearWorkspace,
-    sermon, sermonLoad, sermonSetLayer, sermonNav, sermonGoto, sermonClose, outputLayers,
-    handleDeleteSong, handleToggleFavorite, handleExport, handleImport, serviceSections, thumbBg, resolveBg, appConfirm, appAlert,
+    sermon, sermonLoad, sermonSetLayer, sermonNav, sermonGoto, sermonClose, sermonShots, outputLayers,
+    handleDeleteSong, handleToggleFavorite, handleExport, handleImport, serviceSections, resolveBg, appConfirm, appAlert,
     activeSlideIndex, groupLabels, slideGrid, renderSlideFace, applyMediaToActiveSong, importMediaAsset, removeMediaAsset,
     toggleAudioPreview, clearSongAudio, refreshBibleLib, formatBibleVerse, buildBiblePayload, queueBibleServiceSlide,
     addScriptureToPlan,
@@ -4661,8 +5002,9 @@ export default function App() {
         menuItems={menuItems}
         activeCue={activeCue}
         toggleDevProjectorWindow={toggleDevProjectorWindow}
-        toggleStageWindow={toggleStageWindow}
-        openNewShow={openNewShow}
+        outputDisplays={outputDisplays}
+        selectedOutputDisplay={outputs.find(o => o.id === 'projector')?.displayId ?? null}
+        selectOutputDisplay={selectOutputDisplay}
         iconTheme={iconTheme}
         ACCENT={ACCENT}
       />
@@ -4686,16 +5028,16 @@ export default function App() {
         {/* CENTER WORKSPACE: SCRIPTURE BROWSER / SLIDE GRID / LAUNCHPAD */}
         <CenterWorkspace />
 
-        {/* RIGHT SIDEBAR: OUTPUT MONITOR + CONTROLS */}
+        {/* RIGHT SIDEBAR: OUTPUT MONITOR + CONTROLS (hidden on the
+            Countdown tab — that editor owns its preview and can reopen this
+            from its header) */}
+        {rightOpen && (
         <LiveOutputPanel
           C={C}
           PINK={PINK}
           activeSlideIndex={activeSlideIndex}
           slideCount={slideGrid.length}
           renderOutputPreview={renderOutputPreview}
-          outputDisplays={outputDisplays}
-          selectedOutputDisplay={outputs.find(o => o.id === 'projector')?.displayId ?? null}
-          selectOutputDisplay={selectOutputDisplay}
           activeCue={activeCue}
           fireCueLive={fireCueLive}
           clearLyrics={clearLyrics}
@@ -4714,10 +5056,22 @@ export default function App() {
           assignScriptureDefault={assignScriptureDefault}
           selectBibleMediaLive={selectBibleMediaLive}
           importBibleMedia={importBibleMedia}
+          setScripturePicker={setScripturePicker}
           dockTab={dockTab}
+          bibleFmt={bibleFmt}
+          setBibleFmt={setBibleFmtLive}
           fireBibleSelectionLive={fireBibleSelectionLive}
           bibleSelCount={bibleSelVerses.length}
+          sermon={sermon}
+          sermonShots={sermonShots}
+          sermonGoto={sermonGoto}
+          slideGrid={slideGrid}
+          renderSlideFace={renderSlideFace}
+          fireGridTile={fireGridTile}
+          bibleUpNext={bibleUpNext}
+          fireBibleUpNext={fireBibleUpNext}
         />
+        )}
       </div>
 
       {/* ===== BOTTOM GLOBAL DOCK ===== */}
@@ -4757,6 +5111,18 @@ export default function App() {
           onSave={saveMedley}
           onClose={() => setMedleyModal(null)}
           anchorArranged={medleyModal.anchorArranged}
+        />
+      )}
+      </AnimatePresence>
+
+      {/* SCRIPTURE MEDIA PICKER — folder of Bible art / library / upload →
+          session override or the default attached to new scripture. */}
+      <AnimatePresence>
+      {scripturePicker && (
+        <ScriptureMediaPicker
+          mode={scripturePicker}
+          onClose={() => setScripturePicker(null)}
+          onPick={(src) => chooseScriptureMedia(src, scripturePicker === 'default')}
         />
       )}
       </AnimatePresence>

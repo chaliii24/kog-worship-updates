@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { Plus, Monitor, Network, Smartphone } from 'lucide-react';
+import { Monitor, Smartphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import { iconHue } from '../lib/icons';
 import RemoteMenu from './modals/RemoteMenu';
 import logoImage from '../assets/logo.png';
 
-export default function TopHeader({ C, PINK, activeMenu, setActiveMenu, menuItems, activeCue, toggleDevProjectorWindow, toggleStageWindow, openNewShow, iconTheme, ACCENT }) {
+export default function TopHeader({ C, PINK, activeMenu, setActiveMenu, menuItems, activeCue, toggleDevProjectorWindow, outputDisplays, selectedOutputDisplay, selectOutputDisplay, iconTheme, ACCENT }) {
   const isLive = activeCue?.id !== 'clear' && activeCue !== null;
   const [remoteOpen, setRemoteOpen] = useState(false);
   const acc = ACCENT || C.heading;
@@ -42,9 +42,6 @@ export default function TopHeader({ C, PINK, activeMenu, setActiveMenu, menuItem
         <motion.button {...stubTap} onClick={toggleDevProjectorWindow} title="Projector outputs" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.heading, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
           <Monitor size={13} color={iconTheme === 'prism' ? iconHue('outputs', C) : undefined} /> Outputs
         </motion.button>
-        <motion.button {...stubTap} onClick={toggleStageWindow} title="Stage display" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.heading, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-          <Network size={13} color={iconTheme === 'prism' ? iconHue('stage', C) : undefined} /> Stage
-        </motion.button>
         <div style={{ position: 'relative' }}>
           <motion.button {...stubTap} onClick={() => setRemoteOpen(v => !v)} title="Phone remote (LAN)" style={{ background: remoteOpen ? C.elevated : C.elevated2, border: `1px solid ${remoteOpen ? acc : C.border2}`, color: remoteOpen ? acc : C.heading, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
             <Smartphone size={13} color={iconTheme === 'prism' ? iconHue('remote', C) : undefined} /> Remote
@@ -54,9 +51,26 @@ export default function TopHeader({ C, PINK, activeMenu, setActiveMenu, menuItem
             {remoteOpen && <RemoteMenu key="remote" C={C} ACCENT={acc} onClose={() => setRemoteOpen(false)} />}
           </AnimatePresence>
         </div>
-        <motion.button {...stubTap} onClick={openNewShow} style={{ background: PINK, border: 'none', color: C.text, padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={13} /> New Show
-        </motion.button>
+        <select
+          value={selectedOutputDisplay ?? ''}
+          onChange={(e) => selectOutputDisplay(e.target.value === '' ? null : Number(e.target.value))}
+          disabled={!outputDisplays || outputDisplays.length === 0}
+          title="Choose which display or projector the live output appears on"
+          style={{ width: 210, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 8, color: C.text2, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', cursor: (outputDisplays && outputDisplays.length > 0) ? 'pointer' : 'not-allowed', outline: 'none' }}
+        >
+          {(!outputDisplays || outputDisplays.length === 0) ? (
+            <option value="">No external display detected</option>
+          ) : (
+            <>
+              <option value="">Off — no output window</option>
+              {outputDisplays.map(d => (
+                <option key={d.id} value={d.id}>
+                  {d.label}{d.primary ? ' (Primary)' : ''} · {d.width}×{d.height}
+                </option>
+              ))}
+            </>
+          )}
+        </select>
       </div>
     </motion.div>
   );

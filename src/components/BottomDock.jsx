@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ListVideo, Presentation, Film, Music, BookOpen, Monitor, Settings, Timer, FileText } from 'lucide-react';
+import { ListVideo, Presentation, Film, Music, BookOpen, Monitor, Settings, Timer, FileText, MonitorPlay } from 'lucide-react';
 import { motion } from 'motion/react';
 import { DOCK_KIND, iconHue } from '../lib/icons';
 
@@ -11,6 +11,7 @@ const ICON_MAP = {
   'book-open': BookOpen,
   'monitor': Monitor,
   'timer': Timer,
+  'monitor-play': MonitorPlay,
   'file-text': FileText,
   'settings': Settings,
 };

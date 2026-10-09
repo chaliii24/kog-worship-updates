@@ -39,6 +39,7 @@ const MIME = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
   '.ico': 'image/x-icon',
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
@@ -47,7 +48,12 @@ const MIME = {
   '.webmanifest': 'application/manifest+json',
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
 };
+
+// Extensions the scripture media picker offers from an operator-chosen
+// folder (kept in sync with BIBLE_MEDIA_EXT in main.js).
+const BIBLE_MEDIA_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.mp4', '.webm', '.mov'];
 
 function lanAddresses() {
   const ifs = os.networkInterfaces();
@@ -277,6 +283,34 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
         return;
       }
       const name = decodeURIComponent(reqPath.slice('/media/'.length));
+      // Folder-backed Bible media (bf/<folder>/<file> — from the scripture
+      // media picker). reqPath is already decoded above, so the folder path
+      // on Windows legitimately contains backslashes — this branch must run
+      // BEFORE the bare-filename rules below. Extension whitelisted, and the
+      // resolved file must sit DIRECTLY inside the given folder (no
+      // traversal, no subpaths). NOT immutable-cached: the operator can
+      // replace a picture in that folder and phones must see the new one.
+      if (name.startsWith('bf/')) {
+        const rest = name.slice(3);
+        const cut = rest.lastIndexOf('/');
+        const folder = cut > 0 ? rest.slice(0, cut) : '';
+        const file = cut > 0 ? rest.slice(cut + 1) : '';
+        const ext = path.extname(file).toLowerCase();
+        if (!folder || !file || !BIBLE_MEDIA_EXT.includes(ext)) { notFound(res); return; }
+        const abs = path.resolve(folder, file);
+        if (path.dirname(abs) !== path.resolve(folder)) { notFound(res); return; }
+        fs.stat(abs, (err, st) => {
+          if (err || !st.isFile()) { notFound(res); return; }
+          res.writeHead(200, {
+            'Content-Type': MIME[ext] || 'application/octet-stream',
+            'Content-Length': st.size,
+            'Cache-Control': 'no-cache',
+            'Access-Control-Allow-Origin': '*',
+          });
+          fs.createReadStream(abs).on('error', () => { try { res.destroy(); } catch {} }).pipe(res);
+        });
+        return;
+      }
       if (!name || name.includes('\\') || name.includes('..')) { notFound(res); return; }
       // Known builtin prefixes keep their subpath; uploads must be a bare
       // filename. Either way the tail is basenamed — no traversal, ever.

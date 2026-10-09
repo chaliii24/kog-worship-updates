@@ -10,7 +10,7 @@ import { mediaUrl } from '../link.js';
 // images render for real.
 const DEFAULT_BOX = { x: 80, y: 100, w: 1120, h: 480 };
 
-export default function MiniSlide({ C, text, style, timer, presentation, badge, onCopy }) {
+export default function MiniSlide({ C, text, style, timer, presentation, badge, aspect, aspectBadge, onCopy }) {
   const ref = useRef(null);
   const [w, setW] = useState(0);
   useEffect(() => {
@@ -69,10 +69,21 @@ export default function MiniSlide({ C, text, style, timer, presentation, badge, 
     caseMode: 'none',
   };
   const box = lst.box || DEFAULT_BOX;
+  // Same composition shape as the desktop preview: the global output aspect
+  // drives the box 1:1 (Fill has no phone pixels, so it falls back to 16:9
+  // with the badge still telling the truth).
+  const cssAspect = (() => {
+    const a = String(aspect || '16 / 9');
+    if (a.toLowerCase() === 'fill') return '16 / 9';
+    return a.includes(':') ? a.replace(':', ' / ') : a;
+  })();
 
   return (
     <div>
-      <div ref={ref} style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: '#000' }}>
+      <div ref={ref} style={{ position: 'relative', width: '100%', aspectRatio: cssAspect, borderRadius: 10, overflow: 'hidden', background: '#000' }}>
+        {aspectBadge && (
+          <span style={{ position: 'absolute', top: 6, left: 6, zIndex: 5, fontSize: 10, fontWeight: 800, color: '#d4d4d8', background: 'rgba(0,0,0,0.55)', borderRadius: 5, padding: '1px 7px', pointerEvents: 'none' }}>{aspectBadge}</span>
+        )}
         {s > 0 && (
           <div style={{ position: 'absolute', left: 0, top: 0, width: 1280, height: 720, transform: `scale(${s})`, transformOrigin: 'top left' }}>
             {bgType === 'color' ? (

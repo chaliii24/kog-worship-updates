@@ -1,12 +1,15 @@
 import React from 'react';
-import { Plus, Search, Download, Upload, Edit3, Image as ImageIcon, Video, ChevronDown, HelpCircle, ChevronLeft, CornerUpLeft, Zap, BookOpen, Music } from 'lucide-react';
+import { Plus, Search, Download, Upload, Edit3, Image as ImageIcon, Video, ChevronDown, HelpCircle, ChevronLeft, CornerUpLeft, Zap, BookOpen, Music, Folder, Lightbulb, FolderOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
+import { mediaLabel } from '../lib/backgrounds';
 import PresentationWorkspace from './PresentationWorkspace';
 import CountdownPanel from './CountdownPanel';
+import MediaBrowser from './MediaBrowser';
 import SermonPanel from './SermonPanel';
-import Dropdown from './Dropdown';
+import AudioPanel from './AudioPanel';
+import StagePanel from './StagePanel';
 
 export default function CenterWorkspace() {
   const app = useApp();
@@ -35,6 +38,7 @@ export default function CenterWorkspace() {
     scriptureBgLibrary,
     bibleMediaOpen,
     setBibleMediaOpen,
+    setScripturePicker,
     bibleTestament,
     setBibleTestament,
     bibleBookQuery,
@@ -60,7 +64,6 @@ export default function CenterWorkspace() {
     importBibleMedia,
     scriptureDefault,
     scriptureDefaultOptions,
-    assignScriptureDefault,
     fireCueLive,
     fireTitleLive,
     fireMedleySlideAt,
@@ -102,6 +105,20 @@ export default function CenterWorkspace() {
   const bgShow = bibleMedia || defaultOpt;
 
   const verseContainerRef = React.useRef(null);
+  // Slide grid follow-scroll: when the live slide advances past the visible
+  // area, bring it back into view (medley / arrangement / library order all
+  // share the same slideGrid positions activeSlideIndex counts).
+  const gridScrollRef = React.useRef(null);
+  React.useEffect(() => {
+    if (activeSlideIndex == null || activeSlideIndex < 0) return;
+    const root = gridScrollRef.current;
+    if (!root) return;
+    const el = root.querySelector(`[data-grid-pos="${activeSlideIndex}"]`);
+    // 'nearest' = no-op while the live tile is already on screen, so manual
+    // browsing is never yanked; instant (not smooth) so arrow-spam can't
+    // queue a laggy chase behind the actual output.
+    if (el) el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+  }, [activeSlideIndex]);
 
   // Global arrow-key navigation for verse viewer
   React.useEffect(() => {
@@ -245,7 +262,7 @@ export default function CenterWorkspace() {
         <div style={{ position: 'relative' }}>
           <motion.button {...stubTap} onClick={() => setBibleMediaOpen(o => !o)} title="Background media for scripture slides" style={{ display: 'flex', alignItems: 'center', gap: 6, background: bgShow ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.04)', border: bgShow ? '1px solid #8b5cf6' : '1px solid var(--ui-border)', color: bgShow ? '#8b5cf6' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 11px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>
             {bgShow && bgShow.type === 'video' ? <Video size={12} /> : <ImageIcon size={12} />}
-            <span style={{ maxWidth: 110, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bgShow ? (bgShow.name ? String(bgShow.name).replace(/\.[^.]+$/, '') : (bgShow.type === 'color' ? bgShow.value : 'Background')) : 'Background'}</span>
+            <span style={{ maxWidth: 110, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bgShow ? (bgShow.type === 'color' ? bgShow.value : (bgShow.name ? mediaLabel(bgShow.name, bgShow.type) : 'Background')) : 'Background'}</span>
             <ChevronDown size={12} />
           </motion.button>
           {bibleMediaOpen && (
@@ -257,8 +274,11 @@ export default function CenterWorkspace() {
                   <motion.button {...stubTap} onClick={() => { selectBibleMedia(null, null, null); setBibleMediaOpen(false); }} title="Drop this session's background and fall back to the default" style={{ background: 'transparent', border: 'none', color: bibleMedia ? '#f87171' : 'var(--ui-faint)', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</motion.button>
                 </div>
                 <div style={{ overflowY: 'auto', overflowX: 'hidden', padding: 10, display: 'grid', gap: 10 }}>
-                  <motion.label {...stubTap} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(139,92,246,0.12)', border: '1px dashed rgba(139,92,246,0.5)', color: '#C4B5FD', borderRadius: 10, padding: '10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
-                    <Upload size={12} /> Upload image or video
+                  <motion.button {...stubTap} onClick={() => { setScripturePicker('session'); setBibleMediaOpen(false); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(139,92,246,0.12)', border: '1px dashed rgba(139,92,246,0.5)', color: '#C4B5FD', borderRadius: 10, padding: '10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
+                    <FolderOpen size={12} /> Choose image or video…
+                  </motion.button>
+                  <motion.label {...stubTap} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-faint)', borderRadius: 10, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                    <Upload size={11} /> Upload a file instead
                     <input type="file" accept="image/*,video/*" onChange={importBibleMedia} style={{ display: 'none' }} />
                   </motion.label>
                   {/* Replaces the old "Your Uploads" grid: browsing a wall of
@@ -266,15 +286,6 @@ export default function CenterWorkspace() {
                       default does the job in a single row — and it is exactly
                       what scripture added to a section carries with it. */}
                   <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 1.2 }}>Default for new scripture</div>
-                  <Dropdown
-                    tone="quiet"
-                    value={(scriptureDefault && scriptureDefault.value) || ''}
-                    onChange={assignScriptureDefault}
-                    options={scriptureDefaultOptions}
-                    placeholder="Pick from existing media…"
-                    title="Background attached to every scripture you add to a section"
-                    maxHeight={240}
-                  />
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {defaultOpt && (
                       <div style={{ width: 58, height: 33, flexShrink: 0, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--ui-border)', background: '#000' }}>
@@ -283,11 +294,15 @@ export default function CenterWorkspace() {
                           : <img src={defaultOpt.value} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
                       </div>
                     )}
-                    <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', lineHeight: 1.5 }}>
-                      {defaultOpt
-                        ? 'Attached to every scripture you add to the service plan — no background to pick each time.'
-                        : 'Choose a background so scripture is never added blank.'}
-                    </div>
+                    <motion.button {...stubTap} onClick={() => { setScripturePicker('default'); setBibleMediaOpen(false); }} title="Background attached to every scripture you add to a section" style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', color: 'var(--ui-text)', borderRadius: 8, padding: '7px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{defaultOpt ? defaultOpt.label : 'Choose…'}</span>
+                      <FolderOpen size={12} style={{ flexShrink: 0, color: 'var(--ui-faint)' }} />
+                    </motion.button>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', lineHeight: 1.5 }}>
+                    {defaultOpt
+                      ? 'Attached to every scripture you add to the service plan — no background to pick each time.'
+                      : 'Choose a background so scripture is never added blank.'}
                   </div>
                 </div>
               </div>
@@ -475,6 +490,12 @@ export default function CenterWorkspace() {
   <SermonPanel />
   ) : (dockTab === 'countdown') ? (
   <CountdownPanel />
+  ) : (dockTab === 'stage') ? (
+  <StagePanel />
+  ) : (dockTab === 'audio') ? (
+  <AudioPanel />
+  ) : (dockTab === 'media') ? (
+  <MediaBrowser />
   ) : (
   <motion.div key="other" initial={{ opacity: 0, x: 26 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -26 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
   <div style={{ padding: '12px 18px 8px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexShrink: 0 }}>
@@ -506,7 +527,7 @@ export default function CenterWorkspace() {
     </div>
   )}
 
-  <div style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 16px 18px' }}>
+  <div ref={gridScrollRef} style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 16px 18px' }}>
     {activeSong ? (
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridDensity}, 1fr)`, gap: 14, alignContent: 'start' }}>
         {slideGrid.map((tile, i) => (
@@ -520,25 +541,35 @@ export default function CenterWorkspace() {
                 <div style={{ flex: 1, height: 1, background: 'var(--ui-border2)' }} />
               </div>
             )}
-            <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 320, damping: 28, delay: Math.min(i * 0.03, 0.4) }} whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }} onClick={() => tile.medIdx != null ? fireMedleySlideAt(tile.medIdx) : (tile.isTitle ? fireTitleLive() : fireCueLive(tile.cue))}>
+            <motion.div data-grid-pos={i} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 320, damping: 28, delay: Math.min(i * 0.03, 0.4) }} whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }} onClick={() => tile.medIdx != null ? fireMedleySlideAt(tile.medIdx) : (tile.isTitle ? fireTitleLive() : fireCueLive(tile.cue))}>
               {renderSlideFace(tile, { aspect: (outputAspect || '16:9').replace(':', ' / ') })}
             </motion.div>
           </React.Fragment>
         ))}
       </div>
     ) : (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: C.faint2, borderRadius: 14 }}>
-        {/* Same treatment the Presentations tab gives its preview card: a
-            true-black screen on the canvas tone, outlined with the theme's
-            stronger border rather than a bespoke rgba hairline. Matching it
-            keeps the welcome state and a real presentation deck looking like
-            the same object in the same place. */}
-        <div style={{ width: '100%', maxWidth: 720, aspectRatio: '16 / 9', background: '#000', border: '1px solid var(--ui-border2)', borderRadius: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-          <div style={{ width: 58, height: 58, borderRadius: 16, background: 'radial-gradient(140% 140% at 30% 20%, #3b1d6e, #1a0c30)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Music size={28} color={PINK} /></div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.muted }}>Welcome to KOGWorship</div>
-          <div style={{ fontSize: 12, textAlign: 'center', maxWidth: 380, lineHeight: 1.5, color: C.faint2 }}>Add a song from the Songs tab, or open a saved service from the Shows tab to begin.</div>
-          <div style={{ fontSize: 11.5, textAlign: 'center', maxWidth: 380, lineHeight: 1.5, color: C.faint2 }}>Tip: assign a display under Live Outputs, then press Start to project to your screens.</div>
-        </div>
+      <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: C.faint2, borderRadius: 14 }}>
+        <motion.div
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+          style={{ width: '100%', maxWidth: 760, flex: '1 0 auto', borderRadius: 12, border: '1px solid var(--ui-border2)', background: 'radial-gradient(100% 70% at 50% 0%, rgba(139,92,246,0.13), transparent 70%), var(--ui-elev)', padding: '56px 34px 34px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <div style={{ position: 'relative', marginBottom: 16 }}>
+            <Folder size={84} color={ACCENT} strokeWidth={1.2} />
+            <span style={{ position: 'absolute', right: -18, bottom: -4, width: 48, height: 48, borderRadius: 15, background: ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 22px rgba(0,0,0,0.5)' }}>
+              <Music size={24} color="#fff" />
+            </span>
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: C.text, textAlign: 'center' }}>No Service Plan Loaded</div>
+          <div style={{ fontSize: 13.5, textAlign: 'center', maxWidth: 520, lineHeight: 1.6, color: C.muted, marginTop: 8 }}>
+            Add a song from the Songs tab, or open a saved service from the Shows tab to begin.
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 9, padding: '12px 15px', marginTop: 24, maxWidth: 560, width: '100%', boxSizing: 'border-box' }}>
+            <Lightbulb size={16} color={C.muted} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span style={{ fontSize: 12, lineHeight: 1.6, color: C.muted }}>Tip: Assign a display under Live Outputs, then press Start to project to your screens.</span>
+          </div>
+        </motion.div>
       </div>
     )}
   </div>

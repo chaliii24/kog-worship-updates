@@ -174,3 +174,16 @@ export function visibleElements(slide) {
   return out;
 }
 
+// Human label for a media file. Library uploads used to be stored as
+// "<timestamp>-<rand>-<original>.<ext>" (and older ones as a bare
+// "<timestamp>-<rand>"), which leaked ugly hashes into the pickers — strip
+// the extension, then the hash prefix. A name that is *only* the hash has
+// nothing readable left, so fall back to the caller's default.
+export function mediaLabel(name, fallback = 'Media') {
+  if (!name) return fallback;
+  let s = String(name).replace(/\.[^.]+$/, '');
+  s = s.replace(/^\d{10,}-[a-z0-9]+-/, '');
+  if (/^\d{10,}-[a-z0-9]+$/.test(s)) s = '';
+  return s || fallback;
+}
+

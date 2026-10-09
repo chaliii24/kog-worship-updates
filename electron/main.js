@@ -3,6 +3,7 @@ import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import electronLog from 'electron-log';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { Readable } from 'stream';
@@ -22,6 +23,7 @@ import {
   updateLastUsed, 
   setSongBackground,
   setSongAudio,
+  setSongChords,
   getMediaLibrary,
   addMediaAsset,
   deleteMediaAsset,
@@ -45,7 +47,7 @@ import {
 } from './database.js';
 import { createLanServer } from './lanServer.js';
 import { status as decklinkStatus, listDevices as decklinkListDevices, start as decklinkStart, stop as decklinkStop } from './decklink.js';
-import { pptOpen, pptNext, pptPrev, pptGoto, pptState, pptClose, pptQuit } from './pptBridge.js';
+import { pptOpen, pptNext, pptPrev, pptGoto, pptState, pptClose, pptQuit, pptShot } from './pptBridge.js';
 
 // Dead-pipe guard: when the parent stdio goes away (killed terminal, dead
 // automation harness, orphaned second copy), the next log write throws
@@ -105,14 +107,20 @@ const lan = createLanServer({
     { prefix: 'cd/', dir: path.join(app.getPath('userData'), 'countdown-media') },
   ],
 });
-let lanQrCache = { url: '', data: '' };
+let lanQrCache = { url: '', data: '', stageUrl: '', stageData: '' };
 const lanInfoWithQr = async () => {
   const info = lan.info();
   if (lanQrCache.url !== info.controlUrl) {
     const data = await lan.qr(info.controlUrl);
-    lanQrCache = { url: info.controlUrl, data };
+    lanQrCache = { ...lanQrCache, url: info.controlUrl, data };
   }
-  return { ...info, qr: lanQrCache.data };
+  // The Stage tab shows a QR that opens the STAGE view (singer prompter) on
+  // the phone — a different URL, so it needs its own cached code.
+  if (lanQrCache.stageUrl !== info.stageUrl) {
+    const stageData = await lan.qr(info.stageUrl);
+    lanQrCache = { ...lanQrCache, stageUrl: info.stageUrl, stageData };
+  }
+  return { ...info, qr: lanQrCache.data, stageQr: lanQrCache.stageData };
 };
 
 // Local Font Access API (window.queryLocalFonts) — must be enabled before ready.
@@ -183,6 +191,7 @@ function mediaMime(fileName) {
   if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
   if (ext === '.gif') return 'image/gif';
   if (ext === '.webp') return 'image/webp';
+  if (ext === '.bmp') return 'image/bmp';
   if (ext === '.mp3') return 'audio/mpeg';
   if (ext === '.m4a') return 'audio/mp4';
   if (ext === '.wav') return 'audio/wav';
@@ -196,6 +205,13 @@ function serveFileProtocol(rootDir, request) {
   if (!fileName || path.isAbsolute(fileName)) return new Response(null, { status: 404 });
   const filePath = path.join(rootDir, fileName);
   if (!filePath.startsWith(rootDir)) return new Response(null, { status: 404 });
+  return serveFileBody(filePath, request);
+}
+
+// The bytes-on-disk half of protocol serving, split out so the /bf/ Bible
+// media branch can serve a file from ANY validated folder with the exact
+// same range/stat behaviour as library uploads.
+function serveFileBody(filePath, request) {
   // One stat, not three: this runs on the MAIN process for every range request
   // the tiles and the projector issue, and a song switch fires dozens of them in
   // the same frame. Every sync syscall here is time the IPC that drives the
@@ -204,7 +220,9 @@ function serveFileProtocol(rootDir, request) {
   try { info = fs.statSync(filePath); } catch (e) { info = null; }
   if (!info || info.isDirectory()) return new Response(null, { status: 404 });
   const total = info.size;
-  const mime = mediaMime(fileName);
+  // Derive the mime from the resolved path — fileName only exists in the
+  // outer wrapper, and this half serves /bf/ paths too.
+  const mime = mediaMime(path.basename(filePath));
   const rangeHeader = request.headers.get('Range');
   if (rangeHeader) {
     // Suffix range (bytes=-500): the LAST 500 bytes. Some players probe this
@@ -258,6 +276,22 @@ function serveMediaProtocol() {
       // serveFileProtocol resolves the last path segment, so no prefix
       // stripping is needed here.
       const url = new URL(request.url);
+      // Bible media folders (media://kog-media/bf/<folder>/<file>): art is
+      // served in place from the operator's chosen folder — never copied —
+      // so a big picture/video folder adds no disk usage to the library.
+      // The path carries an absolute folder + filename, both validated:
+      // whitelisted extension, non-empty, and the resolved file must sit
+      // DIRECTLY inside that folder (no traversal, no subpaths).
+      if (url.pathname.startsWith('/bf/')) {
+        const segs = url.pathname.split('/'); // ['', 'bf', encFolder, encFile]
+        const folder = decodeURIComponent(segs[2] || '');
+        const file = decodeURIComponent(segs[3] || '');
+        const ext = path.extname(file).toLowerCase();
+        if (!folder || !file || !BIBLE_MEDIA_EXT.includes(ext)) return new Response(null, { status: 404 });
+        const abs = path.resolve(folder, file);
+        if (path.dirname(abs) !== path.resolve(folder)) return new Response(null, { status: 404 });
+        return serveFileBody(abs, request);
+      }
       if (url.pathname.startsWith('/cd/')) {
         try { fs.mkdirSync(COUNTDOWN_DIR, { recursive: true }); } catch {}
         return serveFileProtocol(COUNTDOWN_DIR, request);
@@ -275,11 +309,16 @@ ipcMain.handle('add-media-file', async (event, sourcePath) => {
     const ext = path.extname(sourcePath).toLowerCase();
     if (!['.mp4', '.webm', '.mov', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp3', '.m4a', '.wav', '.ogg', '.aac'].includes(ext)) return null;
     fs.mkdirSync(MEDIA_DIR, { recursive: true });
-    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+    // Keep the original filename readable: <timestamp>-<rand>-<original>.<ext>
+    // so libraries, queues and pickers can show the real track name. The
+    // timestamp+rand prefix still guarantees uniqueness on disk.
+    const origBase = path.basename(sourcePath, ext);
+    const safeBase = origBase.slice(0, 60).replace(/[^\w\-. ]+/g, '').trim() || 'file';
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeBase}${ext}`;
     fs.copyFileSync(sourcePath, path.join(MEDIA_DIR, fileName));
     const url = `media://kog-media/${encodeURIComponent(fileName)}`;
     const kind = ['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext) ? 'image' : ['.mp4', '.webm', '.mov'].includes(ext) ? 'video' : 'audio';
-    addMediaAsset(url, kind, fileName);
+    addMediaAsset(url, kind, `${origBase}${ext}`);
     return url;
   } catch (e) {
     return null;
@@ -302,6 +341,57 @@ ipcMain.handle('add-countdown-file', async (event, sourcePath) => {
     return `media://kog-media/cd/${encodeURIComponent(fileName)}`;
   } catch (e) {
     return null;
+  }
+});
+
+// --- SCRIPTURE MEDIA FOLDER PICKER -----------------------------------------
+// Bible art usually lives in ONE folder on disk. The operator picks it once
+// (native dialog); the popup then lists that folder's pictures/videos as
+// thumbnails served in place over /bf/ — nothing is copied into the library.
+// The folder path is remembered in localStorage (bible_media_folder) by the
+// renderer and handed back here on every list call.
+const BIBLE_MEDIA_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.mp4', '.webm', '.mov'];
+
+ipcMain.handle('bible-media-pick-folder', async () => {
+  try {
+    const win = (operatorWindow && !operatorWindow.isDestroyed()) ? operatorWindow : undefined;
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Select a folder for Bible media',
+      properties: ['openDirectory'],
+    });
+    if (canceled || !filePaths.length) return null;
+    return filePaths[0];
+  } catch (e) {
+    return null;
+  }
+});
+
+// List the folder: name + kind + a media:// URL that serves the file from
+// where it sits. Directories, hidden files and non-media extensions are
+// skipped; anything unreadable yields [] (the popup shows "folder empty"
+// rather than an error for a deleted/renamed folder).
+ipcMain.handle('bible-media-list', async (event, folder) => {
+  try {
+    if (!folder || typeof folder !== 'string' || !fs.existsSync(folder)) return [];
+    const st = fs.statSync(folder);
+    if (!st.isDirectory()) return [];
+    const out = [];
+    for (const name of fs.readdirSync(folder)) {
+      if (name.startsWith('.')) continue;
+      const ext = path.extname(name).toLowerCase();
+      if (!BIBLE_MEDIA_EXT.includes(ext)) continue;
+      const full = path.join(folder, name);
+      try { if (fs.statSync(full).isDirectory()) continue; } catch { continue; }
+      out.push({
+        name,
+        type: ['.mp4', '.webm', '.mov'].includes(ext) ? 'video' : 'image',
+        url: `media://kog-media/bf/${encodeURIComponent(folder)}/${encodeURIComponent(name)}`,
+      });
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
+  } catch (e) {
+    return [];
   }
 });
 
@@ -992,6 +1082,30 @@ ipcMain.handle('ppt-prev', async () => pptPrev());
 ipcMain.handle('ppt-goto', async (event, index) => pptGoto(index));
 ipcMain.handle('ppt-state', async () => pptState());
 ipcMain.handle('ppt-close', async () => pptClose());
+// Operator slide thumbnails: export one slide as PNG, hand the bytes back as
+// a data URL, delete the temp file. Stateless per call — the renderer caches
+// by slide index and clears on load/close.
+ipcMain.handle('ppt-shot', async (event, index) => {
+  try {
+    const dir = path.join(os.tmpdir(), 'kog-ppt-shots');
+    try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+    const n = Math.max(1, Math.round(Number(index) || 1));
+    const file = path.join(dir, `shot-${Date.now().toString(36)}-${n}.png`);
+    const r = await pptShot(n, file, 640, 360);
+    if (!r || !r.ok) {
+      try { fs.unlinkSync(file); } catch {}
+      try { electronLog.warn('[ppt] slide export failed:', (r && r.error) || 'unknown'); } catch {}
+      return { ok: false, error: (r && r.error) || 'Slide export failed.' };
+    }
+    let buf = null;
+    try { buf = fs.readFileSync(file); } catch {}
+    try { fs.unlinkSync(file); } catch {}
+    if (!buf || !buf.length) return { ok: false, error: 'Empty slide export.' };
+    return { ok: true, index: r.index, totalSlides: r.totalSlides, dataUrl: `data:image/png;base64,${buf.toString('base64')}` };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+});
 
 function syncOutputs(outputs) {
   lastSyncedOutputs = Array.isArray(outputs) ? outputs : [];
@@ -1111,10 +1225,22 @@ ipcMain.on('update-live-stage', (event, stageData) => {
   }
 });
 
+// Stage CONFIG feed: layout preset, clock, alert, traffic light, flow
+// tracker, chord chart — pushed by the console whenever any of it changes.
+// Cached exactly like the slide/stage payloads so a stage window opened
+// later starts already dressed (returned by get-live-state as `config`).
+let lastStageConfig = null;
+ipcMain.on('update-stage-config', (event, feed) => {
+  lastStageConfig = feed || null;
+  for (const { win, role } of outputWindows.values()) {
+    if (role === 'stage') sendToOutput(win, 'render-stage-config', lastStageConfig);
+  }
+});
+
 // Pulled by an output window once its render listeners are registered, so
 // there is no load-order race (a push on did-finish-load could arrive
 // before the window is listening and be lost).
-ipcMain.handle('get-live-state', () => ({ slide: lastLiveSlide, stage: lastLiveStage }));
+ipcMain.handle('get-live-state', () => ({ slide: lastLiveSlide, stage: lastLiveStage, config: lastStageConfig }));
 
 // Next-slide media warm-up: the console fires this while the current slide is
 // still on screen (type + url only — bytes never travel through IPC). Lyrics
@@ -1512,6 +1638,8 @@ ipcMain.handle('db-delete-song', (event, id) => deleteSong(id));
 ipcMain.handle('db-toggle-favorite', (event, id) => toggleFavorite(id));
 ipcMain.handle('db-set-song-bg', (event, id, bgType, bgValue) => setSongBackground(id, bgType, bgValue));
 ipcMain.handle('db-set-song-audio', (event, id, audioUrl) => setSongAudio(id, audioUrl));
+// Stage chord chart (Stage tab): narrow UPDATE, never rewrites cues.
+ipcMain.handle('db-set-song-chords', (event, id, chart, key) => setSongChords(id, chart, key));
 ipcMain.handle('db-get-media', () => getMediaLibrary());
 // Built-in packs removed (house gradients carry the load now): always empty,
 // channel kept so old renderers never break on the call.

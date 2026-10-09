@@ -1,11 +1,11 @@
 import React, { useRef, useState } from 'react';
-import { Play, Square, RefreshCw, Clock, Hourglass, Crosshair, Monitor, Images, Film, X } from 'lucide-react';
+import { Play, Square, RefreshCw, Clock, Hourglass, Crosshair, Monitor, Images, Film, X, PanelRight } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
-import { TileCanvas } from '../lib/perf';
 import { GRADIENT_PACK } from '../lib/backgrounds';
-import { TimerFace, DEFAULT_COUNTDOWN, ANIMATED_GRADIENTS } from './CountdownFace';
+import { DEFAULT_COUNTDOWN, ANIMATED_GRADIENTS } from './CountdownFace';
+import CountdownPreview from './CountdownPreview';
 
 const PRESETS = [
   [60, '1m'], [180, '3m'], [300, '5m'], [600, '10m'], [900, '15m'], [1800, '30m'],
@@ -36,7 +36,7 @@ function Segmented({ C, ACCENT, options, value, onPick }) {
 }
 
 export default function CountdownPanel() {
-  const { C, ACCENT, countdown, setCountdown, fireCountdownLive, stopCountdownLive, persistCountdownFile, cdTemplates, setCdTemplates } = useApp();
+  const { C, ACCENT, countdown, setCountdown, fireCountdownLive, stopCountdownLive, persistCountdownFile, cdTemplates, setCdTemplates, outputAspect, rightOpen, setRightOpen } = useApp();
   const cfg = { ...DEFAULT_COUNTDOWN, ...(countdown || {}) };
   const live = !!(cfg.live);
   const set = (patch) => setCountdown((prev) => ({ ...DEFAULT_COUNTDOWN, ...(prev || {}), ...patch }));
@@ -128,12 +128,20 @@ export default function CountdownPanel() {
             <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e' }} /> LIVE
           </span>
         )}
+        <span style={{ flex: 1 }} />
+        <button
+          onClick={() => setRightOpen((v) => !v)}
+          title={rightOpen ? 'Hide the Live Output sidebar' : 'Show the Live Output sidebar'}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: rightOpen ? 'rgba(139,92,246,0.16)' : 'transparent', border: '1px solid ' + (rightOpen ? 'rgba(139,92,246,0.5)' : 'var(--ui-border2)'), color: rightOpen ? '#C4B5FD' : C.muted, borderRadius: 8, padding: '6px 11px', fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
+        >
+          <PanelRight size={13} /> Live Output
+        </button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 18px 16px 18px' }}>
-        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          {/* LEFT — form */}
-          <div style={{ width: 380, maxWidth: '100%', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', overflowY: 'auto', padding: '4px 18px 16px 18px', minHeight: 0 }}>
+        <div style={{ display: 'flex', gap: 20, width: '100%', alignItems: 'flex-start' }}>
+          {/* LEFT — form (page scrolls as one; no locked inner scroll) */}
+          <div style={{ flex: '1 1 380px', maxWidth: 480, minWidth: 260, display: 'flex', flexDirection: 'column', gap: 14, paddingBottom: 4 }}>
             <div>
               <label style={fieldLabel(C)}>Title</label>
               <input value={cfg.title} onChange={(e) => set({ title: e.target.value })} placeholder="The service is about to start" style={textInput(C)} />
@@ -332,18 +340,15 @@ export default function CountdownPanel() {
             </div>
           </div>
 
-          {/* RIGHT — preview + go live */}
-          <div style={{ flex: 1, minWidth: 300, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 12, overflow: 'hidden', background: '#000', border: '1px solid var(--ui-border2)' }}>
-              <TileCanvas>
-                <TimerFace timer={cfg} scale={1} />
-              </TileCanvas>
-            </div>
+          {/* RIGHT — preview + go live (no inner scroll lock; the page
+              scrolls as one so the preview can be tall). */}
+          <div style={{ flex: '2 1 560px', minWidth: 280, display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 4 }}>
+            <CountdownPreview timer={cfg} aspect="16 / 9" badge={outputAspect || '16:9'} where="tab" />
             <div style={{ display: 'flex', gap: 8 }}>
               <motion.button
                 {...stubTap}
                 onClick={() => (live ? stopCountdownLive() : fireCountdownLive())}
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: live ? 'rgba(239,68,68,0.9)' : '#10b981', border: 'none', color: '#fff', borderRadius: 10, padding: '12px 0', fontSize: 13.5, fontWeight: 800, cursor: 'pointer' }}
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: live ? 'rgba(239,68,68,0.9)' : '#10b981', border: 'none', color: '#fff', borderRadius: 10, padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}
               >
                 {live ? <Square size={14} /> : <Play size={14} />} {live ? 'Stop Timer' : 'Go Live'}
               </motion.button>
@@ -359,22 +364,22 @@ export default function CountdownPanel() {
             {/* Frame-the-picture lives HERE (not in the form column) so the
                 sliders sit beside the preview they change — no scrolling. */}
             {cfg.bgType === 'media' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '10px 12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '8px 10px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 10, color: C.faint, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, flex: 1 }}>Frame the picture</span>
                   {(media.posX !== undefined || media.posY !== undefined || media.scale !== undefined) && (
-                    <button onClick={() => setMedia({ posX: 50, posY: 50, scale: 100 })} title="Back to centered full-frame" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '4px 10px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>Reset</button>
+                    <button onClick={() => setMedia({ posX: 50, posY: 50, scale: 100 })} title="Back to centered full-frame" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '3px 9px', fontSize: 10, fontWeight: 800, cursor: 'pointer' }}>Reset</button>
                   )}
                 </div>
                 {[
                   ['Left ↔ Right', media.posX ?? 50, 0, 100, 1, (v) => setMedia({ posX: v }), '%'],
                   ['Top ↕ Bottom', media.posY ?? 50, 0, 100, 1, (v) => setMedia({ posY: v }), '%'],
-                  ['Zoom', media.scale ?? 100, 25, 300, 5, (v) => setMedia({ scale: v }), '%'],
+                  ['Zoom', media.scale ?? 100, 100, 300, 5, (v) => setMedia({ scale: v }), '%'],
                 ].map(([lbl, val, min, max, step, fn, unit]) => (
                   <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, width: 78, flexShrink: 0 }}>{lbl}</label>
+                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, width: 72, flexShrink: 0 }}>{lbl}</label>
                     <input type="range" min={min} max={max} step={step} value={val} onChange={(e) => fn(Number(e.target.value))} style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 44, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{val}{unit}</span>
+                    <span style={{ fontSize: 11, color: C.muted, width: 40, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{val}{unit}</span>
                   </div>
                 ))}
               </div>
@@ -382,7 +387,7 @@ export default function CountdownPanel() {
             {/* One-click Sunday setups under framing: name the current media
                 setup once, reload it in one tap — desktop or phone. */}
             {cfg.bgType === 'media' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '10px 12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '8px 10px' }}>
                 <span style={{ fontSize: 10, color: C.faint, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Slideshow templates</span>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <input

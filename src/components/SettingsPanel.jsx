@@ -19,7 +19,7 @@ const SECTIONS = [
   { id: 'data', label: 'Data Management', icon: Database, kind: 'data' },
 ];
 
-const ASPECTS = ['16:9', '4:3', '16:10', '21:9'];
+const ASPECTS = ['16:9', '4:3', '16:10', '21:9', '32:9'];
 const RELEASES_URL = 'https://github.com/chaliii24/kog-worship-updates/releases';
 
 function formatBytes(bytes) {

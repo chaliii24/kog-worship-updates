@@ -174,7 +174,7 @@ export function useCountdownCarousel(images, slideSec, epoch, ticking) {
   return { list, idx };
 }
 
-export function TimerFace({ timer, scale = 1 }) {
+export function TimerFace({ timer, scale = 1, fluid = false }) {
   const t = { ...DEFAULT_COUNTDOWN, ...(timer || {}) };
   // The interval exists only while something visibly moves (live countdown or
   // wall clock). Idle previews are frozen frames — no standing timers on any
@@ -202,7 +202,7 @@ export function TimerFace({ timer, scale = 1 }) {
   // the frame; these nudge/zoom it so any screen shape fits the setup.
   const posX = Number.isFinite(Number(media?.posX)) ? Number(media.posX) : 50;
   const posY = Number.isFinite(Number(media?.posY)) ? Number(media.posY) : 50;
-  const zoom = Math.min(300, Math.max(25, Number.isFinite(Number(media?.scale)) ? Number(media.scale) : 100));
+  const zoom = Math.min(300, Math.max(100, Number.isFinite(Number(media?.scale)) ? Number(media.scale) : 100));
   const frameStyle = {
     position: 'absolute', inset: 0, width: '100%', height: '100%',
     objectFit: 'cover', objectPosition: `${posX}% ${posY}%`,
@@ -213,17 +213,28 @@ export function TimerFace({ timer, scale = 1 }) {
   // surface (phone snapshots carry it too — stamp does NOT, so epoch keys on
   // startedAt, never stamp). Live config edits keep the same startedAt, so
   // media never restarts under an edit — only Go starts a new epoch.
-  const mediaEpoch = t.live?.startedAt ?? null;  const { list: slides, idx: slideIdx } = useCountdownCarousel(mediaOn && media.kind !== 'video' ? media.images : [], media?.slideSec, mediaEpoch, ticking);
-  if (mediaOn) {
-    const bannerH = 210 * k;
-  // Slideshow watermark (logo badge): image overlay pinned to a corner of
-  // the MEDIA area (never the banner), like a broadcast bug. Slideshow only.
+  const mediaEpoch = t.live?.startedAt ?? null;
+  const { list: slides, idx: slideIdx } = useCountdownCarousel(mediaOn && media.kind !== 'video' ? media.images : [], media?.slideSec, mediaEpoch, ticking);
+  // Slideshow watermark (logo badge): pinned to a frame corner over the
+  // picture, like a broadcast bug. Slideshow only.
   const wm = mediaOn && media.kind !== 'video' ? (media.watermark || null) : null;
   const wmOn = !!(wm && wm.url);
   const wmSize = Math.min(400, Math.max(32, Number.isFinite(Number(wm?.size)) ? Number(wm.size) : 160));
   const wmOpacity = Math.min(100, Math.max(10, Number.isFinite(Number(wm?.opacity)) ? Number(wm.opacity) : 100)) / 100;
   const wmPad = 24 * k;
   const wmCorner = { tl: { top: wmPad, left: wmPad }, tr: { top: wmPad, right: wmPad }, bl: { bottom: wmPad, left: wmPad }, br: { bottom: wmPad, right: wmPad } }[wm?.pos] || { top: wmPad, left: wmPad };
+  // Fluid sizing (previews): every size expressed against the box height, so
+  // the face fills ANY aspect — 16:9, ultrawide walls, phone minis — with
+  // identical proportions. Fixed contexts (projector, stage, phone) keep
+  // exact px sizing (fluid defaults off).
+  const fh = (px) => (fluid ? `calc(${px} * 100cqh / 720)` : `${px * k}px`);
+  const wmQ = fluid ? '3.33cqh' : wmPad;
+  const wmCornerF = { tl: { top: wmQ, left: wmQ }, tr: { top: wmQ, right: wmQ }, bl: { bottom: wmQ, left: wmQ }, br: { bottom: wmQ, right: wmQ } }[wm?.pos] || { top: wmQ, left: wmQ };
+  if (mediaOn) {
+    const bannerH = fluid ? fh(210) : `${210 * k}px`;
+    const tTitle = Math.min(t.titleSize, 40);
+    const tTime = Math.min(t.timeSize, 132);
+    const tSub = Math.min(t.subtextSize, 28);
     return (
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: '#000', overflow: 'hidden', boxSizing: 'border-box' }}>
         <style>{'@keyframes kogUrgencyShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}'}</style>
@@ -256,55 +267,55 @@ export function TimerFace({ timer, scale = 1 }) {
               alt=""
               draggable={false}
               title="Slideshow watermark"
-              style={{ position: 'absolute', zIndex: 2, width: wmSize * k, height: wmSize * k, borderRadius: '50%', objectFit: 'cover', opacity: wmOpacity, pointerEvents: 'none', ...wmCorner }}
+              style={{ position: 'absolute', zIndex: 2, width: fluid ? `calc(${wmSize} * 100cqh / 720)` : wmSize * k, height: fluid ? `calc(${wmSize} * 100cqh / 720)` : wmSize * k, borderRadius: '50%', objectFit: 'cover', opacity: wmOpacity, pointerEvents: 'none', ...(fluid ? wmCornerF : wmCorner) }}
             />
           )}
         </div>
-        <div style={{ height: bannerH, flexShrink: 0, background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 * k, padding: `0 ${24 * k}px`, boxSizing: 'border-box', overflow: 'hidden' }}>
+        <div style={{ height: bannerH, flexShrink: 0, background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: fluid ? 'calc(4 * 100cqh / 720)' : 4 * k, padding: fluid ? '0 3.33cqh' : `0 ${24 * k}px`, boxSizing: 'border-box', overflow: 'hidden' }}>
           {t.title ? (
-            <div style={{ fontFamily: face, fontSize: Math.max(8, Math.min(t.titleSize, 40) * k), fontWeight: 700, color: '#ffffff', textAlign: 'center', lineHeight: 1.15, textShadow: '0 4px 24px rgba(0,0,0,0.55)', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
+            <div style={{ fontFamily: face, fontSize: fluid ? `calc(${tTitle} * 100cqh / 720)` : Math.max(8, tTitle * k), fontWeight: 700, color: '#ffffff', textAlign: 'center', lineHeight: 1.15, textShadow: '0 4px 24px rgba(0,0,0,0.55)', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
           ) : null}
-          <div style={{ fontFamily: face, fontSize: Math.max(12, Math.min(t.timeSize, 132) * k), fontWeight: 800, color: timeColor, lineHeight: 1, letterSpacing: '0.01em', textShadow: '0 6px 40px rgba(0,0,0,0.55)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', animation: urgent ? 'kogUrgencyShake 0.4s ease-in-out infinite' : undefined }}>
+          <div style={{ fontFamily: face, fontSize: fluid ? `calc(${tTime} * 100cqh / 720)` : Math.max(12, tTime * k), fontWeight: 800, color: timeColor, lineHeight: 1, letterSpacing: '0.01em', textShadow: '0 6px 40px rgba(0,0,0,0.55)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', animation: urgent ? 'kogUrgencyShake 0.4s ease-in-out infinite' : undefined }}>
             {display}
             {suffix ? <span style={{ fontSize: '0.22em', fontWeight: 700, marginLeft: '0.25em', verticalAlign: 'baseline', opacity: 0.85 }}>{suffix}</span> : null}
           </div>
           {t.subtext ? (
-            <div style={{ fontFamily: face, fontSize: Math.max(7, Math.min(t.subtextSize, 28) * k), fontWeight: 600, color: 'rgba(255,255,255,0.78)', textAlign: 'center', lineHeight: 1.3, textShadow: '0 2px 16px rgba(0,0,0,0.55)', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.subtext}</div>
+            <div style={{ fontFamily: face, fontSize: fluid ? `calc(${tSub} * 100cqh / 720)` : Math.max(7, tSub * k), fontWeight: 600, color: 'rgba(255,255,255,0.78)', textAlign: 'center', lineHeight: 1.3, textShadow: '0 2px 16px rgba(0,0,0,0.55)', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.subtext}</div>
           ) : null}
         </div>
       </div>
     );
   }
   return (
-    <div style={{ position: 'absolute', inset: 0, background: anim ? anim.base : (t.bgValue || '#000'), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 * k, overflow: 'hidden', boxSizing: 'border-box', padding: 24 * k }}>
+    <div style={{ position: 'absolute', inset: 0, background: anim ? anim.base : (t.bgValue || '#000'), display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: fluid ? 'calc(10 * 100cqh / 720)' : 10 * k, overflow: 'hidden', boxSizing: 'border-box', padding: fluid ? 'calc(24 * 100cqh / 720)' : 24 * k }}>
       <style>{'@keyframes kogUrgencyShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}@keyframes kogDrift{from{transform:translate(var(--kog-dx-neg,0px),var(--kog-dy-neg,0px))}to{transform:translate(var(--kog-dx,0px),var(--kog-dy,0px))}}'}</style>
       {anim && anim.blobs.map((b, i) => (
         <div
           key={b.css + i}
           style={{
             position: 'absolute',
-            width: b.w * k,
-            height: b.h * k,
+            width: fluid ? `calc(${b.w} * 100cqh / 720)` : b.w * k,
+            height: fluid ? `calc(${b.h} * 100cqh / 720)` : b.h * k,
             left: `${b.x}%`,
             top: `${b.y}%`,
             background: b.css,
             animation: `kogDrift ${b.d} ease-in-out infinite alternate`,
-            ['--kog-dx']: `${b.dx * k}px`,
-            ['--kog-dy']: `${b.dy * k}px`,
-            ['--kog-dx-neg']: `${-b.dx * k}px`,
-            ['--kog-dy-neg']: `${-b.dy * k}px`,
+            ['--kog-dx']: fluid ? `calc(${b.dx} * 100cqh / 720)` : `${b.dx * k}px`,
+            ['--kog-dy']: fluid ? `calc(${b.dy} * 100cqh / 720)` : `${b.dy * k}px`,
+            ['--kog-dx-neg']: fluid ? `calc(${-b.dx} * 100cqh / 720)` : `${-b.dx * k}px`,
+            ['--kog-dy-neg']: fluid ? `calc(${-b.dy} * 100cqh / 720)` : `${-b.dy * k}px`,
           }}
         />
       ))}
       {t.title ? (
-        <div style={{ position: 'relative', zIndex: 1, fontFamily: face, fontSize: Math.max(8, t.titleSize * k), fontWeight: 700, color: '#ffffff', textAlign: 'center', lineHeight: 1.15, textShadow: '0 4px 24px rgba(0,0,0,0.55)', maxWidth: '100%' }}>{t.title}</div>
+        <div style={{ position: 'relative', zIndex: 1, fontFamily: face, fontSize: fluid ? `calc(${t.titleSize} * 100cqh / 720)` : Math.max(8, t.titleSize * k), fontWeight: 700, color: '#ffffff', textAlign: 'center', lineHeight: 1.15, textShadow: '0 4px 24px rgba(0,0,0,0.55)', maxWidth: '100%' }}>{t.title}</div>
       ) : null}
-      <div style={{ position: 'relative', zIndex: 1, fontFamily: face, fontSize: Math.max(12, t.timeSize * k), fontWeight: 800, color: timeColor, lineHeight: 1, letterSpacing: '0.01em', textShadow: '0 6px 40px rgba(0,0,0,0.55)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', animation: urgent ? 'kogUrgencyShake 0.4s ease-in-out infinite' : undefined }}>
+      <div style={{ position: 'relative', zIndex: 1, fontFamily: face, fontSize: fluid ? `calc(${t.timeSize} * 100cqh / 720)` : Math.max(12, t.timeSize * k), fontWeight: 800, color: timeColor, lineHeight: 1, letterSpacing: '0.01em', textShadow: '0 6px 40px rgba(0,0,0,0.55)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', animation: urgent ? 'kogUrgencyShake 0.4s ease-in-out infinite' : undefined }}>
         {display}
         {suffix ? <span style={{ fontSize: '0.22em', fontWeight: 700, marginLeft: '0.25em', verticalAlign: 'baseline', opacity: 0.85 }}>{suffix}</span> : null}
       </div>
       {t.subtext ? (
-        <div style={{ position: 'relative', zIndex: 1, fontFamily: face, fontSize: Math.max(7, t.subtextSize * k), fontWeight: 600, color: 'rgba(255,255,255,0.78)', textAlign: 'center', lineHeight: 1.3, textShadow: '0 2px 16px rgba(0,0,0,0.55)', maxWidth: '100%' }}>{t.subtext}</div>
+        <div style={{ position: 'relative', zIndex: 1, fontFamily: face, fontSize: fluid ? `calc(${t.subtextSize} * 100cqh / 720)` : Math.max(7, t.subtextSize * k), fontWeight: 600, color: 'rgba(255,255,255,0.78)', textAlign: 'center', lineHeight: 1.3, textShadow: '0 2px 16px rgba(0,0,0,0.55)', maxWidth: '100%' }}>{t.subtext}</div>
       ) : null}
     </div>
   );

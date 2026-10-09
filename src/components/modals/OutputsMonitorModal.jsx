@@ -30,6 +30,12 @@ const RESOLUTION_OPTIONS = [
     { value: '1280x720', label: '1280 × 720 (720p)' },
     { value: '1024x768', label: '1024 × 768 (XGA)' },
   ]},
+  { group: 'LED wall / Ultrawide (future)', options: [
+    { value: '3840x1080', label: '3840 × 1080 (Dual HD · 32:9)' },
+    { value: '2560x720', label: '2560 × 720 (Dual HD compact · 32:9)' },
+    { value: '2560x1080', label: '2560 × 1080 (UW FHD · 21:9)' },
+    { value: '3440x1440', label: '3440 × 1440 (UW QHD · 21:9)' },
+  ]},
   { group: 'Preview', options: [{ value: '800x450', label: '800 × 450 (Preview)' }] },
 ];
 
@@ -41,10 +47,12 @@ const RES_ASPECT = {
   '3840x2160': '16:9', '2560x1440': '16:9', '1920x1080': '16:9',
   '1600x900': '16:9', '1366x768': '16:9', '1280x720': '16:9', '800x450': '16:9',
   '1920x1200': '16:10', '1600x1200': '4:3', '1440x900': '16:10',
-  '1280x1024': '4:3', '1280x800': '16:10', '1024x768': '4:3'
+  '1280x1024': '4:3', '1280x800': '16:10', '1024x768': '4:3',
+  '3840x1080': '32:9', '2560x720': '32:9',
+  '2560x1080': '21:9', '3440x1440': '21:9'
 };
 
-const ASPECT_OPTIONS = ['16:9', '4:3', '16:10', '21:9'];
+const ASPECT_OPTIONS = ['16:9', '4:3', '16:10', '21:9', '32:9', 'Fill'];
 
 // Hardware controls talk to main directly (identify overlays, DeckLink SDI).
 const ipc = (typeof window !== 'undefined' && window.require) ? window.require('electron').ipcRenderer : null;

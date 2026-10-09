@@ -10,6 +10,7 @@ import SettingsPanel from './SettingsPanel';
 // Untitled UI — migration phase 3 (tabs): RAC-backed Tabs for the Service
 // Order / Shows / Songs switcher (mirror layout documented in NewSongPrompt).
 import { Tabs, TabList, Tab } from '../untitledui/components/application/tabs/tabs';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 /* Left-to-right order of the sub-tabs — used to give the panel swap a
    direction, so switching to a tab further right slides content in from the
@@ -768,18 +769,25 @@ export default function LeftSidebar() {
               <div style={{ fontSize: 10.5, color: 'var(--ui-text2)', lineHeight: 1.5, background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.35)', borderRadius: 7, padding: '6px 8px', margin: '0 10px 6px 10px', flexShrink: 0 }}>{exportMsg}</div>
             )}
             <>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '4px 8px 10px 8px', display: 'grid', gap: 6, alignContent: 'start' }}>
+            {/* shadcn ScrollArea: the native (system) scrollbar is hidden and
+                a slim rounded thumb floats over the right edge instead — the
+                look the songs list asks for. minmax(0, 1fr) keeps the implicit
+                grid column from stretching to a long nowrap title — without it
+                the track grows past the sidebar, the row overflows sideways and
+                the action buttons end up behind a horizontal scrollbar. */}
+            <ScrollArea overflowX={false} style={{ flex: 1, minHeight: 0, '--kog-accent': ACCENT }}>
+            <div style={{ padding: '4px 8px 10px 8px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 6, alignContent: 'start' }}>
               {/* Same as the shows list: the order is on another tab, so a
                   row is a plain click-to-open, not a drag handle. */}
               {songs.map(song => (
                 <div key={song.id} className="row" onClick={() => (exportMode ? toggleExportSel(song.id) : selectSong(song.id))} title={exportMode ? 'Tick to include in backup' : 'Click to open this song · hover the row for + Plan'} style={{ background: exportMode && exportSel.includes(song.id) ? 'rgba(139,92,246,0.16)' : activeSong?.id === song.id ? 'rgba(139,92,246,0.15)' : 'var(--ui-elev2)', border: exportMode && exportSel.includes(song.id) ? '1px solid rgba(139,92,246,0.6)' : activeSong?.id === song.id ? '1px solid rgba(139,92,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '7px 11px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ minWidth: 0, flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 8 }}>
                     {exportMode && (
                       <input type="checkbox" checked={exportSel.includes(song.id)} onChange={() => toggleExportSel(song.id)} onClick={(e) => e.stopPropagation()} style={{ width: 15, height: 15, accentColor: '#8b5cf6', cursor: 'pointer', flexShrink: 0 }} />
                     )}
-                    <div style={{ minWidth: 0 }}>
+                    <div style={{ minWidth: 0, overflow: 'hidden' }}>
                       <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--ui-text)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{song.title}</span>
-                      <span style={{ fontSize: 10.5, color: 'var(--ui-muted)', marginTop: 2, display: 'block' }}>{song.artist || 'Unknown'} • {song.category}</span>
+                      <span style={{ fontSize: 10.5, color: 'var(--ui-muted)', marginTop: 2, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{song.artist || 'Unknown'} • {song.category}</span>
                     </div>
                   </div>
                   {/* The whole cluster waits for hover — star included — so a
@@ -795,6 +803,7 @@ export default function LeftSidebar() {
               ))}
               {songs.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12 }}>No songs found.</div>}
             </div>
+            </ScrollArea>
             </>
           </div>
           )}
@@ -873,146 +882,15 @@ export default function LeftSidebar() {
 
 
 if (dockTab === 'media') {
-      const songMedia = (activeSong?.cues || []).filter(cueHasBackground);
-      return (
-        <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'grid', gap: 12, alignContent: 'start' }}>
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Media Library</span>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <label style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '5px 10px', borderRadius: 7, fontSize: 11, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <ImageIcon size={11} /> Image
-                  <input type="file" accept="image/*" onChange={(e) => importMediaAsset(e, 'image')} style={{ display: 'none' }} />
-                </label>
-                <label style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '5px 10px', borderRadius: 7, fontSize: 11, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <Video size={11} /> Video
-                  <input type="file" accept="video/mp4,video/webm,video/quicktime" onChange={(e) => importMediaAsset(e, 'video')} style={{ display: 'none' }} />
-                </label>
-              </div>
-            </div>
-            {mediaLibrary.length === 0 ? (
-              <div style={{ fontSize: 12, color: C.faint2, border: '1px dashed var(--ui-border2)', borderRadius: 10, padding: 14, textAlign: 'center' }}>
-                No assets yet. Add an image/video background and it appears here — or import one now.
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-                {mediaLibrary.map((asset, i) => (
-                  <div key={i} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, overflow: 'hidden' }}>
-                    <div style={{ height: 62, background: '#000', position: 'relative', overflow: 'hidden' }}>
-                      {asset.kind === 'image' ? (
-                        <img src={asset.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      ) : asset.kind === 'video' ? (
-                        <video src={asset.url} autoPlay loop muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      ) : (
-                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: PINK }}><Music size={18} /></div>
-                      )}
-                      <span style={{ position: 'absolute', top: 4, left: 4, display: 'flex', gap: 4, alignItems: 'center' }}>
-                        <span style={{ fontSize: 8, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, background: 'rgba(0,0,0,0.65)', color: C.heading, borderRadius: 4, padding: '1px 5px' }}>{asset.kind}</span>
-                        {asset.builtin && <span style={{ fontSize: 8, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, background: 'rgba(34,197,94,0.18)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.35)', borderRadius: 4, padding: '1px 5px' }}>Built-in</span>}
-                      </span>
-                    </div>
-                    <div style={{ padding: '6px 8px', display: 'flex', gap: 4 }}>
-                      {activeSong && asset.kind !== 'audio' && (
-                        <button onClick={() => applyMediaToActiveSong(asset.kind, asset.url)} title="Apply to the active song" style={{ flex: 1, background: C.elevated, border: '1px solid var(--ui-border2)', color: '#4ade80', borderRadius: 6, fontSize: 10, padding: '4px 0', cursor: 'pointer' }}>Song bg</button>
-                      )}
-                      {asset.kind === 'audio' && (
-                        <button onClick={() => applyMediaToActiveSong('audio', asset.url)} title="Attach as background audio" style={{ flex: 1, background: '#1b3b2a', border: '1px solid #22c55e', color: '#4ade80', borderRadius: 6, fontSize: 10, padding: '4px 0', cursor: 'pointer' }}>Attach</button>
-                      )}
-                      {!asset.builtin && (
-                        <button onClick={() => removeMediaAsset(asset)} title="Remove file from library" style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: '2px 4px' }}><Trash2 size={11} /></button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div style={{ borderTop: '1px solid var(--ui-border)', paddingTop: 12, display: 'grid', gap: 10 }}>
-            <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>
-              {activeSong ? `Media triggers for "${activeSong.title}".` : 'Open a song to see its media triggers.'}
-            </div>
-            {songHasBackground(activeSong) && (
-              <div style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '8px 11px', fontSize: 12.5 }}>
-                <span style={{ fontWeight: 700 }}>Song background:</span> {activeSong.bg_type === 'color' ? `Color ${activeSong.bg_value}` : activeSong.bg_type}
-              </div>
-            )}
-            {songMedia.map((cue, i) => (
-              <div key={i} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '8px 11px' }}>
-                <span style={{ fontSize: 10, fontWeight: 800, color: PINK, textTransform: 'uppercase', letterSpacing: 1 }}>{cue.label}</span>
-                <div style={{ fontSize: 11.5, color: C.muted, marginTop: 3 }}>
-                  {cue.bg_type === 'color' ? `Color ${cue.bg_value}` : `Media (${cue.bg_type})`}
-                  {cue.duration > 0 && ` • ${cue.duration}s timer`}
-                </div>
-              </div>
-            ))}
-            {songMedia.length === 0 && !songHasBackground(activeSong) && <div style={{ fontSize: 12, color: C.faint2 }}>No media set on this song.</div>}
-            <button onClick={() => { if (activeSong) { setEditingSong(activeSong); setEditorMode('manual'); setRawPasteText(''); setIsEditorOpen(true); } }} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.heading, padding: '8px', borderRadius: 8, fontSize: 12, cursor: 'pointer' }}>Edit Song Media…</button>
-          </div>
-        </div>
-      );
+      // Media lives in the center workspace now (MediaBrowser) — the sidebar
+      // stays closed on that tab, so this renders nothing by design.
+      return null;
     }
 if (dockTab === 'audio') {
-      const songAudioAssets = mediaLibrary.filter(a => a.kind === 'audio');
-      return (
-        <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'grid', gap: 12, alignContent: 'start' }}>
-          <div style={{ display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Active Song Audio</span>
-            {activeSong ? (
-              activeSong.audio_url ? (
-                <div style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '10px 12px', display: 'grid', gap: 6 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>{activeSong.audio_url.split('/').pop().split('-').slice(1).join('-').split('.').slice(0, -1).join('.')}</span>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button onClick={() => toggleAudioPreview(activeSong.audio_url)} style={{ background: audioPreview === activeSong.audio_url ? 'rgba(255,79,163,0.2)' : C.elevated, border: '1px solid var(--ui-border2)', color: C.text, borderRadius: 7, padding: '6px 12px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', flex: 1 }}>{audioPreview === activeSong.audio_url ? 'Stop Preview' : 'Preview'}</button>
-                    <button onClick={clearSongAudio} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px 6px' }}><Trash2 size={14} /></button>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ fontSize: 12, color: C.faint, border: '1px dashed var(--ui-border2)', borderRadius: 10, padding: 12 }}>
-                  No audio for "{activeSong.title}". Import a track to loop it behind every slide of this song.
-                </div>
-              )
-            ) : (
-              <div style={{ fontSize: 12, color: C.faint, border: '1px dashed var(--ui-border2)', borderRadius: 10, padding: 12 }}>Open a song first to assign background audio.</div>
-            )}
-          </div>
-
-          <div style={{ display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Import & Attach</span>
-            <label style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '8px', borderRadius: 8, fontSize: 11.5, cursor: activeSong ? 'pointer' : 'not-allowed', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <Sparkles size={13} /> {activeSong ? `Attach audio to "${activeSong.title}"` : 'Open a song to attach audio'}
-              <input type="file" accept="audio/mpeg,audio/wav,audio/mp4,audio/ogg,audio/aac,.mp3,.m4a,.wav,.ogg,.aac" onChange={(e) => importMediaAsset(e, 'audio')} disabled={!activeSong} style={{ display: 'none' }} />
-            </label>
-          </div>
-
-          {audioPreview && (
-            <div style={{ display: 'grid', gap: 6 }}>
-              <audio key={audioPreview} src={audioPreview} controls autoPlay loop style={{ width: '100%', height: 38 }} />
-              <button onClick={() => setAudioPreview(null)} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, padding: '6px', borderRadius: 7, fontSize: 11, cursor: 'pointer' }}>Stop playback</button>
-            </div>
-          )}
-
-          <div style={{ display: 'grid', gap: 6, borderTop: '1px solid var(--ui-border)', paddingTop: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Audio Assets</span>
-              <span style={{ fontSize: 10.5, color: C.faint2 }}>{songAudioAssets.length} track{songAudioAssets.length === 1 ? '' : 's'}</span>
-            </div>
-            {songAudioAssets.length === 0 ? (
-              <div style={{ fontSize: 12, color: C.faint2 }}>No audio imported yet.</div>
-            ) : songAudioAssets.map((asset, i) => (
-              <div key={i} style={{ background: C.elevated, border: activeSong?.audio_url === asset.url ? `1px solid ${PINK}` : '1px solid var(--ui-border2)', borderRadius: 10, padding: '8px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 11.5, color: C.text2, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{asset.url.split('/').pop()}</span>
-                <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-                  <button onClick={() => toggleAudioPreview(asset.url)} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.text, borderRadius: 6, padding: '3px 8px', fontSize: 10.5, cursor: 'pointer' }}>{audioPreview === asset.url ? 'Stop' : 'Play'}</button>
-                  {activeSong && <button onClick={() => applyMediaToActiveSong('audio', asset.url)} style={{ background: '#1b3b2a', border: '1px solid #22c55e', color: '#4ade80', borderRadius: 6, padding: '3px 8px', fontSize: 10.5, cursor: 'pointer' }}>Attach</button>}
-                  <button onClick={() => removeMediaAsset(asset)} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer' }}><Trash2 size={11} /></button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    }
+  // Audio owns the full center workspace (AudioPanel: Song Audio / Pads /
+  // BGM Playlist) — nothing lives in the sidebar on this tab by design.
+  return null;
+}
 
     if (dockTab === 'scripture') {
       return (

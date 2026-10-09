@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { SkipBack, SkipForward, Type, Square, RotateCcw, Music, Image, MonitorPlay, FileText, Smartphone, BookOpen, Clock, Play, Eraser } from 'lucide-react';
+import { SkipBack, SkipForward, Type, Square, RotateCcw, Music, Image, MonitorPlay, Monitor, FileText, Smartphone, BookOpen, Clock, Play, Eraser } from 'lucide-react';
 import { stubTap } from '../../lib/anim.js';
 import { computeCountdown, DEFAULT_COUNTDOWN } from '../../components/CountdownFace.jsx';
 import MiniSlide from './MiniSlide.jsx';
@@ -11,6 +11,17 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
   // Top-level view switch: lyrics control vs countdown control.
   const [tab, setTab] = useState('lyrics');
   const [sermonJump, setSermonJump] = useState('');
+
+  // STAGE ROLE: same device-local choice as the Stage screen (one shared
+  // key), so a singer can switch roles here without swiping over — the
+  // Stage view reads it on next render.
+  const [stageRole, setStageRole] = useState(() => {
+    try { return localStorage.getItem('kog_stage_role') || 'follow'; } catch { return 'follow'; }
+  });
+  const pickStageRole = (id) => {
+    setStageRole(id);
+    try { localStorage.setItem('kog_stage_role', id); } catch { /* private mode */ }
+  };
 
   // Tick only while something visibly moves — a phone on an idle screen
   // should not keep waking its CPU.
@@ -49,6 +60,11 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
   const onAir = !!(state?.activeCueId && state?.activeCueId !== 'clear');
   const hasPicture = !!(live && (live.text || live.presentation));
   const deckOnAir = !!(live && live.presentation);
+  // Live-output shape mirrors the desktop panel 1:1: the same global aspect
+  // drives the miniature, the same badge value rides on it, and the same
+  // transport commands (clear / clear-all / put-back) run underneath.
+  const outAspect = state?.outputAspect || '16:9';
+  const outCssAspect = String(outAspect).toLowerCase() === 'fill' ? '16 / 9' : String(outAspect).replace(':', ' / ');
 
   const uniqueLabels = [];
   cues.forEach(c => { if (c.label && !uniqueLabels.includes(c.label)) uniqueLabels.push(c.label); });
@@ -103,22 +119,43 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
         <span style={{ fontSize: 12, fontWeight: 800, color: ACCENT, textTransform: 'uppercase', letterSpacing: 1 }}>{activeCue?.label || live?.label || ''}</span>
       </div>
 
-      {/* Top tabs: lyrics / countdown / presentation control */}
-      <div style={{ padding: '0 14px 10px', display: 'flex', gap: 6 }}>
-        {[['lyrics', 'Lyrics', Music], ['countdown', 'Countdown', Clock], ['presentation', 'Presentation', MonitorPlay]].map(([v, lbl, Icon]) => (
+      {/* Top tabs: lyrics / countdown / presentation / live-outputs control */}
+      <div style={{ padding: '0 14px 10px', display: 'flex', gap: 6, overflowX: 'auto' }}>
+        {[['lyrics', 'Lyrics', Music], ['countdown', 'Countdown', Clock], ['presentation', 'Presentation', MonitorPlay], ['outputs', 'Outputs', Monitor]].map(([v, lbl, Icon]) => (
           <button
             key={v}
             onClick={() => setTab(v)}
-            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 10, padding: '10px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: tab === v ? ACCENT : C.elevated2, border: `1px solid ${tab === v ? ACCENT : C.border2}`, color: tab === v ? '#fff' : C.muted, minWidth: 0 }}
-          ><Icon size={14} /> {lbl}{v === 'countdown' && cdLive ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}{v === 'presentation' && state?.sermon?.loaded ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}</button>
+            style={{ flex: '1 0 76px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 10, padding: '10px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: tab === v ? ACCENT : C.elevated2, border: `1px solid ${tab === v ? ACCENT : C.border2}`, color: tab === v ? '#fff' : C.muted, minWidth: 0, whiteSpace: 'nowrap' }}
+          ><Icon size={13} /> {lbl}{v === 'countdown' && cdLive ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}{v === 'presentation' && state?.sermon?.loaded ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}{v === 'outputs' && onAir ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}</button>
         ))}
         {state?.song ? (
           <button
             onClick={() => send('clearWorkspace')}
             title="Clear canvas — unload this song (live output untouched)"
-            style={{ flex: 0.7, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 10, padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: C.elevated2, border: `1px solid ${C.border2}`, color: C.muted }}
+            style={{ flex: '0 0 68px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 10, padding: '10px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: C.elevated2, border: `1px solid ${C.border2}`, color: C.muted }}
           ><Eraser size={14} /> Clear</button>
         ) : null}
+      </div>
+
+      {/* STAGE ROLE ROW: mirrors the chip row on the Stage screen (shared
+          localStorage key). Handy on shared Control phones — switch role
+          here, then hop to Singer view already set. */}
+      <div style={{ padding: '0 14px 10px', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1, textTransform: 'uppercase', color: C.muted, flexShrink: 0 }}>Stage role</span>
+        <div style={{ display: 'flex', gap: 5, flex: 1, minWidth: 0 }}>
+          {[['follow', 'Follow'], ['pastor', 'Pastor'], ['worship', 'Worship'], ['drummer', 'Drummer']].map(([id, lbl]) => {
+            const on = stageRole === id;
+            return (
+              <button
+                key={id}
+                onClick={() => pickStageRole(id)}
+                style={{ flex: 1, minWidth: 0, background: on ? ACCENT : C.elevated2, border: `1px solid ${on ? ACCENT : C.border2}`, color: on ? '#fff' : C.muted, borderRadius: 999, padding: '5px 0', fontSize: 9.5, fontWeight: 900, letterSpacing: 0.5, textTransform: 'uppercase', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', overflow: 'hidden' }}
+              >
+                {lbl}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div style={{ padding: '0 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -133,6 +170,8 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
               style={live?.style || null}
               timer={live?.timer || null}
               presentation={deckOnAir ? live.presentation : null}
+              aspect={outCssAspect}
+              aspectBadge={outAspect}
               badge={`Current${live?.label ? ` · ${live.label}` : ''}`}
             />
           ) : (
@@ -159,6 +198,8 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
                 style={live?.style || null}
                 timer={null}
                 presentation={null}
+                aspect={outCssAspect}
+                aspectBadge={outAspect}
                 badge={`Next · ${nextCue.label || ''}`}
               />
               <div style={{ display: 'flex', justifyContent: 'center', marginTop: 9 }}>
@@ -314,12 +355,75 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
                     <input value={sermonJump} onChange={(e) => setSermonJump(e.target.value.replace(/\D/g, '').slice(0, 4))} onKeyDown={(e) => { if (e.key === 'Enter' && sermonJump) { send('sermonGoto', { index: Number(sermonJump) }); setSermonJump(''); } }} placeholder="Slide #" inputMode="numeric" style={{ flex: 1, minWidth: 0, background: C.elevated2, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.text, fontSize: 13, fontWeight: 800, padding: '9px 8px', outline: 'none', textAlign: 'center', fontFamily: 'inherit' }} />
                     <button onClick={() => { if (sermonJump) { send('sermonGoto', { index: Number(sermonJump) }); setSermonJump(''); } }} style={{ background: C.elevated2, border: `1px solid ${C.border2}`, color: C.text2, borderRadius: 8, padding: '0 16px', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>Jump</button>
                   </div>
-                  <button onClick={() => send('sermonClose')} style={{ width: '100%', marginTop: 8, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', borderRadius: 9, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>Close sermon</button>
+                  <button onClick={() => send('sermonClose')} style={{ width: '100%', marginTop: 8, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', borderRadius: 9, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>Close presentation</button>
                 </>
               )}
             </div>
           );
         })()}
+      </>) : null}
+      {tab === 'outputs' ? (<>
+        {/* ── LIVE OUTPUTS: 1:1 mirror of the desktop Live Output panel ── */}
+        <div style={{ background: C.elevated, border: `1px solid ${onAir ? 'rgba(34,197,94,0.4)' : C.border2}`, borderRadius: 16, padding: 14, position: 'relative', overflow: 'hidden' }}>
+          {onAir && <div style={{ position: 'absolute', left: 0, top: 12, bottom: 12, width: 3, borderRadius: 3, background: '#22c55e' }} />}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+            <Monitor size={13} color={onAir ? '#4ade80' : C.faint} />
+            <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1.6, textTransform: 'uppercase', color: C.faint }}>Live outputs</span>
+            {onAir && <span style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#4ade80', background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)', padding: '2px 7px', borderRadius: 6 }}>LIVE</span>}
+            <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 800, color: C.muted, background: C.elevated2, border: `1px solid ${C.border2}`, borderRadius: 6, padding: '3px 8px' }}>{outAspect}</span>
+          </div>
+          {hasPicture || live?.timer ? (
+            <MiniSlide
+              C={C}
+              text={live?.text || ''}
+              style={live?.style || null}
+              timer={live?.timer || null}
+              presentation={deckOnAir ? live.presentation : null}
+              aspect={outCssAspect}
+              aspectBadge={outAspect}
+              badge={`Current${live?.label ? ` · ${live.label}` : ''}`}
+            />
+          ) : (
+            <div style={{ marginLeft: 8, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 15, fontWeight: 800, color: C.muted }}>{onAir ? 'Background only — no lyrics' : 'Output is cleared'}</span>
+              {onAir ? (
+                <button onClick={() => send('reassert')} style={{ background: ACCENT, border: 'none', color: '#fff', borderRadius: 10, padding: '11px 18px', fontSize: 14, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'inherit' }}>
+                  <RotateCcw size={15} /> Put the slide back
+                </button>
+              ) : (
+                <span style={{ fontSize: 12.5, color: C.faint, lineHeight: 1.5 }}>Tap a section below, or press Next to continue.</span>
+              )}
+            </div>
+          )}
+          {/* Outputs list mirrors the desktop Outputs modal (read-only here —
+              binding displays and editing aspects stays desktop-side). */}
+          <div style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1.4, textTransform: 'uppercase', color: C.faint, margin: '12px 0 7px' }}>Outputs</div>
+          {(state?.outputs || []).length === 0 ? (
+            <div style={{ fontSize: 12.5, color: C.faint, lineHeight: 1.5 }}>No outputs yet — add them under Outputs on the computer.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {(state.outputs || []).map((o) => (
+                <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 9, background: o.enabled ? 'rgba(34,197,94,0.08)' : C.elevated2, border: `1px solid ${o.enabled ? 'rgba(34,197,94,0.4)' : C.border2}`, borderRadius: 11, padding: '9px 11px' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: o.enabled ? '#22c55e' : C.faint2, boxShadow: o.enabled ? '0 0 8px #22c55e' : 'none', flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.name || 'Output'}</span>
+                    <span style={{ display: 'block', fontSize: 11, color: C.faint, textTransform: 'capitalize' }}>{o.role || 'lyrics'} · {o.aspect || '16:9'}{o.resolution && o.resolution !== 'native' ? ` · ${o.resolution}` : ''}{o.bound ? '' : ' · unassigned'}</span>
+                  </span>
+                  <span style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: o.enabled ? '#4ade80' : C.faint }}>{o.enabled ? 'LIVE' : 'OFF'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Same transport as the desktop panel + fixed rail below. */}
+          <div style={{ display: 'flex', gap: 7, marginTop: 10 }}>
+            <button onClick={() => send('clearLyrics')} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.45)', color: '#a78bfa', borderRadius: 10, padding: '11px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+              <Type size={15} /> Lyrics
+            </button>
+            <button onClick={() => send('clearAll')} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.45)', color: '#f87171', borderRadius: 10, padding: '11px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
+              <Square size={14} /> Clear all
+            </button>
+          </div>
+        </div>
       </>) : null}
 
       {tab === 'lyrics' ? (<>

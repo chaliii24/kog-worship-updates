@@ -80,6 +80,24 @@ const PS_SCRIPT = [
   '        try { $show.View.GotoSlide([int]$msg.index, 0) } catch { Resp $id $false @{ error = $_.Exception.Message }; continue }',
   '        Resp $id $true @{ index = (CurIndex) }',
   '      }',
+  "      'shot' {",
+  '        if ($pres -eq $null) { Resp $id $false @{ error = "No presentation open." }; continue }',
+  '        try {',
+  '          $shotTotal = 0; try { $shotTotal = [int]$pres.Slides.Count } catch {}',
+  '          $shotIdx = [int]$msg.index',
+  '          if ($shotIdx -lt 1) { $shotIdx = 1 }',
+  '          if ($shotTotal -gt 0 -and $shotIdx -gt $shotTotal) { $shotIdx = $shotTotal }',
+  '          $shotW = [int]$msg.w; if ($shotW -lt 160) { $shotW = 640 }',
+  '          $shotH = [int]$msg.h; if ($shotH -lt 90) { $shotH = 360 }',
+  '          try {',
+  '            $pw = [double]$pres.PageSetup.SlideWidth',
+  '            $ph = [double]$pres.PageSetup.SlideHeight',
+  '            if ($pw -gt 0 -and $ph -gt 0) { $shotH = [int][Math]::Round($shotW * $ph / $pw) }',
+  '          } catch {}',
+  '          $pres.Slides.Item($shotIdx).Export($msg.file, "PNG", $shotW, $shotH)',
+  '          Resp $id $true @{ index = $shotIdx; totalSlides = $shotTotal; file = $msg.file }',
+  '        } catch { Resp $id $false @{ error = $_.Exception.Message }; continue }',
+  '      }',
   "      'state' {",
   '        if ($show -eq $null -or $pres -eq $null) { Resp $id $true @{ running = $false; index = 0; totalSlides = 0 }; continue }',
   '        $t = 0; try { $t = [int]$pres.Slides.Count } catch {}',
@@ -139,7 +157,7 @@ function ensureChild() {
   return child;
 }
 
-function call(op, args = {}) {
+function call(op, args = {}, timeoutMs = OP_TIMEOUT_MS) {
   const id = ++seq;
   return new Promise((resolve, reject) => {
     tail = tail.then(() => new Promise((innerResolve) => {
@@ -155,7 +173,7 @@ function call(op, args = {}) {
         pending.delete(id);
         reject(new Error('PowerPoint timed out.'));
         innerResolve();
-      }, OP_TIMEOUT_MS);
+      }, timeoutMs);
       pending.set(id, {
         resolve: (m) => { clearTimeout(timer); resolve(m); innerResolve(); },
         reject: (e) => { clearTimeout(timer); reject(e); innerResolve(); },
@@ -207,6 +225,25 @@ export async function pptPrev() {
 export async function pptGoto(index) {
   try { return shape(await call('goto', { index: Math.max(1, Math.round(Number(index) || 1)) })); }
   catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+}
+
+// Export one slide as a PNG thumbnail for the operator preview (current +
+// next). Numbering matches GotoSlide (slide position). Returns the temp file
+// path; the caller reads and deletes it. Short timeout so a hung export can
+// never wedge the nav queue behind it for the full 20s.
+export async function pptShot(index, file, w = 640, h = 360) {
+  try {
+    const r = await call('shot', {
+      index: Math.max(1, Math.round(Number(index) || 1)),
+      file: String(file),
+      w: Math.max(160, Math.round(Number(w) || 640)),
+      h: Math.max(90, Math.round(Number(h) || 360)),
+    }, 8000);
+    if (!r || !r.ok) return { ok: false, error: (r && r.error) || 'Slide export failed.' };
+    return { ok: true, index: r.index ?? index, totalSlides: r.totalSlides ?? 0, file: r.file || file };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
 }
 
 export async function pptState() {

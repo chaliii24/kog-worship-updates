@@ -113,6 +113,11 @@ try { db.exec(`ALTER TABLE services ADD COLUMN resolution TEXT DEFAULT '1920x108
 try { db.exec(`ALTER TABLE cues ADD COLUMN style_json TEXT;`); } catch (_) {}
 // Editable title slide (box, font, size, color, ...) stored on the song.
 try { db.exec(`ALTER TABLE songs ADD COLUMN title_cue_json TEXT;`); } catch (_) {}
+// Stage chord chart: raw chart text + the key it is WRITTEN in. The Stage tab
+// transposes it live to the band's play key (or Nashville numbers) without
+// touching the stored chart. `SELECT *` flows both columns through everywhere.
+try { db.exec(`ALTER TABLE songs ADD COLUMN chord_chart TEXT;`); } catch (_) {}
+try { db.exec(`ALTER TABLE songs ADD COLUMN chord_key TEXT DEFAULT 'C';`); } catch (_) {}
 // Heal float-string song refs ("42.0" for song 42) left by older writes.
 // Readers tolerate them now (sameSongId), but clean rows keep every fast path
 // working; non-numeric refs (future UUIDs) are never touched.
@@ -258,20 +263,29 @@ export function setSongAudio(songId, audioUrl) {
   db.prepare('UPDATE songs SET audio_url = ? WHERE id = ?').run(audioUrl || null, songId);
 }
 
+// Stage chord chart (own IPC: db-set-song-chords). Deliberately NOT part of
+// saveSong — saving cues must never rewrite the chart, and this narrow UPDATE
+// never touches anything else.
+export function setSongChords(songId, chart, key) {
+  db.prepare('UPDATE songs SET chord_chart = ?, chord_key = ? WHERE id = ?')
+    .run(chart ? String(chart) : null, key || 'C', songId);
+  return true;
+}
+
 export function getMediaLibrary() {
   const rows = db.prepare(
-    `SELECT url, kind FROM media_assets
+    `SELECT url, kind, name, created_at, id AS asset_id FROM media_assets
      UNION
-     SELECT bg_value AS url, bg_type AS kind FROM cues WHERE bg_value LIKE 'media://%'
-     UNION SELECT bg_value AS url, bg_type AS kind FROM songs WHERE bg_value LIKE 'media://%'
-     UNION SELECT audio_url AS url, 'audio' AS kind FROM songs WHERE audio_url LIKE 'media://%'`
+     SELECT bg_value AS url, bg_type AS kind, NULL AS name, NULL AS created_at, NULL AS asset_id FROM cues WHERE bg_value LIKE 'media://%'
+     UNION SELECT bg_value AS url, bg_type AS kind, NULL AS name, NULL AS created_at, NULL AS asset_id FROM songs WHERE bg_value LIKE 'media://%'
+     UNION SELECT audio_url AS url, 'audio' AS kind, NULL AS name, NULL AS created_at, NULL AS asset_id FROM songs WHERE audio_url LIKE 'media://%'`
   ).all();
   const seen = new Set();
   const list = [];
   for (const r of rows) {
     if (!r.url || seen.has(r.url)) continue;
     seen.add(r.url);
-    list.push({ url: r.url, kind: r.kind || 'image' });
+    list.push({ url: r.url, kind: r.kind || 'image', name: r.name || null, createdAt: r.created_at || null, assetId: r.asset_id ?? null });
   }
   // House gradients need no registration (pure CSS, zero bytes); user media
   // arrives via media_assets plus any media:// refs already on songs/cues.
@@ -478,12 +492,12 @@ export function exportSongs(ids) {
 export function importLibrary(jsonData) {
   try {
     const library = JSON.parse(jsonData);
-    const insertSong = db.prepare('INSERT INTO songs (title, artist, category, is_favorite, bg_type, bg_value, audio_url, title_cue_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    const insertSong = db.prepare('INSERT INTO songs (title, artist, category, is_favorite, bg_type, bg_value, audio_url, title_cue_json, chord_chart, chord_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const insertCue = db.prepare('INSERT INTO cues (song_id, label, text, sequence_order, bg_type, bg_value, duration, style_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
 
     db.transaction(() => {
       for (const song of library) {
-        const res = insertSong.run(song.title, song.artist || 'Unknown', song.category || 'Worship', song.is_favorite || 0, song.bg_type || 'color', song.bg_value || '#000000', song.audio_url || null, song.title_cue ? JSON.stringify(song.title_cue) : null);
+        const res = insertSong.run(song.title, song.artist || 'Unknown', song.category || 'Worship', song.is_favorite || 0, song.bg_type || 'color', song.bg_value || '#000000', song.audio_url || null, song.title_cue ? JSON.stringify(song.title_cue) : null, song.chord_chart || null, song.chord_key || 'C');
         const songId = res.lastInsertRowid;
         if (song.cues) {
           song.cues.forEach((cue, idx) => {

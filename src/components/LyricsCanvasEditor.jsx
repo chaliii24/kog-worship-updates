@@ -250,6 +250,60 @@ const offsetFromPoint = (idx, x, y) => {
   return Math.max(0, Math.min(total, off));
 };
 
+// ---- what a press should select -------------------------------------------
+// Highlighting used to be drag-or-nothing: a mousedown always collapsed the
+// selection to a caret, so a triple-press ERASED the word a double-press had
+// just taken, and there was no way to reach a whole line without a perfectly
+// steady drag across tiny preview text. These three gestures make it one click.
+
+const isWordChar = (ch) => !!ch && /[\p{L}\p{N}'’-]/u.test(ch);
+
+// The whole cell (word, or run of spaces) an offset sits in. A caret parked
+// just past a word still belongs to that word, the way a browser reads it.
+const cellRangeAt = (v, off) => {
+  if (!v.length) return { from: 0, to: 0 };
+  const i = Math.max(0, Math.min(off, v.length));
+  let a = Math.min(i, v.length - 1);
+  if (i > 0 && i < v.length && !isWordChar(v[a]) && isWordChar(v[a - 1])) a -= 1;
+  const cls = isWordChar(v[a]);
+  let from = a;
+  while (from > 0 && isWordChar(v[from - 1]) === cls) from -= 1;
+  let to = a + 1;
+  while (to < v.length && isWordChar(v[to]) === cls) to += 1;
+  return { from, to };
+};
+
+// The logical line (hard '\n' to hard '\n') an offset sits in. Wrapped rows
+// are one line to the textarea, so one line is what a styling chip means.
+const lineRangeAt = (v, off) => {
+  if (!v.length) return { from: 0, to: 0 };
+  const i = Math.max(0, Math.min(off, v.length));
+  let from = i;
+  while (from > 0 && v[from - 1] !== '\n') from -= 1;
+  let to = i;
+  while (to < v.length && v[to] !== '\n') to += 1;
+  return { from, to };
+};
+
+// While a WORD drag runs, the moving end snaps to the edge of the word it is
+// inside — so a phrase lands on whole words instead of a letter short.
+const snapWordFwd = (v, p) => {
+  if (p < 0 || p >= v.length || !isWordChar(v[p])) return p;
+  let t = p;
+  while (t < v.length && isWordChar(v[t])) t += 1;
+  return t;
+};
+
+const snapWordBack = (v, p) => {
+  if (p <= 0) return 0;
+  let f = p;
+  // Parked just past a word: the word is the one being pointed at.
+  if (!isWordChar(v[f]) && f > 0 && isWordChar(v[f - 1])) f -= 1;
+  if (!isWordChar(v[f])) return p;
+  while (f > 0 && isWordChar(v[f - 1])) f -= 1;
+  return f;
+};
+
 /**
  * WYSIWYG lyric-box editor.
  *
@@ -589,17 +643,73 @@ export default function LyricsCanvasEditor({
   // preventDefault does two jobs: it stops the browser placing the caret from
   // the TEXTAREA's (differently scaled) layout, and it keeps focus, so the
   // selection below is the only one that exists.
+  //
+  // Three ways to highlight, all one gesture:
+  //   press        → caret (drag to take a range, character by character)
+  //   double-press → the word under the pointer, then drag snaps WORD by word
+  //   triple-press → the whole line, then drag takes lines
+  //   + shift      → EXTENDS whatever is already lit instead of restarting it
   const onOverlayMouseDown = (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
     const ta = taRef.current;
     if (!ta) return;
     try { ta.focus({ preventScroll: true }); } catch (_) { ta.focus(); }
-    const anchor = offsetAtPoint(e.clientX, e.clientY);
-    selectRange(anchor, anchor);
+
+    const v = ta.value;
+    const point = offsetAtPoint(e.clientX, e.clientY);
+
+    // How this press behaves, plus the FIXED end a drag grows away from.
+    let mode = 'char';
+    let anchor = point;
+    let from = point;
+    let to = point;
+    let lineFrom = 0;
+    let lineTo = 0;
+
+    if (e.detail >= 3) {
+      const r = lineRangeAt(v, point);
+      mode = 'line';
+      lineFrom = r.from;
+      lineTo = r.to;
+      anchor = r.from;
+      from = r.from;
+      to = r.to;
+    } else if (e.shiftKey) {
+      // Clicking past the highlight carries the OTHER end along, so a
+      // selection can be grown a piece at a time without re-dragging it.
+      // Checked before the word branch on purpose: two quick shift-clicks
+      // would otherwise read as a double-press and jump to a whole word.
+      const s = ta.selectionStart ?? 0;
+      const en = ta.selectionEnd ?? s;
+      anchor = point < s ? en : s;
+      from = Math.min(anchor, point);
+      to = Math.max(anchor, point);
+    } else if (e.detail >= 2) {
+      const r = cellRangeAt(v, point);
+      mode = 'word';
+      anchor = r.from;
+      from = r.from;
+      to = r.to;
+    }
+
+    selectRange(from, to);
+
+    const dx = e.clientX;
+    const dy = e.clientY;
     const move = (ev) => {
+      // A click with a tremor in it must not become a one-character smear.
+      if (Math.abs(ev.clientX - dx) < 4 && Math.abs(ev.clientY - dy) < 4) return;
       const o2 = offsetAtPoint(ev.clientX, ev.clientY);
-      selectRange(Math.min(anchor, o2), Math.max(anchor, o2));
+      if (mode === 'word') {
+        const n = o2 >= anchor ? snapWordFwd(v, o2) : snapWordBack(v, o2);
+        selectRange(Math.min(anchor, n), Math.max(anchor, n));
+      } else if (mode === 'line') {
+        const cur = lineRangeAt(v, o2);
+        selectRange(o2 >= lineFrom ? lineFrom : cur.from, o2 >= lineFrom ? cur.to : lineTo);
+      } else {
+        selectRange(Math.min(anchor, o2), Math.max(anchor, o2));
+      }
     };
     const up = () => {
       dragRef.current = null;
@@ -613,17 +723,15 @@ export default function LyricsCanvasEditor({
 
   // Native double-click word selection runs off the textarea's own layout, so
   // it is suppressed with the rest of the defaults — re-expand it by text.
+  // (A double-press already lit the word in mousedown; this is the safety net
+  // for a press that landed between two cells.)
   const onOverlayDoubleClick = () => {
     const ta = taRef.current;
     if (!ta) return;
     const v = ta.value;
     const c = ta.selectionStart ?? 0;
-    const isWord = (ch) => !!ch && /[\p{L}\p{N}'’-]/u.test(ch);
-    let from = c;
-    while (from > 0 && isWord(v[from - 1])) from -= 1;
-    let to = c;
-    while (to < v.length && isWord(v[to])) to += 1;
-    if (to > from) selectRange(from, to);
+    const r = cellRangeAt(v, c);
+    if (r.to > r.from) selectRange(r.from, r.to);
   };
 
   const onOverlayScroll = () => {
@@ -1147,10 +1255,11 @@ export default function LyricsCanvasEditor({
           // A mousedown here must not blur the textarea: onBlur ends edit mode,
           // which would fire before the click and swallow it.
           onMouseDown={(ev) => ev.preventDefault()}
+          title="Highlighting: drag for a phrase · double-click a word · triple-click a whole line · Shift+click grows the highlight"
         >
           <span title={hasSel
-            ? 'Sizes the HIGHLIGHTED text. Only that phrase changes — the rest of the slide keeps its size.'
-            : 'Scales the line under the caret. Put each phrase on its own line (Enter) to size lines differently.'}
+            ? `Sizes the HIGHLIGHTED text. Only that phrase changes — the rest of the slide keeps its size. Highlight by dragging a phrase, double-clicking a word, or triple-clicking a whole line.`
+            : 'Scales the line under the caret. Put each phrase on its own line (Enter) to size lines differently — or triple-click a line to highlight it first.'}
           style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1, color: hasSel ? '#ffffff' : '#c4b5fd', whiteSpace: 'nowrap', cursor: 'help' }}>
             {hasSel ? 'SELECTION' : 'LINE SIZE'}
           </span>

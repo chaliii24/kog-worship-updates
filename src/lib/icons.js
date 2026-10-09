@@ -38,6 +38,7 @@ export const DOCK_KIND = {
   'book-open': 'scripture',
   'monitor': 'outputs',
   'timer': 'countdown',
+  'monitor-play': 'stage',
   'file-text': 'log',
   'settings': 'settings',
 };
