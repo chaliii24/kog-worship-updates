@@ -4,7 +4,8 @@ import { cssSpeed } from '../lib/constants';
 import PresentationSlide from './PresentationSlide';
 import { TimerFace } from './CountdownFace';
 import AnimatedBg from './AnimatedBg';
-import { BackgroundVideo } from '../lib/perf';
+import { BackgroundVideo, LiveVideo, OverlayFace, overlayOnAir } from '../lib/perf';
+import { DrawOverlay } from './DrawOverlay.jsx';
 import { AnimatePresence, motion } from 'motion/react';
 
 // Development-only perf HUD: enable with localStorage kog_perf=1 in the
@@ -78,7 +79,7 @@ function OutputPerfHud({ slideKey }) {
   );
 }
 
-export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
+export default function ProjectorDisplay({ currentSlide, C, aspect, config, overlay = null, draw = null }) {
   const [win, setWin] = useState({ w: window.innerWidth, h: window.innerHeight });
   // The wall must never throw: a null/undefined slide (boot race, corrupt
   // payload) renders black and stays alive instead of killing the window.
@@ -401,14 +402,12 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
               style={{ position: 'absolute', inset: 0 }}
             >
               <div style={{ width: '100%', height: '100%', position: 'relative', ...animStyle }}>
-                {cs.timer ? (
-                  // Countdown fills the ASPECT FRAME (not just the 16:9 design
-                  // canvas): on ultrawide walls the photo runs edge to edge
-                  // instead of center-pillaring. Coordinates are design px
-                  // (frame ÷ scale); k stays 1 so type scales exactly like
-                  // the lyrics canvas. On 16:9 this math is the identity.
-                  <div style={{ position: 'absolute', left: (fx - cx) / (s || 1), top: (fy - cy) / (s || 1), width: fw / (s || 1), height: fh / (s || 1), overflow: 'hidden' }}>
-                    <TimerFace timer={cs.timer} scale={1} />
+                {!cs.timer && cs.video && cs.video.url && cs.video.action !== 'stop' ? (
+                  // Booth video live: same aspect-frame fill as the countdown
+                  // (edge-to-edge on ultrawide, identity on 16:9), muted —
+                  // the booth carries the sound.
+                  <div style={{ position: 'absolute', left: (fx - cx) / (s || 1), top: (fy - cy) / (s || 1), width: fw / (s || 1), height: fh / (s || 1), overflow: 'hidden', background: '#000' }}>
+                    <LiveVideo video={cs.video} />
                   </div>
                 ) : cs.presentation && cs.presentation.slide ? (
                   <PresentationSlide slide={cs.presentation.slide} keepAlive />
@@ -436,8 +435,39 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config }) {
               </div>
             </motion.div>
           </AnimatePresence>
+          {/* MESSAGE OVERLAY: audience text above everything in the design
+              canvas (sermon deck included) � own lifecycle, own fade, never
+              remounted by slide pushes. */}
+          <AnimatePresence>
+            {overlayOnAir(overlay) ? (
+              <motion.div key={overlay.stamp || 'overlay'} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.35 }} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                <OverlayFace overlay={overlay} />
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </div>
       </div>
+
+          {/* COUNTDOWN FULLSCREEN: lyrics need the aspect frame, a countdown does not -
+              so it renders here at the viewport, edge to edge on any projector or LED
+              wall (bars and watermark cut-off came from the old clipped box). Type is
+              sized by viewport height, identical to before on 16:9. */}
+          <AnimatePresence>
+            {cs.timer && (
+              <motion.div key="countdown-live" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.6 }} style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#000', zIndex: 1 }}>
+                <TimerFace timer={cs.timer} scale={vh / 720} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* REMOTE DRAW OVERLAY: phone highlighter strokes above every content
+              layer (lyrics + countdown), below nothing — pointer-transparent,
+              stretched to any wall. Cleared by Clear All. */}
+          {Array.isArray(draw) && draw.length > 0 && (
+            <div style={{ position: 'absolute', inset: 0, zIndex: 5, pointerEvents: 'none' }}>
+              <DrawOverlay strokes={draw} />
+            </div>
+          )}
 
           {/* Seam overlap: a darkening band where two projectors' images
               double up on a blended wall (the feather handles the fade;

@@ -36,6 +36,15 @@ export const PAD_KEYS = [
   { key: 'B', freq: 246.94 },
 ];
 
+// Which octave the C3-rooted grid is played in. C3 sits UNDER speech (muddy
+// on small speakers), C4 is the airy worship register, C5 is pure shimmer —
+// the sub oscillator is always one octave below, so it stays out of the way.
+export const PAD_OCTAVES = [
+  { id: 0, label: 'C3', mult: 1 },
+  { id: 1, label: 'C4', mult: 2 },
+  { id: 2, label: 'C5', mult: 4 },
+];
+
 function rampVolume(el, from, to, sec, done) {
   try { el.volume = Math.max(0, Math.min(1, from)); } catch {}
   if (sec <= 0) {
@@ -67,6 +76,7 @@ class AudioEngine {
     this.padOn = lsGet('kog-pads-on', false);
     this.padKey = lsGet('kog-pads-key', null);
     this.padVol = lsGet('kog-pads-vol', 0.7);
+    this.padOctave = lsGet('kog-pads-oct', 1); // 0=C3 1=C4 2=C5
     // BGM
     this.bgmEl = null;
     this.bgmQueue = lsGet('kog-bgm-queue', []);
@@ -103,7 +113,7 @@ class AudioEngine {
 
   snapshot() {
     return {
-      padOn: this.padOn, padKey: this.padKey, padVol: this.padVol,
+      padOn: this.padOn, padKey: this.padKey, padVol: this.padVol, padOctave: this.padOctave,
       bgmQueue: this.bgmQueue, bgmIndex: this.bgmIndex, bgmPlaying: this.bgmPlaying,
       bgmVol: this.bgmVol, bgmAutoFade: this.bgmAutoFade, bgmFadeSec: this.bgmFadeSec,
       trackUrl: this.trackUrl, trackPlaying: this.trackPlaying, trackVol: this.trackVol,
@@ -194,7 +204,7 @@ class AudioEngine {
     this.padOn = !!on;
     lsSet('kog-pads-on', this.padOn);
     if (!on) {
-      this._padStop(1.2);
+      this._padStop(2.2); // dry release as slow as the swell; verb rings on
       this.padKey = null;
       lsSet('kog-pads-key', null);
     } else if (!this.padKey) {
@@ -219,11 +229,70 @@ class AudioEngine {
     this.emit();
   }
 
+  // Shared ambient FX, built once per AudioContext: a generated hall impulse.
+  // EVERY pad feeds it, so a key change leaves the old tail ringing under the
+  // new swell instead of opening a hole in the room — that overlap is most of
+  // what makes a drone read as "ambient" rather than "a synth note being held".
+  _padFx() {
+    if (this._padFxNodes) return this._padFxNodes;
+    const ctx = this._ctx;
+    if (!ctx) return null;
+    const dry = ctx.createGain();
+    dry.gain.value = 0.62;
+    const verb = ctx.createConvolver();
+    try { verb.buffer = this._padImpulse(3.0, 2.4); } catch { /* fall back to dry */ }
+    const wet = ctx.createGain();
+    wet.gain.value = 1.4;
+    const send = ctx.createGain(); // shared input — every pad taps in here
+    // No auto-pan. The drone sits dead centre and STAYS there: a slow pan
+    // made it wander between the speakers like something buzzing round your
+    // head. All the sense of space comes from the reverb instead.
+    send.connect(verb);
+    verb.connect(wet);
+    wet.connect(this._padBus);
+    dry.connect(this._padBus);
+    this._padFxNodes = { dry, wet, verb, send };
+    return this._padFxNodes;
+  }
+
+  // Hall tail built from damped noise — no audio file to ship, no download,
+  // and the one-pole smoothing keeps it dark and warm instead of fizzy.
+  _padImpulse(seconds = 3.0, decay = 2.4) {
+    const ctx = this._ctx;
+    const rate = ctx.sampleRate;
+    const len = Math.max(1, Math.floor(rate * seconds));
+    const buf = ctx.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      let prev = 0;
+      for (let i = 0; i < len; i++) {
+        const env = Math.pow(1 - i / len, decay);
+        prev += 0.32 * ((Math.random() * 2 - 1) * env - prev);
+        d[i] = prev;
+      }
+    }
+    return buf;
+  }
+
+  // Register. Re-voices the live drone through padStart so it crossfades to
+  // the new octave instead of jumping — same 2.6s blend as a key change.
+  setPadOctave(id) {
+    const hit = PAD_OCTAVES.find((o) => o.id === Number(id));
+    if (!hit || hit.id === this.padOctave) return;
+    this.padOctave = hit.id;
+    lsSet('kog-pads-oct', this.padOctave);
+    if (this.padOn && this.padKey) this.padStart(this.padKey);
+    this.emit();
+  }
+
   padStart(key) {
     const ctx = this._ctxEnsure();
     if (!ctx) return;
     const def = PAD_KEYS.find((k) => k.key === key);
     if (!def) return;
+    const oct = PAD_OCTAVES.find((o) => o.id === this.padOctave) || PAD_OCTAVES[1];
+    const root = def.freq * oct.mult;
+    const fx = this._padFx();
     this.padOn = true;
     lsSet('kog-pads-on', true);
     this.padKey = key;
@@ -235,49 +304,64 @@ class AudioEngine {
       try {
         old.gain.gain.cancelScheduledValues(t);
         old.gain.gain.setValueAtTime(old.gain.gain.value, t);
-        old.gain.gain.linearRampToValueAtTime(0, t + 1.5);
-        setTimeout(() => { try { old.nodes.forEach((n) => { try { n.stop(); } catch {} }); } catch {} try { old.gain.disconnect(); } catch {} }, 1700);
+        old.gain.gain.linearRampToValueAtTime(0, t + 2.6);
+        setTimeout(() => { try { old.nodes.forEach((n) => { try { n.stop(); } catch {} }); } catch {} try { old.gain.disconnect(); } catch {} }, 2900);
       } catch {}
     }
-    // New drone: root + fifth + octave + sub through a breathing lowpass.
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0, t);
-    gain.gain.linearRampToValueAtTime(1, t + 1.5);
+    // The voice: a plain open-fifth stack — sub · root · fifth · octave · a
+    // whisper of fifth-up. Everything is a SINE and everything is STATIC once
+    // it has bloomed. The previous version modulated four ways at once (pan
+    // drifting between speakers, a filter breathing ±430Hz, level swelling,
+    // and detuned highs beating at several Hz) and the combination read as a
+    // mosquito circling your ear. Now it just sits there and glows.
+    const swell = ctx.createGain();
+    swell.gain.setValueAtTime(0, t);
+    swell.gain.linearRampToValueAtTime(1, t + 3.0);
+
+    // Opens once during the attack, then never moves again.
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(650, t);
+    filter.frequency.setValueAtTime(520, t);
+    filter.frequency.linearRampToValueAtTime(1150, t + 5);
     filter.Q.value = 0.6;
-    const lfo = ctx.createOscillator();
-    lfo.frequency.value = 0.07;
-    const lfoAmt = ctx.createGain();
-    lfoAmt.gain.value = 260;
-    lfo.connect(lfoAmt);
-    lfoAmt.connect(filter.frequency);
-    const parts = [
-      { f: def.freq, type: 'sine', g: 0.5 },
-      { f: def.freq * 1.5, type: 'sine', g: 0.28 },
-      { f: def.freq * 2, type: 'triangle', g: 0.16 },
-      { f: def.freq / 2, type: 'sine', g: 0.34 },
+
+    // Detune only on the root, and only ±4 cents: at C3 that is a 0.6Hz
+    // swell — warmth, not buzz. The high partials get NONE, because beat
+    // rate scales with pitch and wide detune up there is exactly the whine
+    // we are trying to get rid of.
+    const PARTIALS = [
+      { r: 0.5, type: 'sine', g: 0.26, ds: [0] },   // sub
+      { r: 1, type: 'sine', g: 0.38, ds: [-4, 4] },   // root
+      { r: 1.5, type: 'sine', g: 0.24, ds: [0] },     // fifth
+      { r: 2, type: 'sine', g: 0.22, ds: [0] },       // octave
+      { r: 3, type: 'sine', g: 0.07, ds: [0] },       // fifth up (air)
     ];
-    const nodes = [lfo];
-    parts.forEach((p, i) => {
-      const o = ctx.createOscillator();
-      o.type = p.type;
-      o.frequency.value = p.f;
-      o.detune.value = i % 2 ? 4 : -4; // slow beating warmth
-      const og = ctx.createGain();
-      og.gain.value = p.g * 0.35;
-      o.connect(og);
-      og.connect(filter);
-      o.start(t + 0.02);
-      nodes.push(o);
+    const nodes = [];
+    PARTIALS.forEach((p) => {
+      p.ds.forEach((det) => {
+        const o = ctx.createOscillator();
+        o.type = p.type;
+        o.frequency.value = root * p.r;
+        o.detune.value = det;
+        const og = ctx.createGain();
+        og.gain.value = (p.g * 0.4) / p.ds.length;
+        o.connect(og);
+        og.connect(filter);
+        o.start(t + 0.05);
+        nodes.push(o);
+      });
     });
-    lfo.start(t + 0.02);
-    filter.connect(gain);
-    gain.connect(this._padBus);
+
+    filter.connect(swell);
+    if (fx) {
+      swell.connect(fx.dry);
+      swell.connect(fx.send); // the wet tail outlives this drone
+    } else {
+      swell.connect(this._padBus);
+    }
     this._padBus.gain.cancelScheduledValues(t);
     this._padBus.gain.setTargetAtTime(this.padVol * 0.5, t, 0.4);
-    this._padNodes = { gain, nodes: [...nodes, filter] };
+    this._padNodes = { gain: swell, nodes: [...nodes, filter] };
     this.emit();
   }
 

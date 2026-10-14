@@ -67,7 +67,8 @@ function Segmented({ C, ACCENT, options, value, onPick }) {
 export default function StagePanel() {
   const {
     C, ACCENT, activeSong, songs, setSongs, setActiveSong,
-    stageCfg, setStageCfg, stageFlow, stageSnap,
+    activeService, stageCfg, setStageCfg, stageFlow, stageSnap,
+    stageBpmPopup, setStageBpmPopup,
     countdown, fireCountdownLive, stopCountdownLive,
     outputs, toggleStageWindow, rightOpen, setRightOpen, setDockTab,
   } = useApp();
@@ -154,6 +155,65 @@ export default function StagePanel() {
     } catch { /* main not ready */ }
   };
 
+  // --- per-song tempo popup (service-order fire) -----------------------------
+  // Mirrors the chord-chart card discipline: local draft reseeded when the
+  // edited song changes, narrow db-set-song-bpm save that touches nothing
+  // else, then the lists + active song + stage metronome all adopt it.
+  // The card lists the actual setlist songs (compact rows) so the operator
+  // can set tempos across the whole order — the just-fired song is
+  // pre-selected. Single-song fallback when no service order is loaded.
+  const setlistSongs = (() => {
+    const items = (activeService && activeService.items) || [];
+    const seen = new Set();
+    const out = [];
+    for (const it of items) {
+      if (!it || it.item_type !== 'song') continue;
+      const sid = String(it.content ?? '').trim();
+      if (!sid || seen.has(sid)) continue;
+      seen.add(sid);
+      out.push({ songId: sid, title: it.title || 'Song' });
+    }
+    return out;
+  })();
+  const popupSongId = stageBpmPopup?.songId != null ? String(stageBpmPopup.songId) : null;
+  const [popupSelectedId, setPopupSelectedId] = useState(null);
+  useEffect(() => { setPopupSelectedId(popupSongId); }, [popupSongId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const selectedId = popupSelectedId || popupSongId;
+  const selectedTitle = (setlistSongs.find((s) => s.songId === selectedId)?.title)
+    || (stageBpmPopup && String(stageBpmPopup.songId) === selectedId ? stageBpmPopup.title : null)
+    || ((songs || []).find((s) => String(s.id) === selectedId)?.title)
+    || 'Song';
+  const savedBpmOf = (sid) => {
+    const hit = (songs || []).find((s) => String(s.id) === String(sid));
+    const v = hit && hit.bpm != null ? Math.round(Number(hit.bpm)) : NaN;
+    if (Number.isFinite(v)) return v;
+    const a = activeSong && String(activeSong.id) === String(sid) && activeSong.bpm != null
+      ? Math.round(Number(activeSong.bpm)) : NaN;
+    return Number.isFinite(a) ? a : null;
+  };
+  const selectedSavedBpm = selectedId ? savedBpmOf(selectedId) : null;
+  const [popupBpm, setPopupBpm] = useState(96);
+  const [popupSavedTick, setPopupSavedTick] = useState(false);
+  useEffect(() => {
+    if (selectedId == null) return;
+    setPopupBpm(savedBpmOf(selectedId) ?? Math.round(Number(cfg.bpm) || 96));
+    setPopupSavedTick(false);
+  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const savePopupBpm = async () => {
+    if (selectedId == null || !window.require) return;
+    const bpm = Math.min(220, Math.max(40, Math.round(Number(popupBpm) || 96)));
+    try {
+      const { ipcRenderer } = window.require('electron');
+      await ipcRenderer.invoke('db-set-song-bpm', selectedId, bpm);
+      setSongs((prev) => (prev || []).map((s) => (String(s.id) === String(selectedId) ? { ...s, bpm } : s)));
+      setActiveSong((prev) => (prev && String(prev.id) === String(selectedId) ? { ...prev, bpm } : prev));
+      // The saved tempo takes the room: stage metronome + drummer phones.
+      setStageCfg((prev) => ({ ...prev, bpm }));
+      setPopupBpm(bpm);
+      setPopupSavedTick(true);
+      setTimeout(() => setPopupSavedTick(false), 1600);
+    } catch { /* main not ready */ }
+  };
   // --- BYOD prompter: stage QR + URL (polled like RemoteMenu) -------------
   const [lan, setLan] = useState(null);
   const [copied, setCopied] = useState('');
@@ -248,6 +308,63 @@ export default function StagePanel() {
       {/* BODY: controls (left, scroll) + preview/QR column (right) */}
       <div style={{ flex: 1, display: 'flex', gap: 14, padding: '0 18px 16px 18px', overflow: 'hidden', minHeight: 0 }}>
         <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', display: 'grid', gap: 12, alignContent: 'start', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', paddingRight: 4 }}>
+          {/* SONG TEMPO POPUP: a service-order fire lands the song here so
+              the operator can set + save its BPM. Compact setlist rows pick
+              which song the editor below writes to (fired song pre-selected).
+              Saving also drives the stage metronome (and drummer phones). */}
+          {stageBpmPopup && (
+            <div style={{ gridColumn: '1 / -1', background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.55)', borderRadius: 10, padding: '9px 11px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: setlistSongs.length > 1 ? 7 : 3 }}>
+                <Music size={13} color={ACCENT} />
+                <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>Song tempo</span>
+                {setlistSongs.length > 1 && <span style={{ fontSize: 10, fontWeight: 800, color: C.muted }}>{setlistSongs.length} songs</span>}
+                <span style={{ flex: 1 }} />
+                <button onClick={() => setStageBpmPopup(null)} title="Dismiss" style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', padding: 3, display: 'flex', fontSize: 12, lineHeight: 1 }}>✕</button>
+              </div>
+              {setlistSongs.length > 1 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 118, overflowY: 'auto', marginBottom: 7 }}>
+                  {setlistSongs.map((s) => {
+                    const on = s.songId === selectedId;
+                    const fired = s.songId === popupSongId;
+                    const saved = savedBpmOf(s.songId);
+                    return (
+                      <button
+                        key={s.songId}
+                        onClick={() => setPopupSelectedId(s.songId)}
+                        title={fired ? `${s.title} (on air — click to edit)` : `Set tempo for ${s.title}`}
+                        style={{ display: 'flex', alignItems: 'center', gap: 7, textAlign: 'left', background: on ? 'rgba(139,92,246,0.18)' : C.elevated2, border: '1px solid ' + (on ? 'rgba(139,92,246,0.55)' : 'var(--ui-border2)'), color: C.text, borderRadius: 7, padding: '5px 9px', fontSize: 12, fontWeight: on ? 800 : 600, cursor: 'pointer', minWidth: 0 }}
+                      >
+                        {fired && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 6px #22c55e', flexShrink: 0 }} />}
+                        <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title}</span>
+                        <span style={{ fontSize: 10.5, fontWeight: 800, color: saved != null ? '#4ade80' : C.faint2, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{saved != null ? `${saved}` : '—'}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div style={{ fontSize: 12.5, fontWeight: 800, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={selectedTitle}>
+                {selectedTitle}
+              </div>
+              <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>
+                {selectedSavedBpm != null ? `Saved: ${selectedSavedBpm} BPM — firing recalls it.` : 'No tempo saved — firing recalls the stage tempo.'}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
+                <input type="range" min={40} max={220} step={1} value={popupBpm} onChange={(e) => setPopupBpm(Number(e.target.value))} style={{ flex: 1, minWidth: 50 }} />
+                <input
+                  type="number"
+                  min={40}
+                  max={220}
+                  value={popupBpm}
+                  onChange={(e) => setPopupBpm(Math.min(220, Math.max(40, Math.round(Number(e.target.value) || 96))))}
+                  style={{ ...textInput(C), width: 58, padding: '4px 6px', fontSize: 12, textAlign: 'center' }}
+                />
+                <span style={{ fontSize: 10, fontWeight: 800, color: C.muted }}>BPM</span>
+                <motion.button {...stubTap} onClick={savePopupBpm} style={{ background: popupSavedTick ? 'rgba(34,197,94,0.16)' : ACCENT, border: '1px solid ' + (popupSavedTick ? 'rgba(34,197,94,0.5)' : ACCENT), color: popupSavedTick ? '#4ade80' : '#fff', borderRadius: 7, padding: '6px 14px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
+                  {popupSavedTick ? 'Saved ✓' : 'Save'}
+                </motion.button>
+              </div>
+            </div>
+          )}
           {/* ROLE LAYOUTS */}
           <Card C={C} ACCENT={ACCENT} title="Layout (role presets)" icon={MonitorPlay}>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 11 }}>

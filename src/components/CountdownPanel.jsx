@@ -36,7 +36,7 @@ function Segmented({ C, ACCENT, options, value, onPick }) {
 }
 
 export default function CountdownPanel() {
-  const { C, ACCENT, countdown, setCountdown, fireCountdownLive, stopCountdownLive, persistCountdownFile, cdTemplates, setCdTemplates, outputAspect, rightOpen, setRightOpen } = useApp();
+  const { C, ACCENT, countdown, setCountdown, fireCountdownLive, stopCountdownLive, persistCountdownFile, cdTemplates, setCdTemplates, outputAspect, wallAspect, rightOpen, setRightOpen } = useApp();
   const cfg = { ...DEFAULT_COUNTDOWN, ...(countdown || {}) };
   const live = !!(cfg.live);
   const set = (patch) => setCountdown((prev) => ({ ...DEFAULT_COUNTDOWN, ...(prev || {}), ...patch }));
@@ -343,7 +343,9 @@ export default function CountdownPanel() {
           {/* RIGHT — preview + go live (no inner scroll lock; the page
               scrolls as one so the preview can be tall). */}
           <div style={{ flex: '2 1 560px', minWidth: 280, display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 4 }}>
-            <CountdownPreview timer={cfg} aspect="16 / 9" badge={outputAspect || '16:9'} where="tab" />
+            {/* Same wall shape as the monitor mini: what you stage here is what
+                the projector fills — no 16:9-look-then-wide-wall surprise. */}
+            <CountdownPreview timer={cfg} aspect={wallAspect} badge={outputAspect || '16:9'} where="tab" />
             <div style={{ display: 'flex', gap: 8 }}>
               <motion.button
                 {...stubTap}

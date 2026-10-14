@@ -231,10 +231,10 @@ export function TimerFace({ timer, scale = 1, fluid = false }) {
   const wmQ = fluid ? '3.33cqh' : wmPad;
   const wmCornerF = { tl: { top: wmQ, left: wmQ }, tr: { top: wmQ, right: wmQ }, bl: { bottom: wmQ, left: wmQ }, br: { bottom: wmQ, right: wmQ } }[wm?.pos] || { top: wmQ, left: wmQ };
   if (mediaOn) {
-    const bannerH = fluid ? fh(210) : `${210 * k}px`;
-    const tTitle = Math.min(t.titleSize, 40);
-    const tTime = Math.min(t.timeSize, 132);
-    const tSub = Math.min(t.subtextSize, 28);
+    const bannerH = fluid ? fh(170) : `${170 * k}px`;
+    const tTitle = Math.min(t.titleSize, 30);
+    const tTime = Math.min(t.timeSize, 100);
+    const tSub = Math.min(t.subtextSize, 22);
     return (
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: '#000', overflow: 'hidden', boxSizing: 'border-box' }}>
         <style>{'@keyframes kogUrgencyShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}'}</style>
@@ -271,7 +271,7 @@ export function TimerFace({ timer, scale = 1, fluid = false }) {
             />
           )}
         </div>
-        <div style={{ height: bannerH, flexShrink: 0, background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: fluid ? 'calc(4 * 100cqh / 720)' : 4 * k, padding: fluid ? '0 3.33cqh' : `0 ${24 * k}px`, boxSizing: 'border-box', overflow: 'hidden' }}>
+        <div style={{ height: bannerH, flexShrink: 0, background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: fluid ? 'calc(3 * 100cqh / 720)' : 3 * k, padding: fluid ? '0 3.33cqh' : `0 ${24 * k}px`, boxSizing: 'border-box', overflow: 'hidden' }}>
           {t.title ? (
             <div style={{ fontFamily: face, fontSize: fluid ? `calc(${tTitle} * 100cqh / 720)` : Math.max(8, tTitle * k), fontWeight: 700, color: '#ffffff', textAlign: 'center', lineHeight: 1.15, textShadow: '0 4px 24px rgba(0,0,0,0.55)', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
           ) : null}

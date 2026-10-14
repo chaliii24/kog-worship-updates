@@ -10,6 +10,7 @@ const SHORTCUTS = [
   ['C', 'Jump to the next Chorus of the song on air'],
   ['L', 'Clear the lyrics, keep the background'],
   ['B', 'Clear all output (words and background)'],
+  ['M', 'Show / clear the message overlay'],
   ['?', 'Toggle this shortcut guide'],
   ['Click a slide', 'Send it live to projector'],
   ['★ star', 'Favorite a song for quick access']

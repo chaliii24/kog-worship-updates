@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { SkipBack, SkipForward, Type, Square, RotateCcw, Music, Image, MonitorPlay, Monitor, FileText, Smartphone, BookOpen, Clock, Play, Eraser } from 'lucide-react';
+import { SkipBack, SkipForward, Type, Square, RotateCcw, Music, Image, MonitorPlay, Monitor, FileText, Smartphone, BookOpen, Clock, Play, Eraser, Megaphone, PenLine } from 'lucide-react';
 import { stubTap } from '../../lib/anim.js';
 import { computeCountdown, DEFAULT_COUNTDOWN } from '../../components/CountdownFace.jsx';
 import MiniSlide from './MiniSlide.jsx';
+import BibleScreen from './BibleScreen.jsx';
+import DrawScreen from './DrawScreen.jsx';
 
 export default function ControlScreen({ C, T, state, status, send, onSwitchRole }) {
   const ACCENT = T.ACCENT;
@@ -11,6 +13,11 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
   // Top-level view switch: lyrics control vs countdown control.
   const [tab, setTab] = useState('lyrics');
   const [sermonJump, setSermonJump] = useState('');
+  // Audience message overlay: text-only from here (uploads stay desktop-side).
+  const [msgText, setMsgText] = useState('');
+  const [msgStyle, setMsgStyle] = useState('lower');
+  const [msgSecs, setMsgSecs] = useState(10);
+  const ovLive = state?.overlay || null;
 
   // STAGE ROLE: same device-local choice as the Stage screen (one shared
   // key), so a singer can switch roles here without swiping over — the
@@ -119,14 +126,15 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
         <span style={{ fontSize: 12, fontWeight: 800, color: ACCENT, textTransform: 'uppercase', letterSpacing: 1 }}>{activeCue?.label || live?.label || ''}</span>
       </div>
 
-      {/* Top tabs: lyrics / countdown / presentation / live-outputs control */}
+      {/* Top tabs in service flow: Lyrics → Bible → Countdown → Presentation
+          → Message → Draw → Outputs. Transport stays fixed below. */}
       <div style={{ padding: '0 14px 10px', display: 'flex', gap: 6, overflowX: 'auto' }}>
-        {[['lyrics', 'Lyrics', Music], ['countdown', 'Countdown', Clock], ['presentation', 'Presentation', MonitorPlay], ['outputs', 'Outputs', Monitor]].map(([v, lbl, Icon]) => (
+        {[['lyrics', 'Lyrics', Music], ['bible', 'Bible', BookOpen], ['countdown', 'Countdown', Clock], ['presentation', 'Presentation', MonitorPlay], ['message', 'Message', Megaphone], ['draw', 'Draw', PenLine], ['outputs', 'Outputs', Monitor]].map(([v, lbl, Icon]) => (
           <button
             key={v}
             onClick={() => setTab(v)}
             style={{ flex: '1 0 76px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 10, padding: '10px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: tab === v ? ACCENT : C.elevated2, border: `1px solid ${tab === v ? ACCENT : C.border2}`, color: tab === v ? '#fff' : C.muted, minWidth: 0, whiteSpace: 'nowrap' }}
-          ><Icon size={13} /> {lbl}{v === 'countdown' && cdLive ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}{v === 'presentation' && state?.sermon?.loaded ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}{v === 'outputs' && onAir ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}</button>
+          ><Icon size={13} /> {lbl}{v === 'countdown' && cdLive ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}{v === 'presentation' && state?.sermon?.loaded ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}{v === 'message' && state?.overlay ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}{v === 'draw' && state?.draw ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#a78bfa', boxShadow: '0 0 6px #a78bfa' }} /> : null}{v === 'outputs' && onAir ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} /> : null}</button>
         ))}
         {state?.song ? (
           <button
@@ -173,6 +181,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
               aspect={outCssAspect}
               aspectBadge={outAspect}
               badge={`Current${live?.label ? ` · ${live.label}` : ''}`}
+              draw={state?.draw?.strokes || null}
             />
           ) : (
             <div style={{ marginLeft: 8, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
@@ -215,6 +224,12 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
           )}
         </div>
 
+      </>) : null}
+      {tab === 'bible' ? (<>
+        <BibleScreen C={C} ACCENT={ACCENT} state={state} send={send} />
+      </>) : null}
+      {tab === 'draw' ? (<>
+        <DrawScreen C={C} ACCENT={ACCENT} state={state} send={send} />
       </>) : null}
       {tab === 'countdown' ? (<>
         {/* ── COUNTDOWN ──────────────────────────────────────────────── */}
@@ -315,20 +330,64 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
           )}
         </div>
       </>) : null}
+      {tab === 'message' ? (<>
+        {/* ── MESSAGE OVERLAY (audience text above the slide) ─────────────── */}
+        <div style={{ background: C.elevated, border: `1px solid ${ovLive ? 'rgba(34,197,94,0.5)' : C.border2}`, borderRadius: 16, padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+            <Megaphone size={13} color={ovLive ? '#4ade80' : C.faint} />
+            <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1.6, textTransform: 'uppercase', color: C.faint }}>Message</span>
+            {ovLive && <span style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#4ade80', background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)', padding: '2px 7px', borderRadius: 6 }}>LIVE</span>}
+          </div>
+          {ovLive && (ovLive.text || ovLive.media) ? (
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.text2, marginBottom: 8, lineHeight: 1.5 }}>
+              “{ovLive.text || 'Image bug on the wall'}”
+            </div>
+          ) : null}
+          <input
+            value={msgText}
+            onChange={(e) => setMsgText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && msgText.trim()) { send('overlayShow', { text: msgText.trim(), style: msgStyle, secs: msgSecs }); setMsgText(''); } }}
+            placeholder="Welcome home! …"
+            style={{ width: '100%', boxSizing: 'border-box', background: C.elevated2, border: `1px solid ${C.border2}`, borderRadius: 9, color: C.text, fontSize: 14, fontWeight: 600, padding: '11px 12px', outline: 'none', fontFamily: 'inherit' }}
+          />
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            {[['lower', 'Lower'], ['center', 'Center'], ['banner', 'Banner']].map(([v, lbl]) => (
+              <button key={v} onClick={() => setMsgStyle(v)} style={{ flex: 1, borderRadius: 8, padding: '8px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: msgStyle === v ? ACCENT : C.elevated2, border: `1px solid ${msgStyle === v ? ACCENT : C.border2}`, color: msgStyle === v ? '#fff' : C.muted }}>{lbl}</button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+            {[[10, '10s'], [30, '30s'], [0, 'Pinned']].map(([v, lbl]) => (
+              <button key={lbl} onClick={() => setMsgSecs(v)} style={{ flex: 1, borderRadius: 8, padding: '8px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: msgSecs === v ? ACCENT : C.elevated2, border: `1px solid ${msgSecs === v ? ACCENT : C.border2}`, color: msgSecs === v ? '#fff' : C.muted }}>{lbl}</button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <motion.button {...stubTap} onClick={() => { if (msgText.trim()) { send('overlayShow', { text: msgText.trim(), style: msgStyle, secs: msgSecs }); setMsgText(''); } }} style={{ flex: 1.4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: msgText.trim() ? ACCENT : C.elevated2, border: `1px solid ${msgText.trim() ? ACCENT : C.border2}`, color: msgText.trim() ? '#fff' : C.muted, borderRadius: 10, padding: '12px 0', fontSize: 14, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit' }}>
+              <Megaphone size={15} /> Show
+            </motion.button>
+            {ovLive && (
+              <motion.button {...stubTap} onClick={() => send('overlayClear')} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', borderRadius: 10, padding: '12px 0', fontSize: 14, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit' }}>
+                Clear
+              </motion.button>
+            )}
+          </div>
+          <div style={{ fontSize: 11, color: C.faint, marginTop: 8, lineHeight: 1.5 }}>Sits above slides · survives Clear Lyrics · dies on Clear All.</div>
+        </div>
+      </>) : null}
       {tab === 'presentation' ? (<>
-        {/* ── PRESENTATION (PowerPoint sermon) ─────────────────────────── */}
+        {/* ── PRESENTATION (sermon slides) ─────────────────────────── */}
         {(() => {
           const sm = state?.sermon || null;
+          const smEngine = sm?.provider === 'wps' ? 'WPS' : sm?.provider === 'libreoffice' ? 'LIBREOFFICE' : 'SLIDESHOW';
           return (
             <div style={{ background: C.elevated, border: `1px solid ${sm?.loaded && sm?.passthrough ? 'rgba(139,92,246,0.5)' : C.border2}`, borderRadius: 16, padding: 14, position: 'relative', overflow: 'hidden' }}>
               {sm?.loaded && sm?.passthrough && <span style={{ position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderRadius: 3, background: '#8b5cf6' }} />}
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
                 <MonitorPlay size={13} color={sm?.loaded ? '#4ade80' : C.faint} />
                 <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1.6, textTransform: 'uppercase', color: C.faint }}>Sermon slides</span>
-                {sm?.loaded && <span style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: sm.passthrough ? '#a78bfa' : '#4ade80', background: sm.passthrough ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)', border: `1px solid ${sm.passthrough ? 'rgba(139,92,246,0.4)' : 'rgba(34,197,94,0.4)'}`, padding: '2px 7px', borderRadius: 6 }}>{sm.passthrough ? 'POWERPOINT' : 'LYRICS'}</span>}
+                {sm?.loaded && <span style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: sm.passthrough ? '#a78bfa' : '#4ade80', background: sm.passthrough ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)', border: `1px solid ${sm.passthrough ? 'rgba(139,92,246,0.4)' : 'rgba(34,197,94,0.4)'}`, padding: '2px 7px', borderRadius: 6 }}>{sm.passthrough ? smEngine : 'LYRICS'}</span>}
               </div>
               {!sm?.loaded ? (
-                <span style={{ fontSize: 13.5, color: C.faint, lineHeight: 1.6 }}>No sermon loaded — open a PowerPoint on the computer first, then drive it from here.</span>
+                <span style={{ fontSize: 13.5, color: C.faint, lineHeight: 1.6 }}>No sermon loaded — open a presentation on the computer first, then drive it from here.</span>
               ) : (
                 <>
                   <div style={{ fontSize: 14, fontWeight: 800, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sm.title || 'Sermon'}</div>
@@ -336,7 +395,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
                     {sm.total ? `${sm.index || 1} / ${sm.total}` : `Slide ${sm.index || 1}`}
                   </div>
                   <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                    {[['kog', 'Lyrics'], ['passthrough', 'PowerPoint']].map(([v, lbl]) => {
+                    {[['kog', 'Lyrics'], ['passthrough', sm?.provider === 'wps' ? 'WPS' : sm?.provider === 'libreoffice' ? 'LibreOffice' : 'Slides']].map(([v, lbl]) => {
                       const on = (sm.passthrough ? 'passthrough' : 'kog') === v;
                       return (
                         <button key={v} onClick={() => send('sermonLayer', { layer: v })} style={{ flex: 1, borderRadius: 8, padding: '9px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: on ? ACCENT : C.elevated2, border: `1px solid ${on ? ACCENT : C.border2}`, color: on ? '#fff' : C.muted }}>{lbl}</button>
@@ -382,6 +441,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
               aspect={outCssAspect}
               aspectBadge={outAspect}
               badge={`Current${live?.label ? ` · ${live.label}` : ''}`}
+              draw={state?.draw?.strokes || null}
             />
           ) : (
             <div style={{ marginLeft: 8, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>

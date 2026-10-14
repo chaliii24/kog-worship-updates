@@ -10,6 +10,7 @@ import MediaBrowser from './MediaBrowser';
 import SermonPanel from './SermonPanel';
 import AudioPanel from './AudioPanel';
 import StagePanel from './StagePanel';
+import VideoPanel from './VideoPanel';
 
 export default function CenterWorkspace() {
   const app = useApp();
@@ -494,6 +495,8 @@ export default function CenterWorkspace() {
   <StagePanel />
   ) : (dockTab === 'audio') ? (
   <AudioPanel />
+  ) : (dockTab === 'videos') ? (
+  <VideoPanel />
   ) : (dockTab === 'media') ? (
   <MediaBrowser />
   ) : (

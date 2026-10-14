@@ -1,16 +1,18 @@
-import React, { useRef } from 'react';
-import { Square, Type, SkipBack, SkipForward, Zap, FolderOpen } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Square, Type, SkipBack, SkipForward, Zap, FolderOpen, Megaphone, SlidersHorizontal } from 'lucide-react';
 import { motion } from 'motion/react';
-import { TimerReadout } from '../lib/perf';
+import { TimerReadout, overlayOnAir } from '../lib/perf';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import { mediaLabel } from '../lib/backgrounds';
 // Untitled UI — migration phase 3 (tabs): RAC-backed Tabs for the Groups/Media
 // switcher (mirror layout + `@/` alias documented in NewSongPrompt.jsx).
 import { Tabs, TabList, Tab, TabPanel } from '../untitledui/components/application/tabs/tabs';
+import MessageStudioModal from './modals/MessageStudioModal';
 
 export default function LiveOutputPanel({
   C,
   PINK,
+  ACCENT,
   activeSlideIndex,
   slideCount,
   renderOutputPreview,
@@ -44,8 +46,25 @@ export default function LiveOutputPanel({
   fireBibleUpNext,
   bibleFmt = { bold: false, caps: false, layout: 'number' },
   setBibleFmt,
+  // Message overlay (audience text above the slide): push/clear fns plus
+  // what is live now, for the composer below.
+  fireOverlay,
+  clearOverlay,
+  liveOverlay = null,
+  // True while the projector output runs (started from the dock). The card
+  // glows red only while a wall can actually show the cue — killing the
+  // output fades it back even mid-song.
+  projectorOn = false,
+  persistMediaFile,
+  // Locked while the Countdown tab is active: the countdown owns the wall,
+  // so the sidebar stays visible (preview keeps running) but nothing in it
+  // can fire. Unlocks itself the moment the operator leaves that tab.
+  locked = false,
 }) {
   const isLive = activeCue != null && activeCue?.id !== 'clear';
+  // Red only while a cue is on air AND the projector runs — starting the
+  // output lights it, killing the output fades it (transitions above).
+  const wallLive = isLive && projectorOn;
   // The wall follows the visible layer: F2 (PowerPoint passthrough) puts the
   // sermon on screen, so the preview + Up Next switch to sermon slides.
   // F1 (lyrics) keeps the lyrics preview plus the next lyric slide.
@@ -82,6 +101,32 @@ export default function LiveOutputPanel({
     || (scriptureDefault && scriptureDefault.value
       ? { value: scriptureDefault.value, type: scriptureDefault.type, label: mediaLabel(scriptureDefault.name, scriptureDefault.type) }
       : null);
+  // Message-overlay composer draft (remembered across visits so the Sunday
+  // regulars are one tap away).
+  const validMedia = (m) => (m && typeof m.url === 'string' && m.url ? { url: m.url.slice(0, 500), pos: ['tl', 'tr', 'bl', 'br'].includes(m.pos) ? m.pos : 'br' } : null);
+  const [ovDraft, setOvDraft] = useState(() => {
+    try {
+      const d = JSON.parse(localStorage.getItem('kog-overlay-draft') || '{}');
+      return {
+        text: typeof d.text === 'string' ? d.text : '',
+        style: d.style === 'center' || d.style === 'banner' ? d.style : 'lower',
+        secs: [5, 10, 30, 0].includes(Number(d.secs)) ? Number(d.secs) : 10,
+        media: validMedia(d.media),
+      };
+    } catch { return { text: '', style: 'lower', secs: 10, media: null }; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('kog-overlay-draft', JSON.stringify(ovDraft)); } catch {}
+  }, [ovDraft]);
+  const overlayLive = overlayOnAir(liveOverlay) ? liveOverlay : null;
+  const ovReady = !!(ovDraft.text.trim() || (ovDraft.media && ovDraft.media.url));
+  const [studioOpen, setStudioOpen] = useState(false);
+  // Locked panels dim their firing controls. `inert` (not pointer-events)
+  // does the blocking: clicks AND keyboard focus die, but the scroll
+  // containers keep scrolling — a pointer-events overlay would eat the wheel
+  // and trap the Groups list mid-scroll.
+  const lockStyle = locked ? { opacity: 0.45, userSelect: 'none', filter: 'saturate(0.6)' } : undefined;
+  const lockInert = locked ? true : undefined;
   return (
     // No entrance animation: the console subtree remounts every time the song
     // editor closes (and on boot), so the old slide+fade-in with its 0.3s
@@ -93,7 +138,10 @@ export default function LiveOutputPanel({
           <span style={{ fontSize: 11, fontWeight: 800, color: C.heading, textTransform: 'uppercase', letterSpacing: 1.5 }}>Live Output</span>
           <span style={{ fontSize: 11, fontWeight: 700, color: C.muted }}>{activeSlideIndex >= 0 ? `${activeSlideIndex}/${slideCount - 1}` : '—'}</span>
         </div>
-        <div style={{ marginBottom: 8 }}>
+        <div style={{ marginBottom: 8, position: 'relative', borderRadius: 10, border: wallLive ? '2px solid #ef4444' : '1px solid transparent', boxShadow: wallLive ? '0 0 22px -6px rgba(239,68,68,0.6)' : 'none', transition: 'border-color 0.45s ease, box-shadow 0.45s ease', padding: wallLive ? 1 : 0 }}>
+          <span style={{ position: 'absolute', top: 6, left: 6, zIndex: 5, display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#fff', background: '#dc2626', borderRadius: 6, padding: '2px 8px', boxShadow: '0 2px 10px rgba(0,0,0,0.5)', opacity: wallLive ? 1 : 0, transition: 'opacity 0.45s ease', pointerEvents: 'none' }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff' }} />LIVE
+          </span>
           {pptOnAir ? (
             <div style={{ aspectRatio: '16 / 9', borderRadius: 8, overflow: 'hidden', background: '#000', border: '1px solid var(--ui-border2)', position: 'relative' }}>
               {sermonShot ? (
@@ -111,6 +159,9 @@ export default function LiveOutputPanel({
             </div>
           ) : renderOutputPreview()}
         </div>
+        {/* Everything below the preview fires at the wall, so it all locks
+            together while the Countdown tab owns the output. */}
+        <div style={lockStyle} inert={lockInert} aria-disabled={locked || undefined}>
         {/* LYRICS UP NEXT — the slide that follows the live one in the flow.
             Clicking fires it, exactly like its grid tile. */}
         {lyricsNextTile && (
@@ -188,6 +239,19 @@ export default function LiveOutputPanel({
           <motion.button {...iconBtnTap} onClick={handlePrevCue} style={{ width: 44, background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><SkipBack size={14} /></motion.button>
           <motion.button {...iconBtnTap} onClick={handleNextCue} style={{ width: 44, background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><SkipForward size={14} /></motion.button>
         </div>
+        {studioOpen && (
+          <MessageStudioModal
+            C={C}
+            ACCENT={ACCENT}
+            ovDraft={ovDraft}
+            setOvDraft={setOvDraft}
+            overlayLive={overlayLive}
+            fireOverlay={fireOverlay}
+            clearOverlay={clearOverlay}
+            persistMediaFile={persistMediaFile}
+            onClose={() => setStudioOpen(false)}
+          />
+        )}
         {/* SERMON UP NEXT — what the projector will show after the current
             sermon slide. Only while PowerPoint owns the wall (F2); under
             lyrics (F1) it would advertise slides nobody can see. */}
@@ -252,14 +316,18 @@ export default function LiveOutputPanel({
             : defaultOpt ? `No override — scripture runs on “${defaultOpt.label}”.` : 'Assign a default so scripture is never added blank.'}</div>
         </div>
         )}
+        </div>
       </div>
 
       {/* While PowerPoint owns the wall (F2), song Groups & Media don't apply
           to anything on screen — show a pointer instead of dead controls.
           Lyrics controls return with F1. */}
+      {/* Same lock as above: the wrapper is a flex column so the Tabs'
+          flex-1 sizing underneath is untouched. */}
+      <div className="min-h-0 flex-1 flex flex-col" style={lockStyle} inert={lockInert} aria-disabled={locked || undefined}>
       {sermon && sermon.loaded && sermon.passthrough ? (
         <div style={{ padding: '10px 12px', fontSize: 11, color: C.muted, lineHeight: 1.6 }}>
-          PowerPoint is on the wall — song Groups & Media return when lyrics are back (F1).
+          The slideshow is on the wall — song Groups & Media return when lyrics are back (F1).
         </div>
       ) : dockTab === 'scripture' ? (
       /* SCRIPTURE-ONLY OPTIONS. Groups & Media are song controls — sections
@@ -301,16 +369,83 @@ export default function LiveOutputPanel({
       </div>
       ) : (
       <>
-      {/* GROUPS & MEDIA — Untitled UI Tabs (migration phase 3). Their TabList
+      {/* GROUPS & OVERLAY — Untitled UI Tabs (migration phase 3). Their TabList
           adds real tab semantics + RAC keyboard nav (arrows / Home / End) and
-          brand chip states; state keys and the panel content are unchanged. */}
+          brand chip states; state keys and the panel content are unchanged.
+          The old Media tab's glanceables (timer, output media, shortcuts)
+          live as a slim footer inside Groups, so the list keeps full height. */}
       <Tabs selectedKey={rightTab} onSelectionChange={setRightTab} className="min-h-0 flex-1 flex flex-col">
         <div style={{ padding: '10px 12px', borderBottom: '1px solid ' + C.border, background: C.panel, flexShrink: 0 }}>
           <TabList type="button-brand" size="sm" fullWidth>
+            <Tab id="overlay" label="Overlay" />
             <Tab id="groups" label="Groups" />
-            <Tab id="media" label="Media" />
           </TabList>
         </div>
+        <TabPanel id="overlay" className="box-border flex-1 min-h-0 overflow-y-auto p-2.5">
+          <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Megaphone size={12} color={overlayLive ? '#4ade80' : C.faint} />
+              <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>Message</span>
+              <span style={{ flex: 1 }} />
+              {overlayLive && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#4ade80' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 7px #22c55e' }} />LIVE
+                </span>
+              )}
+            </div>
+            <input
+              value={ovDraft.text}
+              onChange={(e) => setOvDraft((d) => ({ ...d, text: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === 'Enter' && ovReady && fireOverlay) fireOverlay(ovDraft.text, { style: ovDraft.style, secs: ovDraft.secs, media: ovDraft.media || null }); }}
+              placeholder="Welcome home! … (optional with a bug)"
+              style={{ width: '100%', boxSizing: 'border-box', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: '7px 9px', fontSize: 12, outline: 'none' }}
+            />
+            <div style={{ display: 'flex', gap: 4 }}>
+              {[['lower', 'Lower'], ['center', 'Center'], ['banner', 'Banner']].map(([v, lbl]) => (
+                <button key={v} onClick={() => setOvDraft((d) => ({ ...d, style: v }))} title={v === 'lower' ? 'Lower-third bar' : v === 'center' ? 'Centered card' : 'Top banner'} style={{ flex: 1, background: ovDraft.style === v ? 'rgba(139,92,246,0.18)' : 'transparent', border: '1px solid ' + (ovDraft.style === v ? 'rgba(139,92,246,0.55)' : 'var(--ui-border2)'), color: ovDraft.style === v ? '#C4B5FD' : C.muted, borderRadius: 7, padding: '5px 0', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>{lbl}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {[[5, '5s'], [10, '10s'], [30, '30s'], [0, 'Pinned']].map(([v, lbl]) => (
+                <button key={lbl} onClick={() => setOvDraft((d) => ({ ...d, secs: v }))} title={v === 0 ? 'Stays until cleared' : `Auto-clears after ${v} seconds`} style={{ flex: 1, background: ovDraft.secs === v ? 'rgba(139,92,246,0.18)' : 'transparent', border: '1px solid ' + (ovDraft.secs === v ? 'rgba(139,92,246,0.55)' : 'var(--ui-border2)'), color: ovDraft.secs === v ? '#C4B5FD' : C.muted, borderRadius: 7, padding: '5px 0', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>{lbl}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {ovDraft.media && ovDraft.media.url ? (
+                <>
+                  <img src={ovDraft.media.url} alt="" style={{ width: 44, height: 25, objectFit: 'cover', borderRadius: 5, border: '1px solid var(--ui-border2)', background: '#000', flexShrink: 0 }} />
+                  <div style={{ display: 'flex', gap: 3 }}>
+                    {[['tl', '↖', 'Top left'], ['tr', '↗', 'Top right'], ['bl', '↙', 'Bottom left'], ['br', '↘', 'Bottom right']].map(([v, lbl, tip]) => (
+                      <button key={v} onClick={() => setOvDraft((d) => ({ ...d, media: d.media ? { ...d.media, pos: v } : d.media }))} title={tip} style={{ width: 24, background: ovDraft.media.pos === v ? 'rgba(139,92,246,0.18)' : 'transparent', border: '1px solid ' + (ovDraft.media.pos === v ? 'rgba(139,92,246,0.55)' : 'var(--ui-border2)'), color: ovDraft.media.pos === v ? '#C4B5FD' : C.muted, borderRadius: 6, padding: '3px 0', fontSize: 11, fontWeight: 800, cursor: 'pointer', lineHeight: 1 }}>{lbl}</button>
+                    ))}
+                  </div>
+                  <span style={{ flex: 1 }} />
+                  <button onClick={() => setOvDraft((d) => ({ ...d, media: null }))} title="Remove the corner bug (keeps the text)" style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>Remove</button>
+                </>
+              ) : (
+                <label title="Pin a logo or art image to a wall corner (PNG/JPG/GIF)" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 7, padding: '5px 10px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>
+                  <FolderOpen size={11} /> Corner bug…
+                  <input type="file" accept=".png,.jpg,.jpeg,.gif,.webp" style={{ display: 'none' }} onChange={(e) => {
+                    const f = e.target.files && e.target.files[0];
+                    if (e.target) e.target.value = '';
+                    if (!f || !persistMediaFile) return;
+                    persistMediaFile(f).then((url) => {
+                      if (url) setOvDraft((d) => ({ ...d, media: { url, pos: (d.media && d.media.pos) || 'br' } }));
+                    }).catch(() => {});
+                  }} />
+                </label>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <motion.button {...stubTap} onClick={() => { if (ovReady && fireOverlay) fireOverlay(ovDraft.text, { style: ovDraft.style, secs: ovDraft.secs, media: ovDraft.media || null }); }} title="Pin this message above the live slide" style={{ flex: 1, background: ovReady ? ACCENT : C.elevated2, border: '1px solid ' + (ovReady ? ACCENT : 'var(--ui-border2)'), color: '#fff', borderRadius: 7, padding: '7px 0', fontSize: 11.5, fontWeight: 800, cursor: ovReady ? 'pointer' : 'default', opacity: ovReady ? 1 : 0.55 }}>Show</motion.button>
+              {overlayLive && (
+                <motion.button {...stubTap} onClick={() => clearOverlay && clearOverlay()} title="Take the message down (the slide stays)" style={{ flex: 1, background: 'transparent', border: '1px solid rgba(239,68,68,0.45)', color: '#f87171', borderRadius: 7, padding: '7px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>Clear</motion.button>
+              )}
+              <button onClick={() => setStudioOpen(true)} title="Open the message studio (visual styles, templates)" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 7, padding: '7px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}><SlidersHorizontal size={13} /></button>
+            </div>
+            <div style={{ fontSize: 9.5, color: C.faint, lineHeight: 1.5 }}>Sits above slides · M toggles · Enter sends · templates in Studio.</div>
+          </div>
+        </TabPanel>
         <TabPanel id="groups" className="box-border flex-1 min-h-0 overflow-y-auto p-2.5">
           {groupLabels.length > 0 ? (
             <div style={{ display: 'grid', gap: 6 }}>
@@ -342,29 +477,26 @@ export default function LiveOutputPanel({
           ) : (
             <div style={{ fontSize: 12, color: C.faint2, padding: 6 }}>Load a song to see its sections here.</div>
           )}
-        </TabPanel>
-        <TabPanel id="media" className="box-border flex-1 min-h-0 overflow-y-auto p-2.5">
-          <div style={{ display: 'grid', gap: 10 }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Slide Timer</div>
-            <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, color: C.muted }}>{slideTimer.start ? 'Running' : 'Idle'}</span>
+          <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--ui-border2)', display: 'grid', gap: 7 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>Slide Timer</span>
+              <span style={{ flex: 1 }} />
+              <span style={{ fontSize: 10.5, color: C.muted }}>{slideTimer.start ? 'Running' : 'Idle'}</span>
               <TimerReadout start={slideTimer.start} duration={slideTimer.duration} C={C} PINK={PINK} />
             </div>
-            <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginTop: 4 }}>Current Output Media</div>
-            <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '10px 12px', fontSize: 12, color: C.text2 }}>
+            <div style={{ fontSize: 10.5, color: C.faint, lineHeight: 1.5 }}>
               {activeSong ? (songHasBackground(activeSong) ? `Song background ${activeSong.bg_type === 'color' ? 'color' : activeSong.bg_type}` : 'Global background') : 'No song loaded'}
               {activeCue?.id === 'clear' && <span> — blackout</span>}
             </div>
-            <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginTop: 4 }}>Shortcuts</div>
-            <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.7 }}>
-              <div><b style={{ color: C.text2 }}>Space</b> → next slide · <b style={{ color: C.text2 }}>←</b> → previous</div>
-              <div><b style={{ color: C.text2 }}>B</b> → blackout · <b style={{ color: C.text2 }}>?</b> → hotkeys</div>
+            <div style={{ fontSize: 10.5, color: C.muted, lineHeight: 1.7 }}>
+              <div><b style={{ color: C.text2 }}>Space</b> → next · <b style={{ color: C.text2 }}>←</b> → prev · <b style={{ color: C.text2 }}>B</b> → blackout · <b style={{ color: C.text2 }}>?</b> → hotkeys</div>
             </div>
           </div>
         </TabPanel>
       </Tabs>
       </>
       )}
+      </div>
     </div>
   );
 }

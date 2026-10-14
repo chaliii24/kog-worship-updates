@@ -11,7 +11,9 @@ import { GoogleGenAI } from '@google/genai';
 import PptxGenJS from 'pptxgenjs';
 import dotenv from 'dotenv';
 import { sanitizeCues } from './songParse.js';
-import { pptxExportImages, pptxReadText } from './pptxImport.js';
+import { pptxExportImages, pptxReadText, libreImportImages } from './pptxImport.js';
+import { detectOfficeProviders, PRESENTATION_EXTENSIONS } from './officeProviders.js';
+import { semverGt } from './versionCompare.js';
 import { parseReference, matchBook } from './bibleResolve.js';
 import { 
   getSongs, 
@@ -24,6 +26,7 @@ import {
   setSongBackground,
   setSongAudio,
   setSongChords,
+  setSongBpm,
   getMediaLibrary,
   addMediaAsset,
   deleteMediaAsset,
@@ -48,6 +51,7 @@ import {
 import { createLanServer } from './lanServer.js';
 import { status as decklinkStatus, listDevices as decklinkListDevices, start as decklinkStart, stop as decklinkStop } from './decklink.js';
 import { pptOpen, pptNext, pptPrev, pptGoto, pptState, pptClose, pptQuit, pptShot } from './pptBridge.js';
+import { libreOpen, libreNext, librePrev, libreGoto, libreState, libreClose, libreQuit, libreShotFile } from './libreBridge.js';
 
 // Dead-pipe guard: when the parent stdio goes away (killed terminal, dead
 // automation harness, orphaned second copy), the next log write throws
@@ -578,6 +582,7 @@ app.whenReady().then(() => {
   app.on('will-quit', () => {
     try { globalShortcut.unregisterAll(); } catch { /* noop */ }
     try { pptQuit(); } catch { /* noop */ }
+    try { libreQuit(); } catch { /* noop */ }
   });
 
   // Plan 1 global layer hotkeys: F1 brings KogWorship lyrics over the sermon
@@ -1055,6 +1060,30 @@ function sermonTargetBounds() {
   return { x: p.x, y: p.y, w: p.width, h: p.height, label: 'Primary (no lyrics output running)' };
 }
 
+// --- PRESENTATION ENGINES (COM vs LibreOffice) -------------------------------
+// The sermon tab shows through one of two engines, picked at load:
+//   com   — Microsoft PowerPoint or WPS Presentation over COM (animations,
+//           live COM thumbnails, GotoSlide). Preferred when available.
+//   libre — LibreOffice Impress (pre-rendered PNG filmstrip + --show
+//           slideshow driven by keystrokes). Used when no COM office exists.
+// The renderer never branches on this: every handler below answers the same
+// shape plus `provider` ('powerpoint' | 'wps' | 'libreoffice').
+let sermonEngine = null; // null | { kind: 'com' } | { kind: 'libre' }
+
+// What the Presentation tab can open: PowerPoint, WPS (.dps) and
+// LibreOffice (.odp/.otp) natives included. COM is still tried first for
+// every format (PowerPoint/WPS both open .odp with fidelity loss).
+const SERMON_DIALOG_FILTERS = [{ name: 'Presentation', extensions: PRESENTATION_EXTENSIONS }];
+
+ipcMain.handle('office-providers', async () => {
+  try {
+    const det = await detectOfficeProviders();
+    return { ok: true, ...det };
+  } catch (e) {
+    return { ok: false, powerpoint: false, wps: false, libreoffice: false };
+  }
+});
+
 ipcMain.handle('ppt-load', async (event, filePath) => {
   try {
     let file = filePath;
@@ -1062,31 +1091,68 @@ ipcMain.handle('ppt-load', async (event, filePath) => {
       const win = (operatorWindow && !operatorWindow.isDestroyed()) ? operatorWindow : undefined;
       const { canceled, filePaths } = await dialog.showOpenDialog(win, {
         title: 'Open sermon presentation',
-        filters: [{ name: 'PowerPoint', extensions: ['pptx', 'ppt', 'ppsx'] }],
+        filters: SERMON_DIALOG_FILTERS,
         properties: ['openFile'],
       });
       if (canceled || !filePaths.length) return { ok: false, canceled: true };
       file = filePaths[0];
     }
     const bounds = sermonTargetBounds();
+    // COM first (PowerPoint, else WPS): full fidelity + live thumbnails.
     const res = await pptOpen(file, bounds);
-    if (!res.ok) return res;
-    return { ...res, file, displayLabel: bounds.label };
+    if (res && res.ok) {
+      sermonEngine = { kind: 'com' };
+      return { ...res, file, displayLabel: bounds.label };
+    }
+    // No COM slideshow app at all: fall through to LibreOffice Impress.
+    if (res && res.noComApp) {
+      const lr = await libreOpen(file, bounds);
+      if (lr && lr.ok) {
+        sermonEngine = { kind: 'libre' };
+        return { ...lr, file, displayLabel: bounds.label };
+      }
+      // Neither engine worked. When nothing is installed, say so plainly
+      // with the three options instead of a COM-branded error.
+      let det = null;
+      try { det = await detectOfficeProviders(); } catch {}
+      if (!det || (!det.powerpoint && !det.wps && !det.libreoffice)) {
+        return { ok: false, error: 'No compatible slideshow app found.\n\nInstall any one of these (all open .pptx files):\n• Microsoft PowerPoint\n• WPS Presentation (free)\n• LibreOffice Impress (free)\n\nThen open the file again.' };
+      }
+      return lr && !lr.ok ? lr : { ok: false, error: 'Could not open the presentation.' };
+    }
+    return res;
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) };
   }
 });
 
-ipcMain.handle('ppt-next', async () => pptNext());
-ipcMain.handle('ppt-prev', async () => pptPrev());
-ipcMain.handle('ppt-goto', async (event, index) => pptGoto(index));
-ipcMain.handle('ppt-state', async () => pptState());
-ipcMain.handle('ppt-close', async () => pptClose());
+ipcMain.handle('ppt-next', async () => (sermonEngine && sermonEngine.kind === 'libre' ? libreNext() : pptNext()));
+ipcMain.handle('ppt-prev', async () => (sermonEngine && sermonEngine.kind === 'libre' ? librePrev() : pptPrev()));
+ipcMain.handle('ppt-goto', async (event, index) => (sermonEngine && sermonEngine.kind === 'libre' ? libreGoto(index) : pptGoto(index)));
+ipcMain.handle('ppt-state', async () => (sermonEngine && sermonEngine.kind === 'libre' ? libreState() : pptState()));
+ipcMain.handle('ppt-close', async () => {
+  const kind = sermonEngine && sermonEngine.kind;
+  sermonEngine = null;
+  return kind === 'libre' ? libreClose() : pptClose();
+});
 // Operator slide thumbnails: export one slide as PNG, hand the bytes back as
 // a data URL, delete the temp file. Stateless per call — the renderer caches
 // by slide index and clears on load/close.
 ipcMain.handle('ppt-shot', async (event, index) => {
   try {
+    // LibreOffice engine: slides were pre-rendered to PNG at load — serve
+    // the cached file, no round-trip, no hang risk.
+    if (sermonEngine && sermonEngine.kind === 'libre') {
+      const n = Math.max(1, Math.round(Number(index) || 1));
+      const src = libreShotFile(n);
+      if (!src || !fs.existsSync(src)) return { ok: false, error: 'Slide image unavailable.' };
+      let buf = null;
+      try { buf = fs.readFileSync(src); } catch {}
+      if (!buf || !buf.length) return { ok: false, error: 'Empty slide export.' };
+      let totalSlides = 0;
+      try { totalSlides = (await libreState()).totalSlides || 0; } catch {}
+      return { ok: true, index: n, totalSlides, dataUrl: `data:image/png;base64,${buf.toString('base64')}` };
+    }
     const dir = path.join(os.tmpdir(), 'kog-ppt-shots');
     try { fs.mkdirSync(dir, { recursive: true }); } catch {}
     const n = Math.max(1, Math.round(Number(index) || 1));
@@ -1203,6 +1269,11 @@ ipcMain.on('outputs-save', (event, outputs) => {
 // freshly started output stayed black until the operator re-clicked a cue.
 let lastLiveSlide = null;
 let lastLiveStage = null;
+// Audience message overlay (ProPresenter-Messages style): text pinned ABOVE
+// the live slide with its own lifecycle — showing/clearing it must never
+// remount the lyrics layer or restart a looping background, so it travels on
+// its own channel, cached like everything else for late-opened windows.
+let lastLiveOverlay = null;
 
 ipcMain.on('update-live-slide', (event, slideData) => {
   lastLiveSlide = slideData || null;
@@ -1225,6 +1296,27 @@ ipcMain.on('update-live-stage', (event, stageData) => {
   }
 });
 
+ipcMain.on('update-live-overlay', (event, overlay) => {
+  lastLiveOverlay = overlay || null;
+  for (const { win, role } of outputWindows.values()) {
+    if (role === 'lyrics') sendToOutput(win, 'render-live-overlay', lastLiveOverlay);
+  }
+});
+
+// Remote draw-mode strokes (phone highlighter): same fan-out discipline as
+// the message overlay — its own channel so drawing never touches the slide,
+// and late-opened outputs pull it from get-live-state. Count is capped here
+// (renderer sanitizes points) so a runaway sender cannot bloat every output.
+let lastLiveDraw = null;
+ipcMain.on('update-live-draw', (event, draw) => {
+  lastLiveDraw = draw && Array.isArray(draw.strokes)
+    ? { strokes: draw.strokes.filter(Boolean).slice(-20), stamp: Number(draw.stamp) || Date.now() }
+    : null;
+  for (const { win, role } of outputWindows.values()) {
+    if (role === 'lyrics') sendToOutput(win, 'render-live-draw', lastLiveDraw);
+  }
+});
+
 // Stage CONFIG feed: layout preset, clock, alert, traffic light, flow
 // tracker, chord chart — pushed by the console whenever any of it changes.
 // Cached exactly like the slide/stage payloads so a stage window opened
@@ -1240,7 +1332,7 @@ ipcMain.on('update-stage-config', (event, feed) => {
 // Pulled by an output window once its render listeners are registered, so
 // there is no load-order race (a push on did-finish-load could arrive
 // before the window is listening and be lost).
-ipcMain.handle('get-live-state', () => ({ slide: lastLiveSlide, stage: lastLiveStage, config: lastStageConfig }));
+ipcMain.handle('get-live-state', () => ({ slide: lastLiveSlide, stage: lastLiveStage, config: lastStageConfig, overlay: lastLiveOverlay, draw: lastLiveDraw }));
 
 // Next-slide media warm-up: the console fires this while the current slide is
 // still on screen (type + url only — bytes never travel through IPC). Lyrics
@@ -1390,12 +1482,20 @@ ipcMain.handle('decklink-start', (event, opts) => decklinkStart(opts || {}));
 ipcMain.handle('decklink-stop', () => decklinkStop());
 
 // --- AUTO UPDATER IPC ---
+// checkForUpdates() resolves with the remote latest's updateInfo EVEN when
+// it matches the running build — only the updater *events* compare. The
+// manual Check path used to treat any returned updateInfo as "available",
+// so up-to-date installs always offered an update whose Download then said
+// "up to date". Gate on a real greater-than instead, and hand the renderer
+// both versions so its message can name them.
 ipcMain.handle('check-for-updates', async () => {
   try {
     const result = await autoUpdater.checkForUpdates();
-    return { updateInfo: result?.updateInfo, error: null };
+    const remote = result?.updateInfo?.version || null;
+    const current = app.getVersion();
+    return { updateInfo: result?.updateInfo, currentVersion: current, isAvailable: !!(remote && semverGt(remote, current)), error: null };
   } catch (error) {
-    return { updateInfo: null, error: error.message };
+    return { updateInfo: null, currentVersion: app.getVersion(), isAvailable: false, error: error.message };
   }
 });
  
@@ -1640,6 +1740,8 @@ ipcMain.handle('db-set-song-bg', (event, id, bgType, bgValue) => setSongBackgrou
 ipcMain.handle('db-set-song-audio', (event, id, audioUrl) => setSongAudio(id, audioUrl));
 // Stage chord chart (Stage tab): narrow UPDATE, never rewrites cues.
 ipcMain.handle('db-set-song-chords', (event, id, chart, key) => setSongChords(id, chart, key));
+// Per-song stage tempo (Stage tab popup): narrow UPDATE, never rewrites cues.
+ipcMain.handle('db-set-song-bpm', (event, id, bpm) => setSongBpm(id, bpm));
 ipcMain.handle('db-get-media', () => getMediaLibrary());
 // Built-in packs removed (house gradients carry the load now): always empty,
 // channel kept so old renderers never break on the call.
@@ -1827,7 +1929,7 @@ const failImport = async (win, error) => {
     const opts = {
       type: 'error',
       title: 'Import failed',
-      message: 'Could not import that PowerPoint.',
+      message: 'Could not import that presentation.',
       detail: String(error || 'Unknown error.'),
       buttons: ['OK'],
       defaultId: 0,
@@ -1838,17 +1940,18 @@ const failImport = async (win, error) => {
   return { ok: false, error: String(error || 'Unknown error.') };
 };
 
-// Pick a .pptx, ask how to bring it in (exact images / editable text), read it.
-// Image mode needs PowerPoint installed; without it we fall back to text and
-// tell the caller, rather than failing the whole import.
+// Pick a presentation file, ask how to bring it in (exact images / editable
+// text), read it. Image mode needs an installed suite — PowerPoint, WPS
+// Presentation (COM), then LibreOffice (headless) — and falls back to text
+// with an explanation when none is installed.
 ipcMain.handle('pptx-import', async (event, opts) => {
   let tmpDir = null;
   let win = null;
   try {
     win = BrowserWindow.fromWebContents(event.sender);
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-      title: 'Import PowerPoint',
-      filters: [{ name: 'PowerPoint Presentation', extensions: ['pptx', 'pptm', 'ppsx', 'ppt', 'pps'] }],
+      title: 'Import presentation',
+      filters: [{ name: 'Presentation', extensions: ['pptx', 'pptm', 'ppsx', 'ppt', 'pps', 'potx', 'odp', 'otp', 'dps'] }],
       properties: ['openFile'],
     });
     // showOpenDialog resolves with filePaths (array); showSaveDialog is the
@@ -1865,9 +1968,9 @@ ipcMain.handle('pptx-import', async (event, opts) => {
     } else {
       const choice = await dialog.showMessageBox(win, {
         type: 'question',
-        title: 'Import PowerPoint',
+        title: 'Import presentation',
         message: 'How should these slides be imported?',
-        detail: 'As images keeps the PowerPoint design exactly as it appears, but the text cannot be edited afterwards.\n\nAs text rebuilds the slides in KOG styling so you can keep editing them — PowerPoint fonts and layout are not kept.\n\nIf PowerPoint is not installed, image import falls back to text automatically.',
+        detail: 'As images keeps the design exactly as it appears, but the text cannot be edited afterwards.\n\nAs text rebuilds the slides in KOG styling so you can keep editing them — fonts and layout are not kept.\n\nImage import needs PowerPoint, WPS Presentation or LibreOffice installed; without one it falls back to text automatically.',
         buttons: ['As images (exact)', 'As text (editable)', 'Cancel'],
         defaultId: 0,
         cancelId: 2,
@@ -1881,9 +1984,39 @@ ipcMain.handle('pptx-import', async (event, opts) => {
     const name = path.basename(filePath).replace(/\.[^.]+$/, '');
 
     if (wantImages) {
-      const img = await pptxExportImages(filePath, tmpDir);
-      electronLog.info('[pptx] image export:', img.missing ? 'PowerPoint not installed' : img.error ? ('failed - ' + img.error) : (img.files.length + ' slides'));
-      if (img.missing || img.error) {
+      // COM chain: Microsoft PowerPoint first, then WPS Presentation. Only a
+      // missing suite moves on; a real failure (bad file) stops immediately.
+      const img = await pptxExportImages(filePath, tmpDir, ['PowerPoint.Application', 'WPP.Application', 'KWPP.Application']);
+      electronLog.info('[pptx] image export:', img.missing ? 'no COM office' : img.error ? ('failed - ' + img.error) : (img.files.length + ' slides'));
+      if (!img.missing && !img.error) {
+        fs.mkdirSync(MEDIA_DIR, { recursive: true });
+        const slides = [];
+        for (let i = 0; i < img.files.length; i++) {
+          const fileName = `pptx-${Date.now()}-${String(i + 1).padStart(3, '0')}.png`;
+          fs.copyFileSync(path.join(tmpDir, img.files[i]), path.join(MEDIA_DIR, fileName));
+          slides.push({ image: `media://kog-media/${encodeURIComponent(fileName)}` });
+        }
+        electronLog.info('[pptx] image slides:', slides.length);
+        return { ok: true, mode: 'image', name, slides };
+      }
+      // No COM office (or COM failed): LibreOffice headless export opens
+      // anything Impress opens — including .ppt/.odp/.dps that COM never saw.
+      if (img.missing) {
+        const lo = libreImportImages(filePath, tmpDir);
+        if (lo && lo.files && lo.files.length) {
+          electronLog.info('[pptx] LibreOffice image slides:', lo.files.length);
+          fs.mkdirSync(MEDIA_DIR, { recursive: true });
+          const slides = [];
+          for (let i = 0; i < lo.files.length; i++) {
+            const fileName = `pptx-${Date.now()}-${String(i + 1).padStart(3, '0')}.png`;
+            fs.copyFileSync(path.join(tmpDir, lo.files[i]), path.join(MEDIA_DIR, fileName));
+            slides.push({ image: `media://kog-media/${encodeURIComponent(fileName)}` });
+          }
+          return { ok: true, mode: 'image', provider: 'libreoffice', name, slides };
+        }
+        if (lo && lo.error) electronLog.info('[pptx] LibreOffice export failed - ' + lo.error);
+      }
+      {
         // Any image failure degrades to text rather than dead-ending — as long
         // as text can actually read the file.
         const t = await pptxReadText(filePath, tmpDir);
@@ -1891,20 +2024,11 @@ ipcMain.handle('pptx-import', async (event, opts) => {
           electronLog.info('[pptx] fell back to text:', t.slides.length, 'slides');
           return { ok: true, mode: 'text', fellBack: true, name, slides: t.slides,
             reason: img.missing
-              ? 'PowerPoint is not installed on this computer, so the slides were rebuilt as editable text.'
-              : 'PowerPoint could not export those slides (' + String(img.error).slice(0, 160) + '), so they were rebuilt as editable text.' };
+              ? 'No slideshow app (PowerPoint, WPS Presentation or LibreOffice) is installed on this computer, so the slides were rebuilt as editable text.'
+              : 'The slideshow app could not export those slides (' + String(img.error).slice(0, 160) + '), so they were rebuilt as editable text.' };
         }
         return failImport(win, img.error || t.error);
       }
-      fs.mkdirSync(MEDIA_DIR, { recursive: true });
-      const slides = [];
-      for (let i = 0; i < img.files.length; i++) {
-        const fileName = `pptx-${Date.now()}-${String(i + 1).padStart(3, '0')}.png`;
-        fs.copyFileSync(path.join(tmpDir, img.files[i]), path.join(MEDIA_DIR, fileName));
-        slides.push({ image: `media://kog-media/${encodeURIComponent(fileName)}` });
-      }
-      electronLog.info('[pptx] image slides:', slides.length);
-      return { ok: true, mode: 'image', name, slides };
     }
 
     const t = await pptxReadText(filePath, tmpDir);

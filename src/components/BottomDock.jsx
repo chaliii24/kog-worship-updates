@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
-import { ListVideo, Presentation, Film, Music, BookOpen, Monitor, Settings, Timer, FileText, MonitorPlay } from 'lucide-react';
-import { motion } from 'motion/react';
+import { ListVideo, Presentation, Film, Music, BookOpen, Monitor, Settings, Timer, FileText, Mic, Clapperboard, Smartphone } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { DOCK_KIND, iconHue } from '../lib/icons';
+import RemoteMenu from './modals/RemoteMenu';
 
 const ICON_MAP = {
   'list-video': ListVideo,
   'presentation': Presentation,
   'film': Film,
+  'clapperboard': Clapperboard,
   'music': Music,
   'book-open': BookOpen,
   'monitor': Monitor,
   'timer': Timer,
-  'monitor-play': MonitorPlay,
+  'mic': Mic,
   'file-text': FileText,
   'settings': Settings,
 };
@@ -54,8 +56,10 @@ function DockTooltip({ label, children }) {
   );
 }
 
-export default function BottomDock({ C, PINK, dockItems, dockTab, onSelect, activeId, iconTheme }) {
+export default function BottomDock({ C, PINK, ACCENT, dockItems, dockTab, onSelect, activeId, iconTheme, onOutputs, outputDisplays, selectedOutputDisplay, selectOutputDisplay }) {
   const currentId = activeId ?? dockTab;
+  const [remoteOpen, setRemoteOpen] = useState(false);
+  const acc = ACCENT || C.heading;
   return (
     // No entrance animation — same as the right panel: the console remounts
     // on boot and on every editor close, and a fade-up with a 0.2s delay
@@ -115,6 +119,42 @@ export default function BottomDock({ C, PINK, dockItems, dockTab, onSelect, acti
         );
       })}
       <div style={{ flex: 1 }} />
+      {/* OUTPUT CLUSTER — moved down from the top bar so the header stays a
+          slim brand + status strip and the full height goes to workspace. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <motion.button whileTap={{ scale: 0.94 }} onClick={onOutputs} title="Projector outputs" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.heading, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700 }}>
+          <Monitor size={13} color={iconTheme === 'prism' ? iconHue('outputs', C) : undefined} /> Outputs
+        </motion.button>
+        <div style={{ position: 'relative' }}>
+          <motion.button whileTap={{ scale: 0.94 }} onClick={() => setRemoteOpen(v => !v)} title="Phone remote (LAN)" style={{ background: remoteOpen ? C.elevated : C.elevated2, border: `1px solid ${remoteOpen ? acc : C.border2}`, color: remoteOpen ? acc : C.heading, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700 }}>
+            <Smartphone size={13} color={iconTheme === 'prism' ? iconHue('remote', C) : undefined} /> Remote
+          </motion.button>
+          {remoteOpen && <div onClick={() => setRemoteOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 399 }} />}
+          <AnimatePresence>
+            {remoteOpen && <RemoteMenu key="remote" C={C} ACCENT={acc} dropUp onClose={() => setRemoteOpen(false)} />}
+          </AnimatePresence>
+        </div>
+        <select
+          value={selectedOutputDisplay ?? ''}
+          onChange={(e) => selectOutputDisplay(e.target.value === '' ? null : Number(e.target.value))}
+          disabled={!outputDisplays || outputDisplays.length === 0}
+          title="Choose which display or projector the live output appears on"
+          style={{ width: 168, maxWidth: '22vw', background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 8, color: C.text2, fontSize: 11, fontWeight: 600, padding: '6px 8px', cursor: (outputDisplays && outputDisplays.length > 0) ? 'pointer' : 'not-allowed', outline: 'none' }}
+        >
+          {(!outputDisplays || outputDisplays.length === 0) ? (
+            <option value="">No external display detected</option>
+          ) : (
+            <>
+              <option value="">Off — no output window</option>
+              {outputDisplays.map(d => (
+                <option key={d.id} value={d.id}>
+                  {d.label}{d.primary ? ' (Primary)' : ''} · {d.width}×{d.height}
+                </option>
+              ))}
+            </>
+          )}
+        </select>
+      </div>
     </div>
   );
 }

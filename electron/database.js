@@ -118,6 +118,10 @@ try { db.exec(`ALTER TABLE songs ADD COLUMN title_cue_json TEXT;`); } catch (_) 
 // touching the stored chart. `SELECT *` flows both columns through everywhere.
 try { db.exec(`ALTER TABLE songs ADD COLUMN chord_chart TEXT;`); } catch (_) {}
 try { db.exec(`ALTER TABLE songs ADD COLUMN chord_key TEXT DEFAULT 'C';`); } catch (_) {}
+// Per-song tempo for the stage metronome + phone drummer view. NULL = unset
+// (falls back to the stage config tempo). Saved only through the narrow
+// setSongBpm IPC — song-editor saves never touch it.
+try { db.exec(`ALTER TABLE songs ADD COLUMN bpm INTEGER;`); } catch (_) {}
 // Heal float-string song refs ("42.0" for song 42) left by older writes.
 // Readers tolerate them now (sameSongId), but clean rows keep every fast path
 // working; non-numeric refs (future UUIDs) are never touched.
@@ -269,6 +273,14 @@ export function setSongAudio(songId, audioUrl) {
 export function setSongChords(songId, chart, key) {
   db.prepare('UPDATE songs SET chord_chart = ?, chord_key = ? WHERE id = ?')
     .run(chart ? String(chart) : null, key || 'C', songId);
+  return true;
+}
+
+// Per-song stage tempo (own IPC: db-set-song-bpm). Same discipline as the
+// chord chart: narrow UPDATE only. NULL clears it back to "unset".
+export function setSongBpm(songId, bpm) {
+  const v = bpm == null || bpm === '' ? null : Math.min(220, Math.max(40, Math.round(Number(bpm) || 0)));
+  db.prepare('UPDATE songs SET bpm = ? WHERE id = ?').run(v || null, songId);
   return true;
 }
 

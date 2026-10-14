@@ -264,6 +264,29 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
   const handleHttp = (req, res) => {
     const reqPath = decodeURIComponent((req.url || '/').split('?')[0]);
 
+    // Browsers request /favicon.ico automatically when a page has no icon
+    // link (and some do it anyway). mobile.html now points at /favicon.png,
+    // but answer the legacy path too so the stage phone's console stays
+    // clean: serve the shipped icon, or 204 when nothing is built yet.
+    if (reqPath === '/favicon.ico' || reqPath === '/favicon.png') {
+      const icon = path.join(getDistDir(), 'favicon.png');
+      fs.stat(icon, (err, st) => {
+        if (err || !st.isFile()) {
+          res.writeHead(204, { 'Access-Control-Allow-Origin': '*'});
+          res.end();
+          return;
+        }
+        res.writeHead(200, {
+          'Content-Type': 'image/png',
+          'Content-Length': st.size,
+          'Cache-Control': 'public, max-age=86400',
+          'Access-Control-Allow-Origin': '*',
+        });
+        fs.createReadStream(icon).on('error', () => { try { res.destroy(); } catch {} }).pipe(res);
+      });
+      return;
+    }
+
     if (reqPath === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ ok: true, port: PORT, clients: sockets.size, pinned: pairing.tokens.length > 0, dev }));

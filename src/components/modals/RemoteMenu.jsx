@@ -7,7 +7,7 @@ import { stubTap } from '../../lib/anim';
 // code, live client count and server controls. Talks to the main process over
 // IPC; every mutating call returns the refreshed info so the panel never has
 // to guess.
-export default function RemoteMenu({ C, ACCENT, onClose }) {
+export default function RemoteMenu({ C, ACCENT, onClose, dropUp = false }) {
   const [info, setInfo] = useState(null);
   const [copied, setCopied] = useState('');
   const [showFirewall, setShowFirewall] = useState(false);
@@ -56,7 +56,10 @@ export default function RemoteMenu({ C, ACCENT, onClose }) {
       transition={{ type: 'spring', stiffness: 380, damping: 30 }}
       onClick={(e) => e.stopPropagation()}
       style={{
-        position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 400, width: 346,
+        position: 'absolute', right: 0, zIndex: 400, width: 346,
+        // Dock-anchored callers open upward (a downward popup would clip
+        // off-screen); the header keeps the default downward popover.
+        ...(dropUp ? { bottom: 'calc(100% + 8px)' } : { top: 'calc(100% + 8px)' }),
         background: C.elevated, border: `1px solid ${C.border2}`, borderRadius: 14, padding: 14,
         boxShadow: '0 24px 60px rgba(0,0,0,0.7)', fontFamily: 'inherit',
       }}

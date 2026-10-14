@@ -1,15 +1,22 @@
-// PowerPoint sermon bridge — NO native modules.
+// PowerPoint / WPS sermon bridge — NO native modules.
 //
-// Drives an installed Microsoft PowerPoint over COM from a stock
-// powershell.exe child (Windows PowerShell 5.1 is STA, which COM needs), so
-// this ships through CI untouched: no winax, no rebuild, no new dependency.
+// Drives an installed Microsoft PowerPoint OR WPS Presentation over COM from
+// a stock powershell.exe child (Windows PowerShell 5.1 is STA, which COM
+// needs), so this ships through CI untouched: no winax, no rebuild, no new
+// dependency. WPS Presentation mirrors the PowerPoint object model
+// (Presentations.Open, SlideShowSettings.Run, View.Next/Previous/GotoSlide,
+// Slide.Export), so one script drives both — only the ProgID differs, tried
+// in order: PowerPoint.Application, WPP.Application, KWPP.Application.
 // Protocol is JSON lines over stdin/stdout, one in-flight command at a time.
+//
+// LibreOffice Impress has no compatible COM model, so it is NOT driven here
+// — see libreBridge.js (headless PNG export + --show slideshow) instead.
 //
 // The slideshow window is positioned onto the projector with Win32
 // SetWindowPos against SlideShowWindow.HWND (no title guessing). Speaker
 // show type is kept (Esc still works) so a dead bridge can never trap the
 // projector in an unclosable fullscreen. Every COM call is wrapped —
-// PowerPoint closed by hand, missing install, bad file — and surfaces as
+// Office closed by hand, missing install, bad file — and surfaces as
 // { ok:false, error } instead of ever crashing the main process.
 import { spawn } from 'child_process';
 import fs from 'fs';
@@ -29,7 +36,23 @@ const PS_SCRIPT = [
   '  public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);',
   '}',
   '"@',
-  '$pp = $null; $pres = $null; $show = $null',
+  '$pp = $null; $pres = $null; $show = $null; $prov = $null',
+  // ProgIDs in preference order. A failed create is normal (app not
+  // installed) — only a mesh of ALL failing means "no COM office".
+  '$COM_IDS = @(',
+  "  @{ id='powerpoint'; prog='PowerPoint.Application' },",
+  "  @{ id='wps'; prog='WPP.Application' },",
+  "  @{ id='wps'; prog='KWPP.Application' }",
+  ')',
+  'function EnsureApp() {',
+  // NOTE: $script: scope is mandatory here — a bare $pp inside a function is
+  // function-local, so the created app object would never reach the switch.
+  '  if ($script:pp -ne $null) { return $true }',
+  '  foreach ($c in $COM_IDS) {',
+  '    try { $script:pp = New-Object -ComObject $c.prog; $script:prov = $c.id; return $true } catch {}',
+  '  }',
+  '  $script:pp = $null; $script:prov = $null; return $false',
+  '}',
   'function Resp($id, $ok, $data) {',
   '  $o = @{ id = $id; ok = $ok }',
   '  if ($data -ne $null) { foreach ($k in $data.Keys) { $o[$k] = $data[$k] } }',
@@ -52,33 +75,36 @@ const PS_SCRIPT = [
   '    switch ($msg.op) {',
   "      'open' {",
   '        ClosePres',
-  '        try { if ($pp -eq $null) { $pp = New-Object -ComObject PowerPoint.Application } } catch { Resp $id $false @{ error = "PowerPoint is not installed (COM create failed)." }; continue }',
+  // Creation failure across EVERY ProgID is distinct from "picked a bad
+  // file": main.js uses noComApp to fall through to LibreOffice instead of
+  // showing a PowerPoint-branded error.
+  '        if (-not (EnsureApp)) { Resp $id $false @{ error = "No slideshow app found (tried Microsoft PowerPoint and WPS Presentation)."; noComApp = $true }; continue }',
   '        try { $pp.Visible = -1 } catch {}',
-  '        try { $pres = $pp.Presentations.Open($msg.file, $true, $false, $true) } catch { Resp $id $false @{ error = ("Cannot open presentation: " + $_.Exception.Message) }; continue }',
+  '        try { $pres = $pp.Presentations.Open($msg.file, $true, $false, $true) } catch { Resp $id $false @{ error = ("Cannot open presentation: " + $_.Exception.Message); provider = $prov }; continue }',
   '        $total = 0',
   '        try { $total = [int]$pres.Slides.Count } catch {}',
-  '        try { $show = $pres.SlideShowSettings.Run() } catch { Resp $id $false @{ error = ("Slideshow failed to start: " + $_.Exception.Message) }; ClosePres; continue }',
+  '        try { $show = $pres.SlideShowSettings.Run() } catch { Resp $id $false @{ error = ("Slideshow failed to start: " + $_.Exception.Message); provider = $prov }; ClosePres; continue }',
   '        Start-Sleep -Milliseconds 700',
   '        try {',
   '          $hwnd = [IntPtr][int]$show.HWND',
   '          [void][KogWin32]::SetWindowPos($hwnd, [IntPtr]::Zero, [int]$msg.x, [int]$msg.y, [int]$msg.w, [int]$msg.h, 0x0040)',
   '        } catch {}',
-  '        Resp $id $true @{ totalSlides = $total; index = (CurIndex) }',
+  '        Resp $id $true @{ totalSlides = $total; index = (CurIndex); provider = $prov }',
   '      }',
   "      'next' {",
   '        if ($show -eq $null) { Resp $id $false @{ error = "No slideshow running." }; continue }',
   '        try { $show.View.Next() } catch { Resp $id $false @{ error = $_.Exception.Message }; continue }',
-  '        Resp $id $true @{ index = (CurIndex) }',
+  '        Resp $id $true @{ index = (CurIndex); provider = $prov }',
   '      }',
   "      'prev' {",
   '        if ($show -eq $null) { Resp $id $false @{ error = "No slideshow running." }; continue }',
   '        try { $show.View.Previous() } catch { Resp $id $false @{ error = $_.Exception.Message }; continue }',
-  '        Resp $id $true @{ index = (CurIndex) }',
+  '        Resp $id $true @{ index = (CurIndex); provider = $prov }',
   '      }',
   "      'goto' {",
   '        if ($show -eq $null) { Resp $id $false @{ error = "No slideshow running." }; continue }',
   '        try { $show.View.GotoSlide([int]$msg.index, 0) } catch { Resp $id $false @{ error = $_.Exception.Message }; continue }',
-  '        Resp $id $true @{ index = (CurIndex) }',
+  '        Resp $id $true @{ index = (CurIndex); provider = $prov }',
   '      }',
   "      'shot' {",
   '        if ($pres -eq $null) { Resp $id $false @{ error = "No presentation open." }; continue }',
@@ -101,7 +127,7 @@ const PS_SCRIPT = [
   "      'state' {",
   '        if ($show -eq $null -or $pres -eq $null) { Resp $id $true @{ running = $false; index = 0; totalSlides = 0 }; continue }',
   '        $t = 0; try { $t = [int]$pres.Slides.Count } catch {}',
-  '        Resp $id $true @{ running = $true; index = (CurIndex); totalSlides = $t }',
+  '        Resp $id $true @{ running = $true; index = (CurIndex); totalSlides = $t; provider = $prov }',
   '      }',
   "      'close' {",
   '        ClosePres',
@@ -192,8 +218,23 @@ function call(op, args = {}, timeoutMs = OP_TIMEOUT_MS) {
 }
 
 const shape = (r) => {
-  if (!r || !r.ok) return { ok: false, error: (r && r.error) || 'PowerPoint command failed.' };
-  return { ok: true, index: r.index ?? 0, totalSlides: r.totalSlides ?? 0, running: r.running ?? true };
+  if (!r || !r.ok) {
+    return {
+      ok: false,
+      error: (r && r.error) || 'Slideshow command failed.',
+      // True only when NO COM office exists at all (every ProgID failed to
+      // create) — main.js falls through to the LibreOffice engine on this.
+      noComApp: !!(r && r.noComApp),
+      provider: (r && r.provider) || null,
+    };
+  }
+  return {
+    ok: true,
+    index: r.index ?? 0,
+    totalSlides: r.totalSlides ?? 0,
+    running: r.running ?? true,
+    provider: r.provider === 'wps' ? 'wps' : r.provider === 'libreoffice' ? 'libreoffice' : 'powerpoint',
+  };
 };
 
 export async function pptOpen(file, bounds) {

@@ -1,77 +1,32 @@
-import React, { useState } from 'react';
-import { Monitor, Smartphone } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { stubTap, iconBtnTap } from '../lib/anim';
-import { iconHue } from '../lib/icons';
-import RemoteMenu from './modals/RemoteMenu';
+import React from 'react';
+import { motion } from 'motion/react';
 import logoImage from '../assets/logo.png';
 
-export default function TopHeader({ C, PINK, activeMenu, setActiveMenu, menuItems, activeCue, toggleDevProjectorWindow, outputDisplays, selectedOutputDisplay, selectOutputDisplay, iconTheme, ACCENT }) {
-  const isLive = activeCue?.id !== 'clear' && activeCue !== null;
-  const [remoteOpen, setRemoteOpen] = useState(false);
-  const acc = ACCENT || C.heading;
+export default function TopHeader({ C, PINK, showName, showDate }) {
   return (
-    <motion.div initial={{ y: -16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ type: 'spring', stiffness: 280, damping: 26, delay: 0.05 }} style={{ background: C.panel, padding: '0 14px', height: 54, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--ui-border2)', gap: 12, flexShrink: 0 }}>
+    <motion.div initial={{ y: -16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ type: 'spring', stiffness: 280, damping: 26, delay: 0.05 }} style={{ background: C.panel, padding: '0 14px', height: 46, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--ui-border2)', gap: 12, flexShrink: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <img src={logoImage} alt="Logo" style={{ width: 26, height: 26, objectFit: 'contain', borderRadius: 5 }} />
-          <span style={{ fontSize: 15, fontWeight: 900, letterSpacing: 0.5 }}>KOG<span style={{ color: PINK }}>Worship</span></span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative' }}>
-          {['file', 'edit', 'view', 'help'].map(m => (
-            <div key={m} style={{ position: 'relative' }}>
-              <motion.button {...stubTap} onClick={() => setActiveMenu(activeMenu === m ? null : m)} style={{ background: 'transparent', border: 'none', color: activeMenu === m ? C.text : C.muted, fontSize: 12, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', textTransform: 'capitalize', fontWeight: activeMenu === m ? 700 : 500 }}>{m}</motion.button>
-              {activeMenu === m && (
-                <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 400, damping: 28 }} style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 5, display: 'grid', gap: 2, minWidth: 180, zIndex: 300, boxShadow: '0 14px 34px rgba(0,0,0,0.7)' }}>
-                  {menuItems[m].map(item => (
-                    <motion.button key={item.label} {...stubTap} onClick={() => { item.action(); setActiveMenu(null); }} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', color: C.text2, padding: '7px 10px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer', textAlign: 'left' }}>{item.label}</motion.button>
-                  ))}
-                </motion.div>
-              )}
-            </div>
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <img src={logoImage} alt="Logo" style={{ width: 26, height: 26, objectFit: 'contain', borderRadius: 5, flexShrink: 0 }} />
+          <span style={{ fontSize: 15, fontWeight: 900, letterSpacing: 0.5, whiteSpace: 'nowrap' }}>KOG<span style={{ color: PINK }}>Worship</span></span>
+          {showName ? (
+            <>
+              <span style={{ width: 1, height: 16, background: 'var(--ui-border2)', flexShrink: 0 }} />
+              <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25, minWidth: 0 }}>
+                <span title={showName} style={{ fontSize: 12.5, fontWeight: 700, color: C.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 320 }}>{showName}</span>
+                {showDate ? (
+                  <span style={{ fontSize: 10, fontWeight: 800, color: '#f59e0b', letterSpacing: 1, whiteSpace: 'nowrap', flexShrink: 0 }}>{showDate}</span>
+                ) : null}
+              </span>
+            </>
+          ) : null}
         </div>
       </div>
 
-      {/* RIGHT QUICK ACTIONS */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', background: isLive ? 'rgba(34,197,94,0.1)' : C.elevated2, border: isLive ? '1px solid rgba(34,197,94,0.35)' : '1px solid var(--ui-border2)', borderRadius: 999 }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: isLive ? '#22c55e' : C.faint2, boxShadow: isLive ? '0 0 8px #22c55e' : 'none' }} />
-          <span style={{ fontSize: 10, fontWeight: 800, color: isLive ? '#22c55e' : C.muted, letterSpacing: 1 }}>{isLive ? 'LIVE' : 'OFFLINE'}</span>
-        </div>
-        <motion.button {...stubTap} onClick={toggleDevProjectorWindow} title="Projector outputs" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.heading, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-          <Monitor size={13} color={iconTheme === 'prism' ? iconHue('outputs', C) : undefined} /> Outputs
-        </motion.button>
-        <div style={{ position: 'relative' }}>
-          <motion.button {...stubTap} onClick={() => setRemoteOpen(v => !v)} title="Phone remote (LAN)" style={{ background: remoteOpen ? C.elevated : C.elevated2, border: `1px solid ${remoteOpen ? acc : C.border2}`, color: remoteOpen ? acc : C.heading, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <Smartphone size={13} color={iconTheme === 'prism' ? iconHue('remote', C) : undefined} /> Remote
-          </motion.button>
-          {remoteOpen && <div onClick={() => setRemoteOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 399 }} />}
-          <AnimatePresence>
-            {remoteOpen && <RemoteMenu key="remote" C={C} ACCENT={acc} onClose={() => setRemoteOpen(false)} />}
-          </AnimatePresence>
-        </div>
-        <select
-          value={selectedOutputDisplay ?? ''}
-          onChange={(e) => selectOutputDisplay(e.target.value === '' ? null : Number(e.target.value))}
-          disabled={!outputDisplays || outputDisplays.length === 0}
-          title="Choose which display or projector the live output appears on"
-          style={{ width: 210, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 8, color: C.text2, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', cursor: (outputDisplays && outputDisplays.length > 0) ? 'pointer' : 'not-allowed', outline: 'none' }}
-        >
-          {(!outputDisplays || outputDisplays.length === 0) ? (
-            <option value="">No external display detected</option>
-          ) : (
-            <>
-              <option value="">Off — no output window</option>
-              {outputDisplays.map(d => (
-                <option key={d.id} value={d.id}>
-                  {d.label}{d.primary ? ' (Primary)' : ''} · {d.width}×{d.height}
-                </option>
-              ))}
-            </>
-          )}
-        </select>
-      </div>
+      {/* RIGHT — intentionally empty: live state moved to the output
+          panel's red live edge (see LiveOutputPanel). Keeps the row balanced
+          if a future status chip needs a home. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }} />
     </motion.div>
   );
 }

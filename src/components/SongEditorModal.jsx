@@ -850,6 +850,9 @@ export default function SongEditorModal() {
             <div style={{ fontSize: 15, fontWeight: 800, color: C.text, marginBottom: 6 }}>How many lyric lines per slide?</div>
             <div style={{ fontSize: 12, color: C.faint, lineHeight: 1.6, marginBottom: 14 }}>
               Each slide keeps up to this many lines — longer sections continue as <b style={{ color: C.accLine, fontWeight: 700 }}>(Part 2, Part 3…)</b>. This decides how the {splitPrompt === 'fetch' ? 'fetched page' : 'pasted lyrics'} split into blocks.
+              {String(splitN) === '1' && (
+                <span style={{ display: 'block', marginTop: 4 }}>With 1 line, phrases split at commas too — <b style={{ color: C.text2, fontWeight: 700 }}>“Way maker, miracle worker”</b> becomes two clean slides, commas off.</span>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               {[1, 2, 3, 4, 6, 8].map((n) => {
@@ -894,7 +897,7 @@ export default function SongEditorModal() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <KeyRound size={13} color={aiKey && aiKey.hasKey ? '#4ade80' : C.accLine} />
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: C.text }}>
-                  {aiKey === null ? 'Checking for a saved key…' : aiKey.hasKey ? `Gemini key saved · ${aiKey.masked}` : 'Online parsing needs your own Gemini key'}
+                  {aiKey === null ? 'Checking for a saved key…' : aiKey.hasKey ? `Gemini key saved · ${aiKey.masked}` : 'AI Auto-Fix needs your own Gemini key'}
                 </span>
                 {aiKey && aiKey.hasKey && (
                   <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>

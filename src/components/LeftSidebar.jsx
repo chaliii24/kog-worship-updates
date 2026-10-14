@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, Images, PanelLeftClose, Music, MonitorPlay, Pencil, FileUp, BookOpen, Link2, ListMusic } from 'lucide-react';
+import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, Images, PanelLeftClose, PanelLeftOpen, Music, MonitorPlay, Pencil, FileUp, BookOpen, Link2, ListMusic } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { slidesFromPptx } from '../lib/backgrounds';
@@ -7,6 +7,7 @@ import { ROW_KIND, iconHue } from '../lib/icons';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import Dropdown from './Dropdown';
 import SettingsPanel from './SettingsPanel';
+import VideoLibrarySidebar from './VideoLibrarySidebar';
 // Untitled UI — migration phase 3 (tabs): RAC-backed Tabs for the Service
 // Order / Shows / Songs switcher (mirror layout documented in NewSongPrompt).
 import { Tabs, TabList, Tab } from '../untitledui/components/application/tabs/tabs';
@@ -338,6 +339,7 @@ export default function LeftSidebar() {
   };
 
   return (
+    <>
     <motion.div
       animate={{ width: leftOpen ? 340 : 0, opacity: leftOpen ? 1 : 0 }}
       transition={{ type: 'spring', stiffness: 320, damping: 34 }}
@@ -607,7 +609,7 @@ export default function LeftSidebar() {
                 <div className="svc-menu" style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 4 }}>
                   <div style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 1 }}>Add Presentation</div>
                   {(presentations || []).length === 0 ? (
-                    <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', padding: 4, lineHeight: 1.5 }}>No presentations yet — open Presentations in the dock below, then New Presentation or Import PowerPoint.</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', padding: 4, lineHeight: 1.5 }}>No presentations yet — open Presentations in the dock below, then New Presentation or Import Slides.</div>
                   ) : (
                     <div style={{ maxHeight: 190, overflowY: 'auto', display: 'grid', gap: 2, paddingRight: 2 }}>
                       {presentations.map(p => (
@@ -841,9 +843,9 @@ export default function LeftSidebar() {
               }
             }}
             disabled={pptxImporting}
-            title="Bring in an existing PowerPoint (.pptx) — as exact images or as editable text"
+            title="Bring in an existing presentation (.pptx, .odp, .dps…) — as exact images or as editable text"
             style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '9px', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: pptxImporting ? 'default' : 'pointer', opacity: pptxImporting ? 0.65 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-          ><FileUp size={14} /> {pptxImporting ? 'Reading PowerPoint…' : 'Import PowerPoint'}</button>
+          ><FileUp size={14} /> {pptxImporting ? 'Reading slides…' : 'Import Slides'}</button>
           <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', lineHeight: 1.5 }}>Build sermon slides with text, images, backgrounds and transitions — then export to PowerPoint or send straight to the projector.</div>
           {(presentations || []).length === 0 && <div style={{ textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12, padding: 12, border: '1px dashed var(--ui-border)', borderRadius: 10 }}>No presentations yet. Press "New Presentation" to start.</div>}
           {(presentations || []).map(p => (
@@ -891,23 +893,16 @@ if (dockTab === 'audio') {
   // BGM Playlist) — nothing lives in the sidebar on this tab by design.
   return null;
 }
+if (dockTab === 'videos') {
+  // Video library lives in the system sidebar on this tab (independent
+  // browser: search, filters, cue/queue) while the player + Up Next own the
+  // center — same shell as every other tool, its own body.
+  return <VideoLibrarySidebar />;
+}
 
     if (dockTab === 'scripture') {
-      return (
-        <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'grid', gap: 12, alignContent: 'start' }}>
-          <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Scripture</span>
-          <div style={{ fontSize: 12, color: C.faint2, lineHeight: 1.7 }}>
-            Bible versions, quick jump, and live controls now live in the <b>Scripture Browser header</b>. Open a version from the translation selector at the top-left of the workspace.
-          </div>
-          {bibleActiveEntry && (
-            <div style={{ background: 'var(--ui-elev)', border: '1px solid var(--ui-border)', borderRadius: 12, padding: '10px 12px', display: 'grid', gap: 4 }}>
-              <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 1.2 }}>Active Translation</span>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ui-text)' }}>{bibleActiveEntry.name}</span>
-              <span style={{ fontSize: 10.5, color: 'var(--ui-faint)' }}>{(bibleActiveEntry.code || bibleActiveEntry.abbrev).toUpperCase()}{bibleActiveEntry.lang ? ` · ${bibleActiveEntry.lang}` : ''}</span>
-            </div>
-          )}
-        </div>
-      );
+      // Scripture owns the full width — no sidebar, no rail, nothing to reopen.
+      return null;
     }
 
     if (dockTab === 'calendar') {
@@ -944,5 +939,22 @@ if (dockTab === 'audio') {
   </div>
   </div>
   </motion.div>
+  {/* Reopen rail: minimizing used to leave no way back except switching tabs.
+      This slim strip stays on the left edge while closed — only on tabs that
+      actually have sidebar content (sermon/countdown/stage/media/audio have
+      none by design, so no dead button there). */}
+  {!leftOpen && ['shows', 'presentations', 'templates', 'videos', 'calendar', 'settings', 'functions'].includes(dockTab) && (
+    <motion.button
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.2 }}
+      onClick={() => setLeftOpen(true)}
+      title="Open command center"
+      style={{ flexShrink: 0, width: 30, height: '100%', background: 'var(--ui-panel)', border: 'none', borderRight: '1px solid var(--ui-border)', color: 'var(--ui-faint)', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 12 }}
+    >
+      <PanelLeftOpen size={16} />
+    </motion.button>
+  )}
+  </>
   );
 }

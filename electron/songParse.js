@@ -781,8 +781,9 @@ export function parseSongBlocks(rawText, linesPerSlide = 4) {
           return labeled;
         }
       }
+      const units = splitN === 1 ? lines.flatMap(commaPhrases) : lines;
       const chunks = [];
-      for (let i = 0; i < lines.length; i += splitN) chunks.push(lines.slice(i, i + splitN));
+      for (let i = 0; i < units.length; i += splitN) chunks.push(units.slice(i, i + splitN));
       if (chunks.length === 1) return [{ label: 'Verse 1', text: chunks[0].join('\n') }];
       return chunks.map((c, i) => ({ label: `Verse 1 (Part ${i + 1})`, text: c.join('\n') }));
     }
@@ -806,10 +807,39 @@ export function parseSongBlocks(rawText, linesPerSlide = 4) {
   return cues.length ? cues : whole();
 }
 
+// One pasted line -> sung phrases, split at commas. The split commas come
+// off ("Way maker," -> "Way maker"), so each 1-line slide reads clean —
+// lines without a mid-line comma (and blank fragments) come back untouched,
+// and a line that is nothing but commas keeps its original text so content
+// is never silently dropped. Plain, dependency-free: this file is shared
+// with main.
+const commaPhrases = (line) => {
+  const s = String(line == null ? '' : line);
+  if (s.indexOf(',') < 0) return [s];
+  const parts = [];
+  let cur = '';
+  for (const ch of s) {
+    cur += ch;
+    if (ch === ',') { parts.push(cur); cur = ''; }
+  }
+  parts.push(cur);
+  const out = parts
+    .map((p) => p.trim().replace(/,+\s*$/, '').trim())
+    .filter((p) => p !== '');
+  if (out.length) return out;
+  const fallback = s.trim();
+  return [fallback !== '' ? fallback : s];
+};
+
 /**
  * Split blocks longer than linesPerSlide into "(Part n)" slides.
  * Preserves every other field on the cue (background, font…). Idempotent
  * for blocks that already fit.
+ *
+ * `Split into 1` phrase cut: a pasted line often holds several sung phrases
+ * ("Way maker, miracle worker, promise keeper"), so the comma is treated as
+ * the phrase boundary and each phrase gets its own slide. Any other count
+ * keeps plain line grouping.
  */
 export function splitCuesByLines(cues, linesPerSlide) {
   const splitN = Math.max(1, Math.floor(Number(linesPerSlide) || 4));
@@ -818,8 +848,15 @@ export function splitCuesByLines(cues, linesPerSlide) {
     if (!cue || typeof cue !== 'object') continue;
     const text = typeof cue.text === 'string' ? cue.text : '';
     if (!text.trim()) continue; // drop empty blocks
-    const lines = text.split('\n').filter(l => l.trim() !== '');
-    if (lines.length <= splitN) { out.push(cue); continue; }
+    const rawLines = text.split('\n').filter(l => l.trim() !== '');
+    const lines = splitN === 1 ? rawLines.flatMap(commaPhrases) : rawLines;
+    if (lines.length <= splitN) {
+      // A lone line may still have been cleaned (trailing comma off) — keep
+      // the cleaned text rather than the original in that case.
+      if (splitN === 1 && lines.length === 1 && lines[0] !== rawLines[0]) out.push({ ...cue, text: lines[0] });
+      else out.push(cue);
+      continue;
+    }
     const baseLabel = (typeof cue.label === 'string' && cue.label.trim()) ? cue.label.trim() : 'Verse';
     for (let i = 0; i < lines.length; i += splitN) {
       const part = Math.floor(i / splitN) + 1;

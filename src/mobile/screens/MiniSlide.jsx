@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { renderLyricsLayout, DEFAULT_LYRIC_SIZE } from '../../lib/lyrics';
 import { TimerFace } from '../../components/CountdownFace.jsx';
+import { DrawOverlay } from '../../components/DrawOverlay.jsx';
 import AnimatedBg from '../../components/AnimatedBg.jsx';
 import { mediaUrl } from '../link.js';
 
@@ -10,7 +11,7 @@ import { mediaUrl } from '../link.js';
 // images render for real.
 const DEFAULT_BOX = { x: 80, y: 100, w: 1120, h: 480 };
 
-export default function MiniSlide({ C, text, style, timer, presentation, badge, aspect, aspectBadge, onCopy }) {
+export default function MiniSlide({ C, text, style, timer, presentation, badge, aspect, aspectBadge, onCopy, draw }) {
   const ref = useRef(null);
   const [w, setW] = useState(0);
   useEffect(() => {
@@ -116,6 +117,10 @@ export default function MiniSlide({ C, text, style, timer, presentation, badge, 
                 {renderLyricsLayout(text, lst, box)}
               </div>
             ) : null}
+            {/* Remote draw strokes echo (Draw tab draws, every mini shows). */}
+            {Array.isArray(draw) && draw.length > 0 && (
+              <DrawOverlay strokes={draw} />
+            )}
           </div>
         )}
         <button

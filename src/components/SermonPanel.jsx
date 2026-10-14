@@ -4,15 +4,23 @@ import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 
-// Sermon (PowerPoint) tab: load a .pptx onto the projector behind our output
-// window, then flip layers — Lyrics covers it, PowerPoint shows through —
-// with F1/F2 working globally even when this tab is closed.
+// Sermon (Presentation) tab: load a slide file onto the projector behind our
+// output window, then flip layers — Lyrics covers it, the slideshow shows
+// through — with F1/F2 working globally even when this tab is closed.
+//
+// Engine-agnostic: main.js picks Microsoft PowerPoint, WPS Presentation or
+// LibreOffice Impress for THIS machine; this panel only reports the picked
+// `provider` and drives the same next/prev/goto contract.
+const PROVIDER_NAMES = { powerpoint: 'PowerPoint', wps: 'WPS Presentation', libreoffice: 'LibreOffice' };
+const providerName = (s) => PROVIDER_NAMES[s && s.provider] || 'Slideshow';
+// Anything the loader accepts (matches PRESENTATION_EXTENSIONS in main).
+const PRESENTATION_RE = /\.(pptx?|ppsx?|potx?|pptm|odp|otp|dps)$/i;
 export default function SermonPanel() {
   const { C, ACCENT, PINK, sermon, sermonShots, sermonLoad, sermonSetLayer, sermonNav, sermonGoto, sermonClose, setShowOutputMonitor } = useApp();
   const [jump, setJump] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
-  // Recently opened decks (paths only — PowerPoint itself reads the file).
+  // Recently opened decks (paths only — the slideshow app itself reads the file).
   const [recent, setRecent] = useState(() => {
     try {
       const raw = JSON.parse(localStorage.getItem('kog-ppt-recent') || '[]');
@@ -36,7 +44,7 @@ export default function SermonPanel() {
     if (!f || !window.require) return;
     const { webUtils } = window.require('electron');
     const p = (webUtils && webUtils.getPathForFile) ? webUtils.getPathForFile(f) : f.path;
-    if (!p || !/\.(pptx?|ppsx?)$/i.test(p)) return;
+    if (!p || !PRESENTATION_RE.test(p)) return;
     sermonLoad(p);
   };
   // Filmstrip density (columns). Persists like the song grid's setting.
@@ -49,6 +57,19 @@ export default function SermonPanel() {
   useEffect(() => { try { localStorage.setItem('kog-sermon-density', String(sermonDensity)); } catch {} }, [sermonDensity]);
   const s = sermon || {};
   const label = { fontSize: 10, color: C.faint, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.2, display: 'block', marginBottom: 6 };
+  const shownBy = providerName(s);
+  // Which slideshow apps this machine can actually run. Fetched once per
+  // mount while nothing is loaded — the empty state names what's missing
+  // instead of failing the open with a COM-branded error.
+  const [providers, setProviders] = useState(null);
+  useEffect(() => {
+    if ((s && s.loaded) || !window.require) return;
+    let dead = false;
+    window.require('electron').ipcRenderer.invoke('office-providers')
+      .then((r) => { if (!dead && r) setProviders(r); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [s && s.loaded]);
 
   const doJump = () => {
     const n = Math.floor(Number(jump));
@@ -68,7 +89,7 @@ export default function SermonPanel() {
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Presentation</h2>
         {s.loaded && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: s.passthrough ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)', border: '1px solid ' + (s.passthrough ? 'rgba(139,92,246,0.5)' : 'rgba(34,197,94,0.5)'), color: s.passthrough ? '#a78bfa' : '#4ade80', borderRadius: 999, padding: '3px 10px', fontSize: 10, fontWeight: 800, letterSpacing: 1 }}>
-            {s.passthrough ? 'POWERPOINT' : 'LYRICS'}
+            {s.passthrough ? shownBy.toUpperCase() : 'LYRICS'}
           </span>
         )}
       </div>
@@ -98,7 +119,7 @@ export default function SermonPanel() {
                   <div style={{ display: 'flex', gap: 4 }}>
                     {[
                       ['kog', 'Lyrics'],
-                      ['passthrough', 'PowerPoint'],
+                      ['passthrough', shownBy],
                     ].map(([v, lbl]) => {
                       const selected = (s.passthrough ? 'passthrough' : 'kog') === v;
                       return (
@@ -143,7 +164,7 @@ export default function SermonPanel() {
                   <X size={14} /> Close presentation
                 </motion.button>
                 <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.6 }}>
-                  Lyrics, arrows and Space follow the visible layer: while PowerPoint shows, they drive its slides. F1 pulls lyrics back over at any time.
+                  Lyrics, arrows and Space follow the visible layer: while {shownBy} shows, they drive its slides. F1 pulls lyrics back over at any time.
                 </div>
               </>
             )}
@@ -202,7 +223,12 @@ export default function SermonPanel() {
                 </div>
                 <div style={{ fontSize: 17, fontWeight: 800, color: C.text, textAlign: 'center' }}>No Sermon Loaded</div>
                 <div style={{ fontSize: 12.5, color: C.muted, textAlign: 'center' }}>
-                  {dragOver ? 'Drop the .pptx to open it.' : 'Open a .pptx to project it behind the lyrics.'}
+                  {dragOver ? 'Drop the file to open it.' : 'Open a presentation to project it behind the lyrics.'}
+                </div>
+                <div style={{ fontSize: 11, color: C.faint, textAlign: 'center' }}>
+                  .pptx .ppt .ppsx .pps .odp .otp .dps — shown with {providers ? (
+                    [providers.powerpoint && 'PowerPoint', providers.wps && 'WPS', providers.libreoffice && 'LibreOffice'].filter(Boolean).join(' · ') || 'none installed'
+                  ) : '…'}
                 </div>
                 {s.error && (
                   <div style={{ fontSize: 12, color: '#f87171', textAlign: 'center', lineHeight: 1.5 }}>{s.error}</div>
@@ -210,9 +236,9 @@ export default function SermonPanel() {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, width: '100%', marginTop: 'auto', paddingTop: 14 }}>
                   {[
-                    { icon: <FolderOpen size={17} />, t: 'Open File', s: 'Load a PowerPoint file', fn: () => sermonLoad(), dis: !!s.busy },
+                    { icon: <FolderOpen size={17} />, t: 'Open File', s: 'Load a presentation file', fn: () => sermonLoad(), dis: !!s.busy },
                     { icon: <Clock size={17} />, t: 'Recent Files', s: 'Access your last files', fn: () => setShowRecent((v) => !v) },
-                    { icon: <Upload size={17} />, t: 'Drag & Drop', s: 'Drop a .pptx file here', fn: () => sermonLoad(), dis: !!s.busy },
+                    { icon: <Upload size={17} />, t: 'Drag & Drop', s: 'Drop a slide file here', fn: () => sermonLoad(), dis: !!s.busy },
                     { icon: <Eye size={17} />, t: 'Live Preview', s: 'See it on your output', fn: () => setShowOutputMonitor(true) },
                   ].map((a) => (
                     <button
@@ -258,7 +284,7 @@ export default function SermonPanel() {
                 onClick={() => sermonSetLayer(s.passthrough ? 'kog' : 'passthrough')}
                 style={{ width: '100%', marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: s.passthrough ? '#10b981' : C.elevated2, border: s.passthrough ? 'none' : '1px solid var(--ui-border2)', color: '#fff', borderRadius: 10, padding: '12px 0', fontSize: 13.5, fontWeight: 800, cursor: 'pointer' }}
               >
-                {s.passthrough ? (<><Play size={14} /> Show Lyrics (F1)</>) : (<><Square size={14} /> Reveal PowerPoint (F2)</>)}
+                {s.passthrough ? (<><Play size={14} /> Show Lyrics (F1)</>) : (<><Square size={14} /> Reveal {shownBy} (F2)</>)}
               </motion.button>
             )}
           </div>

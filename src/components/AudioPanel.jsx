@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { Play, Square, Pause, SkipBack, SkipForward, Volume2, Music, Waves, ListMusic, Upload, Plus, Trash2, MonitorSpeaker, SplitSquareHorizontal, RefreshCw } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
-import { audioEngine, PAD_KEYS } from '../lib/audioEngine';
+import { audioEngine, PAD_KEYS, PAD_OCTAVES } from '../lib/audioEngine';
 
 const TABS = [
   ['song', 'Song Audio', Music],
@@ -255,6 +255,22 @@ export default function AudioPanel() {
                   style={{ marginLeft: 'auto', fontSize: 11.5, fontWeight: 800, borderRadius: 999, padding: '7px 16px', cursor: 'pointer', background: s.padOn ? 'rgba(34,197,94,0.16)' : C.elevated2, border: s.padOn ? '1px solid rgba(34,197,94,0.5)' : '1px solid var(--ui-border2)', color: s.padOn ? '#4ade80' : C.muted }}
                 >{s.padOn ? 'ON' : 'OFF'}</button>
               </div>
+              {/* Register — which octave the grid plays in. Sits above the keys
+                  because it changes what every key below it means. */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, flex: 1 }}>Octave</span>
+                {PAD_OCTAVES.map((o) => {
+                  const on = s.padOctave === o.id;
+                  return (
+                    <button
+                      key={o.id}
+                      onClick={() => audioEngine.setPadOctave(o.id)}
+                      title={o.id === 0 ? 'C3 — low and deep, sits under speech' : o.id === 1 ? 'C4 — one octave up, airy and open' : 'C5 — two octaves up, high shimmer'}
+                      style={{ borderRadius: 8, padding: '7px 15px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', background: on ? 'rgba(34,197,94,0.18)' : C.elevated2, border: on ? '1px solid rgba(34,197,94,0.55)' : '1px solid var(--ui-border2)', color: on ? '#4ade80' : C.text2 }}
+                    >{o.label}</button>
+                  );
+                })}
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6, marginTop: 10 }}>
                 {PAD_KEYS.map(({ key }) => {
                   const on = s.padOn && s.padKey === key;
@@ -275,7 +291,7 @@ export default function AudioPanel() {
               <motion.button {...stubTap} onClick={() => audioEngine.padFadeOut()} style={{ width: '100%', marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', borderRadius: 9, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>
                 <Square size={13} /> Fade Out / Stop
               </motion.button>
-              <div style={{ fontSize: 11, color: C.faint, marginTop: 8, lineHeight: 1.6 }}>Switching keys crossfades the drone — no silence between songs, prayers or transitions.</div>
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 8, lineHeight: 1.6 }}>Switching keys or octave crossfades the drone — no silence between songs, prayers or transitions.</div>
             </div>
           </>
         )}

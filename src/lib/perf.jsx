@@ -354,3 +354,139 @@ export function BackgroundVideo({ src, style, ...rest }) {
   // so the incoming file must be ready to paint on its first frame.
   return <video ref={ref} src={src} autoPlay loop muted playsInline preload="auto" style={style} {...rest} />;
 }
+
+// An overlay is "on air" with words, a media bug, or both — every gate
+// (wall, preview, panel badge, hotkey, snapshot) asks this, never `.text`.
+export function overlayOnAir(ov) {
+  return !!(ov && (String(ov.text || '').trim() || (ov.media && typeof ov.media.url === 'string' && ov.media.url)));
+}
+
+// Audience message overlay (ProPresenter-Messages style): plain absolutely-
+// positioned divs in DESIGN px, so the projector (inside its scaled canvas)
+// and the booth preview (inside its scaled 1280 box) render byte-identical
+// markup — one face, two surfaces. Callers wrap it in their own
+// AnimatePresence keyed on overlay.stamp (kept out of here so AnimatePresence
+// tracks a real motion child, not a custom component).
+export function OverlayFace({ overlay }) {
+  const t = String((overlay && overlay.text) || '');
+  const mediaUrl = overlay && overlay.media && typeof overlay.media.url === 'string' ? overlay.media.url : '';
+  if (!overlay || (!t.trim() && !mediaUrl)) return null;
+  const pos = overlay.media && overlay.media.pos;
+  const corner = pos === 'tl' ? { top: 36, left: 36 } : pos === 'tr' ? { top: 36, right: 36 } : pos === 'bl' ? { bottom: 36, left: 36 } : { bottom: 36, right: 36 };
+  const bug = mediaUrl ? (
+    <img src={mediaUrl} alt="" draggable={false} style={{ position: 'absolute', width: 200, borderRadius: 10, boxShadow: '0 6px 30px rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.22)', background: '#000', objectFit: 'cover', pointerEvents: 'none', ...corner }} />
+  ) : null;
+  if (overlay.style === 'center') {
+    return (
+      <>
+        {t.trim() ? (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+            <div style={{ maxWidth: 1020, background: 'rgba(0,0,0,0.78)', borderRadius: 18, padding: '36px 52px', fontSize: 58, fontWeight: 800, color: '#ffffff', textAlign: 'center', lineHeight: 1.25, whiteSpace: 'pre-wrap', overflow: 'hidden', textShadow: '0 2px 18px rgba(0,0,0,0.8)' }}>{t}</div>
+          </div>
+        ) : null}
+        {bug}
+      </>
+    );
+  }
+  if (overlay.style === 'banner') {
+    return (
+      <>
+        {t.trim() ? (
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.8)', borderBottom: '2px solid rgba(255,255,255,0.25)', padding: '16px 48px', fontSize: 32, fontWeight: 800, color: '#ffffff', textAlign: 'center', lineHeight: 1.3, whiteSpace: 'pre-wrap', overflow: 'hidden', pointerEvents: 'none', textShadow: '0 2px 12px rgba(0,0,0,0.8)' }}>{t}</div>
+        ) : null}
+        {bug}
+      </>
+    );
+  }
+  return (
+    <>
+      {t.trim() ? (
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', borderTop: '3px solid #8b5cf6', padding: '22px 60px', fontSize: 42, fontWeight: 800, color: '#ffffff', textAlign: 'center', lineHeight: 1.3, whiteSpace: 'pre-wrap', overflow: 'hidden', pointerEvents: 'none', textShadow: '0 2px 14px rgba(0,0,0,0.8)' }}>{t}</div>
+      ) : null}
+      {bug}
+    </>
+  );
+}
+
+// Live sermon/feature video for outputs (projector, monitor preview).
+//
+// The booth VideoPanel is the transport master — it plays picture AND sound.
+// Every surface here plays the SAME file MUTED, so one machine never doubles
+// its own audio (booth speakers would echo against the projector's). Play
+// seeks to the booth's position first, so a mid-video join lands in sync;
+// pause holds the frame; loop follows the booth's repeat toggle; the parent
+// unmounts on stop (black). Contain, never cover: sermon content must never
+// lose its edges to a crop.
+//
+// Staying in sync has two layers: transport pushes (play/pause/seek, rare)
+// land coarsely, then the follower loop below chases the booth's master
+// clock (localStorage `kog-video-clock`, written 4×/s — see VideoPanel
+// scheduleSync) with playback-rate nudges, so corrections are inaudible and
+// cost zero re-renders on either side.
+export function LiveVideo({ video }) {
+  const ref = useRef(null);
+  const appliedRef = useRef(null);
+  const v = video || {};
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !v.url) return;
+    // el.src resolves absolute — comparing raw strings would reload every
+    // push. The ref remembers what this element was actually given.
+    if (appliedRef.current !== v.url) {
+      try { el.src = v.url; } catch {}
+      appliedRef.current = v.url;
+    }
+    try { el.loop = !!v.loop; } catch {}
+    try { el.muted = true; } catch {}
+    // Tighten to ~a frame-and-a-half: the booth re-pushes its clock on every
+    // transport action plus a periodic drift guard, so anything past this is
+    // real drift worth one small hop — anything under it is left alone so
+    // the picture never micro-stutters.
+    const pos = Math.max(0, Number(v.position) || 0);
+    if (v.action === 'pause') {
+      try { if (Math.abs((el.currentTime || 0) - pos) > 0.15) el.currentTime = pos; } catch {}
+      try { el.pause(); } catch {}
+    } else {
+      try { if (Math.abs((el.currentTime || 0) - pos) > 0.15) el.currentTime = pos; } catch {}
+      el.play().catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v.url, v.action, v.position, v.loop, v.stamp]);
+  useEffect(() => {
+    // Follower loop — see header. Extrapolates the booth clock across the
+    // write→read latency so the target leads correctly; past a full second
+    // apart it hard-seeks once, inside that it bends the rate (±8% is
+    // inaudible on speech) and snaps back to 1x on arrival. Stale clock
+    // (booth paused/closed/tab left) resets the rate and gets out of the way.
+    if (!v.url || v.action !== 'play') return undefined;
+    const id = setInterval(() => {
+      const el = ref.current;
+      if (!el) return;
+      let clock = null;
+      try { clock = JSON.parse(localStorage.getItem('kog-video-clock') || 'null'); } catch {}
+      const fresh = clock && clock.url === v.url && (Date.now() - (clock.ts || 0)) < 3000;
+      try {
+        if (!fresh) {
+          if (el.playbackRate !== 1) el.playbackRate = 1;
+          return;
+        }
+        if (el.paused) { el.play().catch(() => {}); return; }
+        const target = Math.max(0, clock.position + (Date.now() - clock.ts) / 1000);
+        const diff = target - (el.currentTime || 0);
+        if (Math.abs(diff) > 1.0) {
+          el.currentTime = target;
+          if (el.playbackRate !== 1) el.playbackRate = 1;
+        } else if (diff > 0.12) {
+          if (el.playbackRate !== 1.08) el.playbackRate = 1.08;
+        } else if (diff < -0.12) {
+          if (el.playbackRate !== 0.92) el.playbackRate = 0.92;
+        } else if (el.playbackRate !== 1) {
+          el.playbackRate = 1;
+        }
+      } catch {}
+    }, 500);
+    return () => clearInterval(id);
+  }, [v.url, v.action, v.stamp]);
+  if (!v.url) return null;
+  return <video ref={ref} src={v.url} muted playsInline preload="auto" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', background: '#000' }} />;
+}

@@ -212,22 +212,37 @@ const offsetFromPoint = (idx, x, y) => {
     }
   }
   if (!rows.length) return 0;
-  // 1) the visual line the point is on ...
-  let onLine = rows.filter((r) => y >= r.rect.top - 1 && y <= r.rect.bottom + 1);
-  if (!onLine.length) {
-    let bd = Infinity;
+  // 1) the visual row the point is on. A press near a row boundary — or in
+  // the gap between two rows — falls in the tolerance of TWO rows at once,
+  // and breaking that tie by document order handed the click to the line
+  // ABOVE (aiming at a short centred line lit the wide line over it).
+  // Nearest row centre wins instead, and a row containing the point always
+  // beats one that is merely nearby.
+  let chosenRect = null;
+  {
+    let nearD = Infinity;
+    let inEntry = null;
+    let inD = Infinity;
     for (let i = 0; i < rows.length; i++) {
-      const d = Math.abs(y - (rows[i].rect.top + rows[i].rect.height / 2));
-      if (d < bd) { bd = d; onLine = [rows[i]]; }
+      const rc = rows[i].rect;
+      const d = Math.abs(y - (rc.top + rc.height / 2));
+      if (d < nearD) { nearD = d; chosenRect = rows[i]; }
+      if (y >= rc.top - 1 && y <= rc.bottom + 1 && d < inD) { inD = d; inEntry = rows[i]; }
     }
+    if (inEntry) chosenRect = inEntry;
   }
-  // 2) ... then which run on that line the point actually falls inside.
-  let chosen = onLine[0];
-  let bd = Infinity;
-  for (let i = 0; i < onLine.length; i++) {
-    const r = onLine[i].rect;
-    const d = x >= r.left - 1 && x <= r.right + 1 ? 0 : Math.abs(x - (r.left + r.width / 2));
-    if (d < bd) { bd = d; chosen = onLine[i]; }
+  // 2) ... then which run on THAT row the point actually falls inside. Only
+  // segments sharing the row may answer, so a wide neighbouring line can no
+  // longer win on x when the point sits inside a short centred row.
+  const onLine = rows.filter((r) => r.rect.bottom > chosenRect.rect.top - 1 && r.rect.top < chosenRect.rect.bottom + 1);
+  let chosen = onLine[0] || chosenRect;
+  {
+    let bd = Infinity;
+    for (let i = 0; i < onLine.length; i++) {
+      const r = onLine[i].rect;
+      const d = x >= r.left - 1 && x <= r.right + 1 ? 0 : Math.abs(x - (r.left + r.width / 2));
+      if (d < bd) { bd = d; chosen = onLine[i]; }
+    }
   }
   // 3) walk that run's characters to the exact boundary.
   const node = chosen.run.node;
@@ -251,58 +266,14 @@ const offsetFromPoint = (idx, x, y) => {
 };
 
 // ---- what a press should select -------------------------------------------
-// Highlighting used to be drag-or-nothing: a mousedown always collapsed the
-// selection to a caret, so a triple-press ERASED the word a double-press had
-// just taken, and there was no way to reach a whole line without a perfectly
-// steady drag across tiny preview text. These three gestures make it one click.
-
-const isWordChar = (ch) => !!ch && /[\p{L}\p{N}'’-]/u.test(ch);
-
-// The whole cell (word, or run of spaces) an offset sits in. A caret parked
-// just past a word still belongs to that word, the way a browser reads it.
-const cellRangeAt = (v, off) => {
-  if (!v.length) return { from: 0, to: 0 };
-  const i = Math.max(0, Math.min(off, v.length));
-  let a = Math.min(i, v.length - 1);
-  if (i > 0 && i < v.length && !isWordChar(v[a]) && isWordChar(v[a - 1])) a -= 1;
-  const cls = isWordChar(v[a]);
-  let from = a;
-  while (from > 0 && isWordChar(v[from - 1]) === cls) from -= 1;
-  let to = a + 1;
-  while (to < v.length && isWordChar(v[to]) === cls) to += 1;
-  return { from, to };
-};
-
-// The logical line (hard '\n' to hard '\n') an offset sits in. Wrapped rows
-// are one line to the textarea, so one line is what a styling chip means.
-const lineRangeAt = (v, off) => {
-  if (!v.length) return { from: 0, to: 0 };
-  const i = Math.max(0, Math.min(off, v.length));
-  let from = i;
-  while (from > 0 && v[from - 1] !== '\n') from -= 1;
-  let to = i;
-  while (to < v.length && v[to] !== '\n') to += 1;
-  return { from, to };
-};
-
-// While a WORD drag runs, the moving end snaps to the edge of the word it is
-// inside — so a phrase lands on whole words instead of a letter short.
-const snapWordFwd = (v, p) => {
-  if (p < 0 || p >= v.length || !isWordChar(v[p])) return p;
-  let t = p;
-  while (t < v.length && isWordChar(v[t])) t += 1;
-  return t;
-};
-
-const snapWordBack = (v, p) => {
-  if (p <= 0) return 0;
-  let f = p;
-  // Parked just past a word: the word is the one being pointed at.
-  if (!isWordChar(v[f]) && f > 0 && isWordChar(v[f - 1])) f -= 1;
-  if (!isWordChar(v[f])) return p;
-  while (f > 0 && isWordChar(v[f - 1])) f -= 1;
-  return f;
-};
+// Deliberately GONE: a custom hit-tester used to turn every press and drag
+// into text offsets by measuring the rendered glyphs, and it kept landing a
+// line off on multi-line cues. The textarea holds the exact same string the
+// renderer draws (same font, size, width, padding, alignment), so the
+// browser's own selection IS the mapping — press, drag, double-click a
+// word, triple-click a line and Shift+click all come free, pixel-accurate,
+// with zero measuring. offsetFromPoint survives only for presses that miss
+// the textarea entirely (the empty box area around centred text).
 
 /**
  * WYSIWYG lyric-box editor.
@@ -318,6 +289,10 @@ const snapWordBack = (v, p) => {
  *   z3 a real <textarea> overlay, shown only while typing. While typing it is
  *      text-invisible: it is the input engine (keystrokes can never be
  *      swallowed, native undo/IME come free) and z1 supplies the picture.
+ *      It is ALSO the selection engine: it carries the same string, font,
+ *      size, width, padding and alignment as z1, so the browser's native
+ *      press/drag/double-click/triple-click/Shift+click selection breaks
+ *      lines exactly where the glyphs break — no custom hit-testing.
  *   z4 mode badges + the "Edit text" chip
  *   z5 the caret + selection, measured off z1's rendered glyphs
  *
@@ -545,12 +520,15 @@ export default function LyricsCanvasEditor({
   const selBoxRef = useRef(null);
   const overlayRef = useRef(null);
   const paintRef = useRef(() => {});
-  const dragRef = useRef(null);
 
   const caseTransform = caseMode === 'upper' ? 'uppercase' : caseMode === 'title' ? 'capitalize' : 'none';
   const overlayOn = editing && layoutMode !== 'ticker';
 
-  const paintOverlay = () => {
+  // from/to default to the state selection so every existing caller keeps
+  // working; the drag path passes the LIVE offsets so the paint does not
+  // wait for the re-render (the canvas subtree is heavy and the highlight
+  // would trail the pointer by frames).
+  const paintOverlay = (from = sel.start, to = sel.end) => {
     const root = layoutRef.current;
     const selBox = selBoxRef.current;
     const caret = caretRef.current;
@@ -574,9 +552,9 @@ export default function LyricsCanvasEditor({
 
     const idx = layoutIndex(root);
     selBox.textContent = '';
-    if (sel.end > sel.start) {
+    if (to > from) {
       const frag = document.createDocumentFragment();
-      const strips = selectionRects(idx, sel.start, sel.end);
+      const strips = selectionRects(idx, from, to);
       for (let i = 0; i < strips.length; i++) {
         const s = strips[i];
         const d = document.createElement('div');
@@ -592,7 +570,7 @@ export default function LyricsCanvasEditor({
 
     // An empty box shows its placeholder instead — a caret parked on top of
     // the hint would just read as noise.
-    const c = sel.end === sel.start && taText ? caretRect(idx, sel.start) : null;
+    const c = to === from && taText ? caretRect(idx, from) : null;
     if (c) {
       caret.style.display = 'block';
       caret.style.left = `${c.left - wr.left - 1}px`;
@@ -603,6 +581,43 @@ export default function LyricsCanvasEditor({
     }
   };
   paintRef.current = paintOverlay;
+
+  // Drag paints, coalesced to one per frame: native select events fire faster
+  // than the screen redraws, and each full paint re-walks the text. The state
+  // update (chips, sidebar) still goes through onSelect every time — only the
+  // pixels wait for the frame.
+  const paintRafRef = useRef(0);
+  const paintPendingRef = useRef(null);
+  const paintSoon = (from, to) => {
+    paintPendingRef.current = [from, to];
+    if (paintRafRef.current) return;
+    paintRafRef.current = requestAnimationFrame(() => {
+      paintRafRef.current = 0;
+      const p = paintPendingRef.current;
+      paintPendingRef.current = null;
+      if (p) paintRef.current(p[0], p[1]);
+    });
+  };
+  useEffect(() => () => { if (paintRafRef.current) cancelAnimationFrame(paintRafRef.current); }, []);
+
+  // Sweep selection: while the button is held and the pointer moves, the
+  // browser continuously re-hit-tests and grows the native range. `select`
+  // events can arrive coarser than the pointer, so this document-level
+  // `selectionchange` feed paints every step of the sweep — paint-only, no
+  // state, so it can never fight onSelect's reporting. Scoped to our own
+  // focused textarea; anything else selecting is none of our business.
+  useEffect(() => {
+    if (!overlayOn) return undefined;
+    const onDocSel = () => {
+      const ta = taRef.current;
+      if (!ta || document.activeElement !== ta) return;
+      try {
+        paintSoon(ta.selectionStart ?? 0, ta.selectionEnd ?? ta.selectionStart ?? 0);
+      } catch (_) { /* noop */ }
+    };
+    document.addEventListener('selectionchange', onDocSel);
+    return () => document.removeEventListener('selectionchange', onDocSel);
+  }, [overlayOn]);
 
   useLayoutEffect(() => {
     if (!overlayOn) return;
@@ -619,11 +634,6 @@ export default function LyricsCanvasEditor({
     return () => {
       window.removeEventListener('scroll', h, true);
       window.removeEventListener('resize', h);
-      const d = dragRef.current;
-      if (d) {
-        window.removeEventListener('mousemove', d.move);
-        window.removeEventListener('mouseup', d.up);
-      }
     };
   }, [overlayOn]);
 
@@ -644,102 +654,34 @@ export default function LyricsCanvasEditor({
   // the TEXTAREA's (differently scaled) layout, and it keeps focus, so the
   // selection below is the only one that exists.
   //
-  // Three ways to highlight, all one gesture:
-  //   press        → caret (drag to take a range, character by character)
-  //   double-press → the word under the pointer, then drag snaps WORD by word
-  //   triple-press → the whole line, then drag takes lines
-  //   + shift      → EXTENDS whatever is already lit instead of restarting it
-  const onOverlayMouseDown = (e) => {
-    if (e.button !== 0) return;
+  // Native selection does all of this now (see the note above
+  // "what a press should select"): the press, the drag, the word snap, the
+  // line take and Shift+click are the browser's own, so there is no custom
+  // mousemove machinery left to drift a line off.
+  //
+  // Presses that MISS the textarea (the empty box area above/below centred
+  // text) still need a caret: map those against the rendered glyphs. Presses
+  // on text never reach here — e.target is the textarea then, and the
+  // browser is already selecting natively.
+  const onEditAreaMouseDown = (e) => {
+    if (e.button !== 0 || e.target !== e.currentTarget) return;
     e.preventDefault();
     const ta = taRef.current;
     if (!ta) return;
     try { ta.focus({ preventScroll: true }); } catch (_) { ta.focus(); }
-
-    const v = ta.value;
-    const point = offsetAtPoint(e.clientX, e.clientY);
-
-    // How this press behaves, plus the FIXED end a drag grows away from.
-    let mode = 'char';
-    let anchor = point;
-    let from = point;
-    let to = point;
-    let lineFrom = 0;
-    let lineTo = 0;
-
-    if (e.detail >= 3) {
-      const r = lineRangeAt(v, point);
-      mode = 'line';
-      lineFrom = r.from;
-      lineTo = r.to;
-      anchor = r.from;
-      from = r.from;
-      to = r.to;
-    } else if (e.shiftKey) {
-      // Clicking past the highlight carries the OTHER end along, so a
-      // selection can be grown a piece at a time without re-dragging it.
-      // Checked before the word branch on purpose: two quick shift-clicks
-      // would otherwise read as a double-press and jump to a whole word.
-      const s = ta.selectionStart ?? 0;
-      const en = ta.selectionEnd ?? s;
-      anchor = point < s ? en : s;
-      from = Math.min(anchor, point);
-      to = Math.max(anchor, point);
-    } else if (e.detail >= 2) {
-      const r = cellRangeAt(v, point);
-      mode = 'word';
-      anchor = r.from;
-      from = r.from;
-      to = r.to;
-    }
-
-    selectRange(from, to);
-
-    const dx = e.clientX;
-    const dy = e.clientY;
-    const move = (ev) => {
-      // A click with a tremor in it must not become a one-character smear.
-      if (Math.abs(ev.clientX - dx) < 4 && Math.abs(ev.clientY - dy) < 4) return;
-      const o2 = offsetAtPoint(ev.clientX, ev.clientY);
-      if (mode === 'word') {
-        const n = o2 >= anchor ? snapWordFwd(v, o2) : snapWordBack(v, o2);
-        selectRange(Math.min(anchor, n), Math.max(anchor, n));
-      } else if (mode === 'line') {
-        const cur = lineRangeAt(v, o2);
-        selectRange(o2 >= lineFrom ? lineFrom : cur.from, o2 >= lineFrom ? cur.to : lineTo);
-      } else {
-        selectRange(Math.min(anchor, o2), Math.max(anchor, o2));
-      }
-    };
-    const up = () => {
-      dragRef.current = null;
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
-    };
-    dragRef.current = { move, up };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
+    const o = offsetAtPoint(e.clientX, e.clientY);
+    selectRange(o, o);
   };
 
-  // Native double-click word selection runs off the textarea's own layout, so
-  // it is suppressed with the rest of the defaults — re-expand it by text.
-  // (A double-press already lit the word in mousedown; this is the safety net
-  // for a press that landed between two cells.)
-  const onOverlayDoubleClick = () => {
-    const ta = taRef.current;
-    if (!ta) return;
-    const v = ta.value;
-    const c = ta.selectionStart ?? 0;
-    const r = cellRangeAt(v, c);
-    if (r.to > r.from) selectRange(r.from, r.to);
-  };
-
-  const onOverlayScroll = () => {
-    const ta = taRef.current;
-    const root = layoutRef.current;
-    // A cue taller than the box scrolls the textarea to reach the caret; the
-    // rendered layer has to follow or text and caret split apart.
-    if (ta && root && root.firstElementChild) root.firstElementChild.scrollTop = ta.scrollTop;
+  const onOverlayScroll = (e) => {
+    // The textarea hugs its content, so a tall cue scrolls this flex
+    // container — never the textarea itself. The rendered layer lives in the
+    // display box (the actual overflow: hidden scroller over there), so that
+    // is what follows. (The old target, the renderer's inner div, is not a
+    // scroll container at all — the sync silently did nothing.)
+    const boxEl = displayBoxRef.current;
+    const src = e ? e.currentTarget : null;
+    if (boxEl && src && boxEl !== src) boxEl.scrollTop = src.scrollTop;
     paintOverlay();
   };
 
@@ -985,10 +927,11 @@ export default function LyricsCanvasEditor({
   }, [editing]);
 
   useLayoutEffect(() => {
-    // In overlay mode the textarea fills the box instead of hugging its text —
-    // its own geometry is invisible, and a full-height surface means a click
-    // anywhere in the box lands on the caret instead of starting a drag.
-    if (editing && !overlayOn) syncTaHeight();
+    // The textarea hugs its content in every mode now (native selection needs
+    // the text block to sit exactly where the rendered glyphs sit, so the
+    // flex parent can centre both identically). Empty-box presses are caught
+    // by the container fallback below.
+    if (editing) syncTaHeight();
   });
 
   // ---- shared sizing ------------------------------------------------------
@@ -1120,17 +1063,22 @@ export default function LyricsCanvasEditor({
             ref={editBoxRef}
             style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: boxTransform, transformOrigin: 'center center', pointerEvents: 'auto' }}
           >
-            <div style={{
+            <div
+              // Empty-area presses (above/below centred text, where the hugging
+              // textarea does not reach) land here: the fallback maps one caret
+              // against the rendered glyphs. Presses on text land on the
+              // textarea itself and select natively — they never reach this.
+              onMouseDown={overlayOn ? onEditAreaMouseDown : undefined}
+              onScroll={overlayOn ? onOverlayScroll : undefined}
+              style={{
               width: '100%',
               height: '100%',
               display: 'flex',
               flexDirection: 'column',
               justifyContent: valign === 'top' ? 'flex-start' : valign === 'bottom' ? 'flex-end' : 'center',
               textAlign: textAlign || 'center',
-              // In overlay mode the renderer owns the padding (it draws with
-              // its own), and an unpadded textarea fills the whole box — so
-              // every click inside it lands on the caret, never on the drag
-              // layer underneath.
+              // Stays unpadded: the padding lives on the textarea itself so
+              // its wrapping matches the renderer's line for line.
               padding: overlayOn ? 0 : layoutPad,
               boxSizing: 'border-box',
               overflow: 'hidden',
@@ -1153,11 +1101,22 @@ export default function LyricsCanvasEditor({
                   taTimerRef.current = setTimeout(() => { taTimerRef.current = null; sendTa(); }, 150);
                 }}
                 onBlur={endEdit}
-                onInput={overlayOn ? undefined : syncTaHeight}
-                onSelect={(ev) => setSel({ start: ev.target.selectionStart ?? 0, end: ev.target.selectionEnd ?? 0 })}
-                onMouseDown={overlayOn ? onOverlayMouseDown : undefined}
-                onDoubleClick={overlayOn ? onOverlayDoubleClick : undefined}
-                onScroll={overlayOn ? onOverlayScroll : undefined}
+                onInput={syncTaHeight}
+                // Native selection IS the highlight mapping now: the browser
+                // places the caret, drags the range, snaps words on
+                // double-press, takes lines on triple-press and extends on
+                // Shift+click — onSelect below reports it and z5 paints it on
+                // the rendered glyphs. No custom mouse handlers: they were the
+                // things landing a line off.
+                onSelect={(ev) => {
+                  const s = ev.target.selectionStart ?? 0;
+                  const e2 = ev.target.selectionEnd ?? s;
+                  setSel({ start: s, end: e2 });
+                  // Paint NOW from the live offsets, not after the re-render:
+                  // that is what makes the highlight stick to the pointer
+                  // mid-drag instead of trailing it.
+                  paintSoon(s, e2);
+                }}
                 onKeyDown={(e) => {
                   // Only Escape is swallowed locally: leaving the modal open is
                   // the whole point of "click away to commit".
@@ -1174,7 +1133,6 @@ export default function LyricsCanvasEditor({
                 style={{
                   display: 'block',
                   width: '100%',
-                  height: overlayOn ? '100%' : undefined,
                   flexShrink: 0,
                   margin: 0,
                   border: 'none',
@@ -1182,7 +1140,10 @@ export default function LyricsCanvasEditor({
                   resize: 'none',
                   overflow: 'hidden',
                   boxSizing: 'border-box',
-                  padding: overlayOn ? 0 : (highlight ? '3px 12px' : 0),
+                  // Same padding the renderer draws with: identical width,
+                  // identical font, identical wrap — so the browser's native
+                  // selection breaks lines exactly where the glyphs break.
+                  padding: overlayOn ? layoutPad : (highlight ? '3px 12px' : 0),
                   borderRadius: 8,
                   // The highlight background belongs to the renderer, so in
                   // overlay mode it must not be painted twice.

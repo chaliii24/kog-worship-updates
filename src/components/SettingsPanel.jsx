@@ -3,6 +3,7 @@ import {
   Info, Palette, Monitor, LayoutTemplate, BookOpen, Database,
   RefreshCw, Download, Upload, FolderOpen, FileText, Trash2,
   Sun, Moon, Check, ExternalLink, Play, Music, Settings as SettingsIcon,
+  Keyboard,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ICON_HUES, iconHue } from '../lib/icons';
@@ -68,6 +69,7 @@ export default function SettingsPanel() {
     handleExport, handleImport, shellOpenDataFolder,
     aboutStatus, updateReady, updateProgress, updateVersion,
     handleCheckUpdates, handleDownloadUpdate, handleInstallUpdate,
+    setShowHotkeys,
   } = useApp();
   const [section, setSection] = useState('application');
 
@@ -120,6 +122,32 @@ export default function SettingsPanel() {
       {/* APPLICATION */}
       {section === 'application' && (
         <div style={{ display: 'grid', gap: 8, alignContent: 'start' }}>
+          {/* ABOUT — the old Help-menu product card lives here now that the
+              top menu bar is gone. */}
+          <div style={{ background: 'radial-gradient(130% 160% at 20% 0%, rgba(139,92,246,0.28), rgba(139,92,246,0.04) 55%, transparent 80%), var(--ui-elev)', border: '1px solid var(--ui-border)', borderRadius: 10, padding: '12px 14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 15, fontWeight: 900, letterSpacing: 0.4 }}>KOGWorship</span>
+              <span style={{ fontSize: 10.5, fontWeight: 800, color: '#fff', background: ACCENT, borderRadius: 999, padding: '2px 10px' }}>v{appInfo?.version || '—'}</span>
+              <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Presentation Suite</span>
+            </div>
+            <p style={{ fontSize: 12, lineHeight: 1.65, color: C.text2, margin: '8px 0 10px 0' }}>
+              Built for zero-distraction Sundays: plan the service, project every lyric and verse with confidence, and keep the stage in sync — all from one machine.
+            </p>
+            <div style={{ display: 'grid', gap: 7 }}>
+              {[
+                ['Medleys & Arrangements', 'Chain songs into one continuous flow, or reorder any song per service.'],
+                ['Live outputs', 'Projector, stage and monitor feeds with per-output aspects.'],
+                ['Sermon layer', 'Drive the slideshow beneath the lyrics with a crossfade.'],
+                ['Countdown & Scripture', 'Synced timers, offline Bible lookup, and a LAN remote for phones.'],
+              ].map(([title, desc]) => (
+                <div key={title} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: 999, background: ACCENT, marginTop: 5, flexShrink: 0 }} />
+                  <div style={{ fontSize: 11.5, lineHeight: 1.55, color: C.text2 }}><b style={{ color: C.text }}>{title}</b> — {desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
             {[
               { label: 'Songs', value: libraryStats?.songs ?? '—' },
@@ -183,6 +211,10 @@ export default function SettingsPanel() {
 
           <Row C={C} label="Developer">
             <span style={{ fontSize: 12, fontWeight: 700, color: C.muted }}>Charles Darius Arradaza</span>
+          </Row>
+
+          <Row C={C} label="Keyboard shortcuts">
+            <ActionBtn C={C} ACCENT={ACCENT} onClick={() => setShowHotkeys(true)} title="Open the shortcut guide (also: press ? anywhere)"><Keyboard size={12} /> View</ActionBtn>
           </Row>
         </div>
       )}

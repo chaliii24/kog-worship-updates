@@ -34,11 +34,14 @@ export const DOCK_KIND = {
   'list-video': 'shows',
   'presentation': 'presentation',
   'film': 'media',
+  // Videos is the same function family as Media (library footage), so it
+  // shares the hue — that sharing IS the Prism Slate feature.
+  'clapperboard': 'media',
   'music': 'audio',
   'book-open': 'scripture',
   'monitor': 'outputs',
   'timer': 'countdown',
-  'monitor-play': 'stage',
+  'mic': 'stage',
   'file-text': 'log',
   'settings': 'settings',
 };
