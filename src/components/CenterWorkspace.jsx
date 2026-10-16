@@ -1,9 +1,11 @@
 import React from 'react';
-import { Plus, Search, Download, Upload, Edit3, Image as ImageIcon, Video, ChevronDown, HelpCircle, ChevronLeft, CornerUpLeft, Zap, BookOpen, Music, Folder, Lightbulb, FolderOpen } from 'lucide-react';
+import { Plus, Search, Download, Upload, Edit3, Image as ImageIcon, Video, ChevronDown, HelpCircle, ChevronLeft, CornerUpLeft, Zap, BookOpen, Music, Folder, Lightbulb, FolderOpen, Highlighter } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 import { mediaLabel } from '../lib/backgrounds';
+import FontPicker from './FontPicker';
+import { FONT_OPTIONS } from '../lib/constants';
 import PresentationWorkspace from './PresentationWorkspace';
 import CountdownPanel from './CountdownPanel';
 import MediaBrowser from './MediaBrowser';
@@ -260,6 +262,21 @@ export default function CenterWorkspace() {
         </div>
         <motion.button {...stubTap} onClick={() => setBibleFmt(f => ({ ...f, bold: !f.bold }))} title="Toggle bold" style={{ background: bibleFmt.bold ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.04)', border: bibleFmt.bold ? '1px solid #8b5cf6' : '1px solid var(--ui-border)', color: bibleFmt.bold ? '#8b5cf6' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 11px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>B</motion.button>
         <motion.button {...stubTap} onClick={() => setBibleFmt(f => ({ ...f, caps: !f.caps }))} title="Uppercase" style={{ background: bibleFmt.caps ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.04)', border: bibleFmt.caps ? '1px solid #8b5cf6' : '1px solid var(--ui-border)', color: bibleFmt.caps ? '#8b5cf6' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 11px', fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer' }}>Aa</motion.button>
+        {/* Scripture typeface: operator font, live on the wall like the rest. */}
+        <div title="Scripture font (Default = stage style)" style={{ width: 150, flexShrink: 0 }}>
+          <FontPicker value={bibleFmt.font || ''} choices={[{ label: 'Default font', value: '' }, ...FONT_OPTIONS]} onChange={(v) => setBibleFmt(f => ({ ...f, font: v || null }))} C={C} />
+        </div>
+        {/* Scripture text colour. */}
+        <div title="Scripture text colour" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: '4px 7px' }}>
+          <span style={{ fontSize: 11, fontWeight: 800, color: bibleFmt.color ? '#8b5cf6' : 'var(--ui-faint)' }}>A</span>
+          <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(bibleFmt.color || '') ? bibleFmt.color : '#ffffff'} onChange={(e) => setBibleFmt(f => ({ ...f, color: e.target.value }))} title="Pick the scripture text colour" style={{ width: 26, height: 22, background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }} />
+          {bibleFmt.color && <button onClick={() => setBibleFmt(f => ({ ...f, color: null }))} title="Back to the stage style colour" style={{ background: 'transparent', border: 'none', color: 'var(--ui-faint)', fontSize: 11, cursor: 'pointer', padding: '0 2px' }}>✕</button>}
+        </div>
+        {/* Marker-pen highlight for the ticked verses. */}
+        <motion.button {...stubTap} onClick={() => setBibleFmt(f => ({ ...f, mark: f.mark ? null : (f.mark || '#FDE047') }))} title={bibleFmt.mark ? 'Highlighter on — pick words on the live list' : 'Switch the highlighter on'} style={{ background: bibleFmt.mark ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.04)', border: bibleFmt.mark ? '1px solid #8b5cf6' : '1px solid var(--ui-border)', color: bibleFmt.mark ? '#8b5cf6' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 10px', cursor: 'pointer', display: 'flex' }}><Highlighter size={13} /></motion.button>
+        {bibleFmt.mark && (
+          <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(bibleFmt.mark || '') ? bibleFmt.mark : '#FDE047'} onChange={(e) => setBibleFmt(f => ({ ...f, mark: e.target.value }))} title="Highlight colour" style={{ width: 30, height: 26, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 9, cursor: 'pointer', padding: 2 }} />
+        )}
         <div style={{ position: 'relative' }}>
           <motion.button {...stubTap} onClick={() => setBibleMediaOpen(o => !o)} title="Background media for scripture slides" style={{ display: 'flex', alignItems: 'center', gap: 6, background: bgShow ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.04)', border: bgShow ? '1px solid #8b5cf6' : '1px solid var(--ui-border)', color: bgShow ? '#8b5cf6' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 11px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>
             {bgShow && bgShow.type === 'video' ? <Video size={12} /> : <ImageIcon size={12} />}

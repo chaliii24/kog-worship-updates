@@ -17,6 +17,7 @@ export const applyCaseTransform = (t, mode) => {
 //   {size=0.55,w=300,track=0.2}KICKER  weight + letter-spacing (em)
 //   {font=CMG Sans|sans-serif}         '|' stands in for ',' inside a stack
 //   {color=#f0b429}                    per-run colour
+//   {mark=#fde047}                     highlighter behind the run (aliases: highlight, hl)
 //   {/}                                end the run before end of line
 //   {0.55}                             bare number == {size=0.55}
 //
@@ -78,6 +79,10 @@ const parseRunAttrs = (raw) => {
       out.font = v.replace(/\|/g, ', ');
     } else if (k === 'color' || k === 'colour') {
       out.color = v;
+    } else if (k === 'mark' || k === 'highlight' || k === 'hl') {
+      // Marker-pen background behind the run. Any CSS colour survives here
+      // (hex is case-insensitive, so applyCaseTransform can't break it).
+      out.mark = v;
     } else if (k === 'glow') {
       // {glow=#22d3ee} glows one word in that colour; {glow=1} rides the
       // slide's glow colour; {glow=off} clears it.
@@ -130,7 +135,7 @@ const sameRun = (a, b) => !!a.bold === !!b.bold
   && !!a.italic === !!b.italic
   && !!a.strike === !!b.strike
   && a.scale === b.scale && effWeight(a) === effWeight(b) && effTrack(a) === effTrack(b)
-  && a.font === b.font && a.color === b.color && (a.glow || undefined) === (b.glow || undefined);
+  && a.font === b.font && a.color === b.color && a.mark === b.mark && (a.glow || undefined) === (b.glow || undefined);
 
 // A line becomes a short list of styled runs. Adjacent runs that share a style
 // are merged, so a normal unmarked line is exactly one run — which is what
@@ -215,7 +220,7 @@ export const stripMarkup = (text) => (text || '').split('\n').map(stripLine).joi
 export const LINE_SCALE_PRESETS = [0.55, 0.7, 1, 1.5, 2];
 
 const SPAN_NUM = ['scale', 'weight', 'track'];
-const SPAN_TEXT = ['font', 'color', 'glow'];
+const SPAN_TEXT = ['font', 'color', 'glow', 'mark'];
 const SPAN_BOOL = ['bold', 'underline', 'italic', 'strike'];
 const SPAN_KEYS = [...SPAN_NUM, ...SPAN_TEXT, ...SPAN_BOOL];
 
@@ -259,6 +264,7 @@ const markerOf = (a) => {
   if (n.track !== undefined) parts.push(`track=${n.track}`);
   if (n.font !== undefined) parts.push(`font=${String(n.font).replace(/,\s*/g, '|')}`);
   if (n.color !== undefined) parts.push(`color=${n.color}`);
+  if (n.mark !== undefined) parts.push(`mark=${n.mark}`);
   if (n.glow !== undefined) parts.push(`glow=${n.glow === true ? 1 : n.glow}`);
   if (n.bold) parts.push('bold=1');
   if (n.underline) parts.push('underline=1');
@@ -800,7 +806,7 @@ const runSpan = (s, ratio, key, stroke, under) => {
     ? `0 0 ${Math.max(2, Math.round(runGlowBlur / 3))}px ${runGlowColor}, 0 0 ${runGlowBlur}px ${runGlowColor}`
     : '';
   const runShadow = s.glow ? [under && under.shadow, runGlow].filter(Boolean).join(', ') : '';
-  if (ratio === 1 && !s.weight && s.track == null && !s.font && !s.color && !s.glow && !deco && !italic) {
+  if (ratio === 1 && !s.weight && s.track == null && !s.font && !s.color && !s.mark && !s.glow && !deco && !italic) {
     return s.bold ? <b key={key}>{s.t}</b> : s.t;
   }
   return (
@@ -812,6 +818,13 @@ const runSpan = (s, ratio, key, stroke, under) => {
         letterSpacing: s.track != null ? `${s.track}em` : undefined,
         fontFamily: s.font || undefined,
         color: s.color || undefined,
+        // Marker-pen highlight behind the run. boxDecorationBreak keeps the
+        // background on every wrapped fragment, not just the first box.
+        background: s.mark || undefined,
+        borderRadius: s.mark ? '0.3em' : undefined,
+        padding: s.mark ? '0 0.2em' : undefined,
+        boxDecorationBreak: s.mark ? 'clone' : undefined,
+        WebkitBoxDecorationBreak: s.mark ? 'clone' : undefined,
         // Needed alongside `color` so a per-run colour survives a gradient,
         // whose parent span forces WebkitTextFillColor to transparent.
         WebkitTextFillColor: s.color || undefined,

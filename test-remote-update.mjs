@@ -63,5 +63,15 @@ const capped = pushDrawStroke(new Array(25).fill(null).map((_, i) => ({ id: `s${
 check('stroke cap keeps newest 20', capped.length === 20 && capped[19].id === 'new' && capped[0].id === 's6', `${capped.length} ${capped[0].id}`);
 check('path builder', strokeToPath([[0, 0], [10, 20]]) === 'M0 0 L10 20');
 
+console.log('--- bible load speed guards ---');
+const mainSrc2 = fs.readFileSync('./electron/main.js', 'utf8');
+check('catalog fetch capped at 8s', mainSrc2.includes('AbortSignal.timeout(8000)'));
+check('no 30s catalog hang', !mainSrc2.includes('AbortSignal.timeout(30000)'));
+check('size HEAD capped at 5s', mainSrc2.includes('AbortSignal.timeout(5000)'));
+check('list returns on a 1.2s size budget', mainSrc2.includes('setTimeout(r, 1200)'));
+check('instant sync catalog for lookups', mainSrc2.includes('function getBibleCatalogSync()'));
+check('findBibleEntry never awaits network', mainSrc2.includes('const catalog = getBibleCatalogSync()'));
+check('concurrent catalog fetches shared', mainSrc2.includes('catalogFlight'));
+
 console.log(fails.length ? `\nRESULT: ${fails.length} FAILED` : '\nRESULT: all passed');
 process.exit(fails.length ? 1 : 0);

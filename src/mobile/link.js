@@ -35,7 +35,7 @@ export function mediaUrl(url) {
   const file = m[1];
   if (!file || file.includes('..')) return null;
   // Videos stay desktop-side (bandwidth + battery); images only.
-  if (/\.(mp4|webm|mov)(\?|#|$)/i.test(file)) return null;
+  if (/\.(mp4|webm|mov|mkv)(\?|#|$)/i.test(file)) return null;
   const token = readToken();
   if (!token) return null;
   const host = (typeof location !== 'undefined' && location.hostname) || '127.0.0.1';

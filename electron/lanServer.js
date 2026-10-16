@@ -19,6 +19,7 @@ import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import QRCode from 'qrcode';
 import electronLog from 'electron-log';
+import { BIBLE_MEDIA_EXT } from './mediaTypes.js';
 
 const log = electronLog || { info: (...a) => console.log(...a), error: (...a) => console.error(...a) };
 
@@ -49,11 +50,13 @@ const MIME = {
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
   '.mov': 'video/quicktime',
+  '.mkv': 'video/x-matroska',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.svg': 'image/svg+xml',
+  '.avif': 'image/avif',
+  '.jfif': 'image/jpeg',
 };
-
-// Extensions the scripture media picker offers from an operator-chosen
-// folder (kept in sync with BIBLE_MEDIA_EXT in main.js).
-const BIBLE_MEDIA_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.mp4', '.webm', '.mov'];
 
 function lanAddresses() {
   const ifs = os.networkInterfaces();

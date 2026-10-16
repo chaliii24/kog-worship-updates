@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 import { mediaLabel } from '../lib/backgrounds';
+import { BIBLE_MEDIA_EXT, SUPPORTED_LABEL, extOf } from '../../electron/mediaTypes.js';
 
 const FOLDER_KEY = 'bible_media_folder';
 
@@ -21,6 +22,9 @@ export default function ScriptureMediaPicker({ mode = 'session', onClose, onPick
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState('');
+  // Upload rejections used to vanish silently (main returns null) — surface
+  // the reason inline instead, naming what actually works.
+  const [uploadError, setUploadError] = useState('');
 
   const current = mode === 'default'
     ? (scriptureDefault && scriptureDefault.value)
@@ -74,7 +78,20 @@ export default function ScriptureMediaPicker({ mode = 'session', onClose, onPick
 
   const pickFile = (e) => {
     const file = e.target.files && e.target.files[0];
-    if (file) onPick({ file });
+    setUploadError('');
+    if (file) {
+      // Same gate the main process enforces (mediaTypes.js): check here too
+      // so a rejection explains itself instead of doing nothing. HEIC (iPhone
+      // default) gets its own guidance — Chromium cannot decode it at all.
+      const ext = extOf(file.name);
+      if (ext === '.heic' || ext === '.heif') {
+        setUploadError('iPhone photos (HEIC) can\u2019t display here — open it in Photos, export/save as JPG, then upload that.');
+      } else if (!BIBLE_MEDIA_EXT.includes(ext)) {
+        setUploadError(`"${ext ? ext.slice(1).toUpperCase() : 'That file'}" isn\u2019t supported — use ${SUPPORTED_LABEL}.`);
+      } else {
+        onPick({ file });
+      }
+    }
     e.target.value = '';
   };
 
@@ -203,6 +220,9 @@ export default function ScriptureMediaPicker({ mode = 'session', onClose, onPick
           <Upload size={12} /> Or upload a picture / video
           <input type="file" accept="image/*,video/*" onChange={pickFile} style={{ display: 'none' }} />
         </motion.label>
+        {uploadError && (
+          <div style={{ marginTop: 7, fontSize: 11, color: '#f87171', lineHeight: 1.5 }}>{uploadError}</div>
+        )}
       </motion.div>
     </motion.div>
   );

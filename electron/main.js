@@ -13,6 +13,7 @@ import dotenv from 'dotenv';
 import { sanitizeCues } from './songParse.js';
 import { pptxExportImages, pptxReadText, libreImportImages } from './pptxImport.js';
 import { detectOfficeProviders, PRESENTATION_EXTENSIONS } from './officeProviders.js';
+import { MEDIA_IMAGE_EXT, MEDIA_VIDEO_EXT, MEDIA_AUDIO_EXT, BIBLE_MEDIA_EXT } from './mediaTypes.js';
 import { semverGt } from './versionCompare.js';
 import { parseReference, matchBook } from './bibleResolve.js';
 import { 
@@ -191,11 +192,14 @@ function mediaMime(fileName) {
   if (ext === '.webm') return 'video/webm';
   if (ext === '.mov') return 'video/quicktime';
   if (ext === '.mp4') return 'video/mp4';
+  if (ext === '.mkv') return 'video/x-matroska';
   if (ext === '.png') return 'image/png';
-  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.jpg' || ext === '.jpeg' || ext === '.jfif') return 'image/jpeg';
   if (ext === '.gif') return 'image/gif';
   if (ext === '.webp') return 'image/webp';
   if (ext === '.bmp') return 'image/bmp';
+  if (ext === '.svg') return 'image/svg+xml';
+  if (ext === '.avif') return 'image/avif';
   if (ext === '.mp3') return 'audio/mpeg';
   if (ext === '.m4a') return 'audio/mp4';
   if (ext === '.wav') return 'audio/wav';
@@ -311,7 +315,9 @@ ipcMain.handle('add-media-file', async (event, sourcePath) => {
   try {
     if (!sourcePath || !fs.existsSync(sourcePath)) return null;
     const ext = path.extname(sourcePath).toLowerCase();
-    if (!['.mp4', '.webm', '.mov', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp3', '.m4a', '.wav', '.ogg', '.aac'].includes(ext)) return null;
+    // One gate with the folder browser (mediaTypes.js): a picture the grid
+    // shows must always be uploadable too — BMP used to list but not upload.
+    if (![...MEDIA_IMAGE_EXT, ...MEDIA_VIDEO_EXT, ...MEDIA_AUDIO_EXT].includes(ext)) return null;
     fs.mkdirSync(MEDIA_DIR, { recursive: true });
     // Keep the original filename readable: <timestamp>-<rand>-<original>.<ext>
     // so libraries, queues and pickers can show the real track name. The
@@ -321,7 +327,7 @@ ipcMain.handle('add-media-file', async (event, sourcePath) => {
     const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeBase}${ext}`;
     fs.copyFileSync(sourcePath, path.join(MEDIA_DIR, fileName));
     const url = `media://kog-media/${encodeURIComponent(fileName)}`;
-    const kind = ['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext) ? 'image' : ['.mp4', '.webm', '.mov'].includes(ext) ? 'video' : 'audio';
+    const kind = MEDIA_IMAGE_EXT.includes(ext) ? 'image' : MEDIA_VIDEO_EXT.includes(ext) ? 'video' : 'audio';
     addMediaAsset(url, kind, `${origBase}${ext}`);
     return url;
   } catch (e) {
@@ -338,7 +344,7 @@ ipcMain.handle('add-countdown-file', async (event, sourcePath) => {
   try {
     if (!sourcePath || !fs.existsSync(sourcePath)) return null;
     const ext = path.extname(sourcePath).toLowerCase();
-    if (!['.mp4', '.webm', '.mov', '.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext)) return null;
+    if (!BIBLE_MEDIA_EXT.includes(ext)) return null;
     fs.mkdirSync(COUNTDOWN_DIR, { recursive: true });
     const fileName = `cd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
     fs.copyFileSync(sourcePath, path.join(COUNTDOWN_DIR, fileName));
@@ -354,7 +360,8 @@ ipcMain.handle('add-countdown-file', async (event, sourcePath) => {
 // thumbnails served in place over /bf/ — nothing is copied into the library.
 // The folder path is remembered in localStorage (bible_media_folder) by the
 // renderer and handed back here on every list call.
-const BIBLE_MEDIA_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.mp4', '.webm', '.mov'];
+// The accepted extensions live in mediaTypes.js (BIBLE_MEDIA_EXT), shared
+// with uploads, the LAN server and the picker — one list everywhere.
 
 ipcMain.handle('bible-media-pick-folder', async () => {
   try {
@@ -2643,7 +2650,9 @@ const bibleSizeCache = new Map(); // abbrev -> formatted size string
 async function bibleFileSize(abbrev) {
   if (bibleSizeCache.has(abbrev)) return bibleSizeCache.get(abbrev);
   try {
-    const res = await fetch(`https://api.getbible.net/v2/${abbrev}.json`, { method: 'HEAD', signal: AbortSignal.timeout(15000) });
+    // Short budget: this feeds a best-effort size label, never the list
+    // itself — a slow network must not hold the Bible library hostage.
+    const res = await fetch(`https://api.getbible.net/v2/${abbrev}.json`, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
     const bytes = Number(res.headers.get('content-length')) || 0;
     const size = bytes ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : '';
     bibleSizeCache.set(abbrev, size);
@@ -2652,11 +2661,17 @@ async function bibleFileSize(abbrev) {
 }
 
 // Fetch the complete list of translations available online, cached for 1 hour,
-// filtered to English + Philippine versions.
+// filtered to English + Philippine versions. Short timeout: on a slow or
+// missing network this must fall back to the bundled catalog fast instead of
+// hanging the Bible library for half a minute. Concurrent callers share one
+// in-flight fetch instead of stampeding the API.
+let catalogFlight = null;
 async function getBibleCatalog() {
   if (onlineCatalog && Date.now() - onlineCatalogAt < 3600000) return onlineCatalog;
-  try {
-    const res = await fetch(BIBLE_CATALOG_URL, { signal: AbortSignal.timeout(30000) });
+  if (catalogFlight) return catalogFlight;
+  catalogFlight = (async () => {
+    try {
+      const res = await fetch(BIBLE_CATALOG_URL, { signal: AbortSignal.timeout(8000) });
     if (res.ok) {
       const dict = await res.json();
       const online = Object.keys(dict || {}).map(k => {
@@ -2675,9 +2690,28 @@ async function getBibleCatalog() {
       const merged = [...online, ...BEBLIA_CATALOG.filter(b => !seen.has(b.abbrev))]
         .sort((a, b) => a.name.localeCompare(b.name));
       if (merged.length) { onlineCatalog = merged; onlineCatalogAt = Date.now(); }
-    }
-  } catch (_) {}
-  return onlineCatalog || BIBLE_FALLBACK_CATALOG;
+      }
+    } catch (_) {}
+    return onlineCatalog || BIBLE_FALLBACK_CATALOG;
+  })();
+  try {
+    return await catalogFlight;
+  } finally {
+    catalogFlight = null;
+  }
+}
+
+// Instant catalog for entry lookups (books / chapter / search / resolve /
+// download start): bundled data answers immediately while a refresh fills
+// the cache in the background. The fallback already carries every Beblia
+// entry (with langCode), and anything unknown is getbible-shaped anyway —
+// exactly what every caller assumes — so nothing waits on the network.
+function getBibleCatalogSync() {
+  if (onlineCatalog && Date.now() - onlineCatalogAt < 3600000) return onlineCatalog;
+  getBibleCatalog().catch(() => {});
+  const seen = new Set(BIBLE_FALLBACK_CATALOG.map((e) => e.abbrev));
+  return [...BIBLE_FALLBACK_CATALOG, ...BEBLIA_CATALOG.filter((b) => !seen.has(b.abbrev))]
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 
 // Fallback if offline: still list English + Philippine versions we know exist.
@@ -2725,26 +2759,47 @@ async function mapWithConcurrency(items, limit, fn) {
 }
 
 async function findBibleEntry(abbrev) {
-  const catalog = await getBibleCatalog();
+  const catalog = getBibleCatalogSync();
   return catalog.find(e => e.abbrev === abbrev) || null;
 }
 
 ipcMain.handle('scripture-list-bibles', async () => {
   if (!fs.existsSync(BIBLE_DIR)) fs.mkdirSync(BIBLE_DIR, { recursive: true });
   const catalog = await getBibleCatalog();
-  return mapWithConcurrency(catalog, 12, async b => {
-    const file = bibleFilePath(b.abbrev);
-    const installed = fs.existsSync(file);
+  // Everything local resolves synchronously — installed flags, on-disk sizes
+  // and book counts (parsed translations stay cached after the first read).
+  // Remote download sizes are best-effort inside a short budget: the list
+  // returns on time regardless, and stragglers land in the size cache for
+  // the next visit instead of stalling this one.
+  const base = catalog.map((b) => {
+    let installed = false;
+    let fileSize = 0;
+    try {
+      const st = fs.statSync(bibleFilePath(b.abbrev));
+      if (st.isFile()) { installed = true; fileSize = st.size; }
+    } catch { /* not installed */ }
+    let books = 0;
+    if (installed) {
+      try { books = (loadBibleTranslation(b.abbrev)?.books || []).length; } catch { books = 0; }
+    }
     return {
       ...b,
       installed,
-      fileSize: installed ? fs.statSync(file).size : 0,
+      fileSize,
       size: installed
-        ? `${(fs.statSync(file).size / (1024 * 1024)).toFixed(1)} MB`
-        : b.source === 'beblia' ? (b.size || '') : await bibleFileSize(b.abbrev),
-      books: installed ? (() => { try { return loadBibleTranslation(b.abbrev).books.length; } catch (_) { return 0; } })() : 0
+        ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB`
+        : (b.source === 'beblia' ? (b.size || '') : (bibleSizeCache.get(b.abbrev) || '')),
+      books,
     };
   });
+  const need = base.filter((b) => !b.installed && b.source !== 'beblia' && !b.size);
+  if (need.length) {
+    const fill = mapWithConcurrency(need, 6, async (b) => {
+      try { b.size = await bibleFileSize(b.abbrev); } catch { b.size = ''; }
+    });
+    await Promise.race([fill, new Promise((r) => setTimeout(r, 1200))]);
+  }
+  return base;
 });
 
 ipcMain.handle('scripture-download-bible', async (event, abbrev) => {

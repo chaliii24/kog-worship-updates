@@ -274,7 +274,7 @@ export default function App() {
   const [bibleSearchResults, setBibleSearchResults] = useState(null);
   const [bibleSelVerses, setBibleSelVerses] = useState([]); // verse numbers highlighted in current chapter
   const [bibleFocusedVerse, setBibleFocusedVerse] = useState(null); // verse number with keyboard focus for arrow nav
-  const [bibleFmt, setBibleFmt] = useState({ bold: false, caps: false, layout: 'number' }); // number | plain | sentence
+  const [bibleFmt, setBibleFmt] = useState({ bold: false, caps: false, layout: 'number', font: null, color: null, mark: null }); // number | plain | sentence; font/color null = stage style; mark null = highlight off
   const bibleLastVerseRef = useRef(null); // anchor verse for Shift+Click range selection
   // Remote Bible panel (LAN control phone): request/response state that rides
   // the normal snapshot down. Shape: { catalog:[{abbrev,name,code,books}],
@@ -4485,36 +4485,58 @@ export default function App() {
     // ones. formatBibleVerse also strips a stale "<verse> " prefix first, so
     // services saved by older builds — where source was pre-formatted — still
     // rebuild cleanly instead of printing "16 16 For God…".
-    const verseList = inList.map(v => ({ verse: v.verse, text: formatBibleVerse(v, fmt) }));
+    // NOTE: verse text stays RAW in this list — verse numbers, caps and the
+    // word-level {mark} wraps below all derive from it, so the panel word
+    // buttons (which split the same raw text) index identically.
+    const verseList = inList.map(v => ({ verse: v.verse, raw: typeof v.text === 'string' ? v.text : '' }));
     const first = verseList[0]?.verse;
     const last = verseList[verseList.length - 1]?.verse;
     const refTail = verseList.length > 1 && first !== last ? `${first}-${last}` : (first != null ? `${first}` : '');
     const ref = `${book} ${chapter}${refTail ? `:${refTail}` : ''}`;
 
     const bodyChunks = [];
+    // Marker-pen highlight, word by word: src.markWords holds "verse:word"
+    // keys the operator tapped in the Live Output list (word index counts
+    // across the verse's lines in order). Tapped words ride inside
+    // {mark=COLOR} runs when fmt.mark carries a colour. Marks live in
+    // meta.source too, so live toggles and background switches rebuild them
+    // instead of dropping them — while a queued slide keeps its baked copy
+    // like every other format rule.
+    const markColor = typeof fmt.mark === 'string' && fmt.mark ? fmt.mark : null;
+    const markWords = new Set(Array.isArray(src?.markWords) ? src.markWords.map(String) : []);
     verseList.forEach((vl) => {
-      const raw = typeof vl.text === 'string' ? vl.text : '';
-      const ls = raw.split('\n');
-      ls.forEach((ln, li) => {
-        // Verse numbers already ride on the text (formatBibleVerse owns that
-        // job) — the builder must NOT prefix again or every number doubles.
-        // Wrapped continuation lines just indent under their verse.
-        const line = ln.trim();
-        bodyChunks.push(fmt.bold ? `**${li === 0 ? line : `  ${line}`}**` : (li === 0 ? line : `  ${line}`));
+      const ls = vl.raw.split('\n');
+      let wi = 0;
+      const wrapped = ls.map((ln, li) => {
+        const words = ln.trim().split(/\s+/).filter(Boolean);
+        const indent = li === 0 ? '' : '  ';
+        const out = words.map((w) => {
+          const key = `${vl.verse}:${wi++}`;
+          const t = fmt.bold ? `**${w}**` : w;
+          return (markColor && markWords.has(key)) ? `{mark=${markColor}}${t}{/}` : t;
+        });
+        return indent + out.join(' ');
       });
+      // Standard verse formatting (number prefix, caps, trim) applies to the
+      // assembled verse AFTER wrapping — markers survive caps (hex colours
+      // are case-insensitive and keys fold on read).
+      const formatted = formatBibleVerse({ verse: vl.verse, text: wrapped.join('\n') }, fmt);
+      bodyChunks.push(...formatted.split('\n'));
     });
     // Single verse keeps paragraph gaps; multi-verse packs lines tightly so
     // the block can fill the screen without overflow.
     const body = bodyChunks.join(verseList.length > 1 ? '\n' : '\n\n');
 
     // Scripture always carries its own lyric style: near-fullscreen box +
-    // fill-to-fit font so text scales with how many verses are shown.
+    // fill-to-fit font so text scales with how many verses are shown. The
+    // operator's scripture font + colour win when set; otherwise the stage
+    // style (the pre-feature look, byte-identical for old services).
     const scriptureLyric = {
-      font: stageStyle.fontFamily || 'system-ui, sans-serif',
+      font: (typeof fmt.font === 'string' && fmt.font) || stageStyle.fontFamily || 'system-ui, sans-serif',
       size: 110,
       lineHeight: 1.12,
       align: 'left',
-      color: stageStyle.fontColor || '#ffffff',
+      color: (typeof fmt.color === 'string' && fmt.color) || stageStyle.fontColor || '#ffffff',
       caseMode: 'none',
       fill: true,
       fillMax: 165,
@@ -4549,8 +4571,9 @@ export default function App() {
         translation: transOverride || bibleTrans,
         // RAW lines, never the formatted copy: every rebuild (background
         // switch, format toggle) re-derives from here so rules change
-        // instead of stacking.
-        source: { book, chapter, verses: inList },
+        // instead of stacking. Marked word keys ride along so a live
+        // re-style keeps the highlight instead of dropping it.
+        source: { book, chapter, verses: inList, markWords: [...markWords] },
       },
     };
     lastBibleRef.current = payload;
@@ -4562,9 +4585,13 @@ export default function App() {
   // same guard: the passage must still be what the output is actually
   // showing. Clear Lyrics blanks the screen but keeps liveBibleSrcRef, and a
   // toggle must not resurrect that text.
-  const refireLiveScripture = (bgOverride, fmt) => {
-    const src = liveBibleSrcRef.current;
-    if (!src) return false;
+  const refireLiveScripture = (bgOverride, fmt, markOverride) => {
+    const raw = liveBibleSrcRef.current;
+    if (!raw) return false;
+    // A caller changing the mark set (tap-to-highlight) overlays its word
+    // keys on the stored source; every other rebuild reuses the stored set
+    // untouched.
+    const src = Array.isArray(markOverride) ? { ...raw, markWords: markOverride.map(String) } : raw;
     // Read the payload off the displays this session actually drives — not the
     // operator's own currentSlide, which never receives render-live-slide.
     const live = (displays || [])
@@ -4695,28 +4722,40 @@ export default function App() {
     });
   };
 
-  // Scripture Up Next for the sidebar: the verse AFTER the live selection,
-  // resolved against the open chapter (same book + chapter as what's on
-  // air). Hidden unless a bible slide is actually live and its chapter is
-  // open — no guessing across translations.
-  const bibleUpNext = (() => {
+  // Scripture live on the wall, for the tap-to-highlight word list in the
+  // Live Output panel: verses + marked WORD keys straight from the live
+  // source (meta.source carries them, so queued slides keep working). Same
+  // on-air guards as before — a cleared output shows no list.
+  const liveBible = (() => {
     const item = liveBibleRef.current;
     if (!item || !item.meta || item.meta.kind !== 'bible') return null;
     if (!activeCue || activeCue.id !== item.id) return null;
-    const src = item.meta.source || {};
-    const liveVerses = src.verses || [];
-    if (!liveVerses.length) return null;
-    if (!bibleChapter || bibleChapter.book !== src.book || Number(bibleChapter.chapter) !== Number(src.chapter)) return null;
-    const lastNum = Number(liveVerses[liveVerses.length - 1].verse);
-    const nxt = (bibleChapter.verses || []).find((v) => Number(v.verse) === lastNum + 1);
-    if (!nxt) return null;
-    return { book: src.book, chapter: src.chapter, verse: nxt.verse, ref: `${src.book} ${src.chapter}:${nxt.verse}`, text: formatBibleVerse(nxt) };
+    const src = (item.meta && item.meta.source) || liveBibleSrcRef.current || {};
+    const verses = Array.isArray(src.verses) ? src.verses : [];
+    if (!verses.length) return null;
+    return {
+      book: src.book || item.title || '',
+      chapter: src.chapter || '',
+      verses: verses.map((v) => ({ verse: Number(v.verse), text: String(v.text || '') })),
+      markWords: (Array.isArray(src.markWords) ? src.markWords : []).map(String),
+    };
   })();
-  const fireBibleUpNext = () => {
-    if (!bibleUpNext || !bibleChapter) return;
-    const v = (bibleChapter.verses || []).find((x) => Number(x.verse) === Number(bibleUpNext.verse));
-    if (!v) return;
-    fireBibleLive({ book: bibleUpNext.book, chapter: bibleUpNext.chapter, verses: [{ verse: v.verse, text: v.text }] });
+  // Flip one "verse:word" key in the live mark set and re-fire in place
+  // (same id, so the service row keeps its Stop state). Marking the first
+  // word auto-switches the highlighter on with the default colour so the
+  // tap visibly lands.
+  const toggleLiveBibleWord = (key) => {
+    if (!liveBible) return false;
+    const k = String(key);
+    const cur = new Set(liveBible.markWords);
+    if (cur.has(k)) cur.delete(k); else cur.add(k);
+    let fmt = bibleFmt;
+    if (cur.size && !fmt.mark) {
+      fmt = { ...fmt, mark: '#FDE047' };
+      setBibleFmt(fmt);
+    }
+    refireLiveScripture(null, fmt, [...cur]);
+    return true;
   };
 
   const queueBibleSelection = () => {
@@ -5502,8 +5541,8 @@ export default function App() {
           slideGrid={slideGrid}
           renderSlideFace={renderSlideFace}
           fireGridTile={fireGridTile}
-          bibleUpNext={bibleUpNext}
-          fireBibleUpNext={fireBibleUpNext}
+          liveBible={liveBible}
+          toggleLiveBibleWord={toggleLiveBibleWord}
           fireOverlay={fireOverlay}
           clearOverlay={clearOverlay}
           liveOverlay={liveOverlay}

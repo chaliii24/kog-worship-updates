@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Square, Type, SkipBack, SkipForward, Zap, FolderOpen, Megaphone, SlidersHorizontal } from 'lucide-react';
+import { Square, Type, SkipBack, SkipForward, Zap, FolderOpen, Megaphone, SlidersHorizontal, Highlighter } from 'lucide-react';
 import { motion } from 'motion/react';
 import { TimerReadout, overlayOnAir } from '../lib/perf';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import { mediaLabel } from '../lib/backgrounds';
+import FontPicker from './FontPicker';
+import { FONT_OPTIONS } from '../lib/constants';
 // Untitled UI — migration phase 3 (tabs): RAC-backed Tabs for the Groups/Media
 // switcher (mirror layout + `@/` alias documented in NewSongPrompt.jsx).
 import { Tabs, TabList, Tab, TabPanel } from '../untitledui/components/application/tabs/tabs';
@@ -42,8 +44,8 @@ export default function LiveOutputPanel({
   slideGrid,
   renderSlideFace,
   fireGridTile,
-  bibleUpNext,
-  fireBibleUpNext,
+  liveBible,
+  toggleLiveBibleWord,
   bibleFmt = { bold: false, caps: false, layout: 'number' },
   setBibleFmt,
   // Message overlay (audience text above the slide): push/clear fns plus
@@ -162,6 +164,53 @@ export default function LiveOutputPanel({
         {/* Everything below the preview fires at the wall, so it all locks
             together while the Countdown tab owns the output. */}
         <div style={lockStyle} inert={lockInert} aria-disabled={locked || undefined}>
+        {/* LIVE VERSES — the scripture on the wall right now, word by word.
+            Tapping a word flips its marker-pen highlight in place (same slide
+            id, so the service row keeps Stop). Sits first: it mirrors the
+            preview above. */}
+        {liveBible && liveBible.verses.length > 0 && (
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 4 }}>
+              On the wall — tap words to highlight{liveBible.book ? ` · ${liveBible.book}${liveBible.chapter ? ` ${liveBible.chapter}` : ''}` : ''}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 260, overflowY: 'auto' }}>
+              {liveBible.verses.map((v) => {
+                const words = String(v.text || '').split(/\s+/).filter(Boolean);
+                return (
+                  <div key={v.verse} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '7px 10px' }}>
+                    <div style={{ fontSize: 10, fontWeight: 900, color: C.faint, marginBottom: 4 }}>Verse {v.verse}</div>
+                    <div style={{ fontSize: 12.5, lineHeight: 2, color: C.text2 }}>
+                      {words.map((w, k) => {
+                        const key = `${v.verse}:${k}`;
+                        const marked = liveBible.markWords.includes(key);
+                        return (
+                          <button
+                            key={key}
+                            onClick={() => toggleLiveBibleWord && toggleLiveBibleWord(key)}
+                            title={marked ? `Unmark "${w}"` : `Highlight "${w}" on the wall`}
+                            style={{
+                              background: marked ? (bibleFmt.mark || '#FDE047') : 'transparent',
+                              border: 'none',
+                              borderRadius: 4,
+                              color: marked ? '#000000' : C.text2,
+                              fontSize: 12.5,
+                              fontWeight: marked ? 800 : 400,
+                              lineHeight: 2,
+                              cursor: 'pointer',
+                              padding: '0 3px',
+                              marginRight: 1,
+                              fontFamily: 'inherit',
+                            }}
+                          >{w}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {/* LYRICS UP NEXT — the slide that follows the live one in the flow.
             Clicking fires it, exactly like its grid tile. */}
         {lyricsNextTile && (
@@ -175,22 +224,6 @@ export default function LiveOutputPanel({
               style={{ display: 'block', width: '100%', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--ui-border2)', cursor: 'pointer', padding: 0, background: 'transparent' }}
             >
               {renderSlideFace ? renderSlideFace(lyricsNextTile, { aspect: '16 / 9' }) : null}
-            </button>
-          </div>
-        )}
-        {/* SCRIPTURE UP NEXT — the verse after the live selection, from the
-            open chapter. Clicking fires that single verse. */}
-        {bibleUpNext && (
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 4 }}>
-              Up Next — {bibleUpNext.ref}
-            </div>
-            <button
-              onClick={() => fireBibleUpNext && fireBibleUpNext()}
-              title={`Fire ${bibleUpNext.ref}`}
-              style={{ display: 'block', width: '100%', textAlign: 'left', background: C.elevated, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 8, padding: '9px 11px', fontSize: 12, lineHeight: 1.55, cursor: 'pointer' }}
-            >
-              {bibleUpNext.text}
             </button>
           </div>
         )}
@@ -353,9 +386,21 @@ export default function LiveOutputPanel({
               </div>
               <motion.button {...stubTap} onClick={() => setBibleFmt && setBibleFmt(f => ({ ...f, bold: !f.bold }))} title="Toggle bold" style={{ background: bibleFmt.bold ? 'rgba(139,92,246,0.18)' : C.elevated, border: bibleFmt.bold ? '1px solid #8b5cf6' : '1px solid var(--ui-border2)', color: bibleFmt.bold ? '#8b5cf6' : C.faint, borderRadius: 9, padding: '7px 12px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>B</motion.button>
               <motion.button {...stubTap} onClick={() => setBibleFmt && setBibleFmt(f => ({ ...f, caps: !f.caps }))} title="Uppercase" style={{ background: bibleFmt.caps ? 'rgba(139,92,246,0.18)' : C.elevated, border: bibleFmt.caps ? '1px solid #8b5cf6' : '1px solid var(--ui-border2)', color: bibleFmt.caps ? '#8b5cf6' : C.faint, borderRadius: 9, padding: '7px 12px', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer' }}>Aa</motion.button>
+              <div title="Scripture font (Default = stage style)" style={{ flex: '1 1 150px', minWidth: 130 }}>
+                <FontPicker value={bibleFmt.font || ''} choices={[{ label: 'Default font', value: '' }, ...FONT_OPTIONS]} onChange={(v) => setBibleFmt && setBibleFmt(f => ({ ...f, font: v || null }))} C={C} />
+              </div>
+              <div title="Scripture text colour" style={{ display: 'flex', alignItems: 'center', gap: 4, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 9, padding: '4px 7px' }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: bibleFmt.color ? '#8b5cf6' : C.faint }}>A</span>
+                <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(bibleFmt.color || '') ? bibleFmt.color : '#ffffff'} onChange={(e) => setBibleFmt && setBibleFmt(f => ({ ...f, color: e.target.value }))} title="Pick the scripture text colour" style={{ width: 26, height: 22, background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }} />
+                {bibleFmt.color && <button onClick={() => setBibleFmt && setBibleFmt(f => ({ ...f, color: null }))} title="Back to the stage style colour" style={{ background: 'transparent', border: 'none', color: C.faint, fontSize: 11, cursor: 'pointer', padding: '0 2px' }}>✕</button>}
+              </div>
+              <motion.button {...stubTap} onClick={() => setBibleFmt && setBibleFmt(f => ({ ...f, mark: f.mark ? null : (f.mark || '#FDE047') }))} title={bibleFmt.mark ? 'Highlighter on — pick words on the live list' : 'Switch the highlighter on'} style={{ background: bibleFmt.mark ? 'rgba(139,92,246,0.18)' : C.elevated, border: bibleFmt.mark ? '1px solid #8b5cf6' : '1px solid var(--ui-border2)', color: bibleFmt.mark ? '#8b5cf6' : C.faint, borderRadius: 9, padding: '7px 10px', cursor: 'pointer', display: 'flex' }}><Highlighter size={13} /></motion.button>
+              {bibleFmt.mark && (
+                <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(bibleFmt.mark || '') ? bibleFmt.mark : '#FDE047'} onChange={(e) => setBibleFmt && setBibleFmt(f => ({ ...f, mark: e.target.value }))} title="Highlight colour" style={{ width: 30, height: 26, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 9, cursor: 'pointer', padding: 2 }} />
+              )}
             </div>
             <div style={{ fontSize: 9.5, color: C.faint, marginTop: 6, lineHeight: 1.6 }}>
-              Applies to scripture only — a passage already on the wall re-renders as you tap.
+              Font, colour and highlight apply to scripture only — a passage already on the wall re-renders as you tap.
             </div>
           </div>
           <div>
