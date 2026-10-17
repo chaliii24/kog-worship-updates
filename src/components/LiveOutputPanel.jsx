@@ -123,6 +123,13 @@ export default function LiveOutputPanel({
   const overlayLive = overlayOnAir(liveOverlay) ? liveOverlay : null;
   const ovReady = !!(ovDraft.text.trim() || (ovDraft.media && ovDraft.media.url));
   const [studioOpen, setStudioOpen] = useState(false);
+  // Scripture panel split: the live word list (highlight) and everything that
+  // styles scripture (text format, backgrounds, timer) live on two tabs so the
+  // preview never has to scroll and the controls are never squeezed out.
+  const [scriptureTab, setScriptureTab] = useState(() => {
+    try { return localStorage.getItem('kog-scripture-panel-tab') === 'settings' ? 'settings' : 'highlight'; } catch { return 'highlight'; }
+  });
+  const pickScriptureTab = (t) => { setScriptureTab(t); try { localStorage.setItem('kog-scripture-panel-tab', t); } catch {} };
   // Locked panels dim their firing controls. `inert` (not pointer-events)
   // does the blocking: clicks AND keyboard focus die, but the scroll
   // containers keep scrolling — a pointer-events overlay would eat the wheel
@@ -135,15 +142,11 @@ export default function LiveOutputPanel({
     // delay flashed a dark ghost of this panel over its own slot on every
     // load. It renders instantly at full opacity.
     <div className="right-panel-shell" style={{ flex: '0 1 340px', minWidth: 280, maxWidth: '35vw', height: '100%', minHeight: 0, overflow: 'hidden', background: C.panel, borderLeft: '1px solid var(--ui-border)', flexDirection: 'column', display: 'flex' }}>
-      {/* The preview half is top-WEIGHTED: preview + live verse card + push +
-          clear + sermon up-next + scripture backgrounds all live here. Without
-          a floor on the lower half this block simply grew until the window ran
-          out, squeezing Scripture Text (font, colour, highlighter) to a
-          zero-height sliver at the bottom edge — the "options disappear when
-          a verse goes live" report. maxHeight caps this half so the options
-          half always keeps real height; the cap scrolls internally, preview
-          first, so the wall is still the first thing in view. */}
-      <div style={{ padding: '12px 12px 6px 12px', borderBottom: '1px solid ' + C.border, flex: '0 1 auto', minHeight: 0, maxHeight: '55%', overflowY: 'auto' }}>
+      {/* Preview + transport only — this block is FIXED, never scrolls. The
+          live word list and the scripture styling controls moved down into the
+          Highlight / Settings tabs, which is what stopped the old preview
+          half from growing until it squeezed the options to zero height. */}
+      <div style={{ padding: '12px 12px 6px 12px', borderBottom: '1px solid ' + C.border, flex: '0 0 auto', minHeight: 0, overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 800, color: C.heading, textTransform: 'uppercase', letterSpacing: 1.5 }}>Live Output</span>
           <span style={{ fontSize: 11, fontWeight: 700, color: C.muted }}>{activeSlideIndex >= 0 ? `${activeSlideIndex}/${slideCount - 1}` : '—'}</span>
@@ -172,54 +175,6 @@ export default function LiveOutputPanel({
         {/* Everything below the preview fires at the wall, so it all locks
             together while the Countdown tab owns the output. */}
         <div style={lockStyle} inert={lockInert} aria-disabled={locked || undefined}>
-        {/* LIVE VERSES — the scripture on the wall right now, word by word.
-            Tapping a word flips its marker-pen highlight in place (same slide
-            id, so the service row keeps Stop). Sits first: it mirrors the
-            preview above. */}
-        {liveBible && liveBible.verses.length > 0 && (
-          <div data-testid="liveverse-card" style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 4 }}>
-              On the wall — tap words to highlight{liveBible.book ? ` · ${liveBible.book}${liveBible.chapter ? ` ${liveBible.chapter}` : ''}` : ''}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 260, overflowY: 'auto' }}>
-              {liveBible.verses.map((v) => {
-                const words = String(v.text || '').split(/\s+/).filter(Boolean);
-                return (
-                  <div key={v.verse} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '7px 10px' }}>
-                    <div style={{ fontSize: 10, fontWeight: 900, color: C.faint, marginBottom: 4 }}>Verse {v.verse}</div>
-                    <div style={{ fontSize: 12.5, lineHeight: 2, color: C.text2 }}>
-                      {words.map((w, k) => {
-                        const key = `${v.verse}:${k}`;
-                        const marked = liveBible.markWords.includes(key);
-                        return (
-                          <button
-                            key={key}
-                            data-testid={`liveword-${key}`}
-                            onClick={() => toggleLiveBibleWord && toggleLiveBibleWord(key)}
-                            title={marked ? `Unmark "${w}"` : `Highlight "${w}" on the wall`}
-                            style={{
-                              background: marked ? (bibleFmt.mark || '#FDE047') : 'transparent',
-                              border: 'none',
-                              borderRadius: 4,
-                              color: marked ? '#000000' : C.text2,
-                              fontSize: 12.5,
-                              fontWeight: marked ? 800 : 400,
-                              lineHeight: 2,
-                              cursor: 'pointer',
-                              padding: '0 3px',
-                              marginRight: 1,
-                              fontFamily: 'inherit',
-                            }}
-                          >{w}</button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
         {/* LYRICS UP NEXT — the slide that follows the live one in the flow.
             Clicking fires it, exactly like its grid tile. */}
         {lyricsNextTile && (
@@ -321,43 +276,6 @@ export default function LiveOutputPanel({
             </div>
           );
         })()}
-        {/* SCRIPTURE BACKGROUND (shown when the Scripture dock button is active; applies only to scripture) */}
-        {dockTab === 'scripture' && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>Scripture Background</span>
-            {bibleMedia ? (
-              <motion.button {...stubTap} onClick={() => selectBibleMediaLive(null, null, null)} title="Drop this session's background and fall back to the default" style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</motion.button>
-            ) : null}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input type="color" value={bibleMedia && bibleMedia.type === 'color' ? bibleMedia.value : '#0a0a0a'} onChange={(e) => pushBibleColor(e.target.value)} title="Scripture solid-color background" style={{ width: 30, height: 26, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
-            <motion.button {...stubTap} onClick={() => setScripturePicker('session')} title="Pick a picture or video from your Bible media folder" style={{ flex: 1, background: C.elevated, color: C.text2, border: '1px solid var(--ui-border2)', padding: '5px 8px', borderRadius: 6, fontSize: 10, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><FolderOpen size={11} /> Choose…</motion.button>
-          </div>
-          {/* Replaces the old "Your Uploads" thumbnail grid. A grid asks the
-              operator to browse every time; what is actually needed is ONE
-              background assigned once, so scripture always arrives with art. */}
-          <div style={{ marginTop: 7 }}>
-            <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Default for new scripture</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {defaultOpt && (
-                <div style={{ width: 48, height: 27, flexShrink: 0, borderRadius: 5, overflow: 'hidden', border: '1px solid ' + C.border2, background: '#000' }}>
-                  {defaultOpt.type === 'video'
-                    ? <video src={defaultOpt.value} autoPlay loop muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                    : <img src={defaultOpt.value} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
-                </div>
-              )}
-              <motion.button {...stubTap} onClick={() => setScripturePicker('default')} title="Background attached to every scripture you add to a section" style={{ flex: 1, minWidth: 0, textAlign: 'left', background: C.elevated, border: '1px solid ' + C.border2, color: C.text, borderRadius: 6, padding: '6px 9px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{defaultOpt ? defaultOpt.label : 'Choose…'}</span>
-                <FolderOpen size={11} style={{ flexShrink: 0, color: C.faint }} />
-              </motion.button>
-            </div>
-          </div>
-          <div style={{ fontSize: 9.5, color: C.faint, marginTop: 4 }}>{bibleMedia
-            ? `Live override: ${bibleMedia.type === 'color' ? bibleMedia.value : (bibleMedia.name ? mediaLabel(bibleMedia.name, bibleMedia.type) : bibleMedia.type)} · new scripture still uses the default`
-            : defaultOpt ? `No override — scripture runs on “${defaultOpt.label}”.` : 'Assign a default so scripture is never added blank.'}</div>
-        </div>
-        )}
         </div>
       </div>
 
@@ -372,12 +290,99 @@ export default function LiveOutputPanel({
           The slideshow is on the wall — song Groups & Media return when lyrics are back (F1).
         </div>
       ) : dockTab === 'scripture' ? (
-      /* SCRIPTURE-ONLY OPTIONS. Groups & Media are song controls — sections
-         to jump to, the song background, lyric shortcuts — and none of it
-         means anything while a passage is up. The Scripture tab gets what
-         actually drives scripture: text format (which re-renders the wall the
-         moment it is toggled) and the read timer for pacing. */
-      <div className="min-h-0 flex-1 overflow-y-auto" style={{ padding: '10px 12px' }}>
+      /* SCRIPTURE — TWO TABS under a fixed preview. Highlight carries the live
+         passage word by word (tap = marker-pen on the wall) plus the read
+         timer for pacing; Scripture Settings carries everything that styles
+         scripture — text format, solid/picture/video backgrounds and the
+         default attached to new scripture. Splitting them is what finally
+         stopped the old preview half from growing until it squeezed the
+         options to zero height: the preview and the transport above never
+         scroll, and each tab scrolls on its own. */
+      <div className="min-h-0 flex-1 flex flex-col" style={{ padding: '10px 12px 0 12px' }}>
+        <div role="tablist" style={{ display: 'flex', gap: 4, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 3, marginBottom: 9, flexShrink: 0 }}>
+          {[['highlight', 'Highlight'], ['settings', 'Scripture Settings']].map(([id, label]) => (
+            <motion.button
+              {...stubTap}
+              key={id}
+              role="tab"
+              aria-selected={scriptureTab === id}
+              data-testid={`scripture-tab-${id}`}
+              onClick={() => pickScriptureTab(id)}
+              title={id === 'highlight' ? 'The passage on the wall — tap words to highlight them' : 'Text format, backgrounds and the read timer'}
+              style={{ flex: 1, minWidth: 0, background: scriptureTab === id ? 'rgba(139,92,246,0.18)' : 'transparent', border: 'none', borderRadius: 8, color: scriptureTab === id ? '#8b5cf6' : C.faint, padding: '6px 6px', fontSize: 10, fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+            >
+              {label}
+              {id === 'highlight' && liveBible && liveBible.markWords.length > 0 ? (
+                <span style={{ fontSize: 9, fontWeight: 900, background: bibleFmt.mark || '#FDE047', color: '#000', borderRadius: 8, padding: '0 5px', flexShrink: 0 }}>{liveBible.markWords.length}</span>
+              ) : null}
+            </motion.button>
+          ))}
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto" style={{ paddingRight: 2, paddingBottom: 10 }}>
+        {scriptureTab === 'highlight' ? (
+        <div style={{ display: 'grid', gap: 12 }}>
+          {/* LIVE VERSES — the scripture on the wall right now, word by word.
+              Tapping a word flips its marker-pen highlight in place (same
+              slide id, so the service row keeps Stop). */}
+          <div data-testid="liveverse-card">
+            <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>
+              {liveBible && liveBible.verses.length > 0
+                ? `On the wall — tap words to highlight${liveBible.book ? ` · ${liveBible.book}${liveBible.chapter ? ` ${liveBible.chapter}` : ''}` : ''}`
+                : 'Tap words to highlight'}
+            </div>
+            {liveBible && liveBible.verses.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {liveBible.verses.map((v) => {
+                  const words = String(v.text || '').split(/\s+/).filter(Boolean);
+                  return (
+                    <div key={v.verse} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '7px 10px' }}>
+                      <div style={{ fontSize: 10, fontWeight: 900, color: C.faint, marginBottom: 4 }}>Verse {v.verse}</div>
+                      <div style={{ fontSize: 12.5, lineHeight: 2, color: C.text2 }}>
+                        {words.map((w, k) => {
+                          const key = `${v.verse}:${k}`;
+                          const marked = liveBible.markWords.includes(key);
+                          return (
+                            <button
+                              key={key}
+                              data-testid={`liveword-${key}`}
+                              onClick={() => toggleLiveBibleWord && toggleLiveBibleWord(key)}
+                              title={marked ? `Unmark "${w}"` : `Highlight "${w}" on the wall`}
+                              style={{
+                                background: marked ? (bibleFmt.mark || '#FDE047') : 'transparent',
+                                border: 'none',
+                                borderRadius: 4,
+                                color: marked ? '#000000' : C.text2,
+                                fontSize: 12.5,
+                                fontWeight: marked ? 800 : 400,
+                                lineHeight: 2,
+                                cursor: 'pointer',
+                                padding: '0 3px',
+                                marginRight: 1,
+                                fontFamily: 'inherit',
+                              }}
+                            >{w}</button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ background: C.elevated, border: '1px dashed var(--ui-border2)', borderRadius: 8, padding: '12px 11px', fontSize: 11, color: C.faint, lineHeight: 1.6 }}>
+                Nothing on the wall yet. Select verses in the chapter and press Push to Display — the passage then appears here word by word, ready to highlight.
+              </div>
+            )}
+          </div>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 7 }}>Slide Timer</div>
+            <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: C.muted }}>{slideTimer.start ? 'Running' : 'Idle'}</span>
+              <TimerReadout start={slideTimer.start} duration={slideTimer.duration} C={C} PINK={PINK} />
+            </div>
+          </div>
+        </div>
+        ) : (
         <div style={{ display: 'grid', gap: 12 }}>
           <div>
             <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 7 }}>Scripture Text</div>
@@ -403,7 +408,7 @@ export default function LiveOutputPanel({
                 <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(bibleFmt.color || '') ? bibleFmt.color : '#ffffff'} onChange={(e) => setBibleFmt && setBibleFmt(f => ({ ...f, color: e.target.value }))} title="Pick the scripture text colour" style={{ width: 26, height: 22, background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }} />
                 {bibleFmt.color && <button onClick={() => setBibleFmt && setBibleFmt(f => ({ ...f, color: null }))} title="Back to the stage style colour" style={{ background: 'transparent', border: 'none', color: C.faint, fontSize: 11, cursor: 'pointer', padding: '0 2px' }}>✕</button>}
               </div>
-              <motion.button {...stubTap} onClick={() => setBibleFmt && setBibleFmt(f => ({ ...f, mark: f.mark ? null : (f.mark || '#FDE047') }))} title={bibleFmt.mark ? 'Highlighter on — pick words on the live list' : 'Switch the highlighter on'} style={{ background: bibleFmt.mark ? 'rgba(139,92,246,0.18)' : C.elevated, border: bibleFmt.mark ? '1px solid #8b5cf6' : '1px solid var(--ui-border2)', color: bibleFmt.mark ? '#8b5cf6' : C.faint, borderRadius: 9, padding: '7px 10px', cursor: 'pointer', display: 'flex' }}><Highlighter size={13} /></motion.button>
+              <motion.button {...stubTap} data-testid="bible-highlighter" onClick={() => { const on = !bibleFmt.mark; setBibleFmt && setBibleFmt(f => ({ ...f, mark: on ? (f.mark || '#FDE047') : null })); if (on) pickScriptureTab('highlight'); }} title={bibleFmt.mark ? 'Highlighter on — pick words on the Highlight tab' : 'Switch the highlighter on, then tap words on the Highlight tab'} style={{ background: bibleFmt.mark ? 'rgba(139,92,246,0.18)' : C.elevated, border: bibleFmt.mark ? '1px solid #8b5cf6' : '1px solid var(--ui-border2)', color: bibleFmt.mark ? '#8b5cf6' : C.faint, borderRadius: 9, padding: '7px 10px', cursor: 'pointer', display: 'flex' }}><Highlighter size={13} /></motion.button>
               {bibleFmt.mark && (
                 <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(bibleFmt.mark || '') ? bibleFmt.mark : '#FDE047'} onChange={(e) => setBibleFmt && setBibleFmt(f => ({ ...f, mark: e.target.value }))} title="Highlight colour" style={{ width: 30, height: 26, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 9, cursor: 'pointer', padding: 2 }} />
               )}
@@ -412,13 +417,43 @@ export default function LiveOutputPanel({
               Font, colour and highlight apply to scripture only — a passage already on the wall re-renders as you tap.
             </div>
           </div>
+          {/* SCRIPTURE BACKGROUND — a solid colour for this session plus the
+              default attached to every scripture added to a section. */}
           <div>
-            <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 7 }}>Slide Timer</div>
-            <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, color: C.muted }}>{slideTimer.start ? 'Running' : 'Idle'}</span>
-              <TimerReadout start={slideTimer.start} duration={slideTimer.duration} C={C} PINK={PINK} />
+            <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 7, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Scripture Background</span>
+              {bibleMedia ? (
+                <motion.button {...stubTap} onClick={() => selectBibleMediaLive(null, null, null)} title="Drop this session's background and fall back to the default" style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</motion.button>
+              ) : null}
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input type="color" value={bibleMedia && bibleMedia.type === 'color' ? bibleMedia.value : '#0a0a0a'} onChange={(e) => pushBibleColor(e.target.value)} title="Scripture solid-color background" style={{ width: 30, height: 26, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
+              <motion.button {...stubTap} onClick={() => setScripturePicker('session')} title="Pick a picture or video from your Bible media folder" style={{ flex: 1, background: C.elevated, color: C.text2, border: '1px solid var(--ui-border2)', padding: '5px 8px', borderRadius: 6, fontSize: 10, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><FolderOpen size={11} /> Choose…</motion.button>
+            </div>
+            {/* ONE background assigned once, so scripture always arrives with
+                art — instead of a thumbnail grid the operator re-browses. */}
+            <div style={{ marginTop: 7 }}>
+              <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Default for new scripture</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {defaultOpt && (
+                  <div style={{ width: 48, height: 27, flexShrink: 0, borderRadius: 5, overflow: 'hidden', border: '1px solid ' + C.border2, background: '#000' }}>
+                    {defaultOpt.type === 'video'
+                      ? <video src={defaultOpt.value} autoPlay loop muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                      : <img src={defaultOpt.value} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                  </div>
+                )}
+                <motion.button {...stubTap} onClick={() => setScripturePicker('default')} title="Background attached to every scripture you add to a section" style={{ flex: 1, minWidth: 0, textAlign: 'left', background: C.elevated, border: '1px solid ' + C.border2, color: C.text, borderRadius: 6, padding: '6px 9px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{defaultOpt ? defaultOpt.label : 'Choose…'}</span>
+                  <FolderOpen size={11} style={{ flexShrink: 0, color: C.faint }} />
+                </motion.button>
+              </div>
+            </div>
+            <div style={{ fontSize: 9.5, color: C.faint, marginTop: 4 }}>{bibleMedia
+              ? `Live override: ${bibleMedia.type === 'color' ? bibleMedia.value : (bibleMedia.name ? mediaLabel(bibleMedia.name, bibleMedia.type) : bibleMedia.type)} · new scripture still uses the default`
+              : defaultOpt ? `No override — scripture runs on “${defaultOpt.label}”.` : 'Assign a default so scripture is never added blank.'}</div>
           </div>
+        </div>
+        )}
         </div>
       </div>
       ) : (
