@@ -124,6 +124,9 @@ export default function StageScreen({ C, state, status, onSwitchRole }) {
   // output has since been cleared). Nothing anywhere → no title, correctly.
   const liveServiceTitle = ((state?.service?.sections || []).flatMap((s) => s.items || []).find((i) => i && i.live)?.title) || '';
   const drumTitle = (current && current.title) || (state?.song && state.song.title) || liveServiceTitle || '';
+  // No song anywhere → blank tempo, not the last cached BPM. The number stays
+  // empty and the light holds a static outline until a song loads.
+  const drumHasSong = !!drumTitle;
 
   const offline = status !== 'online';
 
@@ -185,7 +188,9 @@ export default function StageScreen({ C, state, status, onSwitchRole }) {
       )}
 
       {/* DRUMMER: BPM number only + big beat light. No lyrics, chords or
-          next card — just the tempo, flashing at 60/bpm. */}
+          next card — just the tempo, flashing at 60/bpm. With no song
+          loaded anywhere the tempo stays blank (never the last cached BPM)
+          and the light holds a static outline. */}
       {isDrummer ? (
         <>
           <style>{`@keyframes drumBeat { 0% { opacity: 1; } 10% { opacity: 0; } 100% { opacity: 0; } }`}</style>
@@ -196,7 +201,8 @@ export default function StageScreen({ C, state, status, onSwitchRole }) {
               </div>
             )}
             <div style={{ position: 'relative', width: '34vh', height: '34vh', maxWidth: '78vw', maxHeight: '78vw' }}>
-              {/* Outline ring: this is all that shows while the beat is off. */}
+              {/* Outline ring: this is all that shows while the beat is off —
+                  and the only thing showing when no song is loaded. */}
               <div
                 data-testid="drum-ring"
                 style={{
@@ -205,20 +211,29 @@ export default function StageScreen({ C, state, status, onSwitchRole }) {
                   boxShadow: '0 0 24px rgba(253,224,71,0.28)',
                 }}
               />
-              <div
-                data-testid="drum-light"
-                style={{
-                  position: 'absolute', inset: 0,
-                  borderRadius: '50%', background: '#fde047',
-                  boxShadow: '0 0 60px rgba(253,224,71,0.55), 0 0 140px rgba(253,224,71,0.25)',
-                  animation: `drumBeat ${beatSec}s linear infinite`,
-                }}
-              />
+              {drumHasSong && (
+                <div
+                  data-testid="drum-light"
+                  style={{
+                    position: 'absolute', inset: 0,
+                    borderRadius: '50%', background: '#fde047',
+                    boxShadow: '0 0 60px rgba(253,224,71,0.55), 0 0 140px rgba(253,224,71,0.25)',
+                    animation: `drumBeat ${beatSec}s linear infinite`,
+                  }}
+                />
+              )}
             </div>
-            <div style={{ textAlign: 'center', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-              <div data-testid="drum-bpm" style={{ fontSize: '20vh', fontWeight: 900, color: '#ffffff', letterSpacing: 2 }}>{bpm}</div>
-              <div style={{ fontSize: fz(0.022, 12), fontWeight: 900, color: faint, letterSpacing: 6, marginTop: '1vh' }}>BPM</div>
-            </div>
+            {drumHasSong ? (
+              <div style={{ textAlign: 'center', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                <div data-testid="drum-bpm" style={{ fontSize: '20vh', fontWeight: 900, color: '#ffffff', letterSpacing: 2 }}>{bpm}</div>
+                <div style={{ fontSize: fz(0.022, 12), fontWeight: 900, color: faint, letterSpacing: 6, marginTop: '1vh' }}>BPM</div>
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', lineHeight: 1.4 }}>
+                <div style={{ fontSize: fz(0.024, 13), fontWeight: 800, color: faint }}>No song loaded</div>
+                <div style={{ fontSize: fz(0.022, 12), fontWeight: 900, color: faint, letterSpacing: 6, marginTop: '1vh' }}>BPM</div>
+              </div>
+            )}
           </div>
         </>
       ) : (

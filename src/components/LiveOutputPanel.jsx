@@ -135,7 +135,15 @@ export default function LiveOutputPanel({
     // delay flashed a dark ghost of this panel over its own slot on every
     // load. It renders instantly at full opacity.
     <div className="right-panel-shell" style={{ flex: '0 1 340px', minWidth: 280, maxWidth: '35vw', height: '100%', minHeight: 0, overflow: 'hidden', background: C.panel, borderLeft: '1px solid var(--ui-border)', flexDirection: 'column', display: 'flex' }}>
-      <div style={{ padding: '12px 12px 6px 12px', borderBottom: '1px solid ' + C.border, flex: '0 1 auto', minHeight: 0, overflowY: 'auto' }}>
+      {/* The preview half is top-WEIGHTED: preview + live verse card + push +
+          clear + sermon up-next + scripture backgrounds all live here. Without
+          a floor on the lower half this block simply grew until the window ran
+          out, squeezing Scripture Text (font, colour, highlighter) to a
+          zero-height sliver at the bottom edge — the "options disappear when
+          a verse goes live" report. maxHeight caps this half so the options
+          half always keeps real height; the cap scrolls internally, preview
+          first, so the wall is still the first thing in view. */}
+      <div style={{ padding: '12px 12px 6px 12px', borderBottom: '1px solid ' + C.border, flex: '0 1 auto', minHeight: 0, maxHeight: '55%', overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 800, color: C.heading, textTransform: 'uppercase', letterSpacing: 1.5 }}>Live Output</span>
           <span style={{ fontSize: 11, fontWeight: 700, color: C.muted }}>{activeSlideIndex >= 0 ? `${activeSlideIndex}/${slideCount - 1}` : '—'}</span>
@@ -169,7 +177,7 @@ export default function LiveOutputPanel({
             id, so the service row keeps Stop). Sits first: it mirrors the
             preview above. */}
         {liveBible && liveBible.verses.length > 0 && (
-          <div style={{ marginBottom: 8 }}>
+          <div data-testid="liveverse-card" style={{ marginBottom: 8 }}>
             <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 4 }}>
               On the wall — tap words to highlight{liveBible.book ? ` · ${liveBible.book}${liveBible.chapter ? ` ${liveBible.chapter}` : ''}` : ''}
             </div>
@@ -186,6 +194,7 @@ export default function LiveOutputPanel({
                         return (
                           <button
                             key={key}
+                            data-testid={`liveword-${key}`}
                             onClick={() => toggleLiveBibleWord && toggleLiveBibleWord(key)}
                             title={marked ? `Unmark "${w}"` : `Highlight "${w}" on the wall`}
                             style={{
