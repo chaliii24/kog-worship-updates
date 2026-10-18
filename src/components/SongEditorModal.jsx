@@ -808,6 +808,16 @@ export default function SongEditorModal() {
         <div style={{ flex: '0 1 150px', minWidth: 100 }}>
           <input type="text" value={editingSong.artist} onChange={(e) => setEditingSong({ ...editingSong, artist: e.target.value })} placeholder="Artist" style={{ width: '100%', background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '7px 10px', color: C.text, fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
         </div>
+        <div style={{ flex: '0 1 110px', minWidth: 84 }}>
+          <input
+            type="text"
+            value={editingSong.ccli == null ? '' : editingSong.ccli}
+            onChange={(e) => setEditingSong({ ...editingSong, ccli: e.target.value.replace(/[^0-9]/g, '').slice(0, 9) })}
+            placeholder="CCLI #"
+            title="CCLI song number — used by the usage report (Settings → CCLI Report). Leave blank if the song has none (public domain / other licence)."
+            style={{ width: '100%', background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '7px 10px', color: C.text, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+          />
+        </div>
         <select value={editingSong.category} onChange={(e) => setEditingSong({ ...editingSong, category: e.target.value })} style={{ background: C.elevated2, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '7px 8px', fontSize: 12, outline: 'none' }}>
           <option value="Worship">Worship</option>
           <option value="Praise">Praise</option>

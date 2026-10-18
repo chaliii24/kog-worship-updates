@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { app } from 'electron';
 import fs from 'fs';
+import { extractCcliFromCues, buildUsageReport, itemSongIds } from './ccliReport.js';
 
 const dbPath = path.join(app.getPath('userData'), 'kog-worship.db');
 let db;
@@ -118,6 +119,9 @@ try { db.exec(`ALTER TABLE songs ADD COLUMN title_cue_json TEXT;`); } catch (_) 
 // touching the stored chart. `SELECT *` flows both columns through everywhere.
 try { db.exec(`ALTER TABLE songs ADD COLUMN chord_chart TEXT;`); } catch (_) {}
 try { db.exec(`ALTER TABLE songs ADD COLUMN chord_key TEXT DEFAULT 'C';`); } catch (_) {}
+// CCLI song number — drives the usage report (Settings → CCLI Report). NULL
+// means "not on file": the report flags the song rather than guessing.
+try { db.exec(`ALTER TABLE songs ADD COLUMN ccli TEXT;`); } catch (_) {}
 // Per-song tempo for the stage metronome + phone drummer view. NULL = unset
 // (falls back to the stage config tempo). Saved only through the narrow
 // setSongBpm IPC — song-editor saves never touch it.
@@ -137,6 +141,28 @@ try {
     }
   });
   heal();
+} catch (_) {}
+
+// One-time CCLI backfill: libraries built before the number had a home still
+// carry "CCLI #7116401" inside cue text (lyrics pasted from SongSelect and
+// friends keep the footer). Lift the number onto songs.ccli ONCE, and only
+// where it is still NULL — the moment an operator edits the field by hand
+// their value is authoritative and is never re-scanned over. Songs parsed by
+// the current auto-paste drop the footer line from slides, so saveSong
+// extracts at save time; this migration covers everything that predates it.
+try {
+  const need = db.prepare('SELECT id FROM songs WHERE ccli IS NULL OR ccli = \'\'').all();
+  if (need.length) {
+    const cuesOf = db.prepare('SELECT text FROM cues WHERE song_id = ? ORDER BY sequence_order ASC');
+    const stamp = db.prepare('UPDATE songs SET ccli = ? WHERE id = ?');
+    const backfill = db.transaction(() => {
+      for (const s of need) {
+        const n = extractCcliFromCues(cuesOf.all(s.id));
+        if (n) stamp.run(n, s.id);
+      }
+    });
+    backfill();
+  }
 } catch (_) {}
 
 const safeParse = (raw) => { try { return raw ? JSON.parse(raw) : null; } catch (_) { return null; } };
@@ -221,8 +247,13 @@ export function getSongDetailsMany(ids) {
 }
 
 export function saveSong(songData) {
-  const { id, title, artist, category, cues, bg_type, bg_value, audio_url, title_cue } = songData;
+  const { id, title, artist, category, cues, bg_type, bg_value, audio_url, title_cue, ccli } = songData;
   const titleCueJson = title_cue ? JSON.stringify(title_cue) : null;
+  // CCLI number: the editor field wins. `undefined` (a caller that predates
+  // the field) falls back to scanning the cues for a "CCLI #…" footer line —
+  // hand-pasted lyrics keep it. An explicit '' means the operator cleared the
+  // field on purpose ("this one has no number") and stays cleared.
+  const ccliValue = ccli == null ? (extractCcliFromCues(cues) || null) : (String(ccli).trim() || null);
   const insertCue = db.prepare('INSERT INTO cues (song_id, label, text, sequence_order, bg_type, bg_value, duration, style_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
   const runCues = (songId) => {
     (cues || []).forEach((cue, index) => {
@@ -234,12 +265,12 @@ export function saveSong(songData) {
   // song saved with zero slides. A transaction rolls everything back instead.
   const tx = db.transaction((songId) => {
     if (songId) {
-      db.prepare('UPDATE songs SET title = ?, artist = ?, category = ?, bg_type = ?, bg_value = ?, audio_url = ?, title_cue_json = ? WHERE id = ?').run(title, artist, category, bg_type || 'color', bg_value || '#000000', audio_url || null, titleCueJson, songId);
+      db.prepare('UPDATE songs SET title = ?, artist = ?, category = ?, bg_type = ?, bg_value = ?, audio_url = ?, title_cue_json = ?, ccli = ? WHERE id = ?').run(title, artist, category, bg_type || 'color', bg_value || '#000000', audio_url || null, titleCueJson, ccliValue, songId);
       db.prepare('DELETE FROM cues WHERE song_id = ?').run(songId);
       runCues(songId);
       return songId;
     }
-    const result = db.prepare('INSERT INTO songs (title, artist, category, bg_type, bg_value, audio_url, title_cue_json) VALUES (?, ?, ?, ?, ?, ?, ?)').run(title, artist, category || 'Worship', bg_type || 'color', bg_value || '#000000', audio_url || null, titleCueJson);
+    const result = db.prepare('INSERT INTO songs (title, artist, category, bg_type, bg_value, audio_url, title_cue_json, ccli) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(title, artist, category || 'Worship', bg_type || 'color', bg_value || '#000000', audio_url || null, titleCueJson, ccliValue);
     runCues(result.lastInsertRowid);
     return result.lastInsertRowid;
   });
@@ -462,6 +493,52 @@ export function deleteService(serviceId) {
   db.prepare('DELETE FROM service_items WHERE service_id = ?').run(serviceId);
 }
 
+// CCLI USAGE REPORT — the whole point of storing dated plans. Walks the
+// services in [from, to] (inclusive; dates are 'YYYY-MM-DD' TEXT, so string
+// comparison IS the range query), collects every song id each plan used
+// (expanding medleys — see itemSongIds), and hands the raw rows to
+// buildUsageReport in ccliReport.js for the counting/grouping rules.
+// Returns { rows, missing, undated, from, to }.
+export function getUsageReport(from, to) {
+  const fromStr = String(from || '').trim();
+  const toStr = String(to || '').trim();
+  // Guard the lexicographic compare against junk input: a malformed date
+  // must never match everything (or nothing) silently.
+  const okDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  let query = 'SELECT * FROM services';
+  const params = [];
+  const where = [];
+  if (okDate(fromStr)) { where.push('date >= ?'); params.push(fromStr); }
+  if (okDate(toStr)) { where.push('date <= ?'); params.push(toStr); }
+  if (where.length) query += ' WHERE ' + where.join(' AND ');
+  query += ' ORDER BY date ASC';
+  const services = db.prepare(query).all(...params);
+  if (!services.length) return { rows: [], missing: [], undated: 0, from: fromStr, to: toStr };
+
+  const itemRows = db.prepare(
+    `SELECT * FROM service_items WHERE service_id IN (${services.map(() => '?').join(',')}) AND item_type = 'song'`
+  ).all(...services.map((s) => s.id));
+  const itemsByService = new Map();
+  for (const row of itemRows) {
+    if (!itemsByService.has(row.service_id)) itemsByService.set(row.service_id, []);
+    itemsByService.get(row.service_id).push(row);
+  }
+  const withItems = services.map((s) => ({ ...s, items: itemsByService.get(s.id) || [] }));
+
+  // Batch song lookup for every id the plans touch (distinct, numeric).
+  const ids = new Set();
+  for (const s of withItems) for (const item of s.items) for (const id of itemSongIds(item)) ids.add(id);
+  const songsById = new Map();
+  if (ids.size) {
+    const list = [...ids];
+    const rows = db.prepare(`SELECT id, title, ccli FROM songs WHERE id IN (${list.map(() => '?').join(',')})`).all(...list);
+    for (const r of rows) songsById.set(r.id, r);
+  }
+
+  const report = buildUsageReport(withItems, songsById);
+  return { ...report, from: fromStr, to: toStr };
+}
+
 export function exportLibrary() {
   const songs = db.prepare('SELECT * FROM songs').all();
   return JSON.stringify(songs.map(songToExport).filter(Boolean), null, 2);
@@ -504,12 +581,17 @@ export function exportSongs(ids) {
 export function importLibrary(jsonData) {
   try {
     const library = JSON.parse(jsonData);
-    const insertSong = db.prepare('INSERT INTO songs (title, artist, category, is_favorite, bg_type, bg_value, audio_url, title_cue_json, chord_chart, chord_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const insertSong = db.prepare('INSERT INTO songs (title, artist, category, is_favorite, bg_type, bg_value, audio_url, title_cue_json, chord_chart, chord_key, ccli) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const insertCue = db.prepare('INSERT INTO cues (song_id, label, text, sequence_order, bg_type, bg_value, duration, style_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
 
     db.transaction(() => {
       for (const song of library) {
-        const res = insertSong.run(song.title, song.artist || 'Unknown', song.category || 'Worship', song.is_favorite || 0, song.bg_type || 'color', song.bg_value || '#000000', song.audio_url || null, song.title_cue ? JSON.stringify(song.title_cue) : null, song.chord_chart || null, song.chord_key || 'C');
+        // ccli rides the export (SELECT * spread) and must survive import or
+        // every restore silently empties the usage report's numbers. Older
+        // backup JSON has no field — extract from cues as a fallback, same
+        // rule as saveSong.
+        const ccliValue = song.ccli == null ? (extractCcliFromCues(song.cues) || null) : (String(song.ccli).trim() || null);
+        const res = insertSong.run(song.title, song.artist || 'Unknown', song.category || 'Worship', song.is_favorite || 0, song.bg_type || 'color', song.bg_value || '#000000', song.audio_url || null, song.title_cue ? JSON.stringify(song.title_cue) : null, song.chord_chart || null, song.chord_key || 'C', ccliValue);
         const songId = res.lastInsertRowid;
         if (song.cues) {
           song.cues.forEach((cue, idx) => {

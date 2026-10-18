@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { ICON_HUES, iconHue } from '../lib/icons';
+import CcliReportPanel from './CcliReportPanel';
 
 // Settings tab (ex-Functions): GPresenter-style sections, but every row is a
 // REAL control already wired in this app — no decorative toggles. Sections
@@ -17,6 +18,7 @@ const SECTIONS = [
   { id: 'display', label: 'Display', icon: Monitor, kind: 'display' },
   { id: 'templates', label: 'Song Templates', icon: LayoutTemplate, kind: 'templates' },
   { id: 'bibles', label: 'Bible Translations', icon: BookOpen, kind: 'bibles' },
+  { id: 'reports', label: 'CCLI Report', icon: FileText, kind: 'reports' },
   { id: 'data', label: 'Data Management', icon: Database, kind: 'data' },
 ];
 
@@ -358,6 +360,9 @@ export default function SettingsPanel() {
           })}
         </div>
       )}
+
+      {/* CCLI USAGE REPORT */}
+      {section === 'reports' && <CcliReportPanel />}
 
       {/* DATA MANAGEMENT */}
       {section === 'data' && (

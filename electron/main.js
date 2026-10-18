@@ -39,6 +39,7 @@ import {
   getServiceDetails, 
   saveServicePlan,
   deleteService,
+  getUsageReport,
   getTemplates, 
   saveTemplate, 
   deleteTemplate,
@@ -1775,6 +1776,8 @@ ipcMain.handle('db-get-services', () => getServices());
 ipcMain.handle('db-get-service-details', (event, serviceId) => getServiceDetails(serviceId));
 ipcMain.handle('db-save-service', (event, serviceData) => saveServicePlan(serviceData));
 ipcMain.handle('db-delete-service', (event, serviceId) => deleteService(serviceId));
+// CCLI usage report: dates in, rows out (see getUsageReport / ccliReport.js).
+ipcMain.handle('db-ccli-report', (event, from, to) => getUsageReport(from, to));
 
 // Service Template IPC Handlers
 ipcMain.handle('db-get-templates', () => getTemplates());

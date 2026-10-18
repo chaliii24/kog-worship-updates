@@ -6,6 +6,7 @@ import { getTheme } from './lib/theme';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, cssSpeed } from './lib/constants';
 import { applyCaseTransform, renderLyricsLayout, cueLyricStyle, growBoxToText, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, fitBoxToText, fitParsedCue } from './lib/lyrics';
 import { parseSongBlocks, splitCuesByLines } from '../electron/songParse.js';
+import { extractCcli } from '../electron/ccliReport.js';
 import { LiveBadge, TileVideo, TileCanvas, BackgroundVideo, LiveVideo, OverlayFace, overlayOnAir } from './lib/perf';
 import SplashScreen from './components/SplashScreen';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -3344,7 +3345,15 @@ export default function App() {
       // full 140px instead of being shrunk into the stock box.
       cues = cues.map(fitParsedCue);
 
-      setEditingSong(prev => ({ ...prev, cues }));
+      setEditingSong(prev => ({
+        ...prev,
+        cues,
+        // The parser drops the "CCLI #…" footer line from slides (it's site
+        // chrome, not lyrics) — lift it into the song's CCLI field HERE,
+        // before it is lost. Only when empty: a number the operator typed by
+        // hand is never overwritten by a re-paste.
+        ccli: (prev.ccli == null || String(prev.ccli).trim() === '') ? (extractCcli(text) || prev.ccli) : prev.ccli,
+      }));
       return cues;
     } finally {
       setIsParsing(false);
