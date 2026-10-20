@@ -25,6 +25,7 @@ export function countdownProof(timer) {
     t.timeSize,
     t.live ? t.live.endsAt : null,
     t.live ? t.live.startedAt : null,
+    t.live ? (t.live.pausedAt ?? null) : null,
   ]);
 }
 

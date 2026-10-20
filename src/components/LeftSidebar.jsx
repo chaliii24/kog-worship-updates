@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, Images, PanelLeftClose, PanelLeftOpen, Music, MonitorPlay, Pencil, FileUp, BookOpen, Link2, ListMusic } from 'lucide-react';
+import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Clock, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, Images, PanelLeftClose, PanelLeftOpen, Music, MonitorPlay, Pencil, FileUp, BookOpen, Link2, ListMusic } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { slidesFromPptx } from '../lib/backgrounds';
@@ -17,6 +17,16 @@ import { ScrollArea } from '@/components/ui/scroll-area';
    direction, so switching to a tab further right slides content in from the
    right and back is the mirror of that. */
 const TAB_ORDER = ['order', 'shows', 'songs'];
+
+/* The library's three fixed views. Favorites and Recent have been understood
+   by getSongs() from the very beginning — the sidebar simply never had a
+   control able to reach them, which is exactly why both read as dead code.
+   Real categories are appended from whatever the songs table contains. */
+const LIBRARY_CHIPS = [
+  { id: 'All', label: 'All', title: 'Every song in the library' },
+  { id: 'Favorites', label: 'Favorites', Icon: Star, title: 'Songs you have starred' },
+  { id: 'Recent', label: 'Recent', Icon: Clock, title: 'The 10 songs you opened most recently' },
+];
 
 export default function LeftSidebar() {
   const app = useApp();
@@ -39,6 +49,9 @@ export default function LeftSidebar() {
     activeCue,
     searchQuery,
     setSearchQuery,
+    activeCategory,
+    setActiveCategory,
+    songCategories,
     serviceAddMenu,
     setServiceAddMenu,
     serviceSongQuery,
@@ -760,6 +773,31 @@ export default function LeftSidebar() {
               <button onClick={(e) => { e.stopPropagation(); handleNewSong(); }} title="New song" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '4px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}><Plus size={12} /> New</button>
               <button onClick={(e) => { e.stopPropagation(); setExportMsg(null); if (exportMode) setExportSel([]); setExportMode(!exportMode); }} title={exportMode ? 'Done selecting' : 'Tick songs to back up for transfer'} style={{ background: exportMode ? 'rgba(139,92,246,0.16)' : 'rgba(255,255,255,0.04)', border: '1px solid ' + (exportMode ? 'rgba(139,92,246,0.5)' : 'var(--ui-border)'), color: exportMode ? '#C4B5FD' : 'var(--ui-text2)', padding: '4px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>Export</button>
             </div>
+            {/* CATEGORY CHIPS — All / Favorites / Recent plus every category the
+                table actually holds. One horizontally scrollable row: a library
+                can carry many categories, and a wrapping grid would eat the
+                vertical space the songs list needs. */}
+            <div style={{ display: 'flex', gap: 5, padding: '0 10px 7px 10px', overflowX: 'auto', flexShrink: 0 }}>
+              {LIBRARY_CHIPS
+                .concat((songCategories || [])
+                  .filter((c) => c && !LIBRARY_CHIPS.some((f) => f.id === c))
+                  .map((c) => ({ id: c, label: String(c) })))
+                .map((chip) => {
+                  const on = activeCategory === chip.id;
+                  const ChipIcon = chip.Icon;
+                  return (
+                    <button
+                      key={chip.id}
+                      onClick={() => setActiveCategory(chip.id)}
+                      title={chip.title || `Show every song filed under ${chip.label}`}
+                      style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 999, fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', background: on ? ACCENT : 'rgba(255,255,255,0.04)', border: '1px solid ' + (on ? ACCENT : 'var(--ui-border)'), color: on ? '#fff' : 'var(--ui-text2)', transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease' }}
+                    >
+                      {ChipIcon ? <ChipIcon size={11} fill={on && chip.id === 'Favorites' ? 'currentColor' : 'none'} /> : null}
+                      {chip.label}
+                    </button>
+                  );
+                })}
+            </div>
             {exportMode && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px 6px 10px', flexShrink: 0 }}>
                 <span style={{ fontSize: 10.5, color: C.faint || 'var(--ui-faint)', fontWeight: 700 }}>{exportSel.length} selected</span>
@@ -803,7 +841,17 @@ export default function LeftSidebar() {
                   </div>
                 </div>
               ))}
-              {songs.length === 0 && <div style={{ padding: 16, textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12 }}>No songs found.</div>}
+              {songs.length === 0 && (
+                <div style={{ padding: 16, textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12, lineHeight: 1.5 }}>
+                  {activeCategory === 'Favorites'
+                    ? 'No favorites yet — tap the star on a song to keep it here.'
+                    : activeCategory === 'Recent'
+                      ? 'No recent songs yet — open one and it lands here.'
+                      : searchQuery
+                        ? `No songs match “${searchQuery}”. Try a line from the lyrics.`
+                        : 'No songs found.'}
+                </div>
+              )}
             </div>
             </ScrollArea>
             </>

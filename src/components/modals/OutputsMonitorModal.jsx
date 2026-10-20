@@ -665,7 +665,9 @@ function ScreenSetupPanel({ out, updateOutput, displays, C, PINK }) {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 7 }}>
               <div style={{ fontSize: 9.5, color: C.faint2, lineHeight: 1.45 }}>
-                Relative to {bound ? `${bound.label}` : 'the bound display'}'s origin — may run negative or past its edge.
+                Used when no display is bound (desktop preview window, centered; X/Y nudge it).
+                A bound display always composes its full screen at the selected ratio, so a
+                leftover size can never crop the picture or park it in a corner.
               </div>
               <motion.button
                 {...stubTap}

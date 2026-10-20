@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion } from 'motion/react';
 
 // Shared countdown renderer: the tab preview, the live-output monitor, the
 // projector window and the stage display all draw from this ONE component, so
@@ -18,13 +19,14 @@ export const DEFAULT_COUNTDOWN = {
   showOn: 'both', // both | main | stage
   overtime: false,
   titleSize: 64,
-  timeSize: 360,
+  timeSize: 120,
   subtextSize: 40,
   bgType: 'gradient', // color | gradient | animated | media
   bgValue: 'linear-gradient(135deg, #052e16 0%, #166534 55%, #031a0d 100%)',
   // Custom Media mode (bgType 'media'): slideshow carousel and/or loop video.
   // URLs are media:// (persisted to userData, survive restarts) — never bytes.
-  bgMedia: null, // { kind:'slideshow'|'video', images:[], slideSec:5, video:null, loop:true }
+  // videoAudio (video kind only): { enabled, volume, muted, fadeSec, hasTrack, unsupported }.
+  bgMedia: null, // { kind:'slideshow'|'video', images:[], slideSec:5, video:null, loop:true, videoAudio }
   live: null, // { endsAt, startedAt } while on air (endsAt null = wall clock)
 };
 
@@ -117,6 +119,12 @@ export const computeCountdown = (timer, now) => {
     return { display: `${h}:${String(d.getMinutes()).padStart(2, '0')}`, suffix: ap, over: false };
   }
   if (t.live && t.live.endsAt != null) {
+    // Paused (video countdown transport): the clock is frozen at the paused
+    // remainder — every surface derives the SAME stopped number, so no screen
+    // ticks ahead while the operator holds. Only video mode ever sets these.
+    if (t.live.pausedAt != null && t.live.pausedRemain != null) {
+      return { display: formatCountdownTime(t.live.pausedRemain), over: false, remaining: t.live.pausedRemain, paused: true };
+    }
     const rem = t.live.endsAt - clockNow;
     if (rem <= 0) {
       if (t.overtime) return { display: formatCountdownTime(-rem), over: true };
@@ -148,6 +156,131 @@ export const nextTargetTime = (targetTime, now) => {
   return d.getTime();
 };
 
+// ---------------------------------------------------------------------------
+// VIDEO-UPLOAD COUNTDOWN MODE
+// Everything below is scoped to bgType 'media' + kind 'video' with a picked
+// file (isVideoCountdown). Normal countdown and slideshow modes never call
+// into it, so their timing, layout and completion paths are untouched.
+// ---------------------------------------------------------------------------
+
+// Phase timeline (absolute-clock derived, never tick-counted):
+//   splash 0→3s   big, centered, cinematic fade+scale-in from 85%
+//   corner 3s→+5s from the end, 800ms ease-in-out glide to top-right, smaller
+//   final  last 5s, 800ms glide back to center, one gentle pulse per second
+// Short countdowns (≤5s) land directly in `final` — the ending wins over the
+// opening so the two animations can never fight.
+export const VIDEO_SPLASH_MS = 3000;
+export const VIDEO_RETURN_AT_MS = 5000;
+export const VIDEO_MOVE_MS = 800;
+export const VIDEO_CORNER_INSET = 3.5;   // % from the top/right output edges
+export const VIDEO_CORNER_SCALE = 0.42;  // corner size relative to splash size
+
+export const isVideoCountdown = (t) => {
+  if (!t || t.bgType !== 'media') return false;
+  const m = t.bgMedia || null;
+  return !!(m && m.kind === 'video' && m.video);
+};
+
+// Video-mode clock text: MM:SS, padded minutes, clamped at 00:00 — the spec
+// forbids negative time in this mode (shared formatCountdownTime stays as-is
+// for every other mode).
+export const fmtVideoClock = (ms) => {
+  const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+};
+
+// Pure phase derivation from the LIVE snapshot — identical inputs on every
+// surface (projector, stage, preview, phone), so they all move at the same
+// moment. Pause freezes `elapsed` (pausedAt anchors it) and remaining alike.
+export function computeVideoPhase(t, now) {
+  if (!isVideoCountdown(t) || !t.live || t.live.endsAt == null) return null;
+  const live = t.live;
+  const isPaused = live.pausedAt != null && live.pausedRemain != null;
+  const at = Number.isFinite(Number(now)) ? Number(now) : Date.now();
+  const clock = isPaused ? live.pausedAt : at;
+  const started = live.startedAt != null ? live.startedAt : clock;
+  const elapsed = Math.max(0, clock - started);
+  const remaining = isPaused ? Math.max(0, live.pausedRemain) : Math.max(0, live.endsAt - at);
+  // endsAt − startedAt is pause-invariant (resume re-anchors endsAt by the
+  // pause span), so the return-to-center boundary stays consistent.
+  const durationMs = Math.max(0, live.endsAt - started);
+  const returnAt = Math.max(0, durationMs - VIDEO_RETURN_AT_MS);
+  let phase;
+  if (elapsed >= returnAt) phase = 'final';        // final wins on overlap
+  else if (elapsed < VIDEO_SPLASH_MS) phase = 'splash';
+  else phase = 'corner';
+  const pulseSec = Math.max(0, Math.ceil(remaining / 1000));
+  return { phase, elapsed, remaining, durationMs, returnAt, paused: isPaused, pulseSec };
+}
+
+// Phase hook: derives the phase from Date.now() and wakes the component
+// EXACTLY on each boundary (splash end, 5s return, every final second, zero)
+// so transitions fire on time instead of up to a tick late. No schedule
+// while paused — the phase is frozen until resume re-renders it.
+export function useVideoPhase(timer) {
+  const [, setWake] = useState(0);
+  const phase = computeVideoPhase(timer, Date.now());
+  const live = timer && timer.live;
+  useEffect(() => {
+    if (!phase || phase.paused || !live || live.endsAt == null) return undefined;
+    const now = Date.now();
+    const started = live.startedAt != null ? live.startedAt : now;
+    const cand = [];
+    if (phase.phase === 'splash') cand.push(started + VIDEO_SPLASH_MS - now);
+    if (phase.phase === 'splash' || phase.phase === 'corner') cand.push(started + phase.durationMs - VIDEO_RETURN_AT_MS - now);
+    if (phase.phase === 'final') cand.push((phase.remaining % 1000) || 1000);
+    cand.push(live.endsAt - now + 40); // land just past zero → 00:00 + completion
+    const wait = Math.min(...cand.filter((x) => x > 0));
+    if (!Number.isFinite(wait)) return undefined;
+    const id = setTimeout(() => setWake((x) => x + 1), Math.max(40, wait));
+    return () => clearTimeout(id);
+  }); // no dep array: every render re-arms the wake against fresh wall time
+  return phase;
+}
+
+// Does the file actually carry an audio track? Chromium hides audioTracks, so
+// we ask the element's capture stream (its track list mirrors the container).
+// { hasAudio: true|false|null, unsupported } — null = couldn't tell (playback
+// still works; audio simply plays or stays silent), unsupported = the file
+// format isn't playable in this environment (some MOV variants).
+export function probeVideoAudio(url) {
+  return new Promise((resolve) => {
+    if (!url || typeof document === 'undefined') { resolve({ hasAudio: null, unsupported: false }); return; }
+    const v = document.createElement('video');
+    let settled = false;
+    const done = (hasAudio, unsupported) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { v.onloadedmetadata = null; v.onerror = null; v.pause(); v.removeAttribute('src'); v.load(); } catch {}
+      resolve({ hasAudio, unsupported });
+    };
+    const timer = setTimeout(() => done(null, false), 6000);
+    v.preload = 'metadata';
+    v.muted = true;
+    v.onloadedmetadata = () => {
+      try {
+        const at = v.audioTracks;
+        if (at && typeof at.length === 'number') { done(at.length > 0, false); return; }
+      } catch {}
+      try {
+        const cap = typeof v.captureStream === 'function' ? v.captureStream() : null;
+        if (cap) {
+          const n = (cap.getAudioTracks ? cap.getAudioTracks() : []).length;
+          try { (cap.getTracks ? cap.getTracks() : []).forEach((tr) => tr.stop && tr.stop()); } catch {}
+          done(n > 0, false);
+          return;
+        }
+      } catch {}
+      done(null, false);
+    };
+    v.onerror = () => done(null, true);
+    try { v.src = url; } catch { done(null, true); }
+  });
+}
+
 // Carousel index for slideshow backgrounds, derived from a SHARED epoch —
 // the same absolute-clock trick the countdown time itself uses — so preview,
 // projector, monitor, stage and phone show the SAME slide at the same
@@ -174,7 +307,7 @@ export function useCountdownCarousel(images, slideSec, epoch, ticking) {
   return { list, idx };
 }
 
-export function TimerFace({ timer, scale = 1, fluid = false }) {
+export function TimerFace({ timer, scale = 1, fluid = false, surface = 'preview' }) {
   const t = { ...DEFAULT_COUNTDOWN, ...(timer || {}) };
   // The interval exists only while something visibly moves (live countdown or
   // wall clock). Idle previews are frozen frames — no standing timers on any
@@ -215,6 +348,19 @@ export function TimerFace({ timer, scale = 1, fluid = false }) {
   // media never restarts under an edit — only Go starts a new epoch.
   const mediaEpoch = t.live?.startedAt ?? null;
   const { list: slides, idx: slideIdx } = useCountdownCarousel(mediaOn && media.kind !== 'video' ? media.images : [], media?.slideSec, mediaEpoch, ticking);
+  // Video-mode animation phases (center splash → top-right → final five).
+  // The hook returns null unless this is a LIVE video countdown, so every
+  // other mode schedules nothing and behaves exactly as before.
+  const vphase = useVideoPhase(t);
+  if (mediaOn && media.kind === 'video') {
+    // VIDEO-UPLOAD MODE: the video fills the whole frame and the animated
+    // timer floats above it as its own element. The <video> is keyed only on
+    // (src, startedAt) — timer position, pause and phase changes re-render
+    // this surface without ever recreating the media element.
+    return (
+      <VideoTimerSurface timer={t} media={media} mediaEpoch={mediaEpoch} frameStyle={frameStyle} scale={k} fluid={fluid} surface={surface} phase={vphase} />
+    );
+  }
   // Slideshow watermark (logo badge): pinned to a frame corner over the
   // picture, like a broadcast bug. Slideshow only.
   const wm = mediaOn && media.kind !== 'video' ? (media.watermark || null) : null;
@@ -239,28 +385,16 @@ export function TimerFace({ timer, scale = 1, fluid = false }) {
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: '#000', overflow: 'hidden', boxSizing: 'border-box' }}>
         <style>{'@keyframes kogUrgencyShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}'}</style>
         <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden', background: '#000' }}>
-          {media.kind === 'video' ? (
-            <video
-              key={`${media.video}|${mediaEpoch ?? 'idle'}`}
-              src={media.video}
-              autoPlay
-              muted
-              playsInline
-              preload="auto"
-              loop={media.loop !== false}
-              style={{ ...frameStyle }}
+          {/* Slideshow only — the video kind returned above. */}
+          {slides.map((src, i) => (
+            <img
+              key={`${src}|${i}`}
+              src={src}
+              alt=""
+              draggable={false}
+              style={{ ...frameStyle, opacity: i === slideIdx ? 1 : 0, transition: 'opacity 0.9s ease-in-out' }}
             />
-          ) : (
-            slides.map((src, i) => (
-              <img
-                key={`${src}|${i}`}
-                src={src}
-                alt=""
-                draggable={false}
-                style={{ ...frameStyle, opacity: i === slideIdx ? 1 : 0, transition: 'opacity 0.9s ease-in-out' }}
-              />
-            ))
-          )}
+          ))}
           {wmOn && (
             <img
               src={wm.url}
@@ -318,5 +452,175 @@ export function TimerFace({ timer, scale = 1, fluid = false }) {
         <div style={{ position: 'relative', zIndex: 1, fontFamily: face, fontSize: fluid ? `calc(${t.subtextSize} * 100cqh / 720)` : Math.max(7, t.subtextSize * k), fontWeight: 600, color: 'rgba(255,255,255,0.78)', textAlign: 'center', lineHeight: 1.3, textShadow: '0 2px 16px rgba(0,0,0,0.55)', maxWidth: '100%' }}>{t.subtext}</div>
       ) : null}
     </div>
+  );
+}
+
+// VIDEO-UPLOAD COUNTDOWN SURFACE — video fills the frame, the animated timer
+// floats above it as a SEPARATE element (VideoTimerOverlay). Exactly one
+// surface in the app plays the original audio, decided by `surface` + showOn:
+// the main output (or the stage only when the countdown routes stage-only),
+// so preview, stage mirror, monitor and phone can never double the room sound.
+function VideoTimerSurface({ timer, media, mediaEpoch, frameStyle, scale, fluid, surface, phase }) {
+  const videoRef = useRef(null);
+  const fadedRef = useRef(false);
+  const audio = (media && media.videoAudio) || {};
+  const baseVol = Math.min(1, Math.max(0, Number.isFinite(Number(audio.volume)) ? Number(audio.volume) : 0.9));
+  const audioOn = audio.enabled !== false && audio.hasTrack !== false; // no-track → graceful silence
+  const showOn = (timer.live && timer.live.showOn) || timer.showOn || 'both';
+  const ownsAudio = surface === 'main'
+    ? (showOn === 'both' || showOn === 'main')
+    : surface === 'stage' ? showOn === 'stage'
+    : false;
+  const audible = !!(ownsAudio && audioOn && !audio.muted);
+  const fadeSec = Math.max(0, Number(audio.fadeSec) || 0);
+  const remaining = phase ? phase.remaining : null;
+
+  // A fresh epoch (Go Live / Restart) re-arms the end fade.
+  useEffect(() => { fadedRef.current = false; }, [mediaEpoch, media.video]);
+
+  // React does not apply `muted`/`volume` as settable attributes — write the
+  // DOM properties directly. Runs on mount too, so the initial state is exact.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    try { el.muted = !audible; } catch {}
+    if (audible && !fadedRef.current) {
+      try { el.volume = baseVol; } catch {}
+      if (el.paused) { const p = el.play(); if (p && p.catch) p.catch(() => {}); }
+    }
+  }, [audible, baseVol]);
+
+  // Optional end-of-countdown fade: ramps the audio down over the last
+  // `fadeSec` seconds so it reaches silence exactly on 00:00 and stays there
+  // through the output's exit transition. `remaining` freezes while paused
+  // (derived from the paused clock), so the ramp freezes with it. This effect
+  // also re-arms playback every tick — a stray pause can't strand the wall
+  // silent. Loop events never touch it: the video loops itself.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (audible && !fadedRef.current) {
+      if (el.paused) { const p = el.play(); if (p && p.catch) p.catch(() => {}); }
+      if (fadeSec > 0 && remaining != null && remaining > 0 && remaining <= fadeSec * 1000) {
+        try { el.volume = baseVol * Math.max(0, Math.min(1, remaining / (fadeSec * 1000))); } catch {}
+      } else if (remaining != null && remaining <= 0) {
+        // Zero reached: silence immediately and hold it through the output's
+        // exit transition, whether or not an end fade was configured.
+        fadedRef.current = true;
+        try { el.volume = 0; } catch {}
+      } else {
+        try { el.volume = baseVol; } catch {}
+      }
+    }
+  }, [audible, baseVol, fadeSec, remaining]);
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: '#000', overflow: 'hidden', boxSizing: 'border-box' }}>
+      {/* ONE video element for the whole countdown: keyed on src + start
+          epoch only (a Restart is a new epoch on purpose; every other state
+          change re-renders in place). Loop keeps video AND its original audio
+          running until the timer — never the other way around. */}
+      <video
+        key={`${media.video}|${mediaEpoch ?? 'idle'}`}
+        ref={videoRef}
+        src={media.video}
+        autoPlay
+        muted={!audible}
+        playsInline
+        preload="auto"
+        loop={media.loop !== false}
+        style={{ ...frameStyle }}
+      />
+      <VideoTimerOverlay timer={timer} scale={scale} fluid={fluid} phase={phase} />
+    </div>
+  );
+}
+
+// The floating timer for video mode — the ONLY thing that moves. One Motion
+// element travels center → top-right → center; position/scale live here, so
+// the video underneath is never touched. Keyed on the live stamp: starting or
+// restarting mounts a fresh cinematic splash, pause/resume keeps the element
+// alive, and ordinary re-renders (the 500ms tick) can't re-trigger anything.
+function VideoTimerOverlay({ timer, scale, fluid, phase }) {
+  const t = { ...DEFAULT_COUNTDOWN, ...(timer || {}) };
+  const live = t.live || null;
+  const stampKey = live ? String(live.stamp ?? live.startedAt ?? 'live') : 'idle';
+  const corner = !!(phase && phase.phase === 'corner');
+  // Anchor math: the element sits at `left/top` percentages with an
+  // compensating translate (percent of its own box) so that after the corner
+  // scale its RIGHT/TOP edges land exactly on the inset (3.5%) of the output.
+  const S = VIDEO_CORNER_SCALE;
+  const center = { left: '50%', top: '50%', x: '-50%', y: '-50%', scale: 1 };
+  const near = {
+    left: `${100 - VIDEO_CORNER_INSET}%`,
+    top: `${VIDEO_CORNER_INSET}%`,
+    x: `${-(50 + 50 * S)}%`,
+    y: `${-50 * (1 - S)}%`,
+    scale: S,
+  };
+  const target = corner ? near : center;
+  // Splash-in on mount, 800ms ease-in-out for every travel after that.
+  const transition = !live
+    ? { duration: 0.25 }
+    : (phase && phase.phase === 'splash')
+      ? { duration: 0.7, ease: [0.16, 1, 0.3, 1] }
+      : { duration: VIDEO_MOVE_MS / 1000, ease: [0.4, 0, 0.2, 1] };
+  // Display: MM:SS clamped at 00:00 while a countdown runs (spec: no
+  // negatives in video mode); idle preview mirrors the configured duration,
+  // wall-clock mode keeps its clock face.
+  const cd = computeCountdown(t, Date.now());
+  let display = cd.display;
+  if (phase) display = fmtVideoClock(phase.remaining);
+  else if (t.mode === 'target' && t.targetTime) {
+    const end = nextTargetTime(t.targetTime, Date.now());
+    display = fmtVideoClock(end ? Math.max(0, end - Date.now()) : 0);
+  } else if (t.mode !== 'clock') {
+    display = fmtVideoClock((Number(t.durationSec) || 0) * 1000);
+  }
+  // One gentle scale pulse per second through the final five — keyed on the
+  // whole second, so re-renders inside the same second never replay it and a
+  // paused clock never pulses.
+  const pulseSec = phase && phase.phase === 'final' && !phase.paused ? phase.pulseSec : null;
+  const k = Number(scale) || 1;
+  const px = Math.max(12, Math.min(720, Number(t.timeSize) || 360));
+  const fontSize = fluid ? `calc(${px} * 100cqh / 720)` : `${px * k}px`;
+  const face = "'CMG Sans', system-ui, sans-serif";
+  // Title / subtext keep their content in video mode, but they ride the
+  // CENTER phases only — in the corner the timer stands alone like a
+  // broadcast bug. Absolutely positioned so a long line never widens the
+  // timer box (which would skew the corner anchor).
+  const capGap = fluid ? 'calc(8 * 100cqh / 720)' : `${8 * k}px`;
+  const cap = (sizePx) => ({
+    position: 'absolute', left: '50%', transform: 'translateX(-50%)',
+    fontFamily: face, maxWidth: '60ch', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+    fontSize: fluid ? `calc(${sizePx} * 100cqh / 720)` : Math.max(8, sizePx * k),
+    color: '#ffffff', lineHeight: 1.2, textAlign: 'center',
+    textShadow: '0 2px 18px rgba(0,0,0,0.55)',
+    opacity: corner ? 0 : 1, transition: 'opacity 0.35s ease',
+  });
+  return (
+    <motion.div
+      key={stampKey}
+      initial={live ? { opacity: 0, scale: 0.85, ...center } : { opacity: 1, scale: 1, ...center }}
+      animate={{ opacity: 1, ...target }}
+      transition={transition}
+      style={{ position: 'absolute', zIndex: 3, pointerEvents: 'none', textAlign: 'center', whiteSpace: 'nowrap', willChange: 'transform, opacity, left, top' }}
+    >
+      {t.title ? (
+        <div style={{ ...cap(t.titleSize), bottom: `calc(100% + ${capGap})` }}>{t.title}</div>
+      ) : null}
+      <motion.div
+        key={pulseSec != null ? `pulse${pulseSec}` : 'pulse-idle'}
+        initial={pulseSec != null ? { scale: 1.07 } : false}
+        animate={{ scale: 1 }}
+        transition={{ type: 'spring', stiffness: 360, damping: 16, mass: 0.5 }}
+        style={{ display: 'inline-block', fontFamily: face, fontSize, fontWeight: 800, color: '#ffffff', lineHeight: 1, letterSpacing: '0.01em', fontVariantNumeric: 'tabular-nums', textShadow: '0 0 26px rgba(255,255,255,0.30), 0 4px 30px rgba(0,0,0,0.65)' }}
+      >
+        {display}
+      </motion.div>
+      {t.subtext ? (
+        <div style={{ ...cap(t.subtextSize), top: `calc(100% + ${capGap})` }}>{t.subtext}</div>
+      ) : null}
+    </motion.div>
   );
 }

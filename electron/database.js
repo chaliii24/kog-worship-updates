@@ -47,6 +47,11 @@ db.exec(`
     FOREIGN KEY(song_id) REFERENCES songs(id) ON DELETE CASCADE
   );
 
+  -- song_id lookups: the lyric search runs this per candidate song, and every
+  -- load/save path already queries cues by song. Without it each of those is a
+  -- full scan of the table.
+  CREATE INDEX IF NOT EXISTS idx_cues_song_id ON cues(song_id);
+
   CREATE TABLE IF NOT EXISTS services (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -196,8 +201,17 @@ export function getSongs(searchQuery = '', category = 'All') {
   // A literal % or _ in the query used to act as a wildcard (over-matching);
   // escape it so search means what the operator typed.
   const q = String(searchQuery || '').replace(/[\\%_]/g, (c) => `\\${c}`);
-  let query = 'SELECT * FROM songs WHERE (title LIKE ? ESCAPE \'\\\' OR artist LIKE ? ESCAPE \'\\\')';
-  let params = [`%${q}%`, `%${q}%`];
+  const esc = `%${q}%`;
+  // LYRIC SEARCH: the operator far more often remembers "that chorus" than the
+  // title, so the match also runs over every cue's text. Skipped when the box
+  // is empty — `%%` would match every song and force a cues scan for nothing.
+  let query = 'SELECT * FROM songs WHERE (title LIKE ? ESCAPE \'\\\' OR artist LIKE ? ESCAPE \'\\\'';
+  let params = [esc, esc];
+  if (q) {
+    query += ' OR EXISTS (SELECT 1 FROM cues WHERE song_id = songs.id AND text LIKE ? ESCAPE \'\\\')';
+    params.push(esc);
+  }
+  query += ')';
 
   if (category === 'Favorites') {
     query += ' AND is_favorite = 1';
@@ -211,6 +225,15 @@ export function getSongs(searchQuery = '', category = 'All') {
 
   query += ' ORDER BY title ASC';
   return db.prepare(query).all(params);
+}
+
+// The library's chip row: every category actually present in the table. Its own
+// IPC, because getSongs can only ever return the one category it filtered to —
+// which is exactly what made the chips impossible to build before.
+export function getCategories() {
+  return db.prepare('SELECT DISTINCT category FROM songs WHERE category IS NOT NULL AND category != \'\' ORDER BY category ASC')
+    .all()
+    .map((r) => r.category);
 }
 
 export function getSongDetails(songId) {

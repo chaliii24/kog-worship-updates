@@ -4,7 +4,8 @@ import { Layers, Plus, Search, Star, Clock, Folder, Download, Upload, Trash2, Ed
 import logoImage from './assets/logo.png';
 import { getTheme } from './lib/theme';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, cssSpeed } from './lib/constants';
-import { applyCaseTransform, renderLyricsLayout, cueLyricStyle, growBoxToText, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, fitBoxToText, fitParsedCue } from './lib/lyrics';
+import { applyCaseTransform, renderLyricsLayout, cueLyricStyle, growBoxToText, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, fitBoxToText, fitParsedCue, liftBox } from './lib/lyrics';
+import { reflowCuesToLines } from './lib/splitReflow.js';
 import { parseSongBlocks, splitCuesByLines } from '../electron/songParse.js';
 import { extractCcli } from '../electron/ccliReport.js';
 import { LiveBadge, TileVideo, TileCanvas, BackgroundVideo, LiveVideo, OverlayFace, overlayOnAir } from './lib/perf';
@@ -50,6 +51,18 @@ const DEFAULT_OUTPUTS = [
   { id: 'stage', name: 'Stage Monitor', role: 'stage', displayId: null, enabled: false, resolution: 'native', aspect: '16:9' }
 ];
 
+// Single-slot crash recovery for the Song Editor. Most recent draft wins, so a
+// leftover entry means exactly one thing: the last session died with unsaved
+// work in flight. It is cleared the moment that work is safe (saved) or
+// deliberately abandoned (discarded) — never by simply closing another song.
+const SONG_DRAFT_KEY = 'kog-song-draft';
+
+// Single-slot crash recovery for the SERVICE PLAN — the other thing an
+// operator builds live on a Sunday. Same contract as the song draft: it exists
+// only while there are unsaved changes, and it is dropped the moment that work
+// is saved or deliberately discarded.
+const SERVICE_DRAFT_KEY = 'kog-service-draft';
+
 export default function App() {
   const isOutputWindow = typeof window !== 'undefined' && (
     window.location.hash.includes('/output/') ||
@@ -63,6 +76,20 @@ export default function App() {
   // Per-output screen hardware pushed by main: rotation, custom pixel
   // viewport, edge blending. Only an output window ever receives it.
   const [outputCfg, setOutputCfg] = useState(null);
+  // LED-WALL LIFT — canvas px (of the shared 1280×720 output space) to raise
+  // every lyric box by, so a band standing in front of the bottom of a wall
+  // never covers the words. Live output decision, not a song edit: it rides
+  // the projector and the operator's own monitor, never the editing canvas.
+  const [lyricLift, setLyricLiftState] = useState(0);
+  // Raising the lyrics is a live decision, but it belongs on its own channel:
+  // pushing the slide again would replay its transition over the band. Only
+  // the console ever tells main, and only main ever tells the outputs.
+  const setLyricLift = (px) => {
+    const n = Math.max(0, Math.min(720, Math.round(Number(px) || 0)));
+    setLyricLiftState(n);
+    if (isOutputWindow || !window.require) return;
+    try { window.require('electron').ipcRenderer.send('update-lyric-lift', n); } catch {}
+  };
   const [showSplash, setShowSplash] = useState(true);
   const [showWelcome, setShowWelcome] = useState(true);
   const [currentSlide, setCurrentSlide] = useState({ title: "KOG Worship", text: "", style: {}, timestamp: Date.now() });
@@ -140,6 +167,10 @@ export default function App() {
   const [songsCollapsed, setSongsCollapsed] = useState(false);
   const [serviceDragOver, setServiceDragOver] = useState(false);
   const [activeCategory, setActiveCategory] = useState('All');
+  // Every category present in the table — the chip row. Kept separate from
+  // `songs` because the songs query only ever returns ONE category (the one it
+  // filtered to), so the chips could never be derived from that list.
+  const [songCategories, setSongCategories] = useState([]);
   const [activeSong, setActiveSong] = useState(null);
   const [activeCue, setActiveCue] = useState(null);
 
@@ -184,6 +215,31 @@ export default function App() {
     setDrawStrokes(next);
     pushDraw(next);
   };
+  // One implementation of each draw operation, shared by the PHONE's remote
+  // commands and the DESKTOP telestrator. Both ends must sanitize identically
+  // and reach the outputs through the same push, or a stroke drawn on the
+  // console would land where a stroke drawn on the phone never could.
+  const addDrawStroke = (raw) => {
+    const s = sanitizeDrawStroke(raw);
+    if (!s) return false;
+    setDrawStrokes((prev) => {
+      const next = pushDrawStroke(prev, s);
+      drawStampRef.current = Date.now();
+      pushDraw(next);
+      return next;
+    });
+    return true;
+  };
+  const undoDrawStroke = () => {
+    setDrawStrokes((prev) => {
+      if (!prev.length) return prev;
+      const next = prev.slice(0, -1);
+      drawStampRef.current = Date.now();
+      pushDraw(next);
+      return next;
+    });
+  };
+  const clearDrawStrokes = () => setDrawStrokesLive([]);
   // In-app confirm/alert dialog (replaces native confirm/alert, which steal focus in Electron)
   const [confirmDialog, setConfirmDialog] = useState(null);
   const confirmResolverRef = useRef(null);
@@ -512,6 +568,17 @@ export default function App() {
       .finally(() => { outputsReadyRef.current = true; });
   }, []);
 
+  // LED-WALL LIFT: push it to the output windows on its own channel. It is
+  // deliberately NOT part of the slide payload — re-firing the slide to move
+  // the lyrics would replay the song's transition mid-song, and the band
+  // would see every lift as a flicker. main fans it out to every lyrics
+  // output, and (like the slide) caches it so an output opened later starts
+  // already lifted rather than dropping back to the floor.
+  useEffect(() => {
+    if (isOutputWindow || !window.require) return;
+    window.require('electron').ipcRenderer.send('update-lyric-lift', lyricLift);
+  }, [lyricLift, isOutputWindow]);
+
   // Keep main's window registry in sync with the output configuration. Gated
   // on outputsReady: the mount sync used to push DEFAULT_OUTPUTS to main
   // before the saved layout arrived (flash of wrong registry).
@@ -589,11 +656,127 @@ export default function App() {
     return out;
   };
 
+  // --- SONG EDITOR DRAFT GUARD ---------------------------------------------
+  // The editor's draft IS editingSong and nothing but Save ever writes it. A
+  // Cancel, a stray window close or a crash used to take the whole design job
+  // with it — no prompt, no recovery. Two halves, both keyed off one baseline:
+  //
+  //   DIRTY CHECK     — baseline the song the moment the editor opens, and
+  //                      re-baseline it the moment a Save lands, so every close
+  //                      path can ask the same way the service plan already
+  //                      does.
+  //   CRASH RECOVERY  — while the draft differs from that baseline it is
+  //                      mirrored to localStorage, and cleared the instant the
+  //                      work is safe: on Save, or when the operator explicitly
+  //                      discards.
+  //
+  // Both read REFS, never render-time state, so the window-X gate — a handler
+  // subscribed once and potentially long stale — always sees the current song.
+  const songSnapRef = useRef(null);
+  // Generation counter: bumping it invalidates mirror writes already sitting in
+  // the debounce timer. Without this, a keystroke 600ms before Save could fire
+  // its write during the save's `await` — AFTER clearSongDraft had removed the
+  // entry — and resurrect a draft for work that is already safely in the DB.
+  const songDraftGenRef = useRef(0);
+  const editingSongRef = useRef(editingSong);
+  editingSongRef.current = editingSong; // assigned every render: always current
+  const songSnapOf = (song) => { try { return JSON.stringify(song ?? null); } catch { return null; } };
+  const isSongDraftDirty = () => songSnapRef.current !== null && songSnapOf(editingSongRef.current) !== songSnapRef.current;
+  // Dropping the draft only when it belongs to the song being closed: opening
+  // song B must never delete a recovery draft still waiting on song A.
+  const clearSongDraft = () => {
+    songDraftGenRef.current += 1; // kill any mirror write already scheduled
+    try {
+      const raw = localStorage.getItem(SONG_DRAFT_KEY);
+      const stored = raw ? JSON.parse(raw) : null;
+      if (stored && (stored.id ?? null) === (editingSongRef.current?.id ?? null)) {
+        localStorage.removeItem(SONG_DRAFT_KEY);
+      }
+    } catch { /* an unreadable draft is not worth failing a close over */ }
+    // Re-baseline as well: a mirror timer scheduled a moment before a Save
+    // would otherwise still see a dirty song and write the draft straight back
+    // after this removed it.
+    songSnapRef.current = songSnapOf(editingSongRef.current);
+  };
+
+  // Baseline on close (null = nothing to compare) and as a fallback for any
+  // open path that didn't go through openEditorOn. It deliberately does NOT
+  // re-baseline on every song change: openEditorOn sets the baseline itself,
+  // because a recovered draft must be compared against the PRISTINE song —
+  // a recovery is unsaved work by definition, and treating it as clean would
+  // let "open it to take a look, then close" quietly destroy it.
+  useEffect(() => {
+    if (!isEditorOpen) { songSnapRef.current = null; return; }
+    if (songSnapRef.current === null) songSnapRef.current = songSnapOf(editingSongRef.current);
+  }, [isEditorOpen]);
+
+  // Mirror to localStorage, debounced — this fires on every keystroke and
+  // stringifying a 60-cue song per keypress is not free. Skipped entirely while
+  // the draft is clean, so opening an untouched song never overwrites a real
+  // recovery draft with a copy of nothing.
+  useEffect(() => {
+    if (!isEditorOpen || !editingSong) return;
+    const gen = songDraftGenRef.current;
+    const t = setTimeout(() => {
+      if (gen !== songDraftGenRef.current) return; // cleared while we waited
+      if (songSnapOf(editingSong) === songSnapRef.current) return;
+      try {
+        localStorage.setItem(SONG_DRAFT_KEY, JSON.stringify({
+          at: Date.now(),
+          id: editingSong.id ?? null,
+          mode: editorMode,
+          raw: rawPasteText || '',
+          song: editingSong,
+        }));
+      } catch { /* quota: recovery is best-effort and must never throw */ }
+    }, 700);
+    return () => clearTimeout(t);
+  }, [editingSong, isEditorOpen, editorMode, rawPasteText]);
+
+  // Open the editor on `song` — or on the draft a previous session left behind,
+  // when that draft was for THIS song. A draft belonging to any other song is
+  // left untouched.
+  const openEditorOn = (song, mode = 'manual') => {
+    let draft = null;
+    try {
+      const raw = localStorage.getItem(SONG_DRAFT_KEY);
+      if (raw) draft = JSON.parse(raw);
+    } catch { draft = null; }
+    const recovered = !!(draft && typeof draft === 'object' && draft.song && (draft.id ?? null) === (song?.id ?? null));
+    const pristine = repairSongBoxes({ ...song, cues: song.cues || [] });
+    setEditingSong(recovered ? draft.song : pristine);
+    setEditorMode(recovered && draft.mode === 'auto' ? 'auto' : mode);
+    setRawPasteText(recovered && typeof draft.raw === 'string' ? draft.raw : '');
+    // Baseline is ALWAYS the pristine song, never the recovered copy — so a
+    // recovery lands in the editor reading as dirty and gets the same discard
+    // prompt as any other unsaved work. Must be set before setIsEditorOpen,
+    // because the open effect will not overwrite a baseline that's already set.
+    songSnapRef.current = songSnapOf(pristine);
+    setIsEditorOpen(true);
+    if (recovered) {
+      const at = Number(draft.at) || Date.now();
+      // Untitled's toast is an object with .add(), not a callable — this is the
+      // same shape every other notice in App uses.
+      toast.add({
+        type: 'info',
+        title: 'Unsaved changes recovered',
+        description: `Picked up from ${new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — Save to keep them.`,
+      });
+    }
+  };
+
   const fetchSongs = async () => {
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
-      const result = await ipcRenderer.invoke('db-get-songs', searchQuery, activeCategory);
+      const [result, cats] = await Promise.all([
+        ipcRenderer.invoke('db-get-songs', searchQuery, activeCategory),
+        ipcRenderer.invoke('db-get-categories'),
+      ]);
       setSongs(Array.isArray(result) ? result.map(repairSongBoxes) : result);
+      // Chips ride along on every fetch rather than once on mount: a song saved
+      // under a brand-new category gets its chip immediately, without a
+      // restart, and every caller that refreshes songs already calls this.
+      if (Array.isArray(cats)) setSongCategories(cats);
     }
   };
 
@@ -762,10 +945,7 @@ export default function App() {
       if (seq !== songLoadSeqRef.current) return;
     }
     if (!song) return;
-    setEditingSong(repairSongBoxes({ ...song, cues: song.cues || [] }));
-    setEditorMode('manual');
-    setRawPasteText('');
-    setIsEditorOpen(true);
+    openEditorOn(song, 'manual');
   };
 
   useEffect(() => {
@@ -790,6 +970,9 @@ export default function App() {
           if (!wantStage && state && state.overlay !== undefined) setLiveOverlay(state.overlay || null);
           // Remote drawings: a lyrics window opened mid-highlight joins them.
           if (!wantStage && state && state.draw !== undefined) setDrawStrokes(Array.isArray(state.draw?.strokes) ? state.draw.strokes : []);
+          // LED-wall lift: a lyrics window opened after the operator raised
+          // the lyrics starts at the same height, not back on the floor.
+          if (!wantStage && state && state.lift !== undefined) setLyricLift(Number(state.lift) || 0);
         })
         .catch(() => {});
     };
@@ -825,6 +1008,11 @@ export default function App() {
         ipcRenderer.on('render-live-draw', (_event, draw) => {
           setDrawStrokes(draw && Array.isArray(draw.strokes) ? draw.strokes : []);
         });
+        // LED-wall lift: its own channel, so raising the lyrics mid-service
+        // never re-fires the slide (and its transition) underneath them.
+        ipcRenderer.on('render-lyric-lift', (_event, px) => {
+          setLyricLift(Number(px) || 0);
+        });
         ipcRenderer.on('render-live-stage', (event, stageData) => {
           setCurrentSlide(stageData);
         });
@@ -856,6 +1044,9 @@ export default function App() {
         });
         ipcRenderer.on('render-live-draw', (_event, draw) => {
           setDrawStrokes(draw && Array.isArray(draw.strokes) ? draw.strokes : []);
+        });
+        ipcRenderer.on('render-lyric-lift', (_event, px) => {
+          setLyricLift(Number(px) || 0);
         });
       }
       pullLiveState(false);
@@ -951,6 +1142,17 @@ export default function App() {
     const t = setTimeout(fetchSongs, 180);
     return () => clearTimeout(t);
   }, [searchQuery, activeCategory]);
+
+  // A chip can vanish under the operator: deleting the last song in "Christmas"
+  // used to leave the filter parked on a category that no longer exists, with no
+  // chip left to click off and a list that stays empty forever. Drop back to All
+  // the moment the category leaves the table. Never resets before the list has
+  // loaded — an empty array there just means "not fetched yet".
+  useEffect(() => {
+    if (!songCategories.length) return;
+    if (activeCategory === 'All' || activeCategory === 'Favorites' || activeCategory === 'Recent') return;
+    if (!songCategories.includes(activeCategory)) setActiveCategory('All');
+  }, [songCategories, activeCategory]);
 
   useEffect(() => {
     try { localStorage.setItem('scriptureBgLibrary', JSON.stringify(scriptureBgLibrary.filter(p => !p.builtin))); } catch {}
@@ -2097,9 +2299,27 @@ export default function App() {
     // The live snapshot owns routing + timing: Stop and live config edits
     // read showOn/endsAt from HERE, never from the (possibly since changed)
     // form, so a mid-air picker change can't strand a surface.
-    setCountdown((prev) => ({ ...DEFAULT_COUNTDOWN, ...(prev || {}), ...cfg, live: { endsAt, startedAt: now, showOn: cfg.showOn, stamp: now } }));
+    setCountdown((prev) => ({ ...DEFAULT_COUNTDOWN, ...(prev || {}), ...cfg, live: { endsAt, startedAt: now, showOn: cfg.showOn, stamp: now, pausedAt: null, pausedRemain: null } }));
     // Go Live takes the room: BGM fades out over the configured seconds.
     try { audioEngine.autoTake(); } catch {}
+  };
+
+  // VIDEO-COUNTDOWN TRANSPORT: Pause captures the remaining ms once and
+  // freezes the absolute clock (every surface derives the same stopped
+  // number); Resume re-anchors endsAt from it — phases resume exactly where
+  // they froze, never skipping the splash or the final-five return. Only the
+  // video countdown UI exposes these, so normal/slideshow timing is untouched.
+  const pauseCountdownLive = () => {
+    const snap = countdown?.live;
+    if (!snap || snap.pausedAt != null || snap.endsAt == null) return;
+    const now = Date.now();
+    setCountdown((prev) => ({ ...DEFAULT_COUNTDOWN, ...(prev || {}), live: { ...snap, pausedAt: now, pausedRemain: Math.max(0, snap.endsAt - now) } }));
+  };
+  const resumeCountdownLive = () => {
+    const snap = countdown?.live;
+    if (!snap || snap.pausedAt == null) return;
+    const now = Date.now();
+    setCountdown((prev) => ({ ...DEFAULT_COUNTDOWN, ...(prev || {}), live: { ...snap, endsAt: now + Math.max(0, Number(snap.pausedRemain) || 0), pausedAt: null, pausedRemain: null } }));
   };
 
   // The ONE sender for live countdown payloads. fire only stamps state; this
@@ -2111,7 +2331,7 @@ export default function App() {
     if (!countdown?.live || isOutputWindow || !window.require) return;
     const cfg = { ...DEFAULT_COUNTDOWN, ...countdown };
     const timer = { ...cfg };
-    const sig = JSON.stringify([timer.title, timer.subtext, timer.mode, timer.durationSec, timer.targetTime, timer.showOn, timer.overtime, timer.titleSize, timer.timeSize, timer.subtextSize, timer.bgType, timer.bgValue, timer.bgMedia, timer.live.endsAt, timer.live.stamp]);
+    const sig = JSON.stringify([timer.title, timer.subtext, timer.mode, timer.durationSec, timer.targetTime, timer.showOn, timer.overtime, timer.titleSize, timer.timeSize, timer.subtextSize, timer.bgType, timer.bgValue, timer.bgMedia, timer.live.endsAt, timer.live.stamp, timer.live.pausedAt ?? null, timer.live.pausedRemain ?? null]);
     if (countdownSentRef.current === sig) return;
     countdownSentRef.current = sig;
     try { console.info('[countdown] push', countdownProof(timer)); } catch {}
@@ -3214,13 +3434,70 @@ export default function App() {
   // Re-entrant X guard: a second close request while the quit dialog is open
   // is ignored (the first dialog owns the decision).
   const closeDecidingRef = useRef(false);
+  // --- SERVICE PLAN AUTOSAVE -----------------------------------------------
+  // Until now the plan was the only piece of live Sunday work with NO safety
+  // net: a crash mid-drag took the whole running order with it, while the Song
+  // Editor kept a draft. Same shape as that guard — mirror while dirty, clear
+  // the instant the work is safe — with one structural difference: a plan has
+  // no "open" event, it is simply what the console starts on, so recovery runs
+  // when the splash clears instead.
+  const serviceDraftGenRef = useRef(0);
+  const clearServiceDraft = () => {
+    // Generation bump kills a mirror write already sitting in the debounce
+    // timer: without it, a drag that landed 600ms before Save could fire
+    // DURING the save's await and put the entry straight back after this
+    // removed it.
+    serviceDraftGenRef.current += 1;
+    try { localStorage.removeItem(SERVICE_DRAFT_KEY); } catch {}
+  };
   const markServicePlanSaved = (svc) => {
     const snap = servicePlanSnap(svc);
     if (snap !== null) {
       serviceSnapRef.current = snap;
       setServiceDirty(false);
+      clearServiceDraft(); // the work is safely in the database now
     }
   };
+
+  // Boot recovery. Declared BEFORE the dirty-tracking effect below on purpose:
+  // it queues the recovered plan while that effect is still baselining the
+  // blank opening order, so what comes back reads as UNSAVED work — which is
+  // exactly what it is, and what earns it the quit-gate prompt and the
+  // load-another-show guard.
+  // isOutputWindow first: projector/stage/output windows share this component
+  // and localStorage, and must never adopt (or announce) the operator's plan.
+  useEffect(() => {
+    if (isOutputWindow || showSplash) return;
+    let draft = null;
+    try {
+      const raw = localStorage.getItem(SERVICE_DRAFT_KEY);
+      if (raw) draft = JSON.parse(raw);
+    } catch { draft = null; }
+    const svc = draft && typeof draft === 'object' ? draft.service : null;
+    if (!svc || !Array.isArray(svc.items) || !svc.items.length) return; // nothing worth recovering
+    setActiveService(svc);
+    const at = Number(draft.at) || Date.now();
+    toast.add({
+      type: 'info',
+      title: 'Service plan recovered',
+      description: `Picked up from ${new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — Save to keep it.`,
+    });
+  }, [showSplash, isOutputWindow]);
+
+  // Mirror, debounced. Only ever while dirty: writing a clean plan would
+  // overwrite a real recovery draft with a copy of nothing.
+  useEffect(() => {
+    if (isOutputWindow || !serviceDirty || !activeService) return;
+    const gen = serviceDraftGenRef.current;
+    const t = setTimeout(() => {
+      if (gen !== serviceDraftGenRef.current) return; // cleared while we waited
+      try {
+        localStorage.setItem(SERVICE_DRAFT_KEY, JSON.stringify({ at: Date.now(), service: activeService }));
+      } catch { /* quota: recovery is best-effort and must never throw */ }
+    }, 700);
+    return () => clearTimeout(t);
+  }, [activeService, serviceDirty, isOutputWindow]);
+
   useEffect(() => {
     const snap = servicePlanSnap(activeService);
     if (snap === null) return;
@@ -3249,13 +3526,20 @@ export default function App() {
   };
 
   const loadService = async (serviceId) => {
-    // Unsaved work guard: loading a show replaces the working order.
-    if (serviceDirty && serviceId !== activeService?.id) {
+    // Unsaved work guard: loading a show REPLACES the working order — even
+    // when it is the show already loaded, because that re-read overwrites every
+    // edit made since. The `serviceId !== activeService?.id` exception that
+    // used to sit here meant clicking a recovered plan's OWN row silently threw
+    // the recovery away.
+    if (serviceDirty) {
       const ok = await appConfirm(
         `Load this show? Unsaved changes to "${activeService?.name || 'the service order'}" will be lost.`,
         { confirmLabel: 'Discard & Load' }
       );
       if (!ok) return;
+      // They chose to abandon it — drop the recovery copy along with it, or it
+      // would be offered back on the next boot for work they just declined.
+      clearServiceDraft();
     }
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
@@ -3280,7 +3564,24 @@ export default function App() {
       if (closeDecidingRef.current) return;
       closeDecidingRef.current = true;
       try {
-        if (!serviceDirty) { ipcRenderer.send('app-close-decision', 'quit'); return; }
+        // The Song Editor sits ON TOP of everything, so while it is the only
+        // thing dirty it has to be asked about — otherwise an operator could
+        // close the app from inside the editor and never be told they never
+        // saved. Nothing is actually lost either way: a dirty draft stays in
+        // localStorage and is offered back the next time that song opens.
+        // When the plan is ALSO dirty the plan dialog below owns the decision,
+        // which keeps this to at most one prompt.
+        if (!serviceDirty) {
+          if (isSongDraftDirty()) {
+            const ok = await appConfirm(
+              `"${editingSongRef.current?.title || 'This song'}" has unsaved changes.\n\nThey are kept as a recoverable draft and offered back the next time you open it.`,
+              { title: 'Unsaved song', confirmLabel: 'Keep Draft & Quit', cancelLabel: 'Cancel' }
+            );
+            if (!ok) return;
+          }
+          ipcRenderer.send('app-close-decision', 'quit');
+          return;
+        }
         const choice = await appChoice(
           `"${activeService?.name || 'Service order'}" has unsaved changes.\n\nSave the plan before quitting?`,
           { title: 'Unsaved service order', confirmLabel: 'Quit Without Saving', cancelLabel: 'Cancel', extraLabel: 'Save & Quit' }
@@ -3298,7 +3599,7 @@ export default function App() {
     };
     ipcRenderer.on('app-close-request', onCloseRequest);
     return () => ipcRenderer.removeListener('app-close-request', onCloseRequest);
-  }, [isOutputWindow, serviceDirty, activeService, appChoice, saveCurrentService]);
+  }, [isOutputWindow, serviceDirty, activeService, appChoice, appConfirm, saveCurrentService]);
 
   // Step 5 (FreeShow flow): queue a saved show into the active Service Plan
   const queueShowIntoService = async (showId, insertAtEnd = true) => {
@@ -3452,31 +3753,29 @@ export default function App() {
 
   const clearCueBackground = (idx) => setCueBackground(idx, 'color', '#000000');
 
-  // Split every section into slides of N lines each
-  const splitCuesToLines = () => {
-    const n = Math.max(1, Math.floor(Number(linesPerSlide) || 4));
-    const partLabel = (label) => (label || '').replace(/\s*\(Part\s+\d+\)\s*$/i, '').trim() || 'Verse 1';
+  // ---------------------------------------------------------------------
+  // RE-SPLIT — the editor header's Split button. It splits AND merges.
+  //
+  // It used to only ever CUT, so it could never undo itself: paste at 1
+  // line/block, set 4, press Split, nothing happened (every cue already held
+  // ≤4 lines). The count was a one-way door.
+  //
+  // The whole rule lives in lib/splitReflow.js — every section is rebuilt
+  // from ALL of its "(Part n)" slides together and re-chunked through the
+  // parser's own splitter, so an editor Split is line-for-line what Smart
+  // Paste would produce at that number. fitParsedCue is passed in so that
+  // module stays free of the lyrics renderer (and testable on its own).
+  // ---------------------------------------------------------------------
+  // Live: the header's number re-flows the blocks the moment it changes, so
+  // the operator sees the result as they type (the pure pass is sub-ms; the
+  // slide strip redraws). An override is taken so the caller can pass the
+  // value it just set — setState alone would still be stale in this closure.
+  // Pass nothing to use the current linesPerSlide (the Split button does).
+  const splitCuesToLines = (nOverride) => {
+    const n = Math.max(1, Math.floor(Number(nOverride ?? linesPerSlide) || 4));
     // Functional: the source cues are read at commit time, so a keystroke
     // still sitting in the canvas throttle can't be lost — or half-applied.
-    setEditingSong((prev) => {
-      const newCues = [];
-      (prev.cues || []).forEach((cue) => {
-        const baseLabel = partLabel(cue.label);
-        const lines = (cue.text || '').split('\n').filter(l => l.trim() !== '');
-        if (lines.length === 0 || lines.length <= n) {
-          newCues.push({ ...cue, label: baseLabel });
-          return;
-        }
-        for (let i = 0; i < lines.length; i += n) {
-          const part = Math.floor(i / n) + 1;
-          // New chunk = new text = refit the box to it, so a slide carved out of
-          // a long section still shows every line at the cue's own font size.
-          // Untouched cues keep the box the operator may have dragged by hand.
-          newCues.push(fitParsedCue({ ...cue, label: `${baseLabel} (Part ${part})`, text: lines.slice(i, i + n).join('\n') }));
-        }
-      });
-      return { ...prev, cues: newCues };
-    });
+    setEditingSong((prev) => ({ ...prev, cues: reflowCuesToLines(prev?.cues, n, fitParsedCue) }));
   };
 
   // ---- G-PRESENTER STYLE EDITOR HELPERS ----
@@ -3704,13 +4003,21 @@ export default function App() {
       if (pending) updateCue(pending.idx, pending.patch);
       const savedId = await ipcRenderer.invoke('db-save-song', snap);
       fetchSongs();
+      // The work is safe now — drop the recovery copy so the next open of this
+      // song starts clean instead of offering back what was just written.
+      clearSongDraft();
       if (wasNew && savedId) {
         // New-song smart-paste flow: saving lands straight into the editor on
         // the manual canvas (full details reloaded so boxes/styles are exact),
         // instead of closing back to the library.
         const details = await ipcRenderer.invoke('db-get-song-details', savedId);
         if (details) {
-          setEditingSong(repairSongBoxes(details));
+          const rep = repairSongBoxes(details);
+          setEditingSong(rep);
+          // The save landed and the editor STAYS open: this reloaded copy is
+          // the new clean baseline, so everything typed from here counts as
+          // new work rather than unsaved work.
+          songSnapRef.current = songSnapOf(rep);
           setEditorMode('manual');
           setEditorCueIdx(-1);
           return;
@@ -3975,29 +4282,11 @@ export default function App() {
       bibleGo: (p) => { void remoteBibleGo(p && p.abbrev, p && p.ref); return true; },
       bibleFire: (p) => remoteBibleFire(p || {}),
       // Remote draw mode: phone highlighter strokes over the live output.
-      // Sanitized + capped (lib/draw) so a runaway sender stays small.
-      drawAdd: (p) => {
-        const s = sanitizeDrawStroke(p && p.stroke);
-        if (!s) return false;
-        setDrawStrokes((prev) => {
-          const next = pushDrawStroke(prev, s);
-          drawStampRef.current = Date.now();
-          pushDraw(next);
-          return next;
-        });
-        return true;
-      },
-      drawUndo: () => {
-        setDrawStrokes((prev) => {
-          if (!prev.length) return prev;
-          const next = prev.slice(0, -1);
-          drawStampRef.current = Date.now();
-          pushDraw(next);
-          return next;
-        });
-        return true;
-      },
-      drawClear: () => { setDrawStrokesLive([]); return true; },
+      // Both entries below just delegate — the desk-top telestrator calls the
+      // very same two functions, so there is one implementation to get right.
+      drawAdd: (p) => addDrawStroke(p && p.stroke),
+      drawUndo: () => { undoDrawStroke(); return true; },
+      drawClear: () => { clearDrawStrokes(); return true; },
     };
   });
 
@@ -4105,7 +4394,7 @@ export default function App() {
         bgType: countdown.bgType || 'gradient',
         bgValue: countdown.bgValue || '',
         bgMedia: countdown.bgMedia || null,
-        live: countdown.live ? { endsAt: countdown.live.endsAt ?? null, startedAt: countdown.live.startedAt ?? null } : null,
+        live: countdown.live ? { endsAt: countdown.live.endsAt ?? null, startedAt: countdown.live.startedAt ?? null, pausedAt: countdown.live.pausedAt ?? null, pausedRemain: countdown.live.pausedRemain ?? null } : null,
         // One-click setups for the phone: name + kind + slide count + the
         // full media object apply needs. Small strings; pushed on change.
         templates: (cdTemplates || []).map((t) => ({
@@ -4148,6 +4437,9 @@ export default function App() {
     const live = countdown?.live;
     if (!live || (countdown?.mode !== 'duration' && countdown?.mode !== 'target')) return undefined;
     if (countdown?.overtime || live.endsAt == null) return undefined;
+    // Paused: the clock is frozen — no completion can fire. Resume stamps a
+    // fresh live object, which re-runs this effect with the new endsAt.
+    if (live.pausedAt != null) return undefined;
     const wait = Math.max(0, live.endsAt - Date.now());
     const id = setTimeout(() => {
       // Timer hit zero — stopCountdownLive owns the soundbed fade (single path).
@@ -5093,11 +5385,8 @@ export default function App() {
   // 'auto' (Smart Auto-Paste tab). Editing an existing song never goes
   // through the prompt.
   const startNewSong = (mode) => {
-    setEditingSong({ id: null, title: '', artist: '', category: 'Worship', cues: [{ label: 'Verse 1', text: '', box: DEFAULT_BOX, locked: false }] });
-    setEditorMode(mode);
-    setRawPasteText('');
     setNewSongPromptOpen(false);
-    setIsEditorOpen(true);
+    openEditorOn({ id: null, title: '', artist: '', category: 'Worship', cues: [{ label: 'Verse 1', text: '', box: DEFAULT_BOX, locked: false }] }, mode);
   };
 
   // Safety: if the editor opens through another path (edit buttons, menus)
@@ -5182,8 +5471,12 @@ export default function App() {
     // Countdown fills the physical wall (not the aspect frame), so its
     // preview box takes the wall shape too — otherwise the mini and the
     // wall disagree on every non-16:9 display. Lyrics keep the composition
-    // aspect.
-    const previewAspect = monitorContent && monitorContent.timer ? wallAspect : outputAspect.replace(':', ' / ');
+    // aspect; Fill is not a CSS ratio (it means "the whole wall"), so it takes
+    // the wall shape as well instead of silently dropping the aspect and
+    // leaving the preview box at whatever height the layout hands it.
+    const previewAspect = monitorContent && monitorContent.timer
+      ? wallAspect
+      : (/^\d+(?:\.\d+)?:\d+(?:\.\d+)?$/.test(String(outputAspect)) ? String(outputAspect).replace(':', ' / ') : wallAspect);
     const monitorTimer = monitorContent && monitorContent.timer ? monitorContent.timer : null;
     return (
       <div ref={setPreviewWrapRef} style={{ pointerEvents: 'none', position: 'relative', width: '100%', aspectRatio: previewAspect, borderRadius: 12, overflow: 'hidden', background: '#000', border: 'none', boxSizing: 'border-box' }}>
@@ -5258,7 +5551,7 @@ export default function App() {
                           const isTitleSlide = monitorContent.label === 'Song Title';
                           const lst = st.lyric || { font: st.fontFamily || 'system-ui, sans-serif', size: DEFAULT_LYRIC_SIZE, lineHeight: 1.05, align: st.textAlign || 'center', color: st.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
                           lst.isTitle = isTitleSlide;
-                          const box = lst.box || { x: 80, y: isTitleSlide ? 140 : 100, w: 1120, h: isTitleSlide ? 440 : 480 };
+                          const box = liftBox(lst.box || { x: 80, y: isTitleSlide ? 140 : 100, w: 1120, h: isTitleSlide ? 440 : 480 }, lyricLift);
                           return (
                             <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
                               {renderLyricsLayout(monitorContent.text, lst, box)}
@@ -5320,11 +5613,11 @@ export default function App() {
   if (isOutput) {
     return outputRole === 'stage'
       ? <StageDisplay currentSlide={currentSlide} C={C} cfg={stageFeed?.cfg || null} flow={stageFeed?.flow || null} chord={stageFeed?.chord || null} />
-      : <ProjectorDisplay currentSlide={currentSlide} C={C} aspect={outputAspect} config={outputCfg} overlay={liveOverlay} draw={drawStrokes} />;
+      : <ProjectorDisplay currentSlide={currentSlide} C={C} aspect={outputAspect} config={outputCfg} overlay={liveOverlay} draw={drawStrokes} lift={lyricLift} />;
   }
 
   if (isProjector) {
-    return <ProjectorDisplay currentSlide={currentSlide} C={C} aspect={outputAspect} overlay={liveOverlay} draw={drawStrokes} />;
+    return <ProjectorDisplay currentSlide={currentSlide} C={C} aspect={outputAspect} overlay={liveOverlay} draw={drawStrokes} lift={lyricLift} />;
   }
 
   if (showSplash) {
@@ -5361,7 +5654,7 @@ export default function App() {
     stageBpmPopup, setStageBpmPopup,
     activeTab, setActiveTab, songs, setSongs, searchQuery, setSearchQuery, showsQuery, setShowsQuery,
     showsCollapsed, setShowsCollapsed, songsCollapsed, setSongsCollapsed, serviceDragOver, setServiceDragOver,
-    activeCategory, setActiveCategory, activeSong, setActiveSong, activeCue, setActiveCue,
+    activeCategory, setActiveCategory, songCategories, activeSong, setActiveSong, activeCue, setActiveCue,
     leftOpen, setLeftOpen, viewTab, setViewTab, rightOpen, setRightOpen, showHotkeys, setShowHotkeys, showMoreMenu, setShowMoreMenu,
     dockTab, setDockTab, scheduleView, setScheduleView, rightTab, setRightTab,
     mediaLibrary, setMediaLibrary, scriptureBgLibrary, libraryStats, setLibraryStats, appInfo, setAppInfo, audioPreview, setAudioPreview, audioVolume, setAudioVolume,
@@ -5416,8 +5709,9 @@ export default function App() {
     songBgFileToBackground, clearCueBackground, splitCuesToLines, clampNum, editorCue, editorBox, updateCue, updateCueThrottled, applyPatchToAllCues,
     baseGroupLabel, nextSuffixLetter, splitCueAtTextareaCaret, reorderCues,
     startBoxDrag, onStagePointerMove, endBoxDrag, ToolbarBtn, cueLyricStyle, handleSaveSong,
+    isSongDraftDirty, clearSongDraft, openEditorOn,
     previewAnimation,
-    fireCountdownLive, stopCountdownLive, fireVideoLive, fireOverlay, clearOverlay, liveOverlay, countdown, setCountdown, cdTemplates, setCdTemplates, sameSongId, clearWorkspace,
+    fireCountdownLive, stopCountdownLive, pauseCountdownLive, resumeCountdownLive, fireVideoLive, fireOverlay, clearOverlay, liveOverlay, countdown, setCountdown, cdTemplates, setCdTemplates, sameSongId, clearWorkspace,
     sermon, sermonLoad, sermonSetLayer, sermonNav, sermonGoto, sermonClose, sermonShots, outputLayers,
     handleDeleteSong, handleToggleFavorite, handleExport, handleImport, serviceSections, resolveBg, appConfirm, appAlert,
     activeSlideIndex, groupLabels, slideGrid, renderSlideFace, applyMediaToActiveSong, importMediaAsset, removeMediaAsset,
@@ -5429,6 +5723,7 @@ export default function App() {
     bibleLibQueryTrim, bibleLibFiltered, bibleAllBooks, bibleOtCount, bibleNtCount, bibleFilteredBooks, bibleStep,
     deleteSavedService, shellOpenDataFolder, dockItems, handleDockSelect, handleNewSong,
     leftContent, monitorContent, renderOutputPreview, DEFAULT_BOX,
+    drawStrokes, addDrawStroke, undoDrawStroke, clearDrawStrokes,
   };
 
   return (
@@ -5520,6 +5815,10 @@ export default function App() {
           activeSlideIndex={activeSlideIndex}
           slideCount={slideGrid.length}
           renderOutputPreview={renderOutputPreview}
+          drawStrokes={drawStrokes}
+          addDrawStroke={addDrawStroke}
+          undoDrawStroke={undoDrawStroke}
+          clearDrawStrokes={clearDrawStrokes}
           activeCue={activeCue}
           fireCueLive={fireCueLive}
           clearLyrics={clearLyrics}
@@ -5557,6 +5856,8 @@ export default function App() {
           liveOverlay={liveOverlay}
           projectorOn={projectorOn}
           persistMediaFile={persistMediaFile}
+          lyricLift={lyricLift}
+          setLyricLift={setLyricLift}
         />
         )}
       </div>

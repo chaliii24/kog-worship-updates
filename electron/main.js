@@ -15,9 +15,14 @@ import { pptxExportImages, pptxReadText, libreImportImages } from './pptxImport.
 import { detectOfficeProviders, PRESENTATION_EXTENSIONS } from './officeProviders.js';
 import { MEDIA_IMAGE_EXT, MEDIA_VIDEO_EXT, MEDIA_AUDIO_EXT, BIBLE_MEDIA_EXT } from './mediaTypes.js';
 import { semverGt } from './versionCompare.js';
+// Operator-window sizing rule (how big the console UI renders on a given
+// monitor) — kept out of main.js so test-responsive-scale.mjs can assert the
+// exact zoom the app boots with.
+import { operatorZoomFor } from './uiScale.js';
 import { parseReference, matchBook } from './bibleResolve.js';
 import { 
   getSongs, 
+  getCategories,
   getSongDetails,
   getSongDetailsMany,
   saveSong, 
@@ -408,6 +413,10 @@ ipcMain.handle('bible-media-list', async (event, folder) => {
 });
 
 let operatorWindow;
+// Armed once the SCREEN display-change listeners are wired (createWindow can
+// run again on macOS activate — those must not stack; the window's own
+// listeners die with the window they were attached to).
+let operatorScaleArmed = false;
 const outputWindows = new Map(); // id -> { win, role, displayId, name }
 // True once quit begins: crash-recovery must NEVER resurrect an output while
 // the app is tearing down — a rebuilt black fullscreen window outlives the
@@ -436,10 +445,42 @@ function getAppStartUrl() {
   return 'http://localhost:5173';
 }
 
+// Fit the console's DESIGN into the operator window (see uiScale.js). The
+// window's own bounds drive the zoom — not a per-resolution magic number —
+// so every screen size, and every window an operator drags out, renders the
+// whole designed layout scaled to fit instead of a zoomed chrome whose own
+// components fall off the edge.
+// { maximize: true } is the launch path only; a mid-session resolution
+// change must not grab a window the operator deliberately restored.
+let operatorRefitTimer = null;
+function fitOperatorWindow({ maximize = false } = {}) {
+  if (!operatorWindow || operatorWindow.isDestroyed()) return;
+  try {
+    if (maximize && !operatorWindow.isMaximized()) operatorWindow.maximize();
+    operatorWindow.webContents.setZoomFactor(operatorZoomFor(operatorWindow.getBounds()));
+  } catch (e) {}
+}
+
+// Debounced: 'resize' fires on every pixel of a drag and maximize/restore
+// fire it as well — one settled fit instead of one per frame.
+function scheduleOperatorFit() {
+  if (operatorRefitTimer) clearTimeout(operatorRefitTimer);
+  operatorRefitTimer = setTimeout(() => {
+    operatorRefitTimer = null;
+    fitOperatorWindow();
+  }, 120);
+}
+
 function createWindow() {
+  // Clamp to something workable, but never to a size bigger than the screen
+  // we are booting on — a min larger than the work area leaves the window
+  // hanging off a small panel with no way to drag it back.
+  const bootArea = screen.getPrimaryDisplay().workAreaSize;
   operatorWindow = new BrowserWindow({
     width: 1600,
     height: 900,
+    minWidth: Math.min(1024, bootArea.width),
+    minHeight: Math.min(640, bootArea.height),
     title: 'KOG Worship - Matrix Command',
     autoHideMenuBar: true,
     webPreferences: {
@@ -450,20 +491,30 @@ function createWindow() {
 
   operatorWindow.loadURL(getAppStartUrl());
 
-  // On 1080p-class PC monitors the operator UI is sized up so it does not look
-  // tiny: maximize the window and lightly zoom the interface.
+  // Fit the design to this screen on EVERY resolution — 1366x728 included —
+  // not only to the 1080p band the old code recognised.
   operatorWindow.webContents.on('did-finish-load', () => {
-    try {
-      const h = screen.getPrimaryDisplay().bounds.height;
-      if (h >= 1050 && h <= 1300) {
-        operatorWindow.maximize();
-        operatorWindow.webContents.setZoomFactor(1.15);
-      }
-    } catch (e) {}
+    fitOperatorWindow({ maximize: true });
   });
 
   operatorWindow.on('closed', () => app.quit());
   armOperatorCloseGate();
+
+  // The fit has to stay true after launch: the operator resizes/restores the
+  // window, and the resolution, DPI or monitor can change underneath it.
+  operatorWindow.on('resize', scheduleOperatorFit);
+  operatorWindow.on('maximize', scheduleOperatorFit);
+  operatorWindow.on('unmaximize', scheduleOperatorFit);
+  operatorWindow.on('restore', scheduleOperatorFit);
+
+  // Screen listeners are app-lifetime (createWindow can run again on macOS
+  // activate — they must not stack).
+  if (!operatorScaleArmed) {
+    operatorScaleArmed = true;
+    screen.on('display-metrics-changed', scheduleOperatorFit);
+    screen.on('display-added', scheduleOperatorFit);
+    screen.on('display-removed', scheduleOperatorFit);
+  }
 }
 
 // Quit gate: closing the operator window with an unsaved service order asks
@@ -679,6 +730,15 @@ function resolutionPreset(res) {
   return (res && map[res]) ? map[res] : null;
 }
 
+// "Fill" on the outputs panel means: cover the WHOLE physical screen, edge to
+// edge, no bars. A custom pixel window (LED processor / video-wall sub-region)
+// is a deliberately smaller rectangle, so the two commands contradict each
+// other — and a stale one (stored when the display reported different bounds,
+// e.g. 1792x828 on a bigger panel) silently leaves desktop showing around the
+// projection. Fill is the explicit, newer command: it wins, and the window is
+// built fullscreen on the bound display again.
+const isFillOutput = (output) => String((output && output.aspect) || '').toLowerCase() === 'fill';
+
 function outputTitle(output) {
   // Stable, exact window title: gdigrab (`title=`) grabs the live window for
   // the DeckLink SDI bridge, and get-output-status reports it to the console.
@@ -690,13 +750,20 @@ function createOutputWindow(output) {
   const target = displayId === 'preview' ? null : screen.getAllDisplays().find((d) => d.id === displayId);
   const startUrl = getAppStartUrl();
   const preset = resolutionPreset(output.resolution);
-  const vp = output.viewport && output.viewport.enabled ? output.viewport : null;
-  // A live output bound to a physical display stays FULLSCREEN no matter
-  // which resolution is selected — the resolution only shapes the view
-  // composed inside the window (its aspect frame), it never pulls the
-  // projection out of fullscreen. Windowed mode survives only for the dev
-  // preview / a display that has gone missing.
-  const isWindowed = preset !== null && !vp && !target;
+  const vp = output.viewport && output.viewport.enabled && !isFillOutput(output) ? output.viewport : null;
+  // A display-bound output is ALWAYS a fullscreen window covering that
+  // display, no matter which resolution / aspect / custom pixel window is
+  // selected — those only shape what is composed INSIDE the black surface
+  // (the renderer draws the region and the letterbox bars). Shrinking the OS
+  // window to a preset or to a custom pixel region is exactly what left the
+  // Windows desktop visible around the projection whenever size or ratio
+  // changed. Windowed mode survives only for the dev preview (no bound
+  // display) and a display that has gone missing.
+  const isWindowed = !target && preset !== null;
+  // Is the WINDOW itself the composed surface (dev preview) rather than a
+  // fullscreen screen that composes a region inside it? Then the custom pixel
+  // window is already the window bounds and must not be applied twice.
+  const windowedSurface = isWindowed || (!!vp && !target);
   // Focus rule: an output covering the operator's own screen must hold the
   // keyboard (Esc exit). An output on its own display must NEVER take focus
   // or the mouse cursor away from the console mid-service — focusable:false
@@ -705,18 +772,19 @@ function createOutputWindow(output) {
   const base = target ? target.bounds : screen.getPrimaryDisplay().bounds;
 
   let win;
-  if (vp) {
-    // Custom pixel viewport: exact window bounds for LED processors and
-    // non-standard video walls. x/y are relative to the bound display's
-    // origin and may be negative or extend past its edge — walls that span
-    // two displays or overlap a neighbor's seam.
+  if (vp && !target) {
+    // DEV PREVIEW ONLY (no display bound): a real OS window at the custom
+    // pixel bounds. A bound display keeps its fullscreen window instead —
+    // see isWindowed above.
     const vx = Math.round(Number(vp.x) || 0);
     const vy = Math.round(Number(vp.y) || 0);
     const vw = Math.max(64, Math.round(Number(vp.w) || base.width));
     const vh = Math.max(64, Math.round(Number(vp.h) || base.height));
     win = new BrowserWindow({
-      x: base.x + vx,
-      y: base.y + vy,
+      // Centered on the screen; X/Y nudge it from that center (0,0 = centered),
+      // exactly like the region ProjectorDisplay composes for a bound output.
+      x: base.x + Math.round((base.width - vw) / 2) + vx,
+      y: base.y + Math.round((base.height - vh) / 2) + vy,
       width: vw,
       height: vh,
       frame: false,
@@ -755,12 +823,17 @@ function createOutputWindow(output) {
       webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
     });
   } else {
-    const [w, h] = preset;
+    // Desktop preview window (no display bound, e.g. the TV is unplugged).
+    // Never bigger than the screen it opens on — a 1920x1080 preset on a
+    // 1366x768 laptop used to spill off the edges and show a cropped output.
+    const room = target ? target.workArea : screen.getPrimaryDisplay().workArea;
+    const w = Math.max(320, Math.min(preset[0], room ? room.width : preset[0]));
+    const h = Math.max(180, Math.min(preset[1], room ? room.height : preset[1]));
     win = new BrowserWindow({
       width: w,
       height: h,
-      x: target ? (target.bounds.x + 60) : (60 + outputWindows.size * 40),
-      y: target ? (target.bounds.y + 60) : (60 + outputWindows.size * 40),
+      x: target ? (target.bounds.x + 60) : (room ? room.x + Math.round((room.width - w) / 2) : 60),
+      y: target ? (target.bounds.y + 60) : (room ? room.y + Math.round((room.height - h) / 2) : 60),
       title: outputTitle(output),
       autoHideMenuBar: true,
       alwaysOnTop: true,
@@ -780,9 +853,9 @@ function createOutputWindow(output) {
     name: output.name || 'Output',
     resolution: isWindowed ? (output.resolution || 'native') : 'native',
     // How the window was built: only a WINDOWED output may be rebuilt by a
-    // resolution change — a fullscreen one keeps its bounds and just
-    // re-composes the view (live cfg push below).
-    windowed: isWindowed,
+    // resolution / viewport change — a fullscreen one keeps its bounds and
+    // just re-composes the view (live cfg push below).
+    windowed: windowedSurface,
     title: outputTitle(output),
     viewport: JSON.stringify(output.viewport || null),
     // Hash of the whole config: sync pushes `output-config` (rotation /
@@ -822,7 +895,9 @@ function createOutputWindow(output) {
       win.setTitle(outputTitle(output));
       win.webContents.send('update-output-aspect', output.aspect || '16:9');
       // Rotation / custom viewport / edge-blend settings for THIS window.
-      win.webContents.send('output-config', output);
+      // A windowed surface IS the composed area: send it without the viewport
+      // so the region is not applied a second time inside the small window.
+      win.webContents.send('output-config', windowedSurface ? { ...output, viewport: null } : output);
       // A frameless fullscreen window sitting over the console has to hold
       // the keyboard, otherwise Esc arrives at the operator window underneath
       // and the exit below never fires.
@@ -1200,16 +1275,18 @@ function syncOutputs(outputs) {
     // Would this output be WINDOWED right now? Only the dev preview (no
     // display bound) windows itself; a display-bound output is always
     // fullscreen, so a resolution change there must NOT rebuild the window.
-    const vpOn = !!(output.viewport && output.viewport.enabled);
+    const vpOn = !!(output.viewport && output.viewport.enabled && !isFillOutput(output));
     const bound = output.displayId != null && output.displayId !== '' && output.displayId !== 'preview'
       && screen.getAllDisplays().some((d) => d.id === output.displayId);
-    const willWindowed = !vpOn && !bound && resolutionPreset(output.resolution) !== null;
+    // Bound display → fullscreen, always (resolution/aspect/viewport compose
+    // inside it; see createOutputWindow). Only the dev preview is an OS window.
+    const willWindowed = !bound && (vpOn || resolutionPreset(output.resolution) !== null);
     if (!existing) {
       createOutputWindow(output);
     } else if (
       existing.displayId !== output.displayId ||
       existing.role !== output.role ||
-      vpJson !== existing.viewport ||
+      (willWindowed && vpJson !== existing.viewport) ||
       existing.windowed !== willWindowed ||
       (willWindowed && existing.resolution !== (output.resolution || 'native'))
     ) {
@@ -1229,7 +1306,7 @@ function syncOutputs(outputs) {
         existing.def = { ...output };
         const fresh = existing.win && !existing.win.isDestroyed() ? existing.win : null;
         if (fresh) {
-          sendToOutput(fresh, 'output-config', output);
+          sendToOutput(fresh, 'output-config', willWindowed ? { ...output, viewport: null } : output);
           existing.title = outputTitle(output);
           fresh.setTitle(existing.title);
         }
@@ -1325,6 +1402,19 @@ ipcMain.on('update-live-draw', (event, draw) => {
   }
 });
 
+// LED-WALL LIFT: how far (output-canvas px, of the shared 1280×720 space) to
+// raise every lyric box, so a band standing in front of the bottom of a wall
+// never covers the words. Its own channel, like the overlay and the draw
+// strokes — it is a live position decision, not part of the slide, and it has
+// to survive a slide change and a late-opened output (see get-live-state).
+let lastLyricLift = 0;
+ipcMain.on('update-lyric-lift', (event, px) => {
+  lastLyricLift = Math.max(0, Math.min(720, Number(px) || 0));
+  for (const { win, role } of outputWindows.values()) {
+    if (role === 'lyrics') sendToOutput(win, 'render-lyric-lift', lastLyricLift);
+  }
+});
+
 // Stage CONFIG feed: layout preset, clock, alert, traffic light, flow
 // tracker, chord chart — pushed by the console whenever any of it changes.
 // Cached exactly like the slide/stage payloads so a stage window opened
@@ -1340,7 +1430,7 @@ ipcMain.on('update-stage-config', (event, feed) => {
 // Pulled by an output window once its render listeners are registered, so
 // there is no load-order race (a push on did-finish-load could arrive
 // before the window is listening and be lost).
-ipcMain.handle('get-live-state', () => ({ slide: lastLiveSlide, stage: lastLiveStage, config: lastStageConfig, overlay: lastLiveOverlay, draw: lastLiveDraw }));
+ipcMain.handle('get-live-state', () => ({ slide: lastLiveSlide, stage: lastLiveStage, config: lastStageConfig, overlay: lastLiveOverlay, draw: lastLiveDraw, lift: lastLyricLift }));
 
 // Next-slide media warm-up: the console fires this while the current slide is
 // still on screen (type + url only — bytes never travel through IPC). Lyrics
@@ -1425,9 +1515,12 @@ ipcMain.handle('get-output-status', () => {
 // so a push that raced the renderer's listener can never be lost.
 ipcMain.handle('output-config-request', (event, id) => {
   const synced = lastSyncedOutputs.find((o) => o && o.id === id);
-  if (synced) return synced;
   const entry = outputWindows.get(id);
-  return entry ? { id, name: entry.name, role: entry.role } : null;
+  const cfg = synced || (entry ? { id, name: entry.name, role: entry.role } : null);
+  // A windowed (dev preview) output already IS the composed surface, so its
+  // custom pixel region is not re-applied inside the window.
+  if (cfg && entry && entry.windowed) return { ...cfg, viewport: null };
+  return cfg;
 });
 
 // --- IDENTIFY DISPLAYS ---
@@ -1731,6 +1824,10 @@ ipcMain.handle('ai-autofix-song', async (event, payload) => {
 
 // Database IPC Handlers
 ipcMain.handle('db-get-songs', (event, search, category) => getSongs(search, category));
+// Chip row for the library: every category in the table. Separate from
+// db-get-songs (which only ever returns the one it filtered to) so the chips
+// can never collapse to just the currently-selected category.
+ipcMain.handle('db-get-categories', () => getCategories());
 ipcMain.handle('db-get-song-details', (event, id) => {
   // Read first, touch last_used after: a deleted/garbage id used to throw
   // inside updateLastUsed and the read never happened. Failure there must

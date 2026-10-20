@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { renderLyricsLayout, DEFAULT_LYRIC_SIZE } from '../lib/lyrics';
+import { renderLyricsLayout, liftBox, DEFAULT_LYRIC_SIZE } from '../lib/lyrics';
 import { cssSpeed } from '../lib/constants';
 import PresentationSlide from './PresentationSlide';
 import { TimerFace } from './CountdownFace';
@@ -79,7 +79,7 @@ function OutputPerfHud({ slideKey }) {
   );
 }
 
-export default function ProjectorDisplay({ currentSlide, C, aspect, config, overlay = null, draw = null }) {
+export default function ProjectorDisplay({ currentSlide, C, aspect, config, overlay = null, draw = null, lift = 0 }) {
   const [win, setWin] = useState({ w: window.innerWidth, h: window.innerHeight });
   // The wall must never throw: a null/undefined slide (boot race, corrupt
   // payload) renders black and stays alive instead of killing the window.
@@ -208,26 +208,20 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
   const vw = swap ? ph : pw;
   const vh = swap ? pw : ph;
 
-  // VIEW SHAPE: the output composes inside a frame of the selected aspect
-  // ratio, centered in the window — so changing the ratio on the console
-  // visibly changes the PHYSICAL projection (the bars are the root's black,
-  // exactly like the preview's aspect wrapper). Per-output config wins over
-  // the global setting; a window whose own ratio already matches within 2%
-  // snaps to full-bleed, so a 16:9 projector never shows a hairline seam.
+  // FRAME: the projection is the SELECTED RATIO, fitted to the physical screen
+  // and centered — nothing else shrinks it. A display-bound output always owns
+  // the whole screen (fullscreen black window), so an old custom-pixel size can
+  // never crop the picture or park it in a corner; that setting now only sizes
+  // the desktop preview window (electron/main.js). Fill = edge to edge on any
+  // screen; every named ratio is exact, whatever the screen shape is.
   const ratioOf = (v) => {
     const m = String(v || '').match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
     return m && Number(m[2]) ? Number(m[1]) / Number(m[2]) : 0;
   };
-  const ar = ratioOf(cfg.aspect) || ratioOf(aspect) || 16 / 9;
-  // Fill = edge-to-edge on ANY display (LED wall, ultrawide, big TV): no bars
-  // ever, the window's native pixels win. 16:9 keeps its historic FIT-TO-SCREEN
-  // behavior; every OTHER ratio is an explicit shape request and letterboxes
-  // on purpose (that is what the control is for).
-  const fill = String(cfg.aspect || '').toLowerCase() === 'fill' || String(aspect || '').toLowerCase() === 'fill';
-  const isFit = Math.abs(ar - 16 / 9) < 0.01;
-  const snap = fill || isFit || Math.abs(vw / vh - ar) / ar <= 0.02;
-  const fw = snap ? vw : Math.min(vw, vh * ar);
-  const fh = snap ? vh : Math.min(vh, vw / ar);
+  const ar = ratioOf(cfg.aspect || aspect) || 16 / 9;
+  const fill = String(cfg.aspect || aspect || '').toLowerCase() === 'fill';
+  const fw = fill ? vw : Math.min(vw, vh * ar);
+  const fh = fill ? vh : Math.min(vh, vw / ar);
   const fx = (vw - fw) / 2;
   const fy = (vh - fh) / 2;
 
@@ -416,7 +410,11 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
                     const isTitleSlide = cs.label === 'Song Title';
                     const st = slideStyle.lyric || { font: slideStyle.fontFamily || 'system-ui, sans-serif', size: DEFAULT_LYRIC_SIZE, lineHeight: 1.05, align: slideStyle.textAlign || 'center', color: slideStyle.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
                     st.isTitle = isTitleSlide;
-                    const box = st.box || { x: 80, y: isTitleSlide ? 140 : 100, w: 1120, h: isTitleSlide ? 440 : 480 };
+                    // LED-WALL LIFT: the operator can raise every lyric box at
+                    // once so a band standing in front of the bottom of the wall
+                    // never covers the words. A per-slide edit of the box's own
+                    // y still wins, because the lift is applied on top of it.
+                    const box = liftBox(st.box || { x: 80, y: isTitleSlide ? 140 : 100, w: 1120, h: isTitleSlide ? 440 : 480 }, lift);
                     const artist = cs.artist || '';
                     return (
                       <>
@@ -448,14 +446,15 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
         </div>
       </div>
 
-          {/* COUNTDOWN FULLSCREEN: lyrics need the aspect frame, a countdown does not -
-              so it renders here at the viewport, edge to edge on any projector or LED
-              wall (bars and watermark cut-off came from the old clipped box). Type is
-              sized by viewport height, identical to before on 16:9. */}
+          {/* COUNTDOWN: fills the physical wall edge to edge (the same shape
+              the countdown preview box takes), so the timer never sits inside
+              a letterboxed ratio frame — matching the wall is what the timer
+              is for. What is outside it is the root's black, never the Windows
+              desktop. Type is sized by viewport height, identical on 16:9. */}
           <AnimatePresence>
             {cs.timer && (
               <motion.div key="countdown-live" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.6 }} style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#000', zIndex: 1 }}>
-                <TimerFace timer={cs.timer} scale={vh / 720} />
+                <TimerFace timer={cs.timer} scale={vh / 720} surface="main" />
               </motion.div>
             )}
           </AnimatePresence>

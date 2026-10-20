@@ -176,8 +176,39 @@ export default function SongEditorModal() {
     cueLyricStyle,
     handleSaveSong,
     resolveBg,
-    DEFAULT_BOX
+    DEFAULT_BOX,
+    appConfirm,
+    isSongDraftDirty,
+    clearSongDraft
   } = app;
+
+  // Leaving the editor is the one action that could silently destroy work: the
+  // Cancel button closed unconditionally, and Escape did nothing at all. Both
+  // now go through HERE, so there is exactly one rule — ask if anything has
+  // changed since the editor opened, and drop the recovery draft only when the
+  // operator is genuinely done with this song.
+  //
+  // `closingRef` makes it re-entrant-safe: Escape held down fires keydown
+  // repeatedly, and the second event can land before React has painted the
+  // dialog the first one opened.
+  const closingRef = useRef(false);
+  const attemptClose = useCallback(async () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    try {
+      if (isSongDraftDirty()) {
+        const ok = await appConfirm(
+          'You have unsaved changes to this song.\n\nDiscard them? Press Save instead to keep them.',
+          { title: 'Unsaved song', confirmLabel: 'Discard Changes', cancelLabel: 'Keep Editing' }
+        );
+        if (!ok) return;
+      }
+      clearSongDraft();
+      setIsEditorOpen(false);
+    } finally {
+      closingRef.current = false;
+    }
+  }, [appConfirm, clearSongDraft, isSongDraftDirty, setIsEditorOpen]);
 
   const [hoverAnim, setHoverAnim] = useState(null);
   const [previewTick, setPreviewTick] = useState(0);
@@ -460,6 +491,26 @@ export default function SongEditorModal() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // Escape leaves the editor. It deliberately stays out of the way of anything
+  // that owns Escape first — the split dialog, a rename field, an open confirm
+  // (ConfirmModal handles it in the CAPTURE phase and stops propagation, so it
+  // never reaches here), and any focused field: pressing Escape to dismiss a
+  // colour picker or cancel a rename must not close the whole editor under it.
+  // When it does fire, it runs the same guarded close as the Cancel button.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (splitPrompt) return;
+      const t = e.target;
+      const tag = t && t.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+      e.preventDefault();
+      attemptClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [attemptClose, splitPrompt]);
 
   const applyTypographyToAll = () => {
     breakHist();
@@ -1450,8 +1501,12 @@ export default function SongEditorModal() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Slides</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <input type="number" min="1" max="12" value={linesPerSlide} onChange={(e) => setLinesPerSlide(e.target.value)} title="Lines per slide" style={{ width: 42, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '4px 5px', fontSize: 11, textAlign: 'center', outline: 'none' }} />
-                  <button onClick={splitCuesToLines} title="Split long sections into N-line slides" style={{ background: '#1e1b4b', border: '1px solid ' + ACCENT, color: C.accLine, borderRadius: 6, padding: '4px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}><AlignLeft size={11} /> Split</button>
+                  {/* Live count: every change re-flows the blocks immediately —
+                      the number is not a setting you confirm elsewhere. An empty
+                      or half-typed value waits for blur rather than rebuilding
+                      the song on 0 lines. */}
+                  <input type="number" min="1" max="12" value={linesPerSlide} title="Lines per slide — blocks re-flow to this count as you change it" onChange={(e) => { setLinesPerSlide(e.target.value); const n = Math.floor(Number(e.target.value)); if (n >= 1) splitCuesToLines(n); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }} onBlur={(e) => { const n = Math.max(1, Math.min(12, Math.floor(Number(e.target.value)) || 4)); setLinesPerSlide(String(n)); splitCuesToLines(n); }} style={{ width: 42, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '4px 5px', fontSize: 11, textAlign: 'center', outline: 'none' }} />
+                  <button onClick={() => splitCuesToLines()} title="Re-flow every section to N lines — merges (Part n) slides back together, or cuts long ones. Changing the number above already does this." style={{ background: '#1e1b4b', border: '1px solid ' + ACCENT, color: C.accLine, borderRadius: 6, padding: '4px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}><AlignLeft size={11} /> Split</button>
                 </div>
               </div>
               <div style={{ display: 'grid', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
@@ -1768,7 +1823,7 @@ export default function SongEditorModal() {
         <span style={{ width: 1, height: 22, background: 'var(--ui-border2)' }} />
       </div>
       )}
-      <motion.button {...stubTap} onClick={() => setIsEditorOpen(false)} style={{ background: C.border, border: 'none', color: C.text, padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</motion.button>
+      <motion.button {...stubTap} onClick={attemptClose} style={{ background: C.border, border: 'none', color: C.text, padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</motion.button>
       <motion.button {...stubTap} onClick={handleSaveSong} style={{ background: ACCENT, border: 'none', color: C.text, padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Save Song</motion.button>
     </div>
 

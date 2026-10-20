@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Square, Type, SkipBack, SkipForward, Zap, FolderOpen, Megaphone, SlidersHorizontal, Highlighter } from 'lucide-react';
+import { Square, Type, SkipBack, SkipForward, Zap, FolderOpen, Megaphone, SlidersHorizontal, Highlighter, PenLine, Undo2, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { TimerReadout, overlayOnAir } from '../lib/perf';
 import { stubTap, iconBtnTap } from '../lib/anim';
+import { DRAW_W, DRAW_H, DRAW_COLORS, DRAW_WIDTHS, MAX_POINTS_PER_STROKE, strokeToPath, clientToDesign } from '../lib/draw';
 import { mediaLabel } from '../lib/backgrounds';
 import FontPicker from './FontPicker';
 import { FONT_OPTIONS } from '../lib/constants';
@@ -58,12 +59,41 @@ export default function LiveOutputPanel({
   // output fades it back even mid-song.
   projectorOn = false,
   persistMediaFile,
+  // LED-WALL LIFT: how far the lyrics are raised off the floor of the wall,
+  // in output-canvas px (of 720). App owns it — the wall, the operator's own
+  // monitor and this preview all read the same value.
+  lyricLift = 0,
+  setLyricLift,
+  // DESKTOP TELESTRATOR — what is on the wall plus the two operations the
+  // phone already had. The pointer handling itself lives in this panel: the
+  // console draws over its own preview, through the same sanitize/push path.
+  drawStrokes = [],
+  addDrawStroke,
+  undoDrawStroke,
+  clearDrawStrokes,
   // Locked while the Countdown tab is active: the countdown owns the wall,
   // so the sidebar stays visible (preview keeps running) but nothing in it
   // can fire. Unlocks itself the moment the operator leaves that tab.
   locked = false,
 }) {
   const isLive = activeCue != null && activeCue?.id !== 'clear';
+  // LED-wall lift arrows. They disable (rather than clamp) at the ends so an
+  // arrow always means "there is more in that direction" — a dead arrow is a
+  // limit, not a bug. The ceiling stops short of the top of the wall so the
+  // topmost line can never be pushed off it.
+  const liftBtn = (off) => ({
+    flex: '0 0 auto',
+    width: 26,
+    height: 26,
+    borderRadius: 7,
+    fontSize: 12,
+    lineHeight: 1,
+    cursor: off ? 'default' : 'pointer',
+    opacity: off ? 0.35 : 1,
+    color: C.heading,
+    background: C.elevated,
+    border: '1px solid ' + C.border,
+  });
   // Red only while a cue is on air AND the projector runs — starting the
   // output lights it, killing the output fades it (transitions above).
   const wallLive = isLive && projectorOn;
@@ -136,6 +166,71 @@ export default function LiveOutputPanel({
   // and trap the Groups list mid-scroll.
   const lockStyle = locked ? { opacity: 0.45, userSelect: 'none', filter: 'saturate(0.6)' } : undefined;
   const lockInert = locked ? true : undefined;
+  // --- DESKTOP TELESTRATOR --------------------------------------------------
+  // The overlay has always been pointer-transparent: drawing existed only on
+  // the paired phone, so an operator sitting at the console could see strokes
+  // but never make one. This turns the preview into a drawing surface — ONLY
+  // while the pen is armed, so an unarmed preview click keeps meaning exactly
+  // what it meant before.
+  //
+  // Coordinates map through the preview box into the shared 1280x720 design
+  // space (lib/draw), which is what the wall stretches edge to edge: a circle
+  // drawn here lands on the projector where it was drawn.
+  const [drawMode, setDrawMode] = useState(false);
+  const [penColor, setPenColor] = useState(DRAW_COLORS[0]);
+  const [penWidth, setPenWidth] = useState(DRAW_WIDTHS[1]);
+  const [penStroke, setPenStroke] = useState(null); // in-progress points: live feedback
+  const drawingRef = useRef(null);
+  const drawBoxRef = useRef(null);
+
+  const toDesign = (clientX, clientY) => {
+    const el = drawBoxRef.current;
+    if (!el) return null;
+    return clientToDesign(el.getBoundingClientRect(), clientX, clientY);
+  };
+  const onPenDown = (e) => {
+    const p = toDesign(e.clientX, e.clientY);
+    if (!p) return;
+    try { e.preventDefault(); } catch {}
+    // Capture: a fast stroke runs off the preview edge and must not break.
+    try { e.currentTarget.setPointerCapture && e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    drawingRef.current = {
+      id: `d${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`,
+      color: penColor,
+      width: penWidth,
+      points: [p],
+    };
+    setPenStroke([p]);
+  };
+  const onPenMove = (e) => {
+    const cur = drawingRef.current;
+    if (!cur) return;
+    const p = toDesign(e.clientX, e.clientY);
+    if (!p) return;
+    const last = cur.points[cur.points.length - 1];
+    // Same 3px jitter gate the phone uses: without it a slow drag stacks
+    // hundreds of near-identical points and bloats the snapshot the outputs
+    // receive.
+    if (last && Math.abs(last[0] - p[0]) < 3 && Math.abs(last[1] - p[1]) < 3) return;
+    cur.points.push(p);
+    if (cur.points.length > MAX_POINTS_PER_STROKE) cur.points = cur.points.slice(-MAX_POINTS_PER_STROKE);
+    setPenStroke(cur.points.slice());
+  };
+  const onPenUp = () => {
+    const cur = drawingRef.current;
+    drawingRef.current = null;
+    setPenStroke(null);
+    if (!cur) return;
+    if (cur.points.length === 1) {
+      // A single click is a DOT. sanitizeDrawStroke rejects a bare point by
+      // design (pinned by test-remote-update), so nudge the twin 2px — past
+      // its dedup threshold — and the round cap paints it as a dot.
+      const [x, y] = cur.points[0];
+      addDrawStroke({ ...cur, points: [[x, y], [Math.min(DRAW_W, x + 2), y]] });
+      return;
+    }
+    addDrawStroke(cur);
+  };
   return (
     // No entrance animation: the console subtree remounts every time the song
     // editor closes (and on boot), so the old slide+fade-in with its 0.3s
@@ -149,7 +244,20 @@ export default function LiveOutputPanel({
       <div style={{ padding: '12px 12px 6px 12px', borderBottom: '1px solid ' + C.border, flex: '0 0 auto', minHeight: 0, overflowY: 'auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 800, color: C.heading, textTransform: 'uppercase', letterSpacing: 1.5 }}>Live Output</span>
-          <span style={{ fontSize: 11, fontWeight: 700, color: C.muted }}>{activeSlideIndex >= 0 ? `${activeSlideIndex}/${slideCount - 1}` : '—'}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            {/* TELESTRATOR ARM — off by default, so an ordinary preview click
+                can never draw by accident. Locked while Countdown owns the
+                wall, like every other firing control in this panel. */}
+            <button
+              onClick={() => setDrawMode((d) => !d)}
+              disabled={locked}
+              title={drawMode ? 'Pen armed — drag on the preview to draw on the wall' : 'Draw on the live output with the mouse'}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 7, fontSize: 10, fontWeight: 800, cursor: locked ? 'default' : 'pointer', background: drawMode ? 'rgba(239,68,68,0.16)' : C.elevated, border: '1px solid ' + (drawMode ? 'rgba(239,68,68,0.55)' : C.border2), color: drawMode ? '#f87171' : C.faint, opacity: locked ? 0.45 : 1, transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease' }}
+            >
+              <PenLine size={12} /> Draw
+            </button>
+            <span style={{ fontSize: 11, fontWeight: 700, color: C.muted }}>{activeSlideIndex >= 0 ? `${activeSlideIndex}/${slideCount - 1}` : '—'}</span>
+          </div>
         </div>
         <div style={{ marginBottom: 8, position: 'relative', borderRadius: 10, border: wallLive ? '2px solid #ef4444' : '1px solid transparent', boxShadow: wallLive ? '0 0 22px -6px rgba(239,68,68,0.6)' : 'none', transition: 'border-color 0.45s ease, box-shadow 0.45s ease', padding: wallLive ? 1 : 0 }}>
           <span style={{ position: 'absolute', top: 6, left: 6, zIndex: 5, display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#fff', background: '#dc2626', borderRadius: 6, padding: '2px 8px', boxShadow: '0 2px 10px rgba(0,0,0,0.5)', opacity: wallLive ? 1 : 0, transition: 'opacity 0.45s ease', pointerEvents: 'none' }}>
@@ -171,6 +279,106 @@ export default function LiveOutputPanel({
               ) : null}
             </div>
           ) : renderOutputPreview()}
+          {/* TELESTRATOR SURFACE — mirrors what is on the wall at all times
+              (the console preview never showed strokes before), and accepts
+              the pointer only while the pen is armed. Same 1280x720 space and
+              the same edge-to-edge stretch the wall uses, so what is drawn
+              here is exactly what lands there. */}
+          {(drawMode || penStroke || (drawStrokes && drawStrokes.length > 0)) && (
+            <svg
+              ref={drawBoxRef}
+              viewBox={`0 0 ${DRAW_W} ${DRAW_H}`}
+              preserveAspectRatio="none"
+              onPointerDown={drawMode && !locked ? onPenDown : undefined}
+              onPointerMove={drawMode && !locked ? onPenMove : undefined}
+              onPointerUp={drawMode && !locked ? onPenUp : undefined}
+              onPointerCancel={drawMode && !locked ? onPenUp : undefined}
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', zIndex: 6, borderRadius: 8, pointerEvents: drawMode && !locked ? 'auto' : 'none', touchAction: 'none', cursor: drawMode && !locked ? 'crosshair' : 'default', overflow: 'hidden' }}
+            >
+              {(drawStrokes || []).map((s, i) => (
+                <path
+                  key={(s && s.id) || i}
+                  d={strokeToPath((s && s.points) || [])}
+                  fill="none"
+                  stroke={(s && s.color) || '#f87171'}
+                  strokeWidth={(s && s.width) || 12}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              ))}
+              {penStroke && penStroke.length > 1 ? (
+                <path d={strokeToPath(penStroke)} fill="none" stroke={penColor} strokeWidth={penWidth} strokeLinecap="round" strokeLinejoin="round" />
+              ) : null}
+            </svg>
+          )}
+        </div>
+        {/* PEN — inks, nibs, undo, clear. Rendered only while armed: vertical
+            space in this fixed half is precious, so the row exists exactly as
+            long as the operator is drawing and not one moment longer. */}
+        {drawMode && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            {DRAW_COLORS.map((col) => (
+              <button key={col} onClick={() => setPenColor(col)} title={`Ink ${col}`} style={{ width: 18, height: 18, borderRadius: '50%', background: col, border: '2px solid ' + (penColor === col ? C.text : 'transparent'), cursor: 'pointer', padding: 0, flex: '0 0 auto' }} />
+            ))}
+            <span style={{ width: 1, height: 16, background: C.border2, flex: '0 0 auto' }} />
+            {DRAW_WIDTHS.map((w) => (
+              <button key={w} onClick={() => setPenWidth(w)} title={`${w}px nib`} style={{ width: 26, height: 18, borderRadius: 6, background: penWidth === w ? 'rgba(239,68,68,0.18)' : C.elevated, border: '1px solid ' + (penWidth === w ? 'rgba(239,68,68,0.5)' : C.border2), cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>
+                  <span style={{ width: Math.max(4, w * 0.7), height: Math.max(2, Math.min(7, w * 0.45)), borderRadius: 99, background: penWidth === w ? '#f87171' : C.faint }} />
+              </button>
+            ))}
+            <span style={{ flex: 1 }} />
+            <button
+              onClick={() => undoDrawStroke && undoDrawStroke()}
+              disabled={!drawStrokes.length}
+              title="Undo the last stroke"
+              style={{ background: 'transparent', border: '1px solid ' + C.border2, borderRadius: 7, padding: '4px 6px', cursor: drawStrokes.length ? 'pointer' : 'default', opacity: drawStrokes.length ? 1 : 0.35, color: C.faint, display: 'flex', alignItems: 'center', flex: '0 0 auto' }}
+            ><Undo2 size={13} /></button>
+            <button
+              onClick={() => clearDrawStrokes && clearDrawStrokes()}
+              disabled={!drawStrokes.length}
+              title="Clear every stroke"
+              style={{ background: 'transparent', border: '1px solid ' + C.border2, borderRadius: 7, padding: '4px 6px', cursor: drawStrokes.length ? 'pointer' : 'default', opacity: drawStrokes.length ? 1 : 0.35, color: C.faint, display: 'flex', alignItems: 'center', flex: '0 0 auto' }}
+            ><Trash2 size={13} /></button>
+          </div>
+        )}
+        {/* LED-WALL LIFT — raise every lyric box at once so a band standing in
+            front of the bottom of an LED wall never covers the words. It is a
+            live output position, not a song edit: the wall and this preview
+            move together, and the song's own boxes are untouched. Stepped in
+            % of the 720px output canvas so the same gesture means the same
+            thing whatever the wall's real resolution. */}
+        <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            onClick={() => setLyricLift && setLyricLift(lyricLift + 36)}
+            disabled={lyricLift >= 540}
+            title="Raise the lyrics — for a band standing in front of the wall"
+            style={liftBtn(lyricLift >= 540)}
+          >▲</button>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>Lyric Lift</span>
+              <span style={{ fontSize: 10, fontWeight: 800, color: lyricLift > 0 ? PINK : C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                {Math.round((lyricLift / 720) * 100)}%
+              </span>
+            </div>
+            {/* A hairline track so the operator can see at a glance how far the
+                lyrics have been raised off the floor of the wall. */}
+            <div style={{ height: 6, borderRadius: 999, background: C.elevated, border: '1px solid ' + C.border, overflow: 'hidden', position: 'relative' }}>
+              <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${Math.min(100, (lyricLift / 720) * 100)}%`, background: lyricLift > 0 ? PINK : 'transparent', transition: 'width 0.15s ease' }} />
+            </div>
+          </div>
+          <button
+            onClick={() => setLyricLift && setLyricLift(lyricLift - 36)}
+            disabled={lyricLift <= 0}
+            title="Lower the lyrics toward the bottom of the wall"
+            style={liftBtn(lyricLift <= 0)}
+          >▼</button>
+          <button
+            onClick={() => setLyricLift && setLyricLift(0)}
+            disabled={lyricLift === 0}
+            title="Drop the lyrics back to their edited position"
+            style={liftBtn(lyricLift === 0)}
+          >↺</button>
         </div>
         {/* Everything below the preview fires at the wall, so it all locks
             together while the Countdown tab owns the output. */}

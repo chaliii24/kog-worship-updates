@@ -49,3 +49,16 @@ export function pushDrawStroke(strokes, stroke) {
 export function strokeToPath(points) {
   return (points || []).map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]} ${p[1]}`).join(' ');
 }
+
+// Map a screen point into design space through an element's laid-out box.
+// Every surface — the wall, its preview, the phone's miniature — stretches
+// 1280x720 edge to edge, so the ratio inside the box IS the design coordinate.
+// That is what makes a stroke drawn on a small preview land correctly on a
+// huge one. Null for a zero-sized box: a preview hidden by display:none would
+// otherwise map every point to 0,0 and paint in the corner.
+export function clientToDesign(rect, clientX, clientY) {
+  if (!rect || !rect.width || !rect.height) return null;
+  const x = Math.round(((clientX - rect.left) / rect.width) * DRAW_W);
+  const y = Math.round(((clientY - rect.top) / rect.height) * DRAW_H);
+  return [Math.min(DRAW_W, Math.max(0, x)), Math.min(DRAW_H, Math.max(0, y))];
+}

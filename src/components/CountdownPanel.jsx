@@ -1,17 +1,22 @@
-import React, { useRef, useState } from 'react';
-import { Play, Square, RefreshCw, Clock, Hourglass, Crosshair, Monitor, Images, Film, X, PanelRight } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Play, Square, RefreshCw, Clock, Hourglass, Crosshair, Monitor, Images, Film, X, PanelRight, Pause, Volume2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 import { GRADIENT_PACK } from '../lib/backgrounds';
-import { DEFAULT_COUNTDOWN, ANIMATED_GRADIENTS } from './CountdownFace';
+import { DEFAULT_COUNTDOWN, ANIMATED_GRADIENTS, probeVideoAudio } from './CountdownFace';
 import CountdownPreview from './CountdownPreview';
 
 const PRESETS = [
   [60, '1m'], [180, '3m'], [300, '5m'], [600, '10m'], [900, '15m'], [1800, '30m'],
 ];
+// Video countdown's OWN preset strip (spec: 1/3/5/10/15/20/30/60). The shared
+// PRESETS above stay exactly as they were for normal and slideshow modes.
+const VIDEO_PRESETS = [
+  [60, '1m'], [180, '3m'], [300, '5m'], [600, '10m'], [900, '15m'], [1200, '20m'], [1800, '30m'], [3600, '60m'],
+];
 
-const DEFAULT_BG_MEDIA = { kind: 'slideshow', images: [], slideSec: 5, video: null, loop: true };
+const DEFAULT_BG_MEDIA = { kind: 'slideshow', images: [], slideSec: 5, video: null, loop: true, videoAudio: { enabled: true, volume: 0.9, muted: false, fadeSec: 0 } };
 
 const fieldLabel = (C) => ({ fontSize: 10, color: C.faint, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.2, display: 'block', marginBottom: 6 });
 const textInput = (C) => ({ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '9px 12px', fontSize: 13, outline: 'none', boxSizing: 'border-box' });
@@ -36,13 +41,52 @@ function Segmented({ C, ACCENT, options, value, onPick }) {
 }
 
 export default function CountdownPanel() {
-  const { C, ACCENT, countdown, setCountdown, fireCountdownLive, stopCountdownLive, persistCountdownFile, cdTemplates, setCdTemplates, outputAspect, wallAspect, rightOpen, setRightOpen } = useApp();
+  const { C, ACCENT, countdown, setCountdown, fireCountdownLive, stopCountdownLive, pauseCountdownLive, resumeCountdownLive, persistCountdownFile, cdTemplates, setCdTemplates, outputAspect, wallAspect, rightOpen, setRightOpen } = useApp();
   const cfg = { ...DEFAULT_COUNTDOWN, ...(countdown || {}) };
   const live = !!(cfg.live);
+  const paused = !!(cfg.live && cfg.live.pausedAt != null);
   const set = (patch) => setCountdown((prev) => ({ ...DEFAULT_COUNTDOWN, ...(prev || {}), ...patch }));
   const media = { ...DEFAULT_BG_MEDIA, ...(cfg.bgMedia || {}) };
   const setMedia = (patch) => set({ bgType: 'media', bgMedia: { ...media, ...patch } });
+  // Video-upload mode: the ONLY surface that gets its own transport buttons,
+  // preset strip and original-audio controls. Slideshow/normal paths below
+  // are untouched.
+  const isVideoMode = cfg.bgType === 'media' && media.kind === 'video';
+  const setVideoAudio = (patch) => setMedia({ videoAudio: { ...(media.videoAudio || {}), ...patch } });
   const [mediaBusy, setMediaBusy] = useState(false);
+  // One-shot audio test: a PRIVATE element, only while idle (never while the
+  // countdown is on air — the main output owns the sound there, so a test
+  // during playback would double the room's audio).
+  const [audioTesting, setAudioTesting] = useState(false);
+  const testElRef = useRef(null);
+  const testTimerRef = useRef(null);
+  const stopAudioTest = React.useCallback(() => {
+    if (testTimerRef.current) { clearTimeout(testTimerRef.current); testTimerRef.current = null; }
+    const el = testElRef.current;
+    testElRef.current = null;
+    if (el) { try { el.pause(); el.removeAttribute('src'); el.load(); } catch {} }
+    setAudioTesting(false);
+  }, []);
+  const toggleAudioTest = () => {
+    if (audioTesting) { stopAudioTest(); return; }
+    if (!media.video || live) return;
+    try {
+      const el = document.createElement('video');
+      el.src = media.video;
+      el.preload = 'auto';
+      const av = media.videoAudio || {};
+      el.muted = av.enabled === false || !!av.muted;
+      el.volume = Math.min(1, Math.max(0, Number.isFinite(Number(av.volume)) ? Number(av.volume) : 0.9));
+      const p = el.play();
+      if (p && p.catch) p.catch(() => {});
+      testElRef.current = el;
+      setAudioTesting(true);
+      testTimerRef.current = setTimeout(() => stopAudioTest(), 5000);
+    } catch {}
+  };
+  // A changed file (or a closed tab) must release the test element — nothing
+  // plays from a stale URL.
+  useEffect(() => { stopAudioTest(); }, [media.video, stopAudioTest]);
   const imgPickRef = useRef(null);
   const vidPickRef = useRef(null);
   const wmPickRef = useRef(null);
@@ -70,7 +114,21 @@ export default function CountdownPanel() {
     setMediaBusy(true);
     try {
       const u = await persistCountdownFile(file);
-      if (u) set({ bgType: 'media', bgMedia: { ...media, kind: 'video', video: u } });
+      if (u) {
+        // Persisted into countdown-media/ (media://…) like before — offline
+        // after import, alive across restarts. Audio prefs carry over; track
+        // detection resets for the new file.
+        set({ bgType: 'media', bgMedia: { ...media, kind: 'video', video: u, videoAudio: { enabled: true, volume: 0.9, muted: false, fadeSec: 0, ...(media.videoAudio || {}), hasTrack: null, unsupported: false, probed: false } } });
+        probeVideoAudio(u).then((r) => {
+          if (!r) return;
+          setCountdown((prev) => {
+            const cur = { ...DEFAULT_COUNTDOWN, ...(prev || {}) };
+            const m = { ...DEFAULT_BG_MEDIA, ...(cur.bgMedia || {}) };
+            if (m.video !== u) return prev; // another file was picked meanwhile
+            return { ...cur, bgType: 'media', bgMedia: { ...m, videoAudio: { ...(m.videoAudio || {}), hasTrack: r.hasAudio ?? null, unsupported: !!r.unsupported, probed: true } } };
+          });
+        }).catch(() => {});
+      }
     } finally {
       setMediaBusy(false);
     }
@@ -109,6 +167,9 @@ export default function CountdownPanel() {
     const ss = Math.max(0, Math.min(59, Math.floor(Number(s) || 0)));
     set({ durationSec: mm * 60 + ss });
   };
+  // Preset strip: video mode gets its 8-button set (incl. 20m/60m); normal
+  // and slideshow countdowns keep the original 6 — unchanged.
+  const durationPresets = isVideoMode ? VIDEO_PRESETS : PRESETS;
 
   const sliderRow = (label, value, min, max, step, onChange) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -124,8 +185,8 @@ export default function CountdownPanel() {
         <Clock size={16} color={live ? '#4ade80' : C.faint} />
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Countdown Timer</h2>
         {live && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.5)', color: '#4ade80', borderRadius: 999, padding: '3px 10px', fontSize: 10, fontWeight: 800, letterSpacing: 1 }}>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e' }} /> LIVE
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: paused ? 'rgba(251,191,36,0.15)' : 'rgba(34,197,94,0.15)', border: '1px solid ' + (paused ? 'rgba(251,191,36,0.5)' : 'rgba(34,197,94,0.5)'), color: paused ? '#fbbf24' : '#4ade80', borderRadius: 999, padding: '3px 10px', fontSize: 10, fontWeight: 800, letterSpacing: 1 }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: paused ? '#f59e0b' : '#22c55e', boxShadow: '0 0 8px ' + (paused ? '#f59e0b' : '#22c55e') }} /> {paused ? 'PAUSED' : 'LIVE'}
           </span>
         )}
         <span style={{ flex: 1 }} />
@@ -180,10 +241,15 @@ export default function CountdownPanel() {
                   <span style={{ fontSize: 11, color: C.faint, fontWeight: 700 }}>sec</span>
                 </div>
                 <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
-                  {PRESETS.map(([v, lbl]) => (
-                    <button key={v} onClick={() => set({ durationSec: v })} style={{ flex: 1, background: cfg.durationSec === v ? ACCENT : C.elevated2, border: '1px solid ' + (cfg.durationSec === v ? ACCENT : 'var(--ui-border2)'), color: cfg.durationSec === v ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                  {durationPresets.map(([v, lbl]) => (
+                    <button key={v} onClick={() => set({ durationSec: v })} style={{ flex: 1, background: cfg.durationSec === v ? ACCENT : C.elevated2, border: '1px solid ' + (cfg.durationSec === v ? ACCENT : 'var(--ui-border2)'), color: cfg.durationSec === v ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: isVideoMode ? 10.5 : 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
                   ))}
                 </div>
+                {isVideoMode && (
+                  <div style={{ fontSize: 11, color: C.faint2, marginTop: 6, lineHeight: 1.45 }}>
+                    The timer runs independently of the video — a 3-minute video loops until the timer ends.
+                  </div>
+                )}
               </div>
             )}
             {cfg.mode === 'target' && (
@@ -314,9 +380,9 @@ export default function CountdownPanel() {
                         title="Pick a video file"
                         style={{ border: '1px dashed var(--ui-border2)', borderRadius: 8, padding: '12px', textAlign: 'center', fontSize: 11.5, color: C.muted, cursor: 'pointer', lineHeight: 1.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                       >
-                        {mediaBusy ? 'Copying into library…' : (media.video ? String(media.video).split('/').pop() : 'Click to pick an .mp4 / .webm')}
+                        {mediaBusy ? 'Copying into library…' : (media.video ? String(media.video).split('/').pop() : 'Click to pick an .mp4 / .webm / .mov')}
                       </div>
-                      <input ref={vidPickRef} type="file" accept="video/mp4,video/webm,video/*" style={{ display: 'none' }} onChange={(e) => { setVideo(e.target.files?.[0]); e.target.value = ''; }} />
+                      <input ref={vidPickRef} type="file" accept="video/mp4,video/webm,video/quicktime,video/*" style={{ display: 'none' }} onChange={(e) => { setVideo(e.target.files?.[0]); e.target.value = ''; }} />
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 700, color: C.text2, cursor: 'pointer' }}>
                           <input type="checkbox" checked={media.loop !== false} onChange={(e) => setMedia({ loop: e.target.checked })} />
@@ -326,9 +392,58 @@ export default function CountdownPanel() {
                           <button onClick={() => setMedia({ video: null })} style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid var(--ui-border2)', color: '#f87171', borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Remove</button>
                         )}
                       </div>
+                      {/* ORIGINAL AUDIO (video mode only): enable/mute, volume,
+                          optional fade into 00:00, 5-second test, and the
+                          detected-track status. Persisted with the countdown
+                          config (localStorage) like every other setting. */}
+                      {media.video && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '9px 10px' }}>
+                          <span style={{ fontSize: 10, color: C.faint, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1 }}>Original video audio</span>
+                          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 700, color: C.text2, cursor: 'pointer' }}>
+                              <input type="checkbox" checked={(media.videoAudio?.enabled ?? true) !== false} onChange={(e) => setVideoAudio({ enabled: e.target.checked })} />
+                              Play original audio
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 700, color: C.text2, cursor: 'pointer' }}>
+                              <input type="checkbox" checked={!!media.videoAudio?.muted} onChange={(e) => setVideoAudio({ muted: e.target.checked })} />
+                              Mute
+                            </label>
+                          </div>
+                          {[
+                            ['Volume', Math.round((Number.isFinite(Number(media.videoAudio?.volume)) ? Number(media.videoAudio.volume) : 0.9) * 100), 0, 100, 5, (v) => setVideoAudio({ volume: v / 100 }), '%'],
+                            ['End fade', Number(media.videoAudio?.fadeSec) || 0, 0, 10, 0.5, (v) => setVideoAudio({ fadeSec: v }), 's'],
+                          ].map(([lbl, val, min, max, step, fn, unit]) => (
+                            <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, width: 52, flexShrink: 0 }}>{lbl}</label>
+                              <input type="range" min={min} max={max} step={step} value={val} onChange={(e) => fn(Number(e.target.value))} style={{ flex: 1 }} />
+                              <span style={{ fontSize: 11, color: C.muted, width: 44, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{val}{unit}</span>
+                            </div>
+                          ))}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <button onClick={toggleAudioTest} disabled={live || !media.video} title={live ? 'Stop the countdown first — the live output owns the sound' : "Play this video's audio for 5 seconds"} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: audioTesting ? 'rgba(239,68,68,0.18)' : ACCENT, border: '1px solid ' + (audioTesting ? '#f87171' : 'transparent'), color: audioTesting ? '#f87171' : '#fff', borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: live || !media.video ? 'default' : 'pointer', opacity: live ? 0.55 : 1 }}>
+                              {audioTesting ? <><Square size={12} /> Stop test</> : <><Volume2 size={12} /> Test audio</>}
+                            </button>
+                            <span style={{ fontSize: 10.5, color: media.videoAudio?.unsupported ? '#f87171' : media.videoAudio?.hasTrack === false ? '#fbbf24' : C.faint2, lineHeight: 1.4 }}>
+                              {media.videoAudio?.unsupported
+                                ? 'This format may not play here — MP4 (H.264/AAC) or WebM recommended.'
+                                : media.videoAudio?.probed === false
+                                  ? 'Checking audio track…'
+                                  : media.videoAudio?.hasTrack === false
+                                    ? 'No audio track detected — the video plays silently.'
+                                    : media.videoAudio?.hasTrack === true
+                                      ? 'Audio track detected.'
+                                      : 'Track unknown — use Test audio to verify.'}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </>
                   )}
-                  <div style={{ fontSize: 11, color: C.faint2, lineHeight: 1.5 }}>Timer rides a black banner at the bottom; media fills the top — preview shows exactly what the room sees.</div>
+                  <div style={{ fontSize: 11, color: C.faint2, lineHeight: 1.5 }}>
+                    {media.kind === 'video'
+                      ? 'Video fills the screen; the timer floats over it — centered for the first 3 seconds, top-right after, back to center for the final five.'
+                      : 'Timer rides a black banner at the bottom; media fills the top — preview shows exactly what the room sees.'}
+                  </div>
                 </div>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
@@ -358,6 +473,29 @@ export default function CountdownPanel() {
                 <RefreshCw size={15} />
               </motion.button>
             </div>
+            {/* VIDEO-COUNTDOWN TRANSPORT (video mode only): pause freezes the
+                absolute clock AND the animation phases; resume re-anchors the
+                end timestamp from the frozen remainder; restart re-fires from
+                zero so the center-splash sequence plays again. */}
+            {live && isVideoMode && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <motion.button
+                  {...stubTap}
+                  onClick={() => (paused ? resumeCountdownLive() : pauseCountdownLive())}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: paused ? '#10b981' : C.elevated2, border: '1px solid ' + (paused ? 'transparent' : 'var(--ui-border2)'), color: paused ? '#fff' : C.text, borderRadius: 10, padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
+                >
+                  {paused ? <Play size={13} /> : <Pause size={13} />} {paused ? 'Resume' : 'Pause'}
+                </motion.button>
+                <motion.button
+                  {...stubTap}
+                  onClick={() => fireCountdownLive()}
+                  title="Restart from the beginning (replays the opening splash)"
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, borderRadius: 10, padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
+                >
+                  <RefreshCw size={13} /> Restart
+                </motion.button>
+              </div>
+            )}
             {live && (
               <div style={{ fontSize: 11, color: C.muted, textAlign: 'center' }}>
                 Live on {cfg.showOn === 'both' ? 'Main Output + Stage Display' : cfg.showOn === 'main' ? 'Main Output' : 'Stage Display'} — Stop clears {cfg.showOn === 'stage' ? 'the stage' : 'the output to black'}.

@@ -62,6 +62,7 @@ export default function CenterWorkspace() {
     setEditorMode,
     setRawPasteText,
     setEditingSong,
+    openEditorOn,
     bibleLastVerseRef,
     selectBibleMedia,
     importBibleMedia,
@@ -529,7 +530,7 @@ export default function CenterWorkspace() {
           <span title="Custom play order from the service row — arrows walk this, not the song order" style={{ fontSize: 11, fontWeight: 800, color: '#C4B5FD', background: 'rgba(139,92,246,0.16)', border: '1px solid rgba(139,92,246,0.5)', borderRadius: 999, padding: '4px 10px' }}>Arr. {arrangementStatus.pos != null ? `${arrangementStatus.pos}/${arrangementStatus.total}` : (arrangementStatus.onTitle ? `title · ${arrangementStatus.total}` : `${arrangementStatus.total} steps`)}</span>
         )}
         <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '4px 10px' }}>{activeSlideIndex >= 0 ? `Slide ${activeSlideIndex}/${slideGrid.length - 1}` : `${slideGrid.length} slides`}</span>
-        <motion.button {...stubTap} onClick={() => { setEditingSong(activeSong); setEditorMode('manual'); setRawPasteText(''); setIsEditorOpen(true); }} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '6px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Edit3 size={12} /> Edit</motion.button>
+        <motion.button {...stubTap} onClick={() => { if (activeSong) openEditorOn(activeSong, 'manual'); }} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '6px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Edit3 size={12} /> Edit</motion.button>
       </div>
     )}
   </div>

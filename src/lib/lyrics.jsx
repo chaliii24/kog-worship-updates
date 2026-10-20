@@ -1145,6 +1145,27 @@ export const fitParsedCue = (cue) => {
 };
 
 /**
+ * LED-WALL LIFT — push a lyric box UP by canvas pixels so a band standing in
+ * front of the bottom of the wall never covers the words.
+ *
+ * Pure offset in the shared 1280×720 output space (the same coordinates the
+ * editor's box uses), clamped at the top edge so a lift can never push text
+ * off the top of the wall — the operator can run it to the ceiling and no
+ * further. No box and no lift means the box comes back untouched.
+ */
+export const LED_WALL_CANVAS = { w: 1280, h: 720 };
+export const liftBox = (box, lift) => {
+  const px = Number(lift) || 0;
+  if (!px || !box) return box;
+  const y = Number(box.y) || 0;
+  const h = Number(box.h) || 0;
+  // Never above the top edge; never so far that a box taller than the canvas
+  // would be thrown clean off it either.
+  const min = Math.min(0, LED_WALL_CANVAS.h - h - 40);
+  return { ...box, y: Math.max(min, y - px) };
+};
+
+/**
  * The shared cue → lyric-style mapping: ONE place that decides how a cue
  * renders (face, size, padding, shadow, fill, box…). App's projector paths,
  * the slide grid and the editor's slide strip all build their style from this,

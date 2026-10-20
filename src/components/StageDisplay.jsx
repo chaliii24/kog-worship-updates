@@ -197,9 +197,11 @@ export default function StageDisplay({ currentSlide, C = {}, cfg = null, flow = 
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center', minWidth: 0, minHeight: 0 }}>
           {current.timer ? (
             // Countdown on stage: the same face as the wall, scaled to the
-            // panel height, ticking off the same endsAt — no drift.
+            // panel height, ticking off the same endsAt — no drift. The stage
+            // window owns the original video audio ONLY when the countdown
+            // routes stage-only (otherwise the main output plays it, never both).
             <div style={{ position: 'relative', flex: 1, alignSelf: 'stretch', minHeight: 0, borderRadius: px(0.01), overflow: 'hidden' }}>
-              <TimerFace timer={current.timer} scale={h / 720} />
+              <TimerFace timer={current.timer} scale={h / 720} surface={preview ? 'preview' : 'stage'} />
             </div>
           ) : (
             <>
