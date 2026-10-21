@@ -4,7 +4,7 @@ import { Layers, Plus, Search, Star, Clock, Folder, Download, Upload, Trash2, Ed
 import logoImage from './assets/logo.png';
 import { getTheme } from './lib/theme';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, cssSpeed } from './lib/constants';
-import { applyCaseTransform, renderLyricsLayout, cueLyricStyle, growBoxToText, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, fitBoxToText, fitParsedCue, liftBox } from './lib/lyrics';
+import { applyCaseTransform, renderLyricsLayout, LyricsBlock, cueLyricStyle, growBoxToText, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, fitBoxToText, fitParsedCue, liftBox } from './lib/lyrics';
 import { reflowCuesToLines } from './lib/splitReflow.js';
 import { parseSongBlocks, splitCuesByLines } from '../electron/songParse.js';
 import { extractCcli } from '../electron/ccliReport.js';
@@ -39,11 +39,14 @@ import TemplateNameModal from './components/modals/TemplateNameModal';
 import HotkeysModal from './components/modals/HotkeysModal';
 import OutputsMonitorModal from './components/modals/OutputsMonitorModal';
 import ConfirmModal from './components/modals/ConfirmModal';
+import ScriptureSectionModal from './components/modals/ScriptureSectionModal';
 import { DEFAULT_COUNTDOWN, nextTargetTime, animatedPresetOf } from './components/CountdownFace';
 import CountdownPreview, { countdownProof } from './components/CountdownPreview';
 import { sanitizeDrawStroke, pushDrawStroke } from './lib/draw.js';
 import { DrawOverlay } from './components/DrawOverlay.jsx';
 import AnimatedBg from './components/AnimatedBg';
+import ScriptureRef from './components/ScriptureRef.jsx';
+import { DEFAULT_SCRIPTURE_TEMPLATE, scriptureTemplateOf, scriptureLyricFor, stripScriptureRef, scriptureRefPos } from './lib/scriptureTemplates';
 import { AppProvider } from './context/AppContext';
 
 const DEFAULT_OUTPUTS = [
@@ -243,6 +246,9 @@ export default function App() {
   // In-app confirm/alert dialog (replaces native confirm/alert, which steal focus in Electron)
   const [confirmDialog, setConfirmDialog] = useState(null);
   const confirmResolverRef = useRef(null);
+  // Scripture "Add to Playlist" destination picker: { reference, count, verses,
+  // sections, initialTitle } while the modal is open, null otherwise.
+  const [bibleQueueModal, setBibleQueueModal] = useState(null);
 
   const resolveConfirmDialog = (ok) => {
     setConfirmDialog(null);
@@ -331,7 +337,17 @@ export default function App() {
   const [bibleSearchResults, setBibleSearchResults] = useState(null);
   const [bibleSelVerses, setBibleSelVerses] = useState([]); // verse numbers highlighted in current chapter
   const [bibleFocusedVerse, setBibleFocusedVerse] = useState(null); // verse number with keyboard focus for arrow nav
-  const [bibleFmt, setBibleFmt] = useState({ bold: false, caps: false, layout: 'number', font: null, color: null, mark: null }); // number | plain | sentence; font/color null = stage style; mark null = highlight off
+  const [bibleFmt, setBibleFmt] = useState(() => {
+    // The template is a durable operator preference (where the words sit on
+    // the wall), so it survives a restart; the rest of the format is a
+    // session choice, like before.
+    let template = DEFAULT_SCRIPTURE_TEMPLATE;
+    try {
+      const saved = localStorage.getItem('kog_scripture_template');
+      if (saved && scriptureTemplateOf(saved).id === saved) template = saved;
+    } catch { /* storage unavailable */ }
+    return { bold: false, caps: false, layout: 'number', font: null, color: null, mark: null, template };
+  }); // number | plain | sentence; font/color null = stage style; mark null = highlight off; template = scripture layout
   const bibleLastVerseRef = useRef(null); // anchor verse for Shift+Click range selection
   // Remote Bible panel (LAN control phone): request/response state that rides
   // the normal snapshot down. Shape: { catalog:[{abbrev,name,code,books}],
@@ -357,6 +373,9 @@ export default function App() {
     } catch { return 2; }
   });
   useEffect(() => { try { localStorage.setItem('kog_grid_density', String(gridDensity)); } catch { /* storage unavailable */ } }, [gridDensity]);
+  // Scripture template is a durable layout preference, so it outlives the
+  // session; the other format toggles stay per-session like before.
+  useEffect(() => { try { localStorage.setItem('kog_scripture_template', String(bibleFmt.template || 'classic')); } catch { /* storage unavailable */ } }, [bibleFmt.template]);
   const [builderTileIdx, setBuilderTileIdx] = useState(0); // active tile within selected item
   const [builderCollapsed, setBuilderCollapsed] = useState([]);
   const [builderRehearse, setBuilderRehearse] = useState(false);
@@ -3096,12 +3115,22 @@ export default function App() {
   };
 
   // Insert a non-header item after the last item of the target section
-  // (or append when no target / target missing).
-  const insertServiceItem = (newItem) => {
+  // (or append when no target / target missing). `targetOverride` lets the
+  // scripture "Add to Playlist" dialog name its destination explicitly —
+  // undefined means "the section the operator is working in", null means
+  // "end of show".
+  const insertServiceItem = (newItem, targetOverride) => {
     if (newItem && newItem.id == null) newItem.id = genServiceItemId();
     setActiveService(prev => {
       const items = [...(prev?.items || [])];
-      const target = serviceTargetTitle;
+      const target = targetOverride !== undefined ? targetOverride : serviceTargetTitle;
+      // '__start__' = the group before the first section header (the picker's
+      // synthetic "General"), NOT the end of the show.
+      if (target === '__start__') {
+        const firstHeader = items.findIndex(i => i.item_type === 'section_header');
+        items.splice(firstHeader === -1 ? items.length : firstHeader, 0, newItem);
+        return { ...prev, items };
+      }
       if (!target) {
         items.push(newItem);
         return { ...prev, items };
@@ -4830,20 +4859,13 @@ export default function App() {
 
     // Scripture always carries its own lyric style: near-fullscreen box +
     // fill-to-fit font so text scales with how many verses are shown. The
-    // operator's scripture font + colour win when set; otherwise the stage
-    // style (the pre-feature look, byte-identical for old services).
-    const scriptureLyric = {
-      font: (typeof fmt.font === 'string' && fmt.font) || stageStyle.fontFamily || 'system-ui, sans-serif',
-      size: 110,
-      lineHeight: 1.12,
-      align: 'left',
-      color: (typeof fmt.color === 'string' && fmt.color) || stageStyle.fontColor || '#ffffff',
-      caseMode: 'none',
-      fill: true,
-      fillMax: 165,
-      fillMin: 18,
-      box: { x: 32, y: 20, w: 1216, h: 680 },
-    };
+    // operator's scripture font + colour win when set; otherwise the
+    // template's face, then the stage style. Which box/alignment the block
+    // gets is the TEMPLATE's call (see scriptureTemplates.js) — the
+    // reference is drawn as its own corner element by ScriptureRef, and the
+    // template's id rides in meta so a rebuilt slide keeps the look.
+    const tpl = scriptureTemplateOf(fmt.template);
+    const scriptureLyric = scriptureLyricFor(tpl, fmt, stageStyle);
 
     // Background priority: explicit live override → this session's scripture
     // background → the assigned default → first bundled stock photo. A passage
@@ -4870,6 +4892,11 @@ export default function App() {
         chapter,
         verse: first,
         translation: transOverride || bibleTrans,
+        // The reference and the template ride along so the projection can
+        // draw the reference as its own element (any corner, any size) and
+        // rebuild the same layout later.
+        ref,
+        template: tpl.id,
         // RAW lines, never the formatted copy: every rebuild (background
         // switch, format toggle) re-derives from here so rules change
         // instead of stacking. Marked word keys ride along so a live
@@ -4944,11 +4971,12 @@ export default function App() {
     refireLiveScripture(null, next);
   };
 
-  // Lands at the end of the section the operator is working in (via
-  // insertServiceItem, which honours serviceTargetTitle) instead of piling up
-  // after everything else, so the passage sits where it will be used.
-  const queueBibleServiceSlide = (src) => {
-    insertServiceItem(buildBiblePayload(src));
+  // Lands in an explicit section (chosen in the Add-to-Playlist dialog) when
+  // one is given, otherwise at the end of the section the operator is working
+  // in (via insertServiceItem, which honours serviceTargetTitle) instead of
+  // piling up after everything else, so the passage sits where it will be used.
+  const queueBibleServiceSlide = (src, targetTitle) => {
+    insertServiceItem(buildBiblePayload(src), targetTitle);
   };
 
   // Scripture straight from the left bar's ADD TO panel, so the operator never
@@ -5059,14 +5087,67 @@ export default function App() {
     return true;
   };
 
-  const queueBibleSelection = () => {
+  // "Add to Playlist" from the Scripture workspace. A passage cannot be
+  // queued into nothing, and it should not silently land wherever the last
+  // click left the target — so: no loaded show → tell the operator to load
+  // one; otherwise ask which section it belongs to and insert it there.
+  const requestBibleQueue = async () => {
+    const items = activeService?.items || [];
+    if (!items.length) {
+      await appAlert('There must be a loaded show in the service order before scripture can be added to the playlist.', { title: 'No show loaded' });
+      return false;
+    }
+    const verses = selectedBibleVerses();
+    if (!verses.length) {
+      await appAlert('Choose a book, chapter and verses first — then add them to a section.', { title: 'No passage selected' });
+      return false;
+    }
+    const first = verses[0].verse;
+    const last = verses[verses.length - 1].verse;
+    setBibleQueueModal({
+      reference: `${bibleChapter.book} ${bibleChapter.chapter}:${first === last ? first : `${first}-${last}`}`,
+      count: verses.length,
+      verses,
+      initialTitle: serviceTargetTitle,
+      // Real headers insert after their own block. The synthetic "General"
+      // group (items sitting BEFORE the first header) becomes '__start__' so
+      // picking it drops the passage back where those items are, not at the
+      // end of the show.
+      sections: (() => {
+        const real = new Set(items.filter(i => i.item_type === 'section_header').map(i => i.title));
+        return serviceSections().map(s => ({
+          id: real.has(s.title) ? s.title : '__start__',
+          title: s.title,
+          subtitle: s.subtitle,
+          count: s.items.length,
+        }));
+      })(),
+    });
+    return true;
+  };
+
+  const confirmBibleQueue = (sectionTitle) => {
+    const m = bibleQueueModal;
+    setBibleQueueModal(null);
+    if (!m) return;
+    // '__end__' = append to the show, '__start__' = the pre-header group,
+    // a title = that section.
+    const target = sectionTitle === '__end__' || sectionTitle == null ? null : sectionTitle;
+    if (target && target !== '__start__') setServiceTargetTitle(target);
+    queueBibleServiceSlide(
+      { book: bibleChapter.book, chapter: bibleChapter.chapter, verses: m.verses },
+      target,
+    );
+  };
+
+  const queueBibleSelection = (targetTitle) => {
     const verses = selectedBibleVerses();
     if (!verses.length) return;
     queueBibleServiceSlide({
       book: bibleChapter.book,
       chapter: bibleChapter.chapter,
       verses,
-    });
+    }, targetTitle);
   };
 
   const loadBibleBooks = async (abbrev = bibleTrans) => {
@@ -5551,11 +5632,25 @@ export default function App() {
                           const isTitleSlide = monitorContent.label === 'Song Title';
                           const lst = st.lyric || { font: st.fontFamily || 'system-ui, sans-serif', size: DEFAULT_LYRIC_SIZE, lineHeight: 1.05, align: st.textAlign || 'center', color: st.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
                           lst.isTitle = isTitleSlide;
+                          // Scripture: same treatment as the wall — the
+                          // reference leaves the text and becomes its own
+                          // corner element, so the preview shows the
+                          // template the projector will draw.
+                          const isBible = !!(monitorContent.meta && monitorContent.meta.kind === 'bible');
+                          const refPos = isBible ? scriptureRefPos(monitorContent.meta && monitorContent.meta.template) : null;
+                          const body = isBible && refPos !== 'inline'
+                            ? stripScriptureRef(monitorContent.text, (monitorContent.meta && monitorContent.meta.ref) || monitorContent.title)
+                            : monitorContent.text;
                           const box = liftBox(lst.box || { x: 80, y: isTitleSlide ? 140 : 100, w: 1120, h: isTitleSlide ? 440 : 480 }, lyricLift);
                           return (
-                            <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
-                              {renderLyricsLayout(monitorContent.text, lst, box)}
-                            </div>
+                            <>
+                              <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+                                <LyricsBlock text={body} st={lst} box={box} />
+                              </div>
+                              {isBible && (
+                                <ScriptureRef meta={monitorContent.meta} title={monitorContent.title} color={lst.color} font={lst.font} templateId={monitorContent.meta && monitorContent.meta.template} />
+                              )}
+                            </>
                           );
                         })()
                       ) : null}
@@ -5717,7 +5812,7 @@ export default function App() {
     activeSlideIndex, groupLabels, slideGrid, renderSlideFace, applyMediaToActiveSong, importMediaAsset, removeMediaAsset,
     toggleAudioPreview, clearSongAudio, refreshBibleLib, formatBibleVerse, buildBiblePayload, queueBibleServiceSlide,
     addScriptureToPlan,
-    fireBibleLive, fireBibleSelectionLive, queueBibleSelection, loadBibleBooks, loadBibleChapter, selectBibleBook,
+    fireBibleLive, fireBibleSelectionLive, queueBibleSelection, requestBibleQueue, loadBibleBooks, loadBibleChapter, selectBibleBook,
     selectBibleChapter, handleBibleVerseClick, resetBibleToBooks, resetBibleToBook, openBibleTranslation, downloadBible,
     deleteBibleTranslation, resolveBibleReference, searchBibleKeywords, bibleActiveEntry, bibleInstalledLib,
     bibleLibQueryTrim, bibleLibFiltered, bibleAllBooks, bibleOtCount, bibleNtCount, bibleFilteredBooks, bibleStep,
@@ -5991,6 +6086,22 @@ export default function App() {
           outputAspect={outputAspect}
           setOutputAspect={setOutputAspect}
           onClose={() => setShowOutputMonitor(false)}
+        />
+      )}
+      </AnimatePresence>
+
+      {/* WHERE IN THE SHOW? — scripture "Add to Playlist" destination. */}
+      <AnimatePresence>
+      {bibleQueueModal && (
+        <ScriptureSectionModal
+          C={C}
+          ACCENT={ACCENT}
+          reference={bibleQueueModal.reference}
+          count={bibleQueueModal.count}
+          sections={bibleQueueModal.sections}
+          initialTitle={bibleQueueModal.initialTitle}
+          onPick={confirmBibleQueue}
+          onCancel={() => setBibleQueueModal(null)}
         />
       )}
       </AnimatePresence>

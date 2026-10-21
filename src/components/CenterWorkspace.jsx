@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Search, Download, Upload, Edit3, Image as ImageIcon, Video, ChevronDown, HelpCircle, ChevronLeft, CornerUpLeft, Zap, BookOpen, Music, Folder, Lightbulb, FolderOpen, Highlighter } from 'lucide-react';
+import { Plus, Search, Download, Upload, Edit3, Image as ImageIcon, Video, ChevronDown, HelpCircle, ChevronLeft, CornerUpLeft, BookOpen, Music, Folder, Lightbulb, FolderOpen, Highlighter } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
@@ -79,8 +79,8 @@ export default function CenterWorkspace() {
     outputAspect,
     gridDensity, setGridDensity,
     formatBibleVerse,
-    fireBibleSelectionLive,
     queueBibleSelection,
+    requestBibleQueue,
     loadBibleChapter,
     selectBibleBook,
     selectBibleChapter,
@@ -250,8 +250,7 @@ export default function CenterWorkspace() {
             <button onClick={() => setBibleSearchResults(null)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'transparent', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '7px 12px', borderRadius: 10, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}><CornerUpLeft size={12} /> Back</button>
           ) : null}
           {bibleSelVerses.length ? <span style={{ fontSize: 10.5, fontWeight: 700, color: '#8b5cf6', whiteSpace: 'nowrap' }}>{bibleSelVerses.length} selected</span> : null}
-          <motion.button {...stubTap} onClick={queueBibleSelection} title="Add the selected verses to the plan — they land in the section you are working in" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid var(--ui-border2)', color: 'var(--ui-text2)', padding: '7px 13px', borderRadius: 10, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}><Plus size={12} /> Add to Playlist</motion.button>
-          <motion.button {...stubTap} onClick={fireBibleSelectionLive} title="Send selected verses to the live output" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(180deg, #8b5cf6, #7c3aed)', border: 'none', color: '#FFFFFF', padding: '8px 16px', borderRadius: 9, fontSize: 12, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: '0 0 0 1px rgba(139,92,246,0.5), 0 8px 24px rgba(139,92,246,0.35)' }}><Zap size={13} /> Push to Display</motion.button>
+          <motion.button {...stubTap} onClick={requestBibleQueue} title="Add the selected verses to the plan — pick the section they belong to" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid var(--ui-border2)', color: 'var(--ui-text2)', padding: '7px 13px', borderRadius: 10, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}><Plus size={12} /> Add to Playlist</motion.button>
         </div>
       </div>
 
@@ -493,7 +492,7 @@ export default function CenterWorkspace() {
                     <div style={{ textAlign: 'center', maxWidth: 360, display: 'grid', gap: 8, justifyItems: 'center' }}>
                       <div style={{ width: 54, height: 54, borderRadius: 16, background: 'radial-gradient(140% 140% at 30% 20%, #4c1d95, #150b34)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><BookOpen size={26} color="#8b5cf6" /></div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ui-text2)' }}>Pick a book, then a chapter</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--ui-faint)', lineHeight: 1.6 }}>Click a verse to send it live instantly. Use Ctrl+Click to multi-select or Shift+Click to grab a range, then Add to Playlist or Go Live.</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--ui-faint)', lineHeight: 1.6 }}>Click a verse to send it live instantly. Use Ctrl+Click to multi-select or Shift+Click to grab a range, then Add to Playlist.</div>
                     </div>
                   </div>
                 )}

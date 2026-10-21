@@ -6,6 +6,8 @@ import { stubTap, iconBtnTap } from '../lib/anim';
 import { DRAW_W, DRAW_H, DRAW_COLORS, DRAW_WIDTHS, MAX_POINTS_PER_STROKE, strokeToPath, clientToDesign } from '../lib/draw';
 import { mediaLabel } from '../lib/backgrounds';
 import FontPicker from './FontPicker';
+import ScriptureTemplatePicker from './ScriptureTemplatePicker';
+import { DEFAULT_SCRIPTURE_TEMPLATE } from '../lib/scriptureTemplates';
 import { FONT_OPTIONS } from '../lib/constants';
 // Untitled UI — migration phase 3 (tabs): RAC-backed Tabs for the Groups/Media
 // switcher (mirror layout + `@/` alias documented in NewSongPrompt.jsx).
@@ -153,11 +155,17 @@ export default function LiveOutputPanel({
   const overlayLive = overlayOnAir(liveOverlay) ? liveOverlay : null;
   const ovReady = !!(ovDraft.text.trim() || (ovDraft.media && ovDraft.media.url));
   const [studioOpen, setStudioOpen] = useState(false);
-  // Scripture panel split: the live word list (highlight) and everything that
-  // styles scripture (text format, backgrounds, timer) live on two tabs so the
-  // preview never has to scroll and the controls are never squeezed out.
+  // Scripture panel split: three tabs under the fixed preview so none of them
+  // ever has to share a scrollbar with the others —
+  //   Highlight — the live passage word by word + the read timer,
+  //   Template  — where the words sit on the wall and which face they wear,
+  //   Settings  — text format, colour/highlighter and backgrounds.
+  const SCRIPTURE_TABS = ['highlight', 'template', 'settings'];
   const [scriptureTab, setScriptureTab] = useState(() => {
-    try { return localStorage.getItem('kog-scripture-panel-tab') === 'settings' ? 'settings' : 'highlight'; } catch { return 'highlight'; }
+    try {
+      const saved = localStorage.getItem('kog-scripture-panel-tab');
+      return SCRIPTURE_TABS.includes(saved) ? saved : 'highlight';
+    } catch { return 'highlight'; }
   });
   const pickScriptureTab = (t) => { setScriptureTab(t); try { localStorage.setItem('kog-scripture-panel-tab', t); } catch {} };
   // Locked panels dim their firing controls. `inert` (not pointer-events)
@@ -498,17 +506,21 @@ export default function LiveOutputPanel({
           The slideshow is on the wall — song Groups & Media return when lyrics are back (F1).
         </div>
       ) : dockTab === 'scripture' ? (
-      /* SCRIPTURE — TWO TABS under a fixed preview. Highlight carries the live
-         passage word by word (tap = marker-pen on the wall) plus the read
-         timer for pacing; Scripture Settings carries everything that styles
-         scripture — text format, solid/picture/video backgrounds and the
-         default attached to new scripture. Splitting them is what finally
-         stopped the old preview half from growing until it squeezed the
-         options to zero height: the preview and the transport above never
-         scroll, and each tab scrolls on its own. */
+      /* SCRIPTURE — THREE TABS under a fixed preview: Highlight (the live
+         passage word by word, tap = marker-pen on the wall, plus the read
+         timer), Template (layout + face of the passage) and Settings (text
+         format, colour/highlighter, backgrounds and the default attached to
+         new scripture). Splitting them is what finally stopped the old
+         preview half from growing until it squeezed the options to zero
+         height: the preview and the transport above never scroll, and each
+         tab scrolls on its own. */
       <div className="min-h-0 flex-1 flex flex-col" style={{ padding: '10px 12px 0 12px' }}>
         <div role="tablist" style={{ display: 'flex', gap: 4, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 3, marginBottom: 9, flexShrink: 0 }}>
-          {[['highlight', 'Highlight'], ['settings', 'Scripture Settings']].map(([id, label]) => (
+          {[
+            ['highlight', 'Highlight', 'The passage on the wall — tap words to highlight them'],
+            ['template', 'Template', 'Where the words sit on the wall and which face they wear'],
+            ['settings', 'Settings', 'Text format, colour/highlighter and backgrounds'],
+          ].map(([id, label, tip]) => (
             <motion.button
               {...stubTap}
               key={id}
@@ -516,8 +528,8 @@ export default function LiveOutputPanel({
               aria-selected={scriptureTab === id}
               data-testid={`scripture-tab-${id}`}
               onClick={() => pickScriptureTab(id)}
-              title={id === 'highlight' ? 'The passage on the wall — tap words to highlight them' : 'Text format, backgrounds and the read timer'}
-              style={{ flex: 1, minWidth: 0, background: scriptureTab === id ? 'rgba(139,92,246,0.18)' : 'transparent', border: 'none', borderRadius: 8, color: scriptureTab === id ? '#8b5cf6' : C.faint, padding: '6px 6px', fontSize: 10, fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+              title={tip}
+              style={{ flex: 1, minWidth: 0, background: scriptureTab === id ? 'rgba(139,92,246,0.18)' : 'transparent', border: 'none', borderRadius: 8, color: scriptureTab === id ? '#8b5cf6' : C.faint, padding: '6px 4px', fontSize: 10, fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
             >
               {label}
               {id === 'highlight' && liveBible && liveBible.markWords.length > 0 ? (
@@ -588,6 +600,21 @@ export default function LiveOutputPanel({
               <span style={{ fontSize: 11, color: C.muted }}>{slideTimer.start ? 'Running' : 'Idle'}</span>
               <TimerReadout start={slideTimer.start} duration={slideTimer.duration} C={C} PINK={PINK} />
             </div>
+          </div>
+        </div>
+        ) : scriptureTab === 'template' ? (
+        <div style={{ display: 'grid', gap: 12 }}>
+          {/* SCRIPTURE TEMPLATE — where the words sit on the wall and which
+              face they wear. It owns this tab because it is the layout
+              decision; the Settings tab only decorates what it places. */}
+          <ScriptureTemplatePicker
+            value={bibleFmt.template || DEFAULT_SCRIPTURE_TEMPLATE}
+            onChange={(id) => setBibleFmt && setBibleFmt(f => ({ ...f, template: id }))}
+            C={C}
+            PINK="#8b5cf6"
+          />
+          <div style={{ fontSize: 9.5, color: C.faint, lineHeight: 1.6 }}>
+            The template decides placement, size range and the default face; a font or colour picked on Settings still wins over it. A passage already on the wall re-renders as you tap — the choice is remembered for the next service.
           </div>
         </div>
         ) : (

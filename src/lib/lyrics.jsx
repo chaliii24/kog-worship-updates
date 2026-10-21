@@ -1217,11 +1217,13 @@ export const cueLyricStyle = (cue) => ({
 // Shared renderer: editor canvas, projector and live-output monitor all draw
 // from this ONE function, so letter positions are identical everywhere — and
 // so the inline run markup below only ever has to be implemented once.
-export const renderLyricsLayout = (text, st, box) => {
+export const renderLyricsLayout = (text, st, box, sizeOverride) => {
   const lines = (applyCaseTransform(text || '', st.caseMode || 'none')).split('\n');
   const lh = st.lineHeight || 1.05;
   const { pad } = lyricsLayoutMetrics(st, box);
-  const size = computeLyricsFontSize(text, st, box);
+  // `sizeOverride` is the browser-verified size from <LyricsBlock> below; the
+  // estimate alone can be a hair optimistic at a wrap boundary.
+  const size = sizeOverride != null ? sizeOverride : computeLyricsFontSize(text, st, box);
   const isJustify = st.align === 'justify';
   const bold = st.bold !== false;
   const deco = [st.underline ? 'underline' : null, st.strike ? 'line-through' : null].filter(Boolean).join(' ') || 'none';
@@ -1321,3 +1323,79 @@ export const renderLyricsLayout = (text, st, box) => {
     </div>
   );
 };
+
+// ---------------------------------------------------------------------------
+// <LyricsBlock> — the wall/monitor renderer WITH a browser-verified fit.
+//
+// computeLyricsFontSize predicts height from canvas glyph widths. That is
+// exact for most blocks, but right at a wrap boundary it can be one word (a
+// whole row) optimistic — and because the box clips, the cost was the last
+// line of a long verse silently losing its words. The browser's own layout is
+// the only ground truth, so this component paints the estimated size, reads
+// the REAL line boxes in a layout effect (before the frame is shown) and, on
+// overflow, re-renders one step smaller until every row is inside the box.
+//
+// It also re-renders when a webfont finishes loading: the first paint of a
+// face measures its fallback, so the estimate was made against the wrong
+// glyph widths and nothing used to re-run it.
+// ---------------------------------------------------------------------------
+export const LyricsBlock = ({ text, st, box }) => {
+  const hostRef = React.useRef(null);
+  const seed = computeLyricsFontSize(text, st, box);
+  const guessKey = [
+    seed, text, box && box.w, box && box.h,
+    st && st.font, st && st.lineHeight, st && st.align, st && st.valign,
+    st && st.caseMode, st && st.highlight ? 1 : 0,
+  ].join('\u0001');
+  const [fit, setFit] = React.useState(null);
+  const [fontEpoch, setFontEpoch] = React.useState(0);
+  const size = fit && fit.key === guessKey + '\u0001' + fontEpoch ? fit.size : seed;
+
+  React.useEffect(() => {
+    if (typeof document === 'undefined' || !document.fonts) return undefined;
+    let alive = true;
+    const bump = () => { if (alive) setFontEpoch((n) => n + 1); };
+    document.fonts.addEventListener('loadingdone', bump);
+    if (document.fonts.ready) document.fonts.ready.then(bump).catch(() => {});
+    return () => {
+      alive = false;
+      document.fonts.removeEventListener('loadingdone', bump);
+    };
+  }, []);
+
+  React.useLayoutEffect(() => {
+    const host = hostRef.current;
+    const cont = host && host.firstElementChild;
+    if (!cont) return;
+    const { pad } = lyricsLayoutMetrics(st, box);
+    const cr = cont.getBoundingClientRect();
+    const kids = Array.from(cont.children);
+    if (!kids.length) return;
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const k of kids) {
+      const r = k.getBoundingClientRect();
+      if (!(r.height > 0)) continue;
+      if (r.top < top) top = r.top;
+      if (r.bottom > bottom) bottom = r.bottom;
+    }
+    if (!Number.isFinite(top) || !Number.isFinite(bottom)) return;
+    const avail = cr.height - pad * 2;
+    const used = bottom - top;
+    const overflowing = used > avail + 0.5
+      || top < cr.top + pad - 0.5
+      || bottom > cr.bottom - pad + 0.5;
+    if (!overflowing) return;
+    // Height scales with size for a fixed wrap; one correction is usually
+    // enough and the next pass cleans up the rest. Never grow back here.
+    const next = Math.max(8, Math.floor(size * ((avail - 1) / Math.max(1, used)) * 0.995));
+    if (next < size) setFit({ key: guessKey + '\u0001' + fontEpoch, size: next });
+  });
+
+  return (
+    <div ref={hostRef} style={{ width: '100%', height: '100%' }}>
+      {renderLyricsLayout(text, st, box, size)}
+    </div>
+  );
+};
+

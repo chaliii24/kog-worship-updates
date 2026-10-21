@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { renderLyricsLayout, liftBox, DEFAULT_LYRIC_SIZE } from '../lib/lyrics';
+import { LyricsBlock, liftBox, DEFAULT_LYRIC_SIZE } from '../lib/lyrics';
 import { cssSpeed } from '../lib/constants';
 import PresentationSlide from './PresentationSlide';
 import { TimerFace } from './CountdownFace';
 import AnimatedBg from './AnimatedBg';
 import { BackgroundVideo, LiveVideo, OverlayFace, overlayOnAir } from '../lib/perf';
 import { DrawOverlay } from './DrawOverlay.jsx';
+import ScriptureRef from './ScriptureRef.jsx';
+import { stripScriptureRef, scriptureRefPos } from '../lib/scriptureTemplates';
 import { AnimatePresence, motion } from 'motion/react';
 
 // Development-only perf HUD: enable with localStorage kog_perf=1 in the
@@ -410,6 +412,16 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
                     const isTitleSlide = cs.label === 'Song Title';
                     const st = slideStyle.lyric || { font: slideStyle.fontFamily || 'system-ui, sans-serif', size: DEFAULT_LYRIC_SIZE, lineHeight: 1.05, align: slideStyle.textAlign || 'center', color: slideStyle.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
                     st.isTitle = isTitleSlide;
+                    // SCRIPTURE: templates that put the reference in a corner
+                    // draw it as its OWN element (ScriptureRef), so it comes
+                    // back OUT of the text here. Default keeps it inline, and
+                    // payloads from older builds — which always carried it as
+                    // the first line — strip cleanly too via cs.title.
+                    const isBible = !!(cs.meta && cs.meta.kind === 'bible');
+                    const refPos = isBible ? scriptureRefPos(cs.meta && cs.meta.template) : null;
+                    const body = isBible && refPos !== 'inline'
+                      ? stripScriptureRef(cs.text, (cs.meta && cs.meta.ref) || cs.title)
+                      : cs.text;
                     // LED-WALL LIFT: the operator can raise every lyric box at
                     // once so a band standing in front of the bottom of the wall
                     // never covers the words. A per-slide edit of the box's own
@@ -419,8 +431,11 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
                     return (
                       <>
                         <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
-                          {renderLyricsLayout(cs.text, st, box)}
+                          <LyricsBlock text={body} st={st} box={box} />
                         </div>
+                        {isBible && (
+                          <ScriptureRef meta={cs.meta} title={cs.title} color={st.color} font={st.font} templateId={cs.meta && cs.meta.template} />
+                        )}
                         {isTitleSlide && artist && (
                           <div style={{ position: 'absolute', bottom: 20, right: 24, fontFamily: st.font, fontSize: 24, fontWeight: 600, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.03em', textShadow: '0 2px 8px rgba(0,0,0,0.8)', whiteSpace: 'nowrap' }}>
                             Song By: {artist}
