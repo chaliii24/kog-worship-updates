@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { LyricsBlock, liftBox, DEFAULT_LYRIC_SIZE } from '../lib/lyrics';
+import { LyricsBlock, liftBox, DEFAULT_LYRIC_SIZE, SlideTextLayers } from '../lib/lyrics';
 import { cssSpeed } from '../lib/constants';
 import PresentationSlide from './PresentationSlide';
 import { TimerFace } from './CountdownFace';
@@ -8,6 +8,7 @@ import { BackgroundVideo, LiveVideo, OverlayFace, overlayOnAir } from '../lib/pe
 import { DrawOverlay } from './DrawOverlay.jsx';
 import ScriptureRef from './ScriptureRef.jsx';
 import { stripScriptureRef, scriptureRefPos } from '../lib/scriptureTemplates';
+import { CinematicBackdrop, CinematicOverlay } from './CinematicLayer';
 import { AnimatePresence, motion } from 'motion/react';
 
 // Development-only perf HUD: enable with localStorage kog_perf=1 in the
@@ -81,31 +82,53 @@ function OutputPerfHud({ slideKey }) {
   );
 }
 
-export default function ProjectorDisplay({ currentSlide, C, aspect, config, overlay = null, draw = null, lift = 0 }) {
-  const [win, setWin] = useState({ w: window.innerWidth, h: window.innerHeight });
+export default function ProjectorDisplay({ currentSlide, C, aspect, config, overlay = null, draw = null, lift = 0, framed = false, frameAspect = '16:9' }) {
+  const rootRef = useRef(null);
+  const [win, setWin] = useState(() => ({ w: framed ? 0 : window.innerWidth, h: framed ? 0 : window.innerHeight }));
   // The wall must never throw: a null/undefined slide (boot race, corrupt
   // payload) renders black and stays alive instead of killing the window.
   const cs = currentSlide || {};
 
-  // rAF-throttled: while a windowed output is dragged, resize fires ~60x/s and
-  // each one re-ran the whole lyrics layout. On an i3 that is a visible stutter
-  // for the duration of the drag; collapsing to one measurement per frame costs
-  // nothing visually (the scale updates on the next paint anyway).
+  // FRAMED = this component is being used as a PICTURE of the wall (the
+  // console's Live Output card, the Show Builder preview) rather than as the
+  // wall itself. Same component, same frame math, same text boxes — so the
+  // card can never drift from what the projector draws. The only difference
+  // is the surface it measures: its own box instead of the window.
   useEffect(() => {
+    if (!framed) {
+      let raf = 0;
+      const onResize = () => {
+        if (raf) return;
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          setWin({ w: window.innerWidth, h: window.innerHeight });
+        });
+      };
+      window.addEventListener('resize', onResize);
+      return () => {
+        window.removeEventListener('resize', onResize);
+        if (raf) cancelAnimationFrame(raf);
+      };
+    }
+    const el = rootRef.current;
+    if (!el) return undefined;
     let raf = 0;
-    const onResize = () => {
+    const measure = () => {
       if (raf) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
-        setWin({ w: window.innerWidth, h: window.innerHeight });
+        const r = el.getBoundingClientRect();
+        setWin(prev => (Math.abs(prev.w - r.width) < 0.5 && Math.abs(prev.h - r.height) < 0.5 ? prev : { w: r.width, h: r.height }));
       });
     };
-    window.addEventListener('resize', onResize);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
     return () => {
-      window.removeEventListener('resize', onResize);
+      ro.disconnect();
       if (raf) cancelAnimationFrame(raf);
     };
-  }, []);
+  }, [framed]);
 
   // Next-slide media warm-up (see main's output-preload fan-out): the console
   // announces the coming background while the current slide is still live.
@@ -116,7 +139,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
   const warmedRef = useRef(null);
   if (!warmedRef.current) warmedRef.current = new Set();
   useEffect(() => {
-    if (!window.require) return;
+    if (framed || !window.require) return undefined;
     const { ipcRenderer } = window.require('electron');
     const onPreload = (_e, p) => {
       try {
@@ -170,6 +193,11 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
     'wipe-up': `wipeUp ${transitionSpeed} ease-out`,
     'spin': `spinIn ${transitionSpeed} ease-out`,
     'neon': `neonFlash ${transitionSpeed} linear`,
+    'crossfade': `crossfadeIn ${transitionSpeed} ease-in-out`,
+    'glitch': `glitchIn ${transitionSpeed} steps(12)`,
+    'distort': `distortIn ${transitionSpeed} ease-out`,
+    'zoom-blur': `zoomBlurIn ${transitionSpeed} ease-out`,
+    'whip': `whipIn ${transitionSpeed} cubic-bezier(.52,.02,.24,1)`,
   };
 
   // Keyframe animation OR CSS transition on transform/opacity — never both.
@@ -217,18 +245,31 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
   // the desktop preview window (electron/main.js). Fill = edge to edge on any
   // screen; every named ratio is exact, whatever the screen shape is.
   const ratioOf = (v) => {
-    const m = String(v || '').match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+    // Accepts both shapes the app uses: "16:9" (an output aspect) and
+    // "1900 / 1080" (a physical wall resolution, from wallAspect).
+    const m = String(v || '').match(/^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/);
     return m && Number(m[2]) ? Number(m[1]) / Number(m[2]) : 0;
   };
-  const ar = ratioOf(cfg.aspect || aspect) || 16 / 9;
-  const fill = String(cfg.aspect || aspect || '').toLowerCase() === 'fill';
+  const ar = ratioOf(framed ? (frameAspect || '16:9') : (cfg.aspect || aspect)) || 16 / 9;
+  const fill = !framed && String(cfg.aspect || aspect || '').toLowerCase() === 'fill';
   const fw = fill ? vw : Math.min(vw, vh * ar);
   const fh = fill ? vh : Math.min(vh, vw / ar);
   const fx = (vw - fw) / 2;
   const fy = (vh - fh) / 2;
 
-  const s = Math.min(fw / 1280, fh / 720);
-  const cw = 1280 * s;
+  // The design space takes the WHOLE frame (the wall in Fill, the card when
+  // it is rendering the wall's shape): the boxes spread sideways while their
+  // type keeps its size, so the picture fills the frame, no word is cropped
+  // and no letter is distorted. A named ratio keeps the 16:9 composition
+  // inside a frame of that ratio.
+  // Framed cards start at 0x0 until ResizeObserver measures them; a bare
+  // fw / fh would be 0 / 0 = NaN, and React rejects NaN in `width`. Until the
+  // box has a real size, keep the design canvas at its native ratio with a
+  // zero scale — the card is empty for one frame, never invalid.
+  const hasSize = fw > 0 && fh > 0;
+  const kx = (fill || framed) ? (hasSize ? (fw / fh) / (16 / 9) : 1) : 1;
+  const s = (fill || framed) ? (fh > 0 ? fh / 720 : 0) : (hasSize ? Math.min(fw / 1280, fh / 720) : 0);
+  const cw = 1280 * kx * s;
   const ch = 720 * s;
   const cx = fx + (fw - cw) / 2;
   const cy = fy + (fh - ch) / 2;
@@ -267,24 +308,31 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
   ];
 
   return (
-    <div data-kog-output="" style={{
-      position: 'fixed',
-      inset: 0,
-      width: '100vw',
-      height: '100vh',
-      margin: 0,
-      padding: 0,
-      overflow: 'hidden',
-      background: '#000',
-      // Live output never shows the mouse: the cursor over a projection is a
-      // classic focus/cursor leak during a service.
-      cursor: 'none',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center'
-    }}>
-      {perfOn && <OutputPerfHud slideKey={cs.timestamp} />}
-      {/* Reset root margins & hide window scrollbars */}
+    <div
+      data-kog-output=""
+      ref={rootRef}
+      style={{
+        // FRAMED: a picture of the wall inside a card (the console's Live
+        // Output card). Unframed: the wall itself, owning its whole window.
+        position: framed ? 'relative' : 'fixed',
+        ...(framed ? { width: '100%', height: '100%' } : { inset: 0, width: '100vw', height: '100vh' }),
+        margin: 0,
+        padding: 0,
+        overflow: 'hidden',
+        background: '#000',
+        // Live output never shows the mouse: the cursor over a projection is a
+        // classic focus/cursor leak during a service.
+        cursor: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}
+    >
+      {!framed && perfOn && <OutputPerfHud slideKey={cs.timestamp} />}
+      {/* Reset root margins & hide window scrollbars — the WALL's own
+          document. Never emitted in framed mode, or the card's rules would
+          reach up into the console's own layout. */}
+      {!framed && (
       <style>{`
         html, body, #root { 
           margin: 0 !important; 
@@ -318,9 +366,11 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
         @keyframes spinIn { 0% { opacity: 0; transform: rotate(-180deg) scale(0.5); } 100% { opacity: 1; transform: rotate(0) scale(1); } }
         @keyframes neonFlash { 0% { opacity: 0; } 8% { opacity: 1; } 14% { opacity: 0.15; } 20% { opacity: 1; } 28% { opacity: 0.35; } 36% { opacity: 1; } 100% { opacity: 1; } }
       `}</style>
+      )}
 
-      {/* SONG BACKGROUND AUDIO (loops until the next slide changes it) */}
-      {cs.audio ? (
+      {/* SONG BACKGROUND AUDIO (loops until the next slide changes it). The
+          framed card must NOT play it — the wall carries the sound. */}
+      {!framed && cs.audio ? (
         <audio key={cs.audio} src={cs.audio} autoPlay loop style={{ display: 'none' }} />
       ) : null}
 
@@ -352,21 +402,26 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
           transition={{ duration: bgFade }}
           style={{ position: 'absolute', left: fx, top: fy, width: fw, height: fh, overflow: 'hidden', zIndex: 0 }}
         >
-          {slideStyle.backgroundType === 'image' && (
-            <div style={{ position: 'absolute', inset: 0, background: `url("${String(slideStyle.backgroundValue || '').replace(/"/g, '%22')}") center/cover no-repeat` }} />
-          )}
-          {slideStyle.backgroundType === 'video' && (
-            <BackgroundVideo src={slideStyle.backgroundValue} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-          )}
-          {slideStyle.backgroundType === 'gradient' && !!slideStyle.backgroundValue && (
-            <div style={{ position: 'absolute', inset: 0, background: slideStyle.backgroundValue }} />
-          )}
-          {slideStyle.backgroundType === 'animated' && (
-            <AnimatedBg value={slideStyle.backgroundValue} k={1} />
-          )}
-          {slideStyle.backgroundType === 'color' && (
-            <div style={{ position: 'absolute', inset: 0, background: slideStyle.backgroundValue || '#000' }} />
-          )}
+          {/* The background media stays MOUNTED inside this wrapper: grading
+              (mono / contrast / blur / zoom / tint) only changes the wrapper's
+              CSS, so a looping background video is never restarted by a cue. */}
+          <CinematicBackdrop bgFx={slideStyle.bg_fx}>
+            {slideStyle.backgroundType === 'image' && (
+              <div style={{ position: 'absolute', inset: 0, background: `url("${String(slideStyle.backgroundValue || '').replace(/"/g, '%22')}") center/cover no-repeat` }} />
+            )}
+            {slideStyle.backgroundType === 'video' && (
+              <BackgroundVideo src={slideStyle.backgroundValue} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            )}
+            {slideStyle.backgroundType === 'gradient' && !!slideStyle.backgroundValue && (
+              <div style={{ position: 'absolute', inset: 0, background: slideStyle.backgroundValue }} />
+            )}
+            {slideStyle.backgroundType === 'animated' && (
+              <AnimatedBg value={slideStyle.backgroundValue} k={1} />
+            )}
+            {slideStyle.backgroundType === 'color' && (
+              <div style={{ position: 'absolute', inset: 0, background: slideStyle.backgroundValue || '#000' }} />
+            )}
+          </CinematicBackdrop>
         </motion.div>
       </AnimatePresence>
 
@@ -376,7 +431,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
           the viewport scale, or every transition wipes the scale mid-flight. */}
       <div style={{ position: 'absolute', left: cx, top: cy, width: cw, height: ch, zIndex: 1, overflow: 'hidden' }}>
         <div style={{
-          width: 1280,
+          width: 1280 * kx,
           height: 720,
           position: 'relative',
           transform: `scale(${s})`,
@@ -407,7 +462,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
                   </div>
                 ) : cs.presentation && cs.presentation.slide ? (
                   <PresentationSlide slide={cs.presentation.slide} keepAlive />
-                ) : cs.text ? (
+                ) : (cs.text || (slideStyle.texts && slideStyle.texts.length)) ? (
                   (() => {
                     const isTitleSlide = cs.label === 'Song Title';
                     const st = slideStyle.lyric || { font: slideStyle.fontFamily || 'system-ui, sans-serif', size: DEFAULT_LYRIC_SIZE, lineHeight: 1.05, align: slideStyle.textAlign || 'center', color: slideStyle.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
@@ -430,9 +485,11 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
                     const artist = cs.artist || '';
                     return (
                       <>
-                        <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
-                          <LyricsBlock text={body} st={st} box={box} />
-                        </div>
+                        {/* The slide's text: the main lyric box plus every
+                            extra text box on it — ONE renderer, shared with
+                            the console's live-output preview, so the monitor
+                            is a true picture of the wall. */}
+                        <SlideTextLayers style={slideStyle} text={body} st={st} lift={lift} stretch={kx} />
                         {isBible && (
                           <ScriptureRef meta={cs.meta} title={cs.title} color={st.color} font={st.font} templateId={cs.meta && cs.meta.template} />
                         )}
@@ -448,6 +505,10 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
               </div>
             </motion.div>
           </AnimatePresence>
+          {/* CINEMATIC PASS: grain / static / scanlines / glitch bands / flicker
+              / scratches / vignette, above the words but below message overlay
+              and remote ink. Pointer-transparent and CSS-only. */}
+          <CinematicOverlay fx={slideStyle.fx} zIndex={2} />
           {/* MESSAGE OVERLAY: audience text above everything in the design
               canvas (sermon deck included) � own lifecycle, own fade, never
               remounted by slide pushes. */}

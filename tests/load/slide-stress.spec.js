@@ -40,6 +40,11 @@ test.beforeAll(async () => {
   // console for ~5s AFTER React mounts, and buttons only exist once it lifts.
   await win.waitForFunction(() => document.querySelectorAll('button').length > 5, null, { timeout: 180000 });
   await win.waitForTimeout(2000);
+  // The splash lifts into the welcome screen on every launch. Start blank so
+  // the load test measures the console, not the welcome overlay.
+  const startBlank = win.getByRole('button', { name: 'Start Blank' });
+  await expect(startBlank, 'welcome screen did not appear after the splash').toBeVisible({ timeout: 30000 });
+  await startBlank.click();
 });
 
 test.afterAll(async () => {
@@ -47,6 +52,10 @@ test.afterAll(async () => {
 });
 
 async function openFirstSong() {
+  // The command center starts collapsed. Its reopen rail sits on the left
+  // edge, so open it before reaching for the Songs sub-tab.
+  const rail = win.getByTitle('Open command center');
+  if (await rail.isVisible().catch(() => false)) await rail.click();
   // Console boots to Shows dock → Service Order panel; the library lives
   // behind the Songs sub-tab (UUI tab role, badge count rides the name).
   const songsTab = win.getByRole('tab', { name: 'Songs' });

@@ -67,11 +67,17 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
   const onAir = !!(state?.activeCueId && state?.activeCueId !== 'clear');
   const hasPicture = !!(live && (live.text || live.presentation));
   const deckOnAir = !!(live && live.presentation);
-  // Live-output shape mirrors the desktop panel 1:1: the same global aspect
-  // drives the miniature, the same badge value rides on it, and the same
-  // transport commands (clear / clear-all / put-back) run underneath.
-  const outAspect = state?.outputAspect || '16:9';
-  const outCssAspect = String(outAspect).toLowerCase() === 'fill' ? '16 / 9' : String(outAspect).replace(':', ' / ');
+  // Live-output shape mirrors the desktop panel 1:1: the PROJECTOR's own
+  // aspect drives the miniature (a per-output override beats the global
+  // default — same as the wall), the same badge value rides on it, and the
+  // same transport commands (clear / clear-all / put-back) run underneath.
+  const projAspect = (state?.outputs || []).find((o) => o.id === 'projector')?.aspect || state?.outputAspect || '16:9';
+  const outAspect = projAspect;
+  // Fill means "the whole wall": the phone mirrors it with the wall's real
+  // shape, so the mini and the screen are the same picture.
+  const outCssAspect = String(outAspect).toLowerCase() === 'fill'
+    ? (state?.wallAspect || '16 / 9')
+    : String(outAspect).replace(':', ' / ');
 
   const uniqueLabels = [];
   cues.forEach(c => { if (c.label && !uniqueLabels.includes(c.label)) uniqueLabels.push(c.label); });

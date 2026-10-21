@@ -6,6 +6,7 @@ import { stubTap, iconBtnTap } from '../lib/anim';
 import { DRAW_W, DRAW_H, DRAW_COLORS, DRAW_WIDTHS, MAX_POINTS_PER_STROKE, strokeToPath, clientToDesign } from '../lib/draw';
 import { mediaLabel } from '../lib/backgrounds';
 import FontPicker from './FontPicker';
+import ProjectorDisplay from './ProjectorDisplay';
 import ScriptureTemplatePicker from './ScriptureTemplatePicker';
 import { DEFAULT_SCRIPTURE_TEMPLATE } from '../lib/scriptureTemplates';
 import { FONT_OPTIONS } from '../lib/constants';
@@ -46,6 +47,12 @@ export default function LiveOutputPanel({
   sermonGoto,
   slideGrid,
   renderSlideFace,
+  renderFrozenWallFace,
+  wallFrameAspect,
+  // What display 1 currently shows — the same payload the wall renders. The
+  // live card feeds it straight into ProjectorDisplay, so the picture can
+  // never drift from the actual output.
+  monitorContent = null,
   fireGridTile,
   liveBible,
   toggleLiveBibleWord,
@@ -286,7 +293,16 @@ export default function LiveOutputPanel({
                 </span>
               ) : null}
             </div>
-          ) : renderOutputPreview()}
+          ) : (
+            /* THE LIVE CARD IS THE PROJECTOR. Not a copy of it: this is the
+               same component the wall runs, in framed mode, so the picture
+               can never drift from the actual output — same background, same
+               text boxes, same fit, same fill. The card itself is a fixed
+               16:9 window (it never changes size with the output aspect). */
+            <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 8, overflow: 'hidden', background: '#000', border: '1px solid var(--ui-border2)' }}>
+              <ProjectorDisplay framed frameAspect={wallFrameAspect} currentSlide={monitorContent} config={{ aspect: 'fill' }} />
+            </div>
+          )}
           {/* TELESTRATOR SURFACE — mirrors what is on the wall at all times
               (the console preview never showed strokes before), and accepts
               the pointer only while the pen is armed. Same 1280x720 space and
@@ -403,7 +419,7 @@ export default function LiveOutputPanel({
               title={lyricsNextTile.isTitle ? 'Fire the title slide' : 'Fire this slide'}
               style={{ display: 'block', width: '100%', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--ui-border2)', cursor: 'pointer', padding: 0, background: 'transparent' }}
             >
-              {renderSlideFace ? renderSlideFace(lyricsNextTile, { aspect: '16 / 9' }) : null}
+              {renderFrozenWallFace ? renderFrozenWallFace(lyricsNextTile) : (renderSlideFace ? renderSlideFace(lyricsNextTile, { aspect: '16 / 9' }) : null)}
             </button>
           </div>
         )}

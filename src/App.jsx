@@ -4,7 +4,8 @@ import { Layers, Plus, Search, Star, Clock, Folder, Download, Upload, Trash2, Ed
 import logoImage from './assets/logo.png';
 import { getTheme } from './lib/theme';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, cssSpeed } from './lib/constants';
-import { applyCaseTransform, renderLyricsLayout, LyricsBlock, cueLyricStyle, growBoxToText, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, fitBoxToText, fitParsedCue, liftBox } from './lib/lyrics';
+import { applyCaseTransform, renderLyricsLayout, LyricsBlock, SlideTextLayers, cueLyricStyle, growBoxToText, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, fitBoxToText, fitParsedCue, liftBox, ghostLayerOf } from './lib/lyrics';
+import { textObjectLayers, patchTextObject, moveTextObject, addTextObject, removeTextObject, duplicateTextObject } from './lib/songTextObjects';
 import { reflowCuesToLines } from './lib/splitReflow.js';
 import { parseSongBlocks, splitCuesByLines } from '../electron/songParse.js';
 import { extractCcli } from '../electron/ccliReport.js';
@@ -32,6 +33,7 @@ import { resolveArrangementFlow } from './lib/arrangement';
 import { DEFAULT_STAGE_CFG } from './lib/stageLayout';
 import { loadIconTheme, saveIconTheme } from './lib/icons';
 import CustomSlideModal from './components/modals/CustomSlideModal';
+import { defaultCustomSlideData, normalizeCustomSlideStyle } from './lib/customSlides';
 import MedleyModal from './components/MedleyModal';
 import ScriptureMediaPicker from './components/ScriptureMediaPicker';
 import ArrangementModal from './components/ArrangementModal';
@@ -422,7 +424,11 @@ export default function App() {
   const [templateNameValue, setTemplateNameValue] = useState('');
   const [activeService, setActiveService] = useState({ id: null, name: 'Sunday Service', date: new Date().toISOString().split('T')[0], items: [] });
   const [customSlideModal, setCustomSlideModal] = useState(false);
-  const [newSlideData, setNewSlideData] = useState({ title: 'Welcome / Announcements', subtitle: 'Service Slide', content: '' });
+  // Which service row is being edited (null = adding a new slide). Keeping the
+  // index here means the modal's state lives only in the modal's form, and the
+  // service order stays the single source of truth.
+  const [customSlideEditIdx, setCustomSlideEditIdx] = useState(null);
+  const [newSlideData, setNewSlideData] = useState(() => defaultCustomSlideData());
 
   // Sermon / Presentation builder state
   const [presentations, setPresentations] = useState([]);
@@ -1860,6 +1866,14 @@ export default function App() {
     return stageStyle;
   };
 
+  // Every visual field a cue adds on top of the lyric style. One helper so a
+  // new payload path cannot forget the cinematic look or the ghost layer.
+  const cinematicStyleFields = (cue) => ({
+    fx: cue && cue.fx ? cue.fx : null,
+    bg_fx: cue && cue.bg_fx ? cue.bg_fx : null,
+    ghost: ghostLayerOf(cue),
+  });
+
   const resolutionStyle = (cue, song = activeSong) => {
     // Clear / Stop always lands on black and always DISSOLVES there. A clear
     // cue has no background of its own, so it used to inherit the live song's
@@ -1876,8 +1890,14 @@ export default function App() {
       return {
         ...base,
         lyric: cueLyricStyle(cue),
+        // Extra text boxes on this slide ride inside the SAME style object, so
+        // every live surface (projector, stage, mobile) that already reads
+        // `style.lyric` picks them up from one payload change.
+        texts: textObjectLayers(cue),
+        ...cinematicStyleFields(cue),
         transition: cue.anim || 'none',
-        speed: cssSpeed(cue.speed),
+        // Per-slide duration override wins over the speed preset.
+        speed: cssSpeed(cue.transDuration || cue.speed),
       };
     }
     return base;
@@ -1994,7 +2014,7 @@ export default function App() {
         } else if (it.media_url) {
           items.push({ item_type: 'media', title: it.title || 'Media', subtitle: sec.title, content: '', media_type: it.media_type || 'image', media_url: it.media_url, duration: Number(it.duration) || 0 });
         } else {
-          items.push({ item_type: 'custom_slide', title: it.title || 'Slide', subtitle: sec.title, content: it.content || '', duration: Number(it.duration) || 0 });
+          items.push({ item_type: 'custom_slide', title: it.title || 'Slide', subtitle: sec.title, content: it.content || '', style: it.style, duration: Number(it.duration) || 0 });
         }
       });
     });
@@ -2109,7 +2129,7 @@ export default function App() {
           artist: song.artist || '',
           text: titleCue.text || song.title,
           label: 'Song Title',
-          style: { ...stageStyle, ...titleBg, lyric: cueLyricStyle(titleCue), transition: titleCue.anim || 'fade', speed: cssSpeed(titleCue.speed) },
+          style: { ...stageStyle, ...titleBg, lyric: cueLyricStyle(titleCue), ...cinematicStyleFields(titleCue), transition: titleCue.anim || 'fade', speed: cssSpeed(titleCue.transDuration || titleCue.speed) },
           audio: song.audio_url || null,
           timestamp: liveStamp()
         };
@@ -2130,7 +2150,7 @@ export default function App() {
             : songHasBackground(song)
               ? { ...stageStyle, backgroundType: song.bg_type || 'color', backgroundValue: song.bg_value || '#000000' }
               : { ...stageStyle };
-          return { ...base, lyric: cueLyricStyle(cue), transition: cue.anim || 'none', speed: cssSpeed(cue.speed) };
+          return { ...base, lyric: cueLyricStyle(cue), texts: textObjectLayers(cue), ...cinematicStyleFields(cue), transition: cue.anim || 'none', speed: cssSpeed(cue.transDuration || cue.speed) };
         })();
         const slidePayload = { title: song.title, artist: song.artist || '', text: cue.text, label: cue.label || '', style: effectiveStyle, audio: song.audio_url || null, timestamp: liveStamp() };
         setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
@@ -2143,7 +2163,7 @@ export default function App() {
     } else if (item.media_url) {
       fireServiceItemLive({ id: 'b-' + Date.now(), item_type: 'media', title: item.title, subtitle: entry.sec.title, content: '', media_type: item.media_type, media_url: item.media_url, duration: item.duration || 0 });
     } else {
-      fireServiceItemLive({ id: 'b-' + Date.now(), item_type: 'custom_slide', title: item.title, subtitle: entry.sec.title, content: item.content || '', duration: item.duration || 0 });
+      fireServiceItemLive({ id: 'b-' + Date.now(), item_type: 'custom_slide', title: item.title, subtitle: entry.sec.title, content: item.content || '', style: item.style, duration: item.duration || 0 });
     }
   };
 
@@ -3182,11 +3202,53 @@ export default function App() {
     });
   };
 
-  const addCustomSlideToService = () => {
-    const newItem = { item_type: 'custom_slide', title: newSlideData.title, subtitle: newSlideData.subtitle, content: newSlideData.content };
-    insertServiceItem(newItem);
+  const openCustomSlideEditor = (index = null) => {
+    if (index == null) {
+      setCustomSlideEditIdx(null);
+      setNewSlideData(defaultCustomSlideData());
+    } else {
+      const item = (activeService?.items || [])[index];
+      if (!item || item.item_type !== 'custom_slide') return;
+      setCustomSlideEditIdx(index);
+      setNewSlideData({
+        title: item.title || '',
+        subtitle: item.subtitle || '',
+        content: item.content || '',
+        style: normalizeCustomSlideStyle(item.style),
+      });
+    }
+    setCustomSlideModal(true);
+  };
+
+  const closeCustomSlideEditor = () => {
     setCustomSlideModal(false);
-    setNewSlideData({ title: 'Welcome / Announcements', subtitle: 'Service Slide', content: '' });
+    setCustomSlideEditIdx(null);
+  };
+
+  const addCustomSlideToService = () => {
+    const style = normalizeCustomSlideStyle(newSlideData.style);
+    const title = (newSlideData.title || '').trim() || 'Slide';
+    const subtitle = (newSlideData.subtitle || '').trim() || 'Service Slide';
+    const content = newSlideData.content || '';
+    if (customSlideEditIdx != null) {
+      const cur = (activeService?.items || [])[customSlideEditIdx];
+      if (!cur || cur.item_type !== 'custom_slide') { closeCustomSlideEditor(); return; }
+      const updated = { ...cur, title, subtitle, content, style };
+      setActiveService((prev) => {
+        const items = [...(prev?.items || [])];
+        if (!items[customSlideEditIdx]) return prev;
+        items[customSlideEditIdx] = updated;
+        return { ...prev, items };
+      });
+      // Editing the slide that is ON AIR re-fires it, so the wall shows the new
+      // look immediately instead of waiting for Stop → Go.
+      if (activeCue?.id === cur.id) fireServiceItemLive(updated);
+    } else {
+      insertServiceItem({ item_type: 'custom_slide', title, subtitle, content, style });
+    }
+    setCustomSlideModal(false);
+    setCustomSlideEditIdx(null);
+    setNewSlideData(defaultCustomSlideData());
   };
 
   const addPresentationToService = (deck) => {
@@ -3845,13 +3907,28 @@ export default function App() {
   // setEditingSong → full-app re-render (plain-object context), re-rendering
   // the whole song grid at drag rate. Leading edge keeps the canvas preview
   // instant; the trailing edge lands the final value 120ms after movement stops.
-  const cueThrottleRef = useRef({ timer: null, idx: null, patch: null });
+  const cueThrottleRef = useRef({ timer: null, idx: null, objIdx: null, patch: null });
+  // objIdx null = the slide's MAIN text (the cue's own fields); otherwise the
+  // patch targets an extra text box at that index on that slide. One queue, so
+  // a slider drag on a box and a slider drag on the slide never interleave.
+  const runThrottledPatch = (idx, objIdx, patch) => {
+    if (idx == null) return;
+    if (objIdx != null) updateTextObject(idx, objIdx, patch);
+    else updateCue(idx, patch);
+  };
   const updateCueThrottled = (idx, patch) => {
     const q = cueThrottleRef.current;
-    q.idx = idx; q.patch = patch;
+    q.idx = idx; q.objIdx = null; q.patch = patch;
     if (q.timer) return;
-    updateCue(idx, patch);
-    q.timer = setTimeout(() => { q.timer = null; if (q.idx != null) updateCue(q.idx, q.patch); }, 120);
+    runThrottledPatch(idx, null, patch);
+    q.timer = setTimeout(() => { q.timer = null; if (q.idx != null) runThrottledPatch(q.idx, q.objIdx, q.patch); }, 120);
+  };
+  const updateTextObjectThrottled = (idx, objIdx, patch) => {
+    const q = cueThrottleRef.current;
+    q.idx = idx; q.objIdx = objIdx == null ? null : Number(objIdx); q.patch = patch;
+    if (q.timer) return;
+    runThrottledPatch(idx, q.objIdx, patch);
+    q.timer = setTimeout(() => { q.timer = null; if (q.idx != null) runThrottledPatch(q.idx, q.objIdx, q.patch); }, 120);
   };
   // Drain a pending trailing write WITHOUT waiting 120ms. Returns the patch
   // so the caller can merge it into a snapshot itself — setState is async, so
@@ -3859,20 +3936,64 @@ export default function App() {
   const flushCueThrottle = () => {
     const q = cueThrottleRef.current;
     if (q.timer) { clearTimeout(q.timer); q.timer = null; }
-    const out = (q.idx != null && q.patch) ? { idx: q.idx, patch: q.patch } : null;
-    q.idx = null; q.patch = null;
+    const out = (q.idx != null && q.patch) ? { idx: q.idx, objIdx: q.objIdx, patch: q.patch } : null;
+    q.idx = null; q.objIdx = null; q.patch = null;
     return out;
   };
-  const applyPatchToSnapshot = (song, idx, patch) => {
+  const applyPatchToSnapshot = (song, idx, patch, objIdx = null) => {
     if (idx === -1) {
       const cur = song.title_cue || { ...defaultTitleCue, text: song.title || defaultTitleCue.text };
       return { ...song, title_cue: { ...cur, ...patch } };
     }
     const newCues = [...(song.cues || [])];
     if (!newCues[idx]) return song;
-    newCues[idx] = { ...newCues[idx], ...patch };
+    newCues[idx] = patchTextObject(newCues[idx], objIdx == null ? 0 : objIdx, patch);
     return { ...song, cues: newCues };
   };
+
+  // --- extra text boxes on a lyric slide ---------------------------------
+  // Object index 0 is the slide's main text (the cue's own fields); 1..n are
+  // the boxes in cue.texts[]. Both writers go through the same history-friendly
+  // setEditingSong path as updateCue, so an undo covers them too.
+  const updateTextObject = (idx, objIdx, patch) => {
+    if (idx == null || idx < 0 || !patch) return;
+    setEditingSong(prev => {
+      const cues = [...(prev.cues || [])];
+      if (!cues[idx]) return prev;
+      const next = patchTextObject(cues[idx], objIdx, patch);
+      if (next === cues[idx]) return prev;
+      cues[idx] = next;
+      return { ...prev, cues };
+    });
+  };
+  const moveTextObjectInCue = (idx, objIdx, dir) => {
+    if (idx == null || idx < 0) return;
+    setEditingSong(prev => {
+      const cues = [...(prev.cues || [])];
+      if (!cues[idx]) return prev;
+      const next = moveTextObject(cues[idx], objIdx, dir);
+      if (next === cues[idx]) return prev;
+      cues[idx] = next;
+      return { ...prev, cues };
+    });
+  };
+  // Add / delete / duplicate a box — all FUNCTIONAL updaters, so a pending
+  // typed-text flush queued a tick earlier lands first and can never be
+  // overwritten by a stale `editingSong` snapshot.
+  const mutateTextObjects = (idx, fn) => {
+    if (idx == null || idx < 0) return;
+    setEditingSong(prev => {
+      const cues = [...(prev.cues || [])];
+      if (!cues[idx]) return prev;
+      const next = fn(cues[idx]);
+      if (next === cues[idx]) return prev;
+      cues[idx] = next;
+      return { ...prev, cues };
+    });
+  };
+  const addTextObjectToCue = (idx, obj) => { if (obj) mutateTextObjects(idx, (cue) => addTextObject(cue, obj)); };
+  const removeTextObjectFromCue = (idx, objIdx) => mutateTextObjects(idx, (cue) => removeTextObject(cue, objIdx));
+  const duplicateTextObjectInCue = (idx, objIdx) => mutateTextObjects(idx, (cue) => duplicateTextObject(cue, objIdx));
 
   // One click: merge a patch into every slide (title slide included).
   const applyPatchToAllCues = (patch) => {
@@ -4028,8 +4149,8 @@ export default function App() {
       // throttle — merge it into the snapshot or the DB keeps the pre-drag one.
       const pending = flushCueThrottle();
       const wasNew = editingSong.id == null;
-      const snap = pending ? applyPatchToSnapshot(editingSong, pending.idx, pending.patch) : editingSong;
-      if (pending) updateCue(pending.idx, pending.patch);
+      const snap = pending ? applyPatchToSnapshot(editingSong, pending.idx, pending.patch, pending.objIdx) : editingSong;
+      if (pending) runThrottledPatch(pending.idx, pending.objIdx, pending.patch);
       const savedId = await ipcRenderer.invoke('db-save-song', snap);
       fetchSongs();
       // The work is safe now — drop the recovery copy so the next open of this
@@ -4437,6 +4558,9 @@ export default function App() {
         // the miniature 1:1 with the desktop preview, and the outputs list
         // mirrors which feeds are up (read-only on the phone).
         outputAspect: outputAspect || '16:9',
+        // The wall's real shape, so a Fill output can be mirrored on the
+        // phone exactly as the projector fills it.
+        wallAspect,
         outputs: (outputs || []).map((o) => ({
           id: o.id,
           name: o.name || '',
@@ -4666,7 +4790,7 @@ export default function App() {
     // Animated faces never cache (every cache hit would freeze the motion);
     // gradient faces join the key by value so per-cue colors never collide.
     const cacheable = !isLive && !bg && !media && !isAnimatedFace;
-    const faceKey = `${aspect || ''}|${song?.id ?? ''}|${isTitle ? 'title' : (cue?.id || ('n' + tile.num))}|${bgInfo ? `${bgInfo.type}:${bgInfo.type === 'animated' ? '' : (bgInfo.value || '')}` : ''}`;
+    const faceKey = `${aspect || ''}|${song?.id ?? ''}|${isTitle ? 'title' : (cue?.id || ('n' + tile.num))}|${bgInfo ? `${bgInfo.type}:${bgInfo.type === 'animated' ? '' : (bgInfo.value || '')}` : ''}|${JSON.stringify(isTitle ? [] : (cue?.texts || []))}`;
     if (cacheable) {
       const hit = faceCache.get(faceKey);
       if (hit) return hit;
@@ -4689,9 +4813,30 @@ export default function App() {
             1280×720 canvas, contain-fit to the tile. No darkening overlay or
             bottom gradient — the output has neither. */}
         <TileCanvas>
+          {/* Ghost / watermark layer first: part of the slide's composition,
+              drawn through the same shared renderer as the main lyric. */}
+          {(() => {
+            const gh = ghostLayerOf(isTitle ? titleCue : cue);
+            if (!gh) return null;
+            const gb = gh.lyric.box || { x: 64, y: 170, w: 1152, h: 380 };
+            return (
+              <div style={{ position: 'absolute', left: gb.x, top: gb.y, width: gb.w, height: gb.h, transform: gb.angle ? `rotate(${gb.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+                {renderLyricsLayout(gh.text, { ...gh.lyric, layoutMode: 'static' }, gb)}
+              </div>
+            );
+          })()}
           <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
             {renderLyricsLayout(text, st, box)}
           </div>
+          {/* Extra text boxes, drawn exactly like the projector draws them. */}
+          {textObjectLayers(isTitle ? titleCue : cue).map((t, i) => {
+            const tb = t.lyric.box;
+            return (
+              <div key={`tx-${i}`} style={{ position: 'absolute', left: tb.x, top: tb.y, width: tb.w, height: tb.h, transform: tb.angle ? `rotate(${tb.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+                {renderLyricsLayout(t.text, { ...t.lyric, layoutMode: 'static' }, tb)}
+              </div>
+            );
+          })}
         </TileCanvas>
         <div style={{ position: 'absolute', top: 6, left: 8, display: 'flex', alignItems: 'center', gap: 6, zIndex: 2 }}>
           {isLive && <LiveBadge start={slideTimer.start} C={C} PINK={PINK} />}
@@ -4709,6 +4854,58 @@ export default function App() {
     );
     if (cacheable) faceCache.set(faceKey, face);
     return face;
+  };
+
+  // THE "UP NEXT" PICTURE — the wall's own drawing of the slide that comes
+  // next, frozen: its own background, its own text boxes, the same measured
+  // fit and the same spread as the projector uses, in the same 16:9 card as
+  // the Live Output card above it. The operator sees the wall before the
+  // wall is live.
+  const renderFrozenWallFace = (tile) => {
+    if (!tile) return null;
+    const cue = tile.cue;
+    const song = tile.medSong || activeSong;
+    if (!song) return null;
+    const isTitle = tile.isTitle;
+    const titleCue = song.title_cue || { id: 'title-card', label: 'Song Title', text: song.title, box: { x: 80, y: 140, w: 1120, h: 440 }, size: DEFAULT_LYRIC_SIZE, align: 'center', color: '#ffffff' };
+    const theCue = isTitle ? titleCue : cue;
+    const st = { ...cueLyricStyle(theCue), layoutMode: 'static' };
+    st.isTitle = isTitle;
+    const bgInfo = (() => {
+      if (isTitle) return songHasBackground(song) ? { type: song.bg_type, value: song.bg_value } : null;
+      if (cueHasBackground(cue)) return { type: cue.bg_type, value: cue.bg_value };
+      if (songHasBackground(song)) return { type: song.bg_type, value: song.bg_value };
+      return null;
+    })();
+    const style = {
+      backgroundType: bgInfo ? bgInfo.type : 'color',
+      backgroundValue: bgInfo ? bgInfo.value : '#000000',
+      lyric: st,
+      texts: textObjectLayers(theCue),
+      ghost: ghostLayerOf(theCue),
+      fx: theCue.fx || null,
+    };
+    const k = wallStretch || 1;
+    return (
+      <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 8, overflow: 'hidden', background: '#000', border: '1px solid var(--ui-border2)', boxSizing: 'border-box' }}>
+        {style.backgroundType === 'image' && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 1, background: `url("${String(style.backgroundValue || '').replace(/"/g, '%22')}") center/cover no-repeat` }} />
+        )}
+        {style.backgroundType === 'video' && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+            <TileVideo src={style.backgroundValue} animate={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+          </div>
+        )}
+        {style.backgroundType === 'animated' && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+            <AnimatedBg value={style.backgroundValue} k={0.25} />
+          </div>
+        )}
+        <TileCanvas stretch={k}>
+          <SlideTextLayers style={style} text={theCue.text || ''} st={st} stretch={k} />
+        </TileCanvas>
+      </div>
+    );
   };
 
   // --- DOCK TOOL ACTIONS ---
@@ -5507,200 +5704,31 @@ export default function App() {
     return '16 / 9';
   }, [outputs, outputDisplays, outputAspect]);
 
-  const renderOutputPreview = () => {
-    const st = monitorContent?.style || {};
-    const isMediaStyle = (st.backgroundType === 'image' || st.backgroundType === 'video' || st.backgroundType === 'gradient' || st.backgroundType === 'animated') && !!st.backgroundValue;
-    const hasMediaBg = !!monitorContent && isMediaStyle;
-    // Service Order standby can sit on a plain-colour background (a song with
-    // no media bg). Only a genuinely black one means "nothing on screen",
-    // otherwise the monitor labels a live standby as BLACKOUT.
-    const bgHex = String(st.backgroundValue || '').toLowerCase();
-    const isBlackColor = st.backgroundType === 'color' && (!bgHex || bgHex === '#000000' || bgHex === '#000' || bgHex === 'black');
-    const hasColorBg = !!monitorContent && st.backgroundType === 'color' && !isBlackColor;
-    const valid = monitorContent && (monitorContent.text || monitorContent.presentation?.slide || monitorContent.timer || (monitorContent.video && monitorContent.video.url && monitorContent.video.action !== 'stop') || hasMediaBg || hasColorBg);
-    // Incoming slide is blank (standby / clear) → the outgoing lyrics dissolve.
-    const blankOut = !!monitorContent && !monitorContent.text && !monitorContent.presentation;
-    const transitionSpeed = cssSpeed(st.speed);
-    const msNum = parseInt(transitionSpeed) || 400;
-    const trans = st.transition || 'none';
-    const transitionMap = {
-      'fade': `fadeIn ${transitionSpeed} ease-in-out`,
-      'slide-up': `slideUp ${transitionSpeed} ease-out`,
-      'slide-down': `slideDown ${transitionSpeed} ease-out`,
-      'slide-left': `slideLeft ${transitionSpeed} ease-out`,
-      'slide-right': `slideRight ${transitionSpeed} ease-out`,
-      'zoom-in': `zoomIn ${transitionSpeed} ease-out`,
-      'zoom-out': `zoomOut ${transitionSpeed} ease-out`,
-      'word-fade': `wordFade ${transitionSpeed} ease-in-out`,
-      'word-rise': `wordRise ${transitionSpeed} ease-out`,
-      'line-reveal': `lineReveal ${transitionSpeed} ease-out`,
-      'type-on': `typeOn ${transitionSpeed} steps(${Math.max(4, Math.round(msNum / 40))})`,
-      'char-cascade': `charCascade ${transitionSpeed} ease-out`,
-      'pulse': `pulse ${transitionSpeed} ease-in-out`,
-      'shimmer': `shimmer ${transitionSpeed} ease-in-out`,
-      'blur-in': `blurIn ${transitionSpeed} ease-out`,
-      'flip': `flipIn ${transitionSpeed} ease-out`,
-      'bounce': `bounceIn ${transitionSpeed} cubic-bezier(.34,1.56,.64,1)`,
-      'drop': `dropIn ${transitionSpeed} cubic-bezier(.34,1.56,.64,1)`,
-      'sway': `swayIn ${transitionSpeed} ease-out`,
-      'split': `splitIn ${transitionSpeed} ease-in-out`,
-      'wipe-up': `wipeUp ${transitionSpeed} ease-out`,
-      'spin': `spinIn ${transitionSpeed} ease-out`,
-      'neon': `neonFlash ${transitionSpeed} linear`,
-    };
-    const animCSS = transitionMap[trans] || '';
-    // Countdown fills the physical wall (not the aspect frame), so its
-    // preview box takes the wall shape too — otherwise the mini and the
-    // wall disagree on every non-16:9 display. Lyrics keep the composition
-    // aspect; Fill is not a CSS ratio (it means "the whole wall"), so it takes
-    // the wall shape as well instead of silently dropping the aspect and
-    // leaving the preview box at whatever height the layout hands it.
-    const previewAspect = monitorContent && monitorContent.timer
-      ? wallAspect
-      : (/^\d+(?:\.\d+)?:\d+(?:\.\d+)?$/.test(String(outputAspect)) ? String(outputAspect).replace(':', ' / ') : wallAspect);
-    const monitorTimer = monitorContent && monitorContent.timer ? monitorContent.timer : null;
-    return (
-      <div ref={setPreviewWrapRef} style={{ pointerEvents: 'none', position: 'relative', width: '100%', aspectRatio: previewAspect, borderRadius: 12, overflow: 'hidden', background: '#000', border: 'none', boxSizing: 'border-box' }}>
-        {monitorTimer ? (
-          // Countdown fills the physical wall, not the 16:9 composition
-          // frame — so the fluid face renders STRAIGHT into the wall-shaped
-          // box, exactly like the tab preview. Routing it through the
-          // 1280×720 design scaler below shrank it to a cropped sliver on
-          // any non-16:9 wall the moment the timer went live (banner cut
-          // off, video cropped) while the tab stayed correct.
-          <div style={{ position: 'absolute', inset: 0 }}>
-            <CountdownPreview timer={monitorTimer} aspect={wallAspect} framed={false} where="monitor" />
-          </div>
-        ) : (
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-          <div style={{ width: 1280 * previewScale, height: 720 * previewScale, position: 'relative', overflow: 'hidden' }}>
-            {/* Background layer keyed on the background ONLY — never on
-                `timestamp`. Every slide carries a fresh timestamp, so including
-                it tore the layer down on every single cue: the preview video was
-                restarted from frame 0 (and re-decoded) each time a slide fired,
-                and the background re-crossfaded against itself. ProjectorDisplay
-                keys the same way, so preview and projector now swap
-                backgrounds at exactly the same moments. */}
-            {monitorContent && !monitorContent.presentation && (
-              <AnimatePresence>
-                <motion.div
-                  key={`monBg-${st.backgroundType || 'color'}:${st.backgroundValue || '#000'}`}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.6 }}
-                  style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}
-                >
-                  {st.backgroundType === 'image' && (
-                    <div style={{ position: 'absolute', inset: 0, background: `url("${String(st.backgroundValue || '').replace(/"/g, '%22')}") center/cover no-repeat` }} />
-                  )}
-                  {st.backgroundType === 'video' && (
-                    <BackgroundVideo src={st.backgroundValue} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-                  )}
-                  {st.backgroundType === 'gradient' && !!st.backgroundValue && (
-                    <div style={{ position: 'absolute', inset: 0, background: st.backgroundValue }} />
-                  )}
-                  {st.backgroundType === 'animated' && (
-                    <AnimatedBg value={st.backgroundValue} k={1} />
-                  )}
-                  {st.backgroundType === 'color' && st.backgroundValue && (
-                    <div style={{ position: 'absolute', inset: 0, background: st.backgroundValue }} />
-                  )}
-                </motion.div>
-              </AnimatePresence>
-            )}
-            {/* Scale on outer, animation on inner — same split as ProjectorDisplay */}
-            <div style={{ width: 1280, height: 720, position: 'relative', overflow: 'hidden' }}>
-              <div style={{ width: 1280, height: 720, position: 'absolute', inset: 0, transform: `scale(${previewScale})`, transformOrigin: 'top left' }}>
-                {/* Mirror the projector: lyrics dissolve out only when the
-                    incoming slide is blank, so the monitor matches what the
-                    audience sees on a song switch. */}
-                <AnimatePresence custom={blankOut} initial={false}>
-                  <motion.div
-                    key={monitorContent?.timestamp}
-                    exit="out"
-                    variants={{ out: (fadeOut) => ({ opacity: 0, transition: { duration: fadeOut ? 0.6 : 0 } }) }}
-                    style={{ position: 'absolute', inset: 0 }}
-                  >
-                    <div style={{ width: '100%', height: '100%', position: 'relative', animation: monitorContent && !monitorContent.presentation && !monitorContent.timer ? (animCSS || undefined) : undefined }}>
-                      {monitorContent && monitorContent.video && monitorContent.video.url && monitorContent.video.action !== 'stop' ? (
-                        <LiveVideo video={monitorContent.video} />
-                      ) : monitorContent && monitorContent.presentation?.slide ? (
-                        <PresentationSlide slide={monitorContent.presentation.slide} keepAlive />
-                      ) : monitorContent && monitorContent.text ? (
-                        (() => {
-                          const isTitleSlide = monitorContent.label === 'Song Title';
-                          const lst = st.lyric || { font: st.fontFamily || 'system-ui, sans-serif', size: DEFAULT_LYRIC_SIZE, lineHeight: 1.05, align: st.textAlign || 'center', color: st.fontColor || '#ffffff', caseMode: 'none', isTitle: isTitleSlide };
-                          lst.isTitle = isTitleSlide;
-                          // Scripture: same treatment as the wall — the
-                          // reference leaves the text and becomes its own
-                          // corner element, so the preview shows the
-                          // template the projector will draw.
-                          const isBible = !!(monitorContent.meta && monitorContent.meta.kind === 'bible');
-                          const refPos = isBible ? scriptureRefPos(monitorContent.meta && monitorContent.meta.template) : null;
-                          const body = isBible && refPos !== 'inline'
-                            ? stripScriptureRef(monitorContent.text, (monitorContent.meta && monitorContent.meta.ref) || monitorContent.title)
-                            : monitorContent.text;
-                          const box = liftBox(lst.box || { x: 80, y: isTitleSlide ? 140 : 100, w: 1120, h: isTitleSlide ? 440 : 480 }, lyricLift);
-                          return (
-                            <>
-                              <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
-                                <LyricsBlock text={body} st={lst} box={box} />
-                              </div>
-                              {isBible && (
-                                <ScriptureRef meta={monitorContent.meta} title={monitorContent.title} color={lst.color} font={lst.font} templateId={monitorContent.meta && monitorContent.meta.template} />
-                              )}
-                            </>
-                          );
-                        })()
-                      ) : null}
-                    </div>
-                  </motion.div>
-                </AnimatePresence>
-                {/* MESSAGE OVERLAY mini - same face as the wall, design px. */}
-                <AnimatePresence>
-                  {overlayOnAir(liveOverlay) ? (
-                    <motion.div key={liveOverlay.stamp || 'overlay'} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-                      <OverlayFace overlay={liveOverlay} />
-                    </motion.div>
-                  ) : null}
-                </AnimatePresence>
-              </div>
-            </div>
-          </div>
-        </div>
-        )}
-        {/* REMOTE DRAW STROKES mirror the wall: same overlay, mini-sized. */}
-        {drawStrokes.length > 0 && (
-          <div style={{ position: 'absolute', inset: 0, zIndex: 2, pointerEvents: 'none' }}>
-            <DrawOverlay strokes={drawStrokes} />
-          </div>
-        )}
-        {/* ASPECT BADGE — the composition guides were pulled back out of the
-            monitor: over live lyrics they were noise, not help. Only the ratio
-            chip stays, so the operator can still confirm 16:9 vs 4:3 at a
-            glance. Operator chrome only: this layer lives in the preview window
-            and never reaches the projector. */}
-        {valid && (
-          <div style={{ position: 'absolute', inset: 0, zIndex: 3, pointerEvents: 'none' }}>
-            <div className="pv-badge" style={{ top: 6, right: 6 }}>{outputAspect}</div>
-          </div>
-        )}
-        {!valid && (
-          <>
-            {/* Stop / Clear puts the monitor into blackout: fade the label in
-                over the same 600ms the projector takes to dissolve, instead of
-                popping a dim over the frame the instant the button is clicked. */}
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: monitorContent ? 'rgba(0,0,0,0.55)' : 'transparent', color: C.faint2, fontSize: 11, fontWeight: 800, letterSpacing: 2, animation: 'fadeIn 0.6s ease-in-out' }}>BLACKOUT</div>
-          </>
-        )}
-        {monitorContent && (
-          <div style={{ position: 'absolute', bottom: 6, left: 8, zIndex: 2, background: monitorContent.standby ? 'rgba(139,92,246,0.72)' : 'rgba(0,0,0,0.45)', color: '#d4d4d8', borderRadius: 4, padding: '1px 6px', fontSize: 8.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5 }}>{monitorContent.standby ? 'Standby' : (monitorContent.label || 'Slide')}</div>
-        )}
-      </div>
-    );
-  };
+  // THE WALL'S SHAPE — how wide the design space is on the wall. A named
+  // output ratio keeps the 16:9 composition; Fill spreads the design space
+  // to the physical wall (the boxes widen, the type keeps its size). Every
+  // picture of the wall — the live card, the "Up Next" card, the phone —
+  // uses this one number, so they are all the same picture.
+  const wallStretch = useMemo(() => {
+    const projAspect = (outputs || []).find((o) => o.id === 'projector')?.aspect || outputAspect;
+    if (/^\d+(\.\d+)?:\d+(\.\d+)?$/.test(String(projAspect || ''))) return 1;
+    const w = String(wallAspect || '16 / 9').match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+    const ar = w && Number(w[2]) ? Number(w[1]) / Number(w[2]) : 16 / 9;
+    return ar / (16 / 9);
+  }, [outputs, outputAspect, wallAspect]);
 
+  // The shape the WALL actually draws: the output's own ratio when it names
+  // one, otherwise the physical wall (Fill). The Live Output card renders
+  // THIS, so the card is a true picture of the wall at any setting.
+  const wallFrameAspect = useMemo(() => {
+    const projAspect = (outputs || []).find((o) => o.id === 'projector')?.aspect || outputAspect;
+    return /^\d+(\.\d+)?:\d+(\.\d+)?$/.test(String(projAspect || '')) ? String(projAspect) : String(wallAspect || '16 / 9');
+  }, [outputs, outputAspect, wallAspect]);
+
+  // Output windows share this component. These returns MUST come after every
+  // hook above (they used to sit where wallStretch now is; an early return
+  // before a hook changes the hook count and crashes React). They render the
+  // projector / stage only — never the console UI.
   if (isStage) {
     return <StageDisplay currentSlide={currentSlide} C={C} cfg={stageFeed?.cfg || null} flow={stageFeed?.flow || null} chord={stageFeed?.chord || null} />;
   }
@@ -5734,6 +5762,21 @@ export default function App() {
       />
     );
   }
+
+  // THE LIVE OUTPUT CARD — the projector itself, in framed mode.
+  //
+  // Not a copy of the wall: this is the SAME component the projector window
+  // runs, with the wall's own frame math (frameAspect = the shape the output
+  // actually draws) and the same measured fit for every text box. So the card
+  // can never drift from the actual output — same background, same lyric
+  // boxes, same extra text boxes, same wrap. The card itself is a fixed 16:9
+  // window (it never changes size when the output aspect is adjusted) and the
+  // wall's picture is letterboxed inside it.
+  const renderOutputPreview = () => (
+    <div ref={setPreviewWrapRef} style={{ pointerEvents: 'none', position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 12, overflow: 'hidden', background: '#000', border: 'none', boxSizing: 'border-box' }}>
+      <ProjectorDisplay framed frameAspect={wallFrameAspect} currentSlide={monitorContent} config={{ aspect: 'fill' }} />
+    </div>
+  );
 
   const appValue = {
     logoImage,
@@ -5772,6 +5815,7 @@ export default function App() {
     selectedTemplateId, setSelectedTemplateId, dragIndex, setDragIndex,
     showTemplateNameModal, setShowTemplateNameModal, templateNameValue, setTemplateNameValue,
     activeService, setActiveService, customSlideModal, setCustomSlideModal, newSlideData, setNewSlideData,
+    customSlideEditIdx, openCustomSlideEditor, closeCustomSlideEditor,
     isEditorOpen, setIsEditorOpen, editorMode, setEditorMode, rawPasteText, setRawPasteText,
     editingSong, setEditingSong, linesPerSlide, setLinesPerSlide, videoList, setVideoList, videoIdx, setVideoIdx,
     isParsing, setIsParsing,
@@ -5801,7 +5845,7 @@ export default function App() {
     openPresentationEditor, closePresentationEditor, openPresentation, savePresentationDeck, deletePresentationDeck, importPowerPoint,
     presentDeck, firePresentationSlide, addPresentationToService, activePresentation, stopPresentation,
     processAutoPaste, moveCue, duplicateCue, setCueBackground, cueFileToBackground, setSongBackground,
-    songBgFileToBackground, clearCueBackground, splitCuesToLines, clampNum, editorCue, editorBox, updateCue, updateCueThrottled, applyPatchToAllCues,
+    songBgFileToBackground, clearCueBackground, splitCuesToLines, clampNum, editorCue, editorBox, updateCue, updateCueThrottled, updateTextObject, updateTextObjectThrottled, moveTextObjectInCue, addTextObjectToCue, removeTextObjectFromCue, duplicateTextObjectInCue, applyPatchToAllCues,
     baseGroupLabel, nextSuffixLetter, splitCueAtTextareaCaret, reorderCues,
     startBoxDrag, onStagePointerMove, endBoxDrag, ToolbarBtn, cueLyricStyle, handleSaveSong,
     isSongDraftDirty, clearSongDraft, openEditorOn,
@@ -5943,6 +5987,9 @@ export default function App() {
           sermonGoto={sermonGoto}
           slideGrid={slideGrid}
           renderSlideFace={renderSlideFace}
+          renderFrozenWallFace={renderFrozenWallFace}
+          wallFrameAspect={wallFrameAspect}
+          monitorContent={monitorContent}
           fireGridTile={fireGridTile}
           liveBible={liveBible}
           toggleLiveBibleWord={toggleLiveBibleWord}
@@ -5983,7 +6030,9 @@ export default function App() {
           ACCENT={ACCENT}
           newSlideData={newSlideData}
           setNewSlideData={setNewSlideData}
-          onCancel={() => setCustomSlideModal(false)}
+          editing={customSlideEditIdx != null}
+          persistMedia={persistMediaFile}
+          onCancel={closeCustomSlideEditor}
           onAdd={addCustomSlideToService}
         />
       )}

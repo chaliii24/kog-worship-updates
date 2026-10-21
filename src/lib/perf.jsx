@@ -47,13 +47,14 @@ export function TimerReadout({ start, duration, C, PINK }) {
 // inside therefore land at the exact proportion and position the projector
 // will use. One ResizeObserver per tile; state writes are guarded so a
 // repeated zero-size callback cannot loop a re-render.
-export function TileCanvas({ children }) {
+export function TileCanvas({ children, stretch = 1 }) {
   const ref = useRef(null);
   const [scale, setScale] = useState(0);
   // Last measurable scale: a tile mounted at zero size (hidden panel,
   // display:none ancestor) keeps the previous scale instead of painting
   // scale(0) — invisible despite all layout work already done.
   const lastScaleRef = useRef(0.2);
+  const k = Number(stretch) || 1;
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -61,7 +62,7 @@ export function TileCanvas({ children }) {
       const w = el.clientWidth;
       const h = el.clientHeight;
       if (!w || !h) return;
-      const s = Math.min(w / 1280, h / 720);
+      const s = Math.min(w / (1280 * k), h / 720);
       lastScaleRef.current = s;
       setScale(prev => (Math.abs(prev - s) < 0.0005 ? prev : s));
     };
@@ -69,10 +70,10 @@ export function TileCanvas({ children }) {
     const ro = new ResizeObserver(fit);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [k]);
   return (
     <div ref={ref} style={{ position: 'absolute', inset: 0, zIndex: 2, overflow: 'hidden', pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ width: 1280, height: 720, flexShrink: 0, position: 'relative', transform: `scale(${scale || lastScaleRef.current})`, transformOrigin: 'center center' }}>
+      <div style={{ width: 1280 * k, height: 720, flexShrink: 0, position: 'relative', transform: `scale(${scale || lastScaleRef.current})`, transformOrigin: 'center center' }}>
         {children}
       </div>
     </div>

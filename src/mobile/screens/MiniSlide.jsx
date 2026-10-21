@@ -78,6 +78,16 @@ export default function MiniSlide({ C, text, style, timer, presentation, badge, 
     if (a.toLowerCase() === 'fill') return '16 / 9';
     return a.includes(':') ? a.replace(':', ' / ') : a;
   })();
+  // Fill on the wall = the design space spreads to the wall's shape: the
+  // boxes widen, the type keeps its size. Mirror it here so the phone shows
+  // the wall's picture, not a different one.
+  const ratioOf = (v) => {
+    const m = String(v || '').match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+    return m && Number(m[2]) ? Number(m[1]) / Number(m[2]) : 16 / 9;
+  };
+  const stretch = String(aspect || '').toLowerCase() === 'fill' ? ratioOf(cssAspect) / (16 / 9) : 1;
+  const canvasScale = s / (stretch || 1);
+  const widen = (b) => (stretch === 1 ? b : { ...b, x: Math.round(b.x * stretch), w: Math.round(b.w * stretch) });
 
   return (
     <div>
@@ -86,7 +96,7 @@ export default function MiniSlide({ C, text, style, timer, presentation, badge, 
           <span style={{ position: 'absolute', top: 6, left: 6, zIndex: 5, fontSize: 10, fontWeight: 800, color: '#d4d4d8', background: 'rgba(0,0,0,0.55)', borderRadius: 5, padding: '1px 7px', pointerEvents: 'none' }}>{aspectBadge}</span>
         )}
         {s > 0 && (
-          <div style={{ position: 'absolute', left: 0, top: 0, width: 1280, height: 720, transform: `scale(${s})`, transformOrigin: 'top left' }}>
+          <div style={{ position: 'absolute', left: 0, top: 0, width: 1280 * stretch, height: 720, transform: `scale(${canvasScale})`, transformOrigin: 'top left' }}>
             {bgType === 'color' ? (
               <div style={{ position: 'absolute', inset: 0, background: bgValue }} />
             ) : bgType === 'gradient' && bgValue ? (
@@ -113,10 +123,20 @@ export default function MiniSlide({ C, text, style, timer, presentation, badge, 
                 </div>
               </div>
             ) : text ? (
-              <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h }}>
-                {renderLyricsLayout(text, lst, box)}
+              <div style={{ position: 'absolute', left: widen(box).x, top: widen(box).y, width: widen(box).w, height: widen(box).h }}>
+                {renderLyricsLayout(text, lst, widen(box))}
               </div>
             ) : null}
+            {/* Extra text boxes on the slide — same renderer as the wall. */}
+            {(style?.texts || []).map((t, i) => {
+              const tb = t && t.lyric && t.lyric.box ? widen(t.lyric.box) : null;
+              if (!tb) return null;
+              return (
+                <div key={`tx-${i}`} style={{ position: 'absolute', left: tb.x, top: tb.y, width: tb.w, height: tb.h, transform: tb.angle ? `rotate(${tb.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+                  {renderLyricsLayout(t.text || '', t.lyric, tb)}
+                </div>
+              );
+            })}
             {/* Remote draw strokes echo (Draw tab draws, every mini shows). */}
             {Array.isArray(draw) && draw.length > 0 && (
               <DrawOverlay strokes={draw} />

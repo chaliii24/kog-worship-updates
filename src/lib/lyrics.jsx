@@ -1,5 +1,6 @@
 import React from 'react';
 import { FONT_OPTIONS } from './constants';
+import { normalizeGhost, textFxStyle } from './cinematic';
 
 export const applyCaseTransform = (t, mode) => {
   if (mode === 'upper') return t.toUpperCase();
@@ -1038,6 +1039,7 @@ export const computeLyricsFontSize = (text, st, box) => {
   const lines = (applyCaseTransform(text || '', st.caseMode || 'none')).split('\n');
   const shapes = lines.map(lineShape);
   const totalHeight = (base) => blockHeightAt(shapes, boxW, lh, base, st);
+  if (st.fixedSize) return Math.round(baseSize);
   let fs = baseSize;
   if (st.fill) {
     // Fill mode (scripture): scale UP or DOWN so the block uses the full box
@@ -1171,6 +1173,8 @@ export const liftBox = (box, lift) => {
  * the slide grid and the editor's slide strip all build their style from this,
  * so a thumbnail can never drift from what the output draws.
  */
+const LYRIC_BLEND_MODES = new Set(['normal', 'overlay', 'screen', 'soft-light', 'multiply', 'lighten', 'darken', 'color-dodge']);
+
 export const cueLyricStyle = (cue) => ({
   font: cue?.font || FONT_OPTIONS[0].value,
   size: cue?.size != null ? cue.size : DEFAULT_LYRIC_SIZE,
@@ -1184,6 +1188,12 @@ export const cueLyricStyle = (cue) => ({
   strike: !!cue?.strike,
   letterSpacing: Number(cue?.letterSpacing) || 0,
   valign: cue?.valign || 'middle',
+  // A text box may be a solid foreground layer or a hollow "ghost" layer.
+  // strokeOnly keeps the stroke but makes the fill see-through.
+  strokeOnly: !!(cue?.strokeOnly),
+  // 0–100 on the cue (the editor slider's units); 0–1 in the render style.
+  opacity: cue?.opacity != null ? Math.min(1, Math.max(0, Number(cue.opacity) / 100)) : 1,
+  blendMode: LYRIC_BLEND_MODES.has(cue?.blendMode) ? cue.blendMode : 'normal',
   // null = auto: padding derives from the font size in
   // lyricsLayoutMetrics, so the gutter grows with the type.
   pad: cue?.pad != null ? Number(cue.pad) : null,
@@ -1206,6 +1216,11 @@ export const cueLyricStyle = (cue) => ({
   hlOpacity: cue?.hlOpacity ?? 40,
   resizeMode: cue?.resizeMode === 'fill' ? 'fill' : cue?.resizeMode === 'scale' ? 'scale' : 'fit',
   fill: cue?.resizeMode === 'fill',
+  // A watermark is an independent background layer: its Size slider must map
+  // 1:1 to the drawn font size. Normal lyric boxes shrink to stay inside
+  // their box; a ghost at 520px used to wrap, overflow, and get fitted back
+  // down smaller than it was at 300px. fixedSize opts out of that fit.
+  fixedSize: !!cue?.fixedSize,
   fillMax: cue?.fillMax != null ? Number(cue.fillMax) : 165,
   fillMin: cue?.fillMin != null ? Number(cue.fillMin) : 18,
   layoutMode: cue?.layoutMode === 'ticker' ? 'ticker' : 'static',
@@ -1213,6 +1228,43 @@ export const cueLyricStyle = (cue) => ({
   tickerDir: cue?.tickerDir === 'rtl' ? 'rtl' : 'ltr',
   box: cue?.box || { x: 80, y: 100, w: 1120, h: 480 },
 });
+
+/**
+ * GHOST / WATERMARK LAYER — the huge hollow echo line behind the foreground.
+ *
+ * It is part of the cue (`cue.ghost`), so it travels with the slide through
+ * style_json exactly like the extra text boxes. It renders through the SAME
+ * cueLyricStyle → LyricsBlock chain, with outline on and fill off by default
+ * (the Hollow toggle can fill it), which keeps the wall and editor identical.
+ */
+export const ghostLayerOf = (cue) => {
+  const g = normalizeGhost(cue && cue.ghost);
+  if (!g.on || !g.text.trim()) return null;
+  const lyric = cueLyricStyle({
+    font: g.font || cue?.font,
+    size: g.size,
+    lineHeight: g.lineHeight,
+    letterSpacing: g.letterSpacing,
+    align: g.align,
+    valign: g.valign,
+    case: g.case,
+    bold: true,
+    italic: false,
+    color: g.color,
+    shadow: false,
+    glow: false,
+    gradient: false,
+    outline: true,
+    strokeOnly: g.strokeOnly !== false,
+    strokeColor: g.strokeColor,
+    strokeWidth: g.strokeWidth,
+    opacity: g.opacity,
+    blendMode: g.blendMode,
+    box: g.box,
+    fixedSize: true,
+  });
+  return { text: g.text, lyric };
+};
 
 // Shared renderer: editor canvas, projector and live-output monitor all draw
 // from this ONE function, so letter positions are identical everywhere — and
@@ -1240,7 +1292,14 @@ export const renderLyricsLayout = (text, st, box, sizeOverride) => {
   const runUnder = { shadow: shadowLayer, glowColor: st.glowColor || '#22d3ee', glowBlur: Number(st.glowBlur) || 18 };
   const gradOn = !!st.gradient;
   const gradAngle = Number(st.gradientAngle);
-  const gradSpanStyle = gradOn ? {
+  // Hollow type: keep the outline, drop the fill. Only when a stroke actually
+  // exists — strokeOnly with a zero stroke would render nothing at all.
+  const hollow = !!st.strokeOnly && strokeW > 0;
+  const rootFx = {
+    opacity: st.opacity != null ? Math.min(1, Math.max(0, Number(st.opacity))) : 1,
+    mixBlendMode: st.blendMode && st.blendMode !== 'normal' ? st.blendMode : undefined,
+  };
+  const gradSpanStyle = gradOn && !hollow ? {
     // backgroundImage (longhand) NOT `background`: the shorthand resets
     // background-clip when React patches it on rerender, which unclips the
     // gradient off the text (React warns background vs backgroundClip too).
@@ -1267,9 +1326,13 @@ export const renderLyricsLayout = (text, st, box, sizeOverride) => {
       textDecoration: deco,
       letterSpacing: st.letterSpacing ? `${st.letterSpacing}px` : undefined,
       lineHeight: lh,
-      color: gradOn ? undefined : (st.color || '#f5f5f4'),
+      color: hollow ? 'transparent' : gradOn ? undefined : (st.color || '#f5f5f4'),
+      WebkitTextFillColor: hollow ? 'transparent' : undefined,
       fontFamily: st.font || FONT_OPTIONS[0].value,
-      WebkitTextStroke: st.outline && strokeW > 0 ? `${strokeW}px ${st.strokeColor || '#000000'}` : 'none',
+      // Chromium rejects the shorthand value `none` for -webkit-text-stroke,
+      // so React cannot clear a previously painted outline with it. A zero
+      // width is valid and always overwrites the old stroke.
+      WebkitTextStroke: st.outline && strokeW > 0 ? `${strokeW}px ${st.strokeColor || '#000000'}` : '0px transparent',
       textShadow,
       background: st.highlight ? `rgba(70,45,15,${(st.hlOpacity ?? 40) / 100})` : 'transparent',
       borderRadius: 8,
@@ -1280,7 +1343,7 @@ export const renderLyricsLayout = (text, st, box, sizeOverride) => {
       marginRight: 72,
     };
     return (
-      <div style={{ width: '100%', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: st.valign === 'top' ? 'flex-start' : st.valign === 'bottom' ? 'flex-end' : 'center', alignItems: 'flex-start', padding: pad, boxSizing: 'border-box' }}>
+      <div style={{ width: '100%', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: st.valign === 'top' ? 'flex-start' : st.valign === 'bottom' ? 'flex-end' : 'center', alignItems: 'flex-start', padding: pad, boxSizing: 'border-box', ...rootFx }}>
         <style>{'@keyframes kogTicker{from{transform:translateX(0)}to{transform:translateX(-50%)}}'}</style>
         <div style={{ display: 'flex', width: 'max-content', flexShrink: 0, willChange: 'transform', animation: `kogTicker ${dur}s linear infinite`, animationDirection: rtl ? 'reverse' : 'normal' }}>
           {[0, 1].map(i => (
@@ -1295,7 +1358,7 @@ export const renderLyricsLayout = (text, st, box, sizeOverride) => {
     );
   }
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: st.valign === 'top' ? 'flex-start' : st.valign === 'bottom' ? 'flex-end' : 'center', alignItems: st.align === 'left' ? 'flex-start' : st.align === 'right' ? 'flex-end' : 'center', textAlign: st.align || 'center', padding: pad, boxSizing: 'border-box', overflow: 'hidden' }}>
+    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: st.valign === 'top' ? 'flex-start' : st.valign === 'bottom' ? 'flex-end' : 'center', alignItems: st.align === 'left' ? 'flex-start' : st.align === 'right' ? 'flex-end' : 'center', textAlign: st.align || 'center', padding: pad, boxSizing: 'border-box', overflow: st.fixedSize ? 'visible' : 'hidden', ...rootFx }}>
       {lines.map((ln, li) => {
         const segs = parseSegments(ln);
         // A line box is exactly as tall as its biggest run, because that run
@@ -1305,7 +1368,7 @@ export const renderLyricsLayout = (text, st, box, sizeOverride) => {
         const lineMax = segs.reduce((m, s) => Math.max(m, s.scale), 0) || 1;
         const strokeOn = st.outline && strokeW > 0;
         return (
-          <div key={li} style={{ display: 'inline-block', width: '100%', fontSize: size * lineMax, fontWeight: bold ? 700 : 400, fontStyle: st.italic ? 'italic' : 'normal', textDecoration: deco, letterSpacing: st.letterSpacing ? `${st.letterSpacing}px` : undefined, textAlignLast: isJustify ? 'justify' : undefined, lineHeight: lh, color: gradOn ? undefined : (st.color || '#f5f5f4'), fontFamily: st.font || FONT_OPTIONS[0].value, WebkitTextStroke: strokeOn ? `${strokeW}px ${st.strokeColor || '#000000'}` : 'none', textShadow, background: st.highlight ? `rgba(70,45,15,${(st.hlOpacity ?? 40) / 100})` : 'transparent', borderRadius: 8, padding: st.highlight ? '3px 12px' : 0, boxSizing: 'border-box', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+          <div key={li} style={{ display: 'inline-block', width: '100%', fontSize: size * lineMax, fontWeight: bold ? 700 : 400, fontStyle: st.italic ? 'italic' : 'normal', textDecoration: deco, letterSpacing: st.letterSpacing ? `${st.letterSpacing}px` : undefined, textAlignLast: isJustify ? 'justify' : undefined, lineHeight: lh, color: hollow ? 'transparent' : gradOn ? undefined : (st.color || '#f5f5f4'), WebkitTextFillColor: hollow ? 'transparent' : undefined, fontFamily: st.font || FONT_OPTIONS[0].value, WebkitTextStroke: strokeOn ? `${strokeW}px ${st.strokeColor || '#000000'}` : '0px transparent', textShadow, background: st.highlight ? `rgba(70,45,15,${(st.hlOpacity ?? 40) / 100})` : 'transparent', borderRadius: 8, padding: st.highlight ? '3px 12px' : 0, boxSizing: 'border-box', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
             <span style={gradSpanStyle}>
               {segs.map((s, si) => runSpan(
                 s,
@@ -1364,27 +1427,47 @@ export const LyricsBlock = ({ text, st, box }) => {
   }, []);
 
   React.useLayoutEffect(() => {
+    // The ghost layer is an oversized watermark, not a fitted lyric box:
+    // never measure it back down. Its Size slider is the source of truth.
+    if (st && st.fixedSize) return;
     const host = hostRef.current;
     const cont = host && host.firstElementChild;
     if (!cont) return;
     const { pad } = lyricsLayoutMetrics(st, box);
     const cr = cont.getBoundingClientRect();
+    // SCALE-NORMALISE the measurement. getBoundingClientRect() reports
+    // SCREEN px, but `pad` and `size` are design px (1280x720 space) — and
+    // every surface draws this canvas through a CSS transform scale that is
+    // wildly different per surface: the wall ~1.5x (1920/1280), the console's
+    // live-output card ~0.25x, slide-grid tiles even smaller. Comparing a
+    // scaled height against an unscaled pad made the fit scale-dependent:
+    // on the tiny preview card pad*2 ate a huge share of the measured
+    // height, so the block shrank far more there than on the wall — the
+    // monitor was NOT a picture of the output. Dividing every measurement
+    // back through the element's own scale makes all surfaces compute the
+    // identical design-px size, so the live card mirrors the wall exactly.
+    // offsetWidth is layout px (transforms never touch it), so the ratio
+    // recovers the transform scale. (A rotated box inflates its bounding
+    // rect slightly — same as before this fix, and rare enough to accept.)
+    const k = cont.offsetWidth > 0 && cr.width > 0 ? cr.width / cont.offsetWidth : 1;
     const kids = Array.from(cont.children);
     if (!kids.length) return;
     let top = Infinity;
     let bottom = -Infinity;
-    for (const k of kids) {
-      const r = k.getBoundingClientRect();
+    for (const el of kids) {
+      const r = el.getBoundingClientRect();
       if (!(r.height > 0)) continue;
       if (r.top < top) top = r.top;
       if (r.bottom > bottom) bottom = r.bottom;
     }
     if (!Number.isFinite(top) || !Number.isFinite(bottom)) return;
-    const avail = cr.height - pad * 2;
-    const used = bottom - top;
+    // Everything below is in design px again — identical on wall, preview
+    // card, editor canvas and thumbnails.
+    const avail = cr.height / k - pad * 2;
+    const used = (bottom - top) / k;
     const overflowing = used > avail + 0.5
-      || top < cr.top + pad - 0.5
-      || bottom > cr.bottom - pad + 0.5;
+      || (top - cr.top) / k < pad - 0.5
+      || (bottom - cr.top) / k > cr.height / k - pad - 0.5;
     if (!overflowing) return;
     // Height scales with size for a fixed wrap; one correction is usually
     // enough and the next pass cleans up the rest. Never grow back here.
@@ -1395,6 +1478,52 @@ export const LyricsBlock = ({ text, st, box }) => {
   return (
     <div ref={hostRef} style={{ width: '100%', height: '100%' }}>
       {renderLyricsLayout(text, st, box, size)}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// SLIDE TEXT LAYERS — every live surface draws a slide's text through THIS.
+//
+// The main lyric box first, then each extra text box in the slide's own order
+// (see src/lib/songTextObjects.js). The projector and the console's
+// live-output preview both call it, so the monitor is a true picture of the
+// wall — and the wall is a true picture of the editor canvas, which draws
+// the same boxes with the same renderer.
+//
+// `stretch` widens the design space sideways (the wall is wider than 16:9):
+// the boxes spread and their type keeps its size, so the picture fills the
+// screen without cropping a word and without distorting the letters.
+// ---------------------------------------------------------------------------
+export const SlideTextLayers = ({ style, text, st, lift = 0, stretch = 1 }) => {
+  const mainSt = st || (style && style.lyric) || null;
+  if (!mainSt) return null;
+  const k = Number(stretch) || 1;
+  const widen = (b) => (k === 1 ? b : { ...b, x: Math.round(b.x * k), w: Math.round(b.w * k) });
+  const mainBox = widen(liftBox(mainSt.box || { x: 80, y: 100, w: 1120, h: 480 }, lift));
+  const ghost = style && style.ghost ? style.ghost : null;
+  const gb = ghost && ghost.lyric ? widen(liftBox(ghost.lyric.box || { x: 64, y: 170, w: 1152, h: 380 }, lift)) : null;
+  return (
+    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', ...textFxStyle(style && style.fx) }}>
+      {/* Watermark first: it is the BACKGROUND text layer, behind everything. */}
+      {ghost && gb && (
+        <div style={{ position: 'absolute', left: gb.x, top: gb.y, width: gb.w, height: gb.h, transform: gb.angle ? `rotate(${gb.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+          <LyricsBlock text={ghost.text || ''} st={ghost.lyric} box={gb} />
+        </div>
+      )}
+      <div style={{ position: 'absolute', left: mainBox.x, top: mainBox.y, width: mainBox.w, height: mainBox.h, transform: mainBox.angle ? `rotate(${mainBox.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+        <LyricsBlock text={text || ''} st={mainSt} box={mainBox} />
+      </div>
+      {((style && style.texts) || []).map((t, i) => {
+        const tl = t && t.lyric ? t.lyric : null;
+        if (!tl) return null;
+        const tb = widen(liftBox(tl.box || { x: 80, y: 100, w: 1120, h: 480 }, lift));
+        return (
+          <div key={`tx-${i}`} style={{ position: 'absolute', left: tb.x, top: tb.y, width: tb.w, height: tb.h, transform: tb.angle ? `rotate(${tb.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+            <LyricsBlock text={t.text || ''} st={tl} box={tb} />
+          </div>
+        );
+      })}
     </div>
   );
 };

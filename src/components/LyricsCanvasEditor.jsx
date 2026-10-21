@@ -1,17 +1,18 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Stage, Layer, Group, Rect, Transformer } from 'react-konva';
-import { renderLyricsLayout, computeLyricsFontSize, lyricsLayoutMetrics, FONT_SIZE_MIN, FONT_SIZE_MAX, LINE_SCALE_PRESETS, ingestSpans, emitSpans, remapSpans, applySpanPatch, rangeAttrs, spanCovers, lineSpanRange, lineIndexAt } from '../lib/lyrics';
-import { transitionAnimation } from '../lib/constants';
+import { renderLyricsLayout, cueLyricStyle, LyricsBlock, computeLyricsFontSize, lyricsLayoutMetrics, FONT_SIZE_MIN, FONT_SIZE_MAX, LINE_SCALE_PRESETS, ingestSpans, emitSpans, remapSpans, applySpanPatch, rangeAttrs, spanCovers, lineSpanRange, lineIndexAt } from '../lib/lyrics';
+import { transitionAnimation, FONT_OPTIONS } from '../lib/constants';
 import AnimatedBg from './AnimatedBg';
+import { CinematicBackdrop, CinematicOverlay, CinematicText } from './CinematicLayer';
 
 const CANVAS_W = 1280;
 const CANVAS_H = 720;
 const ACCENT = '#00aaff';
 const MIN_W = 80;
 const MIN_H = 48;
-// Keep at least this many logical px of the box on-canvas while dragging, so a
-// box can never be lost off-screen — but it stays effectively free-moving.
-const KEEP_IN = 80;
+// A text box always stays WHOLE on the design canvas: a box hanging over the
+// edge cuts its words in half on the wall, and the operator only finds that
+// out when the slide is live. (Enforced by dragBound / boundBox below.)
 
 const DEFAULT_BOX = { x: 80, y: 100, w: 1120, h: 480 };
 
@@ -23,6 +24,19 @@ const STYLE_TOGGLES = [
   ['strike', 'S', 'Strikethrough'],
   ['glow', '✦', 'Glow'],
 ];
+
+// Inline run styling. The chip row already owns size + B/I/U/S/glow; these add
+// the two controls operators ask for next — a face and a colour for ONE word
+// (or one line) without changing the rest of the slide. Buttons only, because
+// the textarea must keep focus for the highlight to survive the click.
+const SEL_COLORS = ['#ffffff', '#fde68a', '#fca5a5', '#a5f3fc', '#c4b5fd', '#86efac'];
+const SEL_FONTS = [
+  FONT_OPTIONS.find((f) => f.label === 'CMG Sans Wide (Default)'),
+  FONT_OPTIONS.find((f) => f.label === 'CMG Sans CAPS'),
+  FONT_OPTIONS.find((f) => f.label === 'CMG Sans Condensed'),
+  FONT_OPTIONS.find((f) => f.label === 'CMG Sans Rounded'),
+  FONT_OPTIONS.find((f) => f.label === 'Cinzel Decorative'),
+].filter(Boolean);
 
 // ---------------------------------------------------------------------------
 // WYSIWYG caret bridge
@@ -323,9 +337,25 @@ export default function LyricsCanvasEditor({
   box: boxProp = DEFAULT_BOX,
   bgType = 'color',
   bgValue = '#000000',
+  // Cinematic preview: the SAME cue fields the projector receives, so the
+  // editor canvas is a true picture of the wall.
+  fx = null,
+  bgFx = null,
+  ghost = null,
   onTextChange,
   onBoxChange,
   onSizeChange,
+  // --- multiple text boxes -------------------------------------------------
+  // `objects` is EVERY box on the slide — index 0 is the main lyric, 1..n the
+  // extras. The ACTIVE one is NOT drawn from this array: it is drawn by the
+  // single-box machinery above (its text/style/box arrive as the ordinary
+  // props), so the textarea, handles and chips all operate on whatever box is
+  // selected. The inactive ones render read-only below and become active on
+  // click.
+  objects = [],
+  activeObj = 0,
+  onSelectObj,
+  onObjBoxChange,
   // Imperative handle for the song editor's Typography panel, plus a report of
   // what the caret/selection currently covers so those buttons can show their
   // own state instead of the whole slide's.
@@ -411,6 +441,18 @@ export default function LyricsCanvasEditor({
       setTaSpans(ing.spans);
       // A new slide or an AI rebuild invalidates the old highlight.
       setSel({ start: 0, end: 0 });
+      if (editing) {
+        // Switching to ANOTHER TEXT BOX while typing: the textarea keeps its
+        // focus, so the caret would otherwise stay pinned where the OLD text
+        // ended. Park it at the end of the new box's text once React paints.
+        requestAnimationFrame(() => {
+          const ta = taRef.current;
+          if (!ta) return;
+          const n = ta.value.length;
+          try { ta.setSelectionRange(n, n); } catch (_) { /* noop */ }
+          setSel({ start: n, end: n });
+        });
+      }
     }
   }, [text]);
   useEffect(() => () => sendTa(), []);
@@ -429,6 +471,18 @@ export default function LyricsCanvasEditor({
     : lineSpanRange(taText, lineIndexAt(taText, sel.start));
   const tgtOn = (k) => spanCovers(taSpans, tgtFrom, tgtTo, k);
   const tgtScale = tgtOn('scale') ? (rangeAttrs(taSpans, tgtFrom, tgtTo).scale ?? 1) : 1;
+  const tgtAttrs = rangeAttrs(taSpans, tgtFrom, tgtTo);
+  const tgtTrack = Number(tgtAttrs.track) || 0;
+  const cycleSelFont = () => {
+    const at = SEL_FONTS.findIndex((f) => f.value === tgtAttrs.font);
+    const next = SEL_FONTS[(at + 1) % SEL_FONTS.length];
+    if (next) applyStyle({ font: next.value });
+  };
+  const nudgeSelTrack = (dir) => {
+    const next = Math.max(-0.2, Math.min(1.2, Math.round((tgtTrack + dir * 0.1) * 100) / 100));
+    applyStyle({ track: next || false });
+  };
+  const clearSelStyle = () => applyStyle({ scale: false, weight: false, track: false, font: false, color: false, glow: false, mark: false, bold: false, underline: false, italic: false, strike: false });
 
   // A chip never edits the string — only the parallel span array — so no
   // character is inserted, the caret cannot move, and there is nothing for the
@@ -493,7 +547,7 @@ export default function LyricsCanvasEditor({
 
   // The song editor's sidebar Typography panel drives this same thing, so
   // highlighting a word and clicking B there bolds that word, not the slide.
-  if (apiRef) apiRef.current = { applyStyle, applyStyleToRange, previewGlow, clearGlowPreview, hasSelection: () => sel.end > sel.start };
+  if (apiRef) apiRef.current = { applyStyle, applyStyleToRange, previewGlow, clearGlowPreview, hasSelection: () => sel.end > sel.start, flush: sendTa };
 
   // Tell the sidebar what its buttons should light up on. Keyed on the ANSWER,
   // not on the caret, so moving the cursor never re-renders the whole modal.
@@ -665,6 +719,16 @@ export default function LyricsCanvasEditor({
   // browser is already selecting natively.
   const onEditAreaMouseDown = (e) => {
     if (e.button !== 0 || e.target !== e.currentTarget) return;
+    // A press that lands on a box drawn ON TOP of this one belongs to THAT
+    // box, not to the one being typed in — the lyric box covers most of the
+    // canvas, so a click on a kicker would otherwise just drop a caret in the
+    // lyrics. Select the box under the pointer instead.
+    const top = topBoxAt(e.clientX, e.clientY);
+    if (top >= 0 && top !== actIdx) {
+      e.preventDefault();
+      selectObj(top);
+      return;
+    }
     e.preventDefault();
     const ta = taRef.current;
     if (!ta) return;
@@ -798,17 +862,23 @@ export default function LyricsCanvasEditor({
     if (newBox.y + newBox.height < MIN_H) return oldBox;
     if (newBox.x > CANVAS_W - MIN_W) return oldBox;
     if (newBox.y > CANVAS_H - MIN_H) return oldBox;
+    // A resized text box stays WHOLE on the canvas, same rule as the drag.
+    if (newBox.x < 0 || newBox.y < 0) return oldBox;
+    if (newBox.x + newBox.width > CANVAS_W || newBox.y + newBox.height > CANVAS_H) return oldBox;
     return newBox;
   }, []);
 
+  // A text box stays WHOLE on the canvas. A box hanging over the edge cuts
+  // its words in half on the wall — and the operator only finds out when the
+  // slide is live. A box too big for the canvas keeps its centre inside.
   const dragBound = useCallback((pos) => {
     const s = startBoxRef.current;
     const halfW = s.w / 2;
     const halfH = s.h / 2;
-    const minX = KEEP_IN - halfW;
-    const maxX = CANVAS_W - KEEP_IN + halfW;
-    const minY = KEEP_IN - halfH;
-    const maxY = CANVAS_H - KEEP_IN + halfH;
+    const minX = Math.min(halfW, CANVAS_W / 2);
+    const maxX = Math.max(CANVAS_W - halfW, CANVAS_W / 2);
+    const minY = Math.min(halfH, CANVAS_H / 2);
+    const maxY = Math.max(CANVAS_H - halfH, CANVAS_H / 2);
     return {
       x: Math.min(maxX, Math.max(minX, pos.x)),
       y: Math.min(maxY, Math.max(minY, pos.y)),
@@ -839,6 +909,93 @@ export default function LyricsCanvasEditor({
     applyBoxToDom(b);
     onBoxChange?.(b);
   }, [applyBoxToDom, onBoxChange]);
+
+  // ---- extra text boxes ---------------------------------------------------
+  // Their DOM nodes are moved DIRECTLY during a drag (React state only lands on
+  // dragEnd), so dragging a second box never round-trips the whole app at
+  // mousemove rate — the same reason the main box animates in the DOM first.
+  const extraDomRef = useRef({});
+  const moveExtraDom = (i, b) => {
+    const el = extraDomRef.current[i];
+    if (!el) return;
+    el.style.left = `${b.x}px`;
+    el.style.top = `${b.y}px`;
+  };
+  // Land the last 150ms of typing on the box we are LEAVING before the parent
+  // repoints the textarea at the new one — otherwise switching boxes eats the
+  // tail of what was just typed.
+  const selectObj = (i) => {
+    if (i === activeObj) { setOutline(true); return; }
+    sendTa();
+    setOutline(true);
+    onSelectObj?.(i);
+  };
+
+  // THE SELECTION OUTLINE — the handles around the box being edited. It
+  // shows while a box is picked and disappears when the operator clicks away
+  // on the canvas, so a stray outline never sits over the slide. The box
+  // stays the active one (the sidebar still styles it); only the handles go.
+  const [outline, setOutline] = useState(true);
+  useEffect(() => { setOutline(true); }, [activeObj]);
+  const onStageClick = (e) => {
+    const t = e && e.target;
+    if (!t) return;
+    if (t === t.getStage?.() || t.getClassName?.() === 'Layer') {
+      setOutline(false);
+      // A press on the EMPTY canvas background must also close the typing
+      // textbox. It used not to: Konva preventDefaults desktop mousedown on
+      // its stage (drag/canvas protection), which suppresses the textarea's
+      // blur — and blur was the ONLY thing that ended edit mode, so the
+      // textbox just sat there while the operator clicked away. The press
+      // still reaches this Konva click handler, so end the edit here
+      // explicitly. (Clicks on a BOX are handled by that box's own
+      // onClick / the textarea's mousedown routing above — those switch or
+      // keep the box, they never mean "done typing this one" except through
+      // blur, which the sidebar chips deliberately preventDefault.)
+      if (editing) endEdit();
+    }
+  };
+  // Clicking ANYWHERE outside the canvas (sidebar, toolbar, panel chrome…)
+  // drops the selection outline. The click on the canvas background itself
+  // is handled above; this covers the rest of the editor.
+  useEffect(() => {
+    const onDown = (e) => {
+      const root = wrapRef.current;
+      if (root && !root.contains(e.target)) setOutline(false);
+    };
+    document.addEventListener('mousedown', onDown, true);
+    return () => document.removeEventListener('mousedown', onDown, true);
+  }, []);
+  // The boxes on this slide in DRAW order (0 = the main lyric). The ACTIVE
+  // one is drawn by the single-box machinery; the rest are drawn read-only.
+  // Both the DOM layer and the Konva layer order themselves by this index
+  // (CSS z-index / Konva zIndex), so the box you SEE on top is always the
+  // box you can grab — a click must never land on a different box, and the
+  // canvas must draw them in the same order the projector does.
+  const objList = (objects && objects.length) ? objects : [null];
+  const actIdx = Math.max(0, Math.min(Number(activeObj) || 0, objList.length - 1));
+  // Which box does a press belong to? The TOP-MOST box in draw order that
+  // contains the point wins — the same stacking the projector uses, so the
+  // box you can SEE on top is the box you can grab. The boxes overlap (the
+  // lyric box covers most of the canvas), which is exactly why this has to
+  // be decided by draw order and not by "whatever was drawn last".
+  const topBoxAt = (clientX, clientY) => {
+    const el = wrapRef.current;
+    const content = el && el.querySelector('.konvajs-content');
+    if (!content) return -1;
+    const r = content.getBoundingClientRect();
+    const k = r.width / CANVAS_W;
+    if (!k) return -1;
+    const x = (clientX - r.left) / k;
+    const y = (clientY - r.top) / k;
+    for (let i = objList.length - 1; i >= 0; i--) {
+      const o = objList[i];
+      if (!o) continue;
+      const b = o.box || DEFAULT_BOX;
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return i;
+    }
+    return -1;
+  };
 
   const handleDragStart = () => {
     startBoxRef.current = committedRef.current;
@@ -954,29 +1111,44 @@ export default function LyricsCanvasEditor({
 
   return (
     <div ref={wrapRef} style={{ boxSizing: 'border-box', position: 'relative', overflow: 'hidden', borderRadius: 12, boxShadow: '0 12px 44px rgba(0,0,0,0.45)', border: '1px solid var(--ui-border2)' }}>
-      {/* z0 — background layer */}
-      {bgType === 'color' && (
-        <div style={{ position: 'absolute', inset: 0, backgroundColor: bgValue || '#000000', zIndex: 0 }} />
-      )}
-      {bgType === 'image' && bgValue && (
-        <img src={bgValue} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }} draggable={false} />
-      )}
-      {bgType === 'video' && bgValue && (
-        <video key={`bg-${bgValue}`} src={bgValue} autoPlay loop muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }} />
-      )}
-      {bgType === 'gradient' && !!bgValue && (
-        <div style={{ position: 'absolute', inset: 0, background: bgValue, zIndex: 0 }} />
-      )}
-      {bgType === 'animated' && (
-        <AnimatedBg value={bgValue} k={1} />
-      )}
+      {/* z0 — background layer, graded by the same bg_fx the wall uses.
+          The video keeps its key and stays mounted: changing a grade only
+          changes this wrapper, never the <video>. */}
+      <div style={{ position: 'absolute', inset: 0, zIndex: 0, overflow: 'hidden' }}>
+        <CinematicBackdrop bgFx={bgFx}>
+          {bgType === 'color' && (
+            <div style={{ position: 'absolute', inset: 0, backgroundColor: bgValue || '#000000' }} />
+          )}
+          {bgType === 'image' && bgValue && (
+            <img src={bgValue} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} draggable={false} />
+          )}
+          {bgType === 'video' && bgValue && (
+            <video key={`bg-${bgValue}`} src={bgValue} autoPlay loop muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+          )}
+          {bgType === 'gradient' && !!bgValue && (
+            <div style={{ position: 'absolute', inset: 0, background: bgValue }} />
+          )}
+          {bgType === 'animated' && (
+            <AnimatedBg value={bgValue} k={1} />
+          )}
+        </CinematicBackdrop>
+      </div>
 
       {/* z1 — the real lyrics, same renderer as the projector */}
       <div style={{ position: 'absolute', left: 0, top: 0, width: CANVAS_W, height: CANVAS_H, zIndex: 1, pointerEvents: 'none', transformOrigin: 'top left', transform: `scale(${scale})` }}>
+        <CinematicText fx={fx}>
+        {/* Ghost / watermark text sits BEHIND everything, through the same
+            renderer as the projector. Read-only here — its box is edited from
+            the Layered Text panel. */}
+        {ghost && ghost.lyric && (
+          <div style={{ position: 'absolute', left: ghost.lyric.box?.x ?? 64, top: ghost.lyric.box?.y ?? 170, width: ghost.lyric.box?.w ?? 1152, height: ghost.lyric.box?.h ?? 380, transform: ghost.lyric.box?.angle ? `rotate(${ghost.lyric.box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+            <LyricsBlock text={ghost.text || ''} st={ghost.lyric} box={ghost.lyric.box || { x: 64, y: 170, w: 1152, h: 380 }} />
+          </div>
+        )}
         <div key={previewing ? `${previewAnim}-${previewTick}` : 'lyrics'} style={{ width: '100%', height: '100%', position: 'relative', animation: previewing ? animCSS : undefined }}>
           <div
             ref={displayBoxRef}
-            style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: boxTransform, transformOrigin: 'center center', overflow: 'hidden' }}
+            style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: boxTransform, transformOrigin: 'center center', overflow: 'hidden', zIndex: actIdx }}
           >
             {editing ? (
               overlayOn ? (
@@ -1000,16 +1172,39 @@ export default function LyricsCanvasEditor({
                 </div>
               ) : null
             ) : (
-              renderLyricsLayout(text, lyricSt, box)
+              // The SAME component the wall draws with (measured fit), so the
+              // editor canvas and the output are one picture — not two
+              // different fits of the same words.
+              <LyricsBlock text={text} st={lyricSt} box={box} />
             )}
           </div>
-        </div>
+          {/* The OTHER text boxes on this slide: the same renderer the
+              projector uses, drawn read-only — Konva gives each one a hit box
+              in the layer below for select / drag / double-click-to-type. */}
+          {objList.map((o, i) => {
+            if (!o || i === actIdx) return null;
+            const ob = o.box || DEFAULT_BOX;
+            return (
+              <div
+                key={o.id || `tx-${i}`}
+                ref={(el) => { if (el) extraDomRef.current[i] = el; else delete extraDomRef.current[i]; }}
+                style={{ position: 'absolute', left: ob.x, top: ob.y, width: ob.w, height: ob.h, transform: ob.angle ? `rotate(${ob.angle}deg)` : undefined, transformOrigin: 'center center', overflow: 'hidden', zIndex: i }}
+              >
+                <LyricsBlock text={o.text || ''} st={cueLyricStyle(o)} box={ob} />
+              </div>
+            );
+          })}        </div>
+        </CinematicText>
       </div>
+
+      {/* Cinematic texture pass, above the words, below the interaction layer. */}
+      <CinematicOverlay fx={fx} zIndex={1.5} />
 
       {/* z2 — Konva interaction layer (transparent) */}
       <Stage
         width={CANVAS_W}
         height={CANVAS_H}
+        onClick={onStageClick}
         style={{ position: 'absolute', left: 0, top: 0, width: CANVAS_W, height: CANVAS_H, zIndex: 2, transformOrigin: 'top left', transform: `scale(${scale})` }}
       >
         <Layer>
@@ -1020,6 +1215,7 @@ export default function LyricsCanvasEditor({
             offsetX={box.w / 2}
             offsetY={box.h / 2}
             rotation={angle}
+            zIndex={actIdx}
             draggable={!cueLocked}
             dragBoundFunc={dragBound}
             onDragStart={handleDragStart}
@@ -1030,15 +1226,74 @@ export default function LyricsCanvasEditor({
             onTransformEnd={handleTransformEnd}
             onDblClick={startEdit}
             onDblTap={startEdit}
+            // This group IS the active box (whatever is selected), so a click
+            // on it must keep THAT box selected — never jump to the main
+            // lyric. Clicking the box you are on and having the selection
+            // jump elsewhere is what made a drag move the wrong box.
+            onClick={() => selectObj(actIdx)}
+            onTap={() => selectObj(actIdx)}
           >
             {/* Invisible on the scene canvas, opaque colourKey on the hit
                 canvas — this is what makes the whole box grabbable. */}
             <Rect width={box.w} height={box.h} fill="rgba(0,0,0,0.001)" />
           </Group>
+          {/* Inactive boxes: click selects (the machinery above then becomes
+              THAT box), drag moves it, double-click jumps straight to typing.
+              zIndex keeps the hit order identical to the draw order, so a
+              click always lands on the box that is drawn on top. */}
+          {objList.map((o, i) => {
+            if (!o || i === actIdx) return null;
+            const ob = o.box || DEFAULT_BOX;
+            const w = Math.max(1, Number(ob.w) || 640);
+            const h = Math.max(1, Number(ob.h) || 120);
+            return (
+              <Group
+                key={o.id || `tx-${i}`}
+                x={(Number(ob.x) || 0) + w / 2}
+                y={(Number(ob.y) || 0) + h / 2}
+                offsetX={w / 2}
+                offsetY={h / 2}
+                rotation={Number(ob.angle) || 0}
+                zIndex={i}
+                draggable={!cueLocked}
+                // Same canvas bounds as the main box: a text box can never
+                // hang over the edge (half a word off the wall is half a word
+                // off the wall).
+                dragBoundFunc={(pos) => ({
+                  x: Math.min(Math.max(CANVAS_W - w / 2, CANVAS_W / 2), Math.max(Math.min(w / 2, CANVAS_W / 2), pos.x)),
+                  y: Math.min(Math.max(CANVAS_H - h / 2, CANVAS_H / 2), Math.max(Math.min(h / 2, CANVAS_H / 2), pos.y)),
+                })}
+                onClick={() => selectObj(i)}
+                onTap={() => selectObj(i)}
+                onDblClick={() => { selectObj(i); startEdit(); }}
+                onDblTap={() => { selectObj(i); startEdit(); }}
+                onDragMove={(e) => {
+                  const g = e.target;
+                  moveExtraDom(i, { ...ob, x: Math.round(g.x() - w / 2), y: Math.round(g.y() - h / 2) });
+                }}
+                onDragEnd={(e) => {
+                  const g = e.target;
+                  const nb = {
+                    ...ob,
+                    x: Math.round(Math.max(0, Math.min(CANVAS_W - w, g.x() - w / 2))),
+                    y: Math.round(Math.max(0, Math.min(CANVAS_H - h, g.y() - h / 2))),
+                    angle: Math.round((Number(g.rotation()) || 0) * 10) / 10,
+                  };
+                  g.position({ x: nb.x + w / 2, y: nb.y + h / 2 });
+                  moveExtraDom(i, nb);
+                  sendTa();
+                  onObjBoxChange?.(i, nb);
+                }}
+              >
+                <Rect width={w} height={h} fill="rgba(0,0,0,0.001)" />
+              </Group>
+            );
+          })}
           <Transformer
             ref={trRef}
             nodes={trNodes}
-            visible={!cueLocked && !editing}
+            visible={!cueLocked && !editing && outline}
+            zIndex={10000}
             rotateEnabled
             flipEnabled={false}
             keepRatio={false}
@@ -1102,6 +1357,19 @@ export default function LyricsCanvasEditor({
                 }}
                 onBlur={endEdit}
                 onInput={syncTaHeight}
+                onMouseDown={(e) => {
+                  // Same rule as the empty area above: the box drawn ON TOP
+                  // at this point owns the press. The editing textarea is
+                  // invisible and sits over the whole lyric box, so without
+                  // this a click on a kicker that overlaps the lyrics would
+                  // silently edit the lyrics instead.
+                  if (e.button !== 0) return;
+                  const top = topBoxAt(e.clientX, e.clientY);
+                  if (top >= 0 && top !== actIdx) {
+                    e.preventDefault();
+                    selectObj(top);
+                  }
+                }}
                 // Native selection IS the highlight mapping now: the browser
                 // places the caret, drags the range, snaps words on
                 // double-press, takes lines on triple-press and extends on
@@ -1212,7 +1480,7 @@ export default function LyricsCanvasEditor({
           FILL/TICKER badges (left) can never collide with them. */}
       {editing && (
         <div
-          style={{ position: 'absolute', top: 8, right: 8, zIndex: 6, display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(9,10,15,0.94)', border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '3px 4px 3px 10px', boxShadow: '0 2px 10px rgba(0,0,0,0.5)' }}
+          style={{ position: 'absolute', top: 8, right: 8, zIndex: 6, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', rowGap: 3, gap: 3, maxWidth: 'calc(100% - 20px)', background: 'rgba(9,10,15,0.94)', border: '1px solid var(--ui-border2)', borderRadius: 12, padding: '3px 4px 3px 10px', boxShadow: '0 2px 10px rgba(0,0,0,0.5)' }}
           // A mousedown here must not blur the textarea: onBlur ends edit mode,
           // which would fire before the click and swallow it.
           onMouseDown={(ev) => ev.preventDefault()}
@@ -1267,6 +1535,25 @@ export default function LyricsCanvasEditor({
               </button>
             );
           })}
+          <span style={{ width: 1, height: 15, background: 'rgba(255,255,255,0.2)', margin: '0 3px', flexShrink: 0 }} />
+          {SEL_COLORS.map((c) => {
+            const on = (tgtAttrs.color || '').toLowerCase() === c.toLowerCase();
+            return (
+              <button
+                key={c}
+                type="button"
+                title={`Colour the highlighted text ${c}`}
+                onClick={() => applyStyle({ color: c })}
+                style={{ width: 17, height: 17, borderRadius: '50%', background: c, border: `1px solid ${on ? '#ffffff' : 'rgba(255,255,255,0.35)'}`, boxShadow: on ? `0 0 0 2px ${ACCENT}` : 'none', cursor: 'pointer', padding: 0, flexShrink: 0 }}
+              />
+            );
+          })}
+          <button type="button" title="Clear the highlighted text’s colour (back to the slide colour)" onClick={() => applyStyle({ color: false })} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#cfe9ff', borderRadius: 999, padding: '1px 5px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>×</button>
+          <span style={{ width: 1, height: 15, background: 'rgba(255,255,255,0.2)', margin: '0 3px', flexShrink: 0 }} />
+          <button type="button" title={`Cycle the highlighted text’s face${tgtAttrs.font ? ` (now: ${(SEL_FONTS.find((f) => f.value === tgtAttrs.font) || {}).label || 'custom'})` : ''}`} onClick={cycleSelFont} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#cfe9ff', borderRadius: 999, padding: '2px 7px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4, fontFamily: 'Georgia, serif' }}>Aa</button>
+          <button type="button" title="Tighter tracking on the highlighted text" onClick={() => nudgeSelTrack(-1)} style={{ minWidth: 22, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#cfe9ff', borderRadius: 999, padding: '2px 6px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>−</button>
+          <button type="button" title="Wider tracking on the highlighted text" onClick={() => nudgeSelTrack(1)} style={{ minWidth: 22, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#cfe9ff', borderRadius: 999, padding: '2px 6px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>+</button>
+          <button type="button" title="Clear all inline styling on the highlighted text" onClick={clearSelStyle} style={{ background: 'rgba(239,68,68,0.14)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5', borderRadius: 999, padding: '2px 6px', fontSize: 9.5, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>Clear</button>
         </div>
       )}
 

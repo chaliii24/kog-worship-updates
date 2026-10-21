@@ -19,8 +19,12 @@ const rid = () => `p${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).
 export default function DrawScreen({ C, ACCENT, state, send }) {
   const live = state?.live || null;
   const deckOnAir = !!(live && live.presentation);
-  const outAspect = state?.outputAspect || '16:9';
-  const outCssAspect = String(outAspect).toLowerCase() === 'fill' ? '16 / 9' : String(outAspect).replace(':', ' / ');
+  // Same shape as the wall: the projector's own aspect, and for Fill the
+  // wall's real shape (the draw surface has to line up with what is on air).
+  const outAspect = (state?.outputs || []).find((o) => o.id === 'projector')?.aspect || state?.outputAspect || '16:9';
+  const outCssAspect = String(outAspect).toLowerCase() === 'fill'
+    ? (state?.wallAspect || '16 / 9')
+    : String(outAspect).replace(':', ' / ');
 
   const [color, setColor] = useState(DRAW_COLORS[0]);
   const [width, setWidth] = useState(DRAW_WIDTHS[1]);

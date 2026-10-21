@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, KeyRound, Timer, Clock3, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack, Undo2, Redo2, Sparkles } from 'lucide-react';
+import { Plus, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, KeyRound, Timer, Clock3, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack, Undo2, Redo2, Sparkles, Palette as PaletteIcon, CheckSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, FALLBACK_SYSTEM_FONTS } from '../lib/constants';
-import { renderLyricsLayout, cueLyricStyle, stripMarkup, FONT_SIZE_MIN, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, autoPadForSize, fitBoxToText, growBoxToText, restyleLineScales } from '../lib/lyrics';
+import { renderLyricsLayout, cueLyricStyle, stripMarkup, ghostLayerOf, FONT_SIZE_MIN, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, autoPadForSize, fitBoxToText, growBoxToText, restyleLineScales } from '../lib/lyrics';
+import { allTextObjects, newTextObject, textObjectLayers } from '../lib/songTextObjects';
 import { useApp } from '../context/AppContext';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import { GRADIENT_PACK } from '../lib/backgrounds';
@@ -12,6 +13,10 @@ import { Tabs, TabList, Tab, TabPanel } from '../untitledui/components/applicati
 import { toast } from '../untitledui/components/ui/toast';
 import LyricsCanvasEditor from './LyricsCanvasEditor';
 import FontPicker from './FontPicker';
+import SongThemePicker from './SongThemePicker';
+import CinematicPanel from './CinematicPanel';
+import { allCinematicPresets, cinematicCuePatch, cinematicTextPatch, cinematicTransitionPatch, presetFromCue, saveCustomCinematicPreset, deleteCustomCinematicPreset, normalizeGhost, TEXT_LOOK_KEYS } from '../lib/cinematic';
+import { allSongThemes, songThemeCuePatch, themeStyleFromCue, saveCustomSongTheme, updateCustomSongTheme, deleteCustomSongTheme, lastSongThemeId, rememberSongTheme, DEFAULT_TITLE_BOX } from '../lib/songThemes';
 import ColorPicker from '../untitledui/components/application/color-picker/color-picker';
 import { TileVideo, TileCanvas } from '../lib/perf';
 
@@ -28,6 +33,32 @@ const quoteFont = (family) => {
   if (!f) return f;
   if (f.startsWith('"') || f.startsWith("'")) return f;
   return /\s/.test(f) ? `"${f}"` : f;
+};
+
+// Plain lyric lines of a cue, markup stripped. Used by the ghost/watermark
+// helper: a watermark is a CONTEXT line, so it must never carry inline runs.
+const cueLines = (cu) => stripMarkup((cu && cu.text) || '')
+  .split('\n')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+// Resolve a ghost source to words for ONE target slide. Deterministic: the
+// words are stored on the cue when the source is chosen, so live output does
+// not have to know what "previous" meant at render time.
+const ghostTextFor = (cues, idx, source, titleText = '') => {
+  if (source === 'prev') {
+    if (idx > 0) { const lines = cueLines(cues[idx - 1]); return lines[lines.length - 1] || ''; }
+    return '';
+  }
+  if (source === 'next') {
+    if (idx === -1) return cueLines(cues[0])[0] || '';
+    const lines = cueLines(cues[idx + 1]); return lines[0] || '';
+  }
+  if (source === 'this') {
+    if (idx === -1) return stripMarkup(titleText).split('\n').map((s) => s.trim()).filter(Boolean)[0] || '';
+    return cueLines(cues[idx])[0] || '';
+  }
+  return '';
 };
 
 const aiKeyBtn = (C) => ({
@@ -168,6 +199,12 @@ export default function SongEditorModal() {
     editorBox,
     updateCue,
     updateCueThrottled,
+    updateTextObject,
+    updateTextObjectThrottled,
+    moveTextObjectInCue,
+    addTextObjectToCue,
+    removeTextObjectFromCue,
+    duplicateTextObjectInCue,
     applyPatchToAllCues,
     baseGroupLabel,
     splitCueAtTextareaCaret,
@@ -218,6 +255,83 @@ export default function SongEditorModal() {
   // the same buttons, scoped to what the user actually selected.
   const canvasApiRef = useRef(null);
   const [canvasSel, setCanvasSel] = useState(null);
+  // --- which TEXT BOX on this slide the sidebar and canvas are styling -----
+  // 0 = the slide's main lyric (the cue's own fields — the default, and on the
+  // title slide the only box). 1..n = the boxes in cue.texts[]. Everything
+  // text-shaped reads and writes `c` (the ACTIVE box); slide-level controls —
+  // label, background, transition, duration, notes — keep reading `editorCue`,
+  // so selecting an extra box never makes them lie about the slide.
+  const [activeObj, setActiveObj] = useState(0);
+  useEffect(() => { setActiveObj(0); }, [editorCueIdx]);
+  const textObjs = editorCue ? allTextObjects(editorCue) : [];
+  const activeIdx = Math.max(0, Math.min(activeObj, Math.max(0, textObjs.length - 1)));
+  const c = textObjs[activeIdx] || editorCue || {};
+  const cBox = c.box || DEFAULT_BOX;
+  const patchText = (patch) => {
+    if (!patch) return;
+    if (activeIdx > 0) updateTextObject(editorCueIdx, activeIdx, patch);
+    else updateCue(editorCueIdx, patch);
+  };
+  const patchTextT = (patch) => {
+    if (!patch) return;
+    if (activeIdx > 0) updateTextObjectThrottled(editorCueIdx, activeIdx, patch);
+    else updateCueThrottled(editorCueIdx, patch);
+  };
+
+  // Context lines the Layers tab can use as a watermark. `prev` is the previous
+  // slide's LAST line (the line that just left the wall), `next` is the next
+  // slide's FIRST line. Both are materialised into `ghost.text` on click, so
+  // the output is stable even if slides are later reordered.
+  const ghostContext = useMemo(() => {
+    const cues = editingSong.cues || [];
+    if (editorCueIdx === -1) {
+      return {
+        prev: '',
+        next: cueLines(cues[0])[0] || '',
+        this: stripMarkup(editingSong.title || '').split('\n').map((s) => s.trim()).filter(Boolean)[0] || '',
+      };
+    }
+    const prevLines = cueLines(cues[editorCueIdx - 1]);
+    return {
+      prev: prevLines[prevLines.length - 1] || '',
+      next: cueLines(cues[editorCueIdx + 1])[0] || '',
+      this: cueLines(cues[editorCueIdx])[0] || '',
+    };
+  }, [editingSong.cues, editingSong.title, editorCueIdx]);
+  // --- box actions, driven by the row under the canvas --------------------
+  // Every one flushes first: typing commits on a 150ms edge, and the tail of
+  // what was typed must land on the box we are LEAVING before the index moves.
+  const selectTextBox = (i) => { canvasApiRef.current?.flush?.(); setActiveObj(i); };
+  const addTextBox = () => {
+    if (editorCueIdx < 0 || !editorCue) return;
+    canvasApiRef.current?.flush?.();
+    addTextObjectToCue(editorCueIdx, newTextObject(c || editorCue));
+    setActiveObj(textObjs.length); // the new box lands directly after the last one
+  };
+  const duplicateTextBox = () => {
+    if (activeIdx <= 0) return;
+    canvasApiRef.current?.flush?.();
+    duplicateTextObjectInCue(editorCueIdx, activeIdx);
+    setActiveObj(activeIdx + 1); // the copy lands directly below its source
+  };
+  const deleteTextBox = () => {
+    if (activeIdx <= 0) return;
+    canvasApiRef.current?.flush?.();
+    removeTextObjectFromCue(editorCueIdx, activeIdx);
+    setActiveObj(0); // back to the main lyric
+  };
+  const [themes, setThemes] = useState(() => allSongThemes());
+  const [themeOpen, setThemeOpen] = useState(false);
+  const [cinePresets, setCinePresets] = useState(() => allCinematicPresets());
+  const [cineScope, setCineScope] = useState('this');
+  // 'all' or an array of text-box indexes (0 = main, 1..n = cue.texts[n-1]).
+  // The preset's type is written to these boxes; its effects/grade/ghost are
+  // slide-wide and always apply.
+  const [cineBoxTarget, setCineBoxTarget] = useState('all');
+  // Box indexes are slide-local. Switching slides or adding/removing a box
+  // makes a custom index stale — reset to the safe "all" rather than write a
+  // look onto the wrong box.
+  useEffect(() => { setCineBoxTarget('all'); }, [editorCueIdx, textObjs.length]);
   const selMode = !!canvasSel?.active;
   // Sticky highlight for the glow colour swatch: opening the native colour
   // dialog blurs the canvas textarea, onBlur ends edit mode and wipes the live
@@ -256,9 +370,9 @@ export default function SongEditorModal() {
   // slide switch — but never while a pick is in flight.
   useEffect(() => {
     if (glowPicking || !glowColorRef.current || !editorCue) return;
-    const want = (editorCue.glowColor || '#22d3ee').toLowerCase();
-    if (glowColorRef.current.value.toLowerCase() !== want) glowColorRef.current.value = editorCue.glowColor || '#22d3ee';
-  }, [editorCue?.glowColor, glowPicking, editorCueIdx]);
+    const want = (c.glowColor || '#22d3ee').toLowerCase();
+    if (glowColorRef.current.value.toLowerCase() !== want) glowColorRef.current.value = c.glowColor || '#22d3ee';
+  }, [c?.glowColor, glowPicking, activeObj, editorCueIdx]);
 
   // --- inline slide rename -------------------------------------------------
   // The Label field lives inside Slide Properties, which is collapsed by
@@ -331,11 +445,93 @@ export default function SongEditorModal() {
   const [applySel, setApplySel] = useState([]);
   const [applyHover, setApplyHover] = useState(null);
   const toggleApplySel = (i) => setApplySel(s => (s.includes(i) ? s.filter(x => x !== i) : [...s, i]));
-  // Plain click opens the slide; Ctrl/⌘-click ticks it for "Selected".
+  // Plain click opens the slide; Ctrl/⌘-click ticks it; Shift-click ticks a
+  // RANGE from the last click — the fastest way to grab a whole verse's worth
+  // of slides for a bulk style / delete / duplicate.
+  const selAnchorRef = useRef(null);
   const slideClick = (e, i) => {
-    if (e.ctrlKey || e.metaKey) { toggleApplySel(i); return; }
+    if (e.shiftKey) {
+      const a = selAnchorRef.current == null ? editorCueIdx : selAnchorRef.current;
+      if (a == null) { setEditorCueIdx(i); selAnchorRef.current = i; return; }
+      const lo = Math.min(a, i);
+      const hi = Math.max(a, i);
+      const range = [];
+      for (let x = lo; x <= hi; x++) range.push(x);
+      setApplySel(range);
+      setEditorCueIdx(i);
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) { toggleApplySel(i); selAnchorRef.current = i; return; }
+    selAnchorRef.current = i;
     setEditorCueIdx(i);
   };
+
+  // --- bulk actions on ticked slides ---------------------------------------
+  const selectAllSlides = () => {
+    setApplySel([-1, ...(editingSong.cues || []).map((_, i) => i)]);
+  };
+
+  const duplicateSelected = () => {
+    const cues = editingSong.cues || [];
+    const picked = applySel.filter((i) => i >= 0 && i < cues.length);
+    if (!picked.length) {
+      confirmApplied('Tick at least one lyric slide first — Ctrl+click, or Shift+click a range', { type: 'info', title: 'Nothing ticked' });
+      return;
+    }
+    breakHist();
+    // Functional: the canvas writes text on a 150ms trailing timer, so the
+    // closure's `cues` can be one keystroke behind. Duplicating from `prev`
+    // keeps the newest text instead of silently reverting it on the copies.
+    setEditingSong((prev) => {
+      const cur = prev.cues || [];
+      const hit = new Set(applySel.filter((i) => i >= 0 && i < cur.length));
+      const out = [];
+      cur.forEach((c, i) => {
+        out.push(c);
+        if (hit.has(i)) {
+          const copy = { ...c };
+          delete copy.id;
+          out.push(copy);
+        }
+      });
+      return { ...prev, cues: out };
+    });
+    setApplySel([]);
+    confirmApplied(`Duplicated ${picked.length} slide${picked.length === 1 ? '' : 's'}`, { undoable: true });
+  };
+
+  const deleteSelectedSlides = async () => {
+    const cues = editingSong.cues || [];
+    const picked = applySel.filter((i) => i >= 0 && i < cues.length);
+    if (!picked.length) {
+      confirmApplied(
+        applySel.includes(-1)
+          ? 'The title slide is part of the song — clear its text instead of deleting it'
+          : 'Tick lyric slides first — Ctrl+click, or Shift+click a range',
+        { type: 'info', title: 'Nothing to delete' },
+      );
+      return;
+    }
+    if (picked.length > 1) {
+      const ok = await appConfirm(
+        `Delete ${picked.length} slides? This removes their text and styles.\n\nUndo (Ctrl+Z) puts them back.`,
+        { title: 'Delete slides', confirmLabel: `Delete ${picked.length}`, cancelLabel: 'Keep them' },
+      );
+      if (!ok) return;
+    }
+    const hit = new Set(picked);
+    const before = (at) => picked.filter((i) => i < at).length;
+    breakHist();
+    setEditingSong((prev) => ({ ...prev, cues: (prev.cues || []).filter((_, i) => !hit.has(i)) }));
+    setEditorCueIdx((cur) => {
+      if (cur < 0) return cur;
+      const nextLen = cues.length - picked.length;
+      return Math.max(-1, Math.min(nextLen - 1, cur - before(cur)));
+    });
+    setApplySel([]);
+    confirmApplied(`Deleted ${picked.length} slide${picked.length === 1 ? '' : 's'}`, { undoable: true });
+  };
+
   // Adding, deleting, splitting or duplicating slides shifts every index in
   // applySel, so a stale tick would rewrite the WRONG slide. Any change to the
   // count throws the set away rather than guessing; reorders clear it in
@@ -387,8 +583,11 @@ export default function SongEditorModal() {
     glowColor: c.glowColor || '#22d3ee',
     glowBlur: c.glowBlur ?? 18,
     outline: !!c.outline,
+    strokeOnly: !!c.strokeOnly,
     strokeColor: c.strokeColor || '#000000',
     strokeWidth: c.strokeWidth ?? 1.5,
+    opacity: c.opacity ?? 100,
+    blendMode: c.blendMode || 'normal',
     gradient: !!c.gradient,
     gradientColor1: c.gradientColor1 || '#f5f5f4',
     gradientColor2: c.gradientColor2 || '#93c5fd',
@@ -597,7 +796,237 @@ export default function SongEditorModal() {
     );
   };
 
-  // --- bring-your-own Gemini key -------------------------------------------
+  // --- cinematic looks ------------------------------------------------------
+  // A preset is a LOOK: effects + background grade + transition timing, plus
+  // optional typography. Effects-only is the default so applying a look never
+  // resizes or restyles the operator's lyric. It never carries words or
+  // geometry, so applying it cannot rewrite a lyric or move a box. Scope works
+  // exactly like Apply to: this / ticked / all.
+  const applyCinematicPreset = (preset, scope = 'this', textTarget = 'all', applyType = false) => {
+    if (!preset || !editorCue) return;
+    if (scope === 'selected' && !applySel.length) {
+      confirmApplied('Ctrl+click slides in the list to tick them', { type: 'info', title: 'Pick slides first' });
+      return;
+    }
+    const base = cinematicCuePatch(preset);
+    // Split the look: type keys go to the chosen text boxes, transition keys
+    // and fx/grade stay on the slide. A preset applied to Box 2 must not also
+    // rewrite the main lyric's font, and vice versa.
+    const typePatch = cinematicTextPatch(preset);
+    const slidePatch = {
+      ...cinematicTransitionPatch(preset),
+      fx: base.fx,
+      bg_fx: base.bg_fx,
+    };
+    const wanted = textTarget === 'all'
+      ? null
+      : new Set((Array.isArray(textTarget) ? textTarget : []).map(Number));
+    const wantsBox = (i) => wanted === null || wanted.has(i);
+    const assign = (cu, idx, cues) => {
+      const next = { ...cu, ...slidePatch };
+      // Default is effects-only. The operator's lyric keeps its own font,
+      // size, tracking, colour and outline unless "Preset type" was chosen.
+      if (applyType && wantsBox(0)) Object.assign(next, typePatch);
+      if (applyType && Array.isArray(cu.texts) && cu.texts.length) {
+        next.texts = cu.texts.map((t, ti) => (wantsBox(ti + 1) ? { ...t, ...typePatch } : t));
+      }
+      if (base.ghost) {
+        const own = cueLines(cu);
+        const fallback = idx === -1
+          ? stripMarkup(editingSong.title || '').split('\n').map((s) => s.trim()).filter(Boolean)[0] || ''
+          : own[0] || '';
+        const text = ghostTextFor(cues, idx, base.ghost.source, editingSong.title || '') || (cu.ghost && cu.ghost.text) || fallback;
+        next.ghost = { ...base.ghost, on: true, text };
+      }
+      return next;
+    };
+    breakHist();
+    setEditingSong((prev) => {
+      const cues = prev.cues || [];
+      if (scope === 'all') {
+        return {
+          ...prev,
+          title_cue: prev.title_cue ? assign(prev.title_cue, -1, cues) : prev.title_cue,
+          cues: cues.map((cu, i) => assign(cu, i, cues)),
+        };
+      }
+      if (scope === 'selected') {
+        const hit = new Set(applySel);
+        return {
+          ...prev,
+          title_cue: hit.has(-1) && prev.title_cue ? assign(prev.title_cue, -1, cues) : prev.title_cue,
+          cues: cues.map((cu, i) => (hit.has(i) ? assign(cu, i, cues) : cu)),
+        };
+      }
+      if (editorCueIdx === -1) {
+        return { ...prev, title_cue: prev.title_cue ? assign(prev.title_cue, -1, cues) : prev.title_cue };
+      }
+      const nextCues = [...cues];
+      if (nextCues[editorCueIdx]) nextCues[editorCueIdx] = assign(nextCues[editorCueIdx], editorCueIdx, cues);
+      return { ...prev, cues: nextCues };
+    });
+    if (scope !== 'this') setApplySel([]);
+    const boxCount = textTarget === 'all'
+      ? textObjs.length
+      : (Array.isArray(textTarget) ? textTarget.filter((i) => i >= 0 && i < textObjs.length).length : 0);
+    const typeNote = textTarget === 'all'
+      ? ' · all text boxes'
+      : boxCount
+        ? ` · ${boxCount} text box${boxCount === 1 ? '' : 'es'}`
+        : ' · slide look only';
+    const where = scope === 'all'
+      ? 'every slide'
+      : scope === 'selected'
+        ? `${applySel.length} ticked slide${applySel.length === 1 ? '' : 's'}`
+        : editorCueIdx === -1 ? 'the title slide' : 'this slide';
+    confirmApplied(`Applied “${preset.name}” to ${where}${typeNote}`, { undoable: true });
+  };
+
+  const saveCinematicPreset = (name) => {
+    if (!editorCue) return null;
+    // Save the type of the box being edited, not always the main lyric; the
+    // slide keeps owning fx/grade/transition/ghost. Without this, saving from
+    // Box 2 produced a preset with the main text's face and size.
+    const source = { ...editorCue };
+    for (const k of TEXT_LOOK_KEYS) if (c[k] !== undefined) source[k] = c[k];
+    const item = saveCustomCinematicPreset(name, presetFromCue(source));
+    setCinePresets(allCinematicPresets());
+    confirmApplied(`Saved “${item.name}” as a reusable look${activeIdx > 0 ? ` from Box ${activeIdx + 1}` : ''}`);
+    return item;
+  };
+
+  const removeCinematicPreset = (id) => {
+    if (deleteCustomCinematicPreset(id)) {
+      setCinePresets(allCinematicPresets());
+      confirmApplied('Preset deleted', { type: 'info', title: 'Cinematic look' });
+    }
+  };
+
+  // Ghost sources are chosen HERE, where the song structure is known, and the
+  // resolved words are stored on the cue. Applying a preset later copies only
+  // the ghost's look, never these words.
+  const setGhostSource = (kind) => {
+    if (!editorCue) return;
+    const text = ghostTextFor(editingSong.cues || [], editorCueIdx, kind, editingSong.title || '');
+    if (!text) {
+      confirmApplied('No line available on that slide', { type: 'info', title: 'Ghost layer' });
+      return;
+    }
+    updateCue(editorCueIdx, { ghost: { ...normalizeGhost(editorCue.ghost), on: true, source: kind, text } });
+  };
+
+  const moveLastLineToGhost = () => {
+    if (!editorCue) return;
+    const raw = String(editorCue.text || '');
+    const lines = raw.split('\n');
+    let last = -1;
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      if (stripMarkup(lines[i]).trim()) { last = i; break; }
+    }
+    if (last < 0) return;
+    const line = stripMarkup(lines[last]).trim();
+    const ghost = { ...normalizeGhost(editorCue.ghost), on: true, source: 'custom', text: line };
+    const populated = lines.filter((l) => stripMarkup(l).trim()).length;
+    breakHist();
+    if (populated <= 1) {
+      // Never leave a slide wordless: a one-line cue mirrors itself in the
+      // ghost layer instead of surrendering its only lyric line.
+      updateCue(editorCueIdx, { ghost });
+      confirmApplied('Only one line — the ghost echoes it; lyric kept', { type: 'info', title: 'Ghost layer' });
+      return;
+    }
+    lines.splice(last, 1);
+    while (lines.length && !stripMarkup(lines[lines.length - 1]).trim()) lines.pop();
+    updateCue(editorCueIdx, { text: lines.join('\n'), ghost });
+    setActiveObj(0);
+    confirmApplied(`Moved “${line.length > 34 ? `${line.slice(0, 33)}…` : line}” to the ghost layer`, { undoable: true });
+  };
+
+  // --- song themes ----------------------------------------------------------
+  // One click copies a whole look. Two scopes, because "try it on this verse"
+  // and "dress the whole song" are different jobs. The background is song-wide
+  // by default (that is what a theme is for), but the checkbox lets an operator
+  // keep the video/image already under the words.
+  const titleCueFallback = () => editingSong.title_cue || {
+    id: 'title-card',
+    label: 'Song Title',
+    text: editingSong.title || '',
+    box: { ...DEFAULT_TITLE_BOX },
+    size: DEFAULT_LYRIC_SIZE,
+    align: 'center',
+    color: '#ffffff',
+  };
+
+  const applySongTheme = (t, scope, includeBg) => {
+    if (!t || !t.style) return;
+    const patch = songThemeCuePatch(t);
+    const titleBox = t.style.titleBox || t.style.box;
+    const titleBoxNext = titleBox && !(titleBox.x === t.style.box?.x && titleBox.y === t.style.box?.y && titleBox.w === t.style.box?.w && titleBox.h === t.style.box?.h)
+      ? { ...titleBox }
+      : null;
+    const bgPatch = includeBg ? { bg_type: t.style.bgType || 'color', bg_value: t.style.bgValue || '#000000' } : {};
+    const mapCue = (c, isTitle) => {
+      const next = {
+        ...c,
+        ...patch,
+        box: { ...(isTitle && titleBoxNext ? titleBoxNext : (t.style.box || patch.box)) },
+      };
+      // A theme stores the ghost LOOK, not its words. Keep whatever watermark
+      // this slide already had instead of silently emptying the layer.
+      if (patch.ghost) next.ghost = { ...patch.ghost, text: (c.ghost && c.ghost.text) || '' };
+      if (includeBg) { next.bg_type = t.style.bgType || 'color'; next.bg_value = t.style.bgValue || '#000000'; }
+      return next;
+    };
+    breakHist();
+    setEditingSong((prev) => {
+      if (scope === 'all') {
+        return {
+          ...prev,
+          ...bgPatch,
+          title_cue: mapCue(prev.title_cue || { ...titleCueFallback(), text: prev.title || '' }, true),
+          cues: (prev.cues || []).map((c) => mapCue(c, false)),
+        };
+      }
+      if (editorCueIdx === -1) {
+        return {
+          ...prev,
+          ...bgPatch,
+          title_cue: mapCue(prev.title_cue || { ...titleCueFallback(), text: prev.title || '' }, true),
+        };
+      }
+      const cues = [...(prev.cues || [])];
+      if (cues[editorCueIdx]) cues[editorCueIdx] = mapCue(cues[editorCueIdx], false);
+      return { ...prev, ...bgPatch, cues };
+    });
+    rememberSongTheme(t.id);
+    setThemeOpen(false);
+    // Themes style the slide's MAIN lyric — jump the selection back to it so
+    // the canvas shows what just changed instead of an untouched extra box.
+    setActiveObj(0);
+    const where = scope === 'all'
+      ? `every slide (${(editingSong.cues || []).length + 1})`
+      : editorCueIdx === -1 ? 'the title slide' : 'this slide';
+    confirmApplied(`Applied “${t.name}” to ${where}`, { undoable: true });
+  };
+
+  const saveLookAsTheme = (name) => {
+    if (!editorCue) return null;
+    const item = saveCustomSongTheme(name, themeStyleFromCue(editorCue, editingSong, titleCueFallback()));
+    setThemes(allSongThemes());
+    return item;
+  };
+
+  const updateLookTheme = (t) => {
+    if (!editorCue || !t || !t.custom) return;
+    updateCustomSongTheme(t.id, { style: themeStyleFromCue(editorCue, editingSong, titleCueFallback()) });
+    setThemes(allSongThemes());
+  };
+
+  const removeLookTheme = (id) => {
+    deleteCustomSongTheme(id);
+    setThemes(allSongThemes());
+  };
+
   // The installer ships no key (a secret packed into a public release asset is
   // public), so the operator supplies their own. With no key, Smart Paste
   // falls back to the local parser — that is the intended default, not an
@@ -819,7 +1248,7 @@ export default function SongEditorModal() {
   }, []);
 
   const fontChoices = useMemo(() => {
-    const current = editorCue?.font || FONT_OPTIONS[0].value;
+    const current = c?.font || FONT_OPTIONS[0].value;
     const opts = [];
     opts.push(...FONT_OPTIONS);
     for (const fam of sysFonts) {
@@ -830,7 +1259,7 @@ export default function SongEditorModal() {
       opts.unshift({ label: current, value: current });
     }
     return opts;
-  }, [sysFonts, editorCue?.font]);
+  }, [sysFonts, c?.font]);
 
   // A PAGE, not a modal: App mounts this in the MAIN WORKSPACE slot (under
   // TopHeader) while the console subtree is unmounted. Full-bleed flex child —
@@ -1019,25 +1448,25 @@ export default function SongEditorModal() {
       <TabPanel id="manual" className="box-border flex flex-1 min-h-0 overflow-hidden">
         <>
           {/* ================== LEFT SIDEBAR ================== */}
-          <div style={{ flex: '0 0 240px', minWidth: 200, borderRight: '1px solid var(--ui-border2)', overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ flex: '0 0 240px', minWidth: 200, borderRight: '1px solid var(--ui-border2)', overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
 
             {/* ALIGNMENT */}
             <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Alignment</div>
               <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
                 {[['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight], ['justify', AlignHorizontalJustifyCenter]].map(([a, Icon]) => (
-                  <button key={a} title={`Align ${a}`} onClick={() => updateCue(editorCueIdx, { align: a })} style={{ flex: 1, background: (editorCue?.align || 'center') === a ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (editorCue?.align || 'center') === a ? C.text : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
+                  <button key={a} title={`Align ${a}`} onClick={() => patchText({ align: a })} style={{ flex: 1, background: (c?.align || 'center') === a ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.align || 'center') === a ? C.text : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
                 {[['top', AlignVerticalJustifyStart, 'Top'], ['middle', AlignVerticalJustifyCenter, 'Middle'], ['bottom', AlignVerticalJustifyEnd, 'Bottom']].map(([v, Icon, lbl]) => (
-                  <button key={v} title={`Vertical: ${lbl}`} onClick={() => updateCue(editorCueIdx, { valign: v })} style={{ flex: 1, background: (editorCue?.valign || 'middle') === v ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (editorCue?.valign || 'middle') === v ? C.text : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
+                  <button key={v} title={`Vertical: ${lbl}`} onClick={() => patchText({ valign: v })} style={{ flex: 1, background: (c?.valign || 'middle') === v ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.valign || 'middle') === v ? C.text : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
                 ))}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }} title={editorCue?.pad != null ? 'Padding' : `Auto — ${autoPadForSize(editorCue?.size)}px at this font size`}>Padding{editorCue?.pad == null && <span style={{ color: C.muted, fontWeight: 600 }}> · auto</span>}</label>
-                <input type="range" min="0" max="80" step="2" value={editorCue?.pad ?? autoPadForSize(editorCue?.size)} onChange={(e) => updateCueThrottled(editorCueIdx, { pad: Number(e.target.value) })} style={{ flex: 1 }} />
-                <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.pad ?? autoPadForSize(editorCue?.size)}</span>
+                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }} title={c?.pad != null ? 'Padding' : `Auto — ${autoPadForSize(c?.size)}px at this font size`}>Padding{c?.pad == null && <span style={{ color: C.muted, fontWeight: 600 }}> · auto</span>}</label>
+                <input type="range" min="0" max="80" step="2" value={c?.pad ?? autoPadForSize(c?.size)} onChange={(e) => patchTextT({ pad: Number(e.target.value) })} style={{ flex: 1 }} />
+                <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.pad ?? autoPadForSize(c?.size)}</span>
               </div>
             </div>
 
@@ -1047,46 +1476,46 @@ export default function SongEditorModal() {
               <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4 }}>Resize</div>
               <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
                 {[['fit', 'Fit'], ['fill', 'Fill'], ['scale', 'Scale']].map(([m, lbl]) => (
-                  <button key={m} onClick={() => updateCue(editorCueIdx, { resizeMode: m })} style={{ flex: 1, background: (editorCue?.resizeMode || 'fit') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (editorCue?.resizeMode || 'fit') === m ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                  <button key={m} onClick={() => patchText({ resizeMode: m })} style={{ flex: 1, background: (c?.resizeMode || 'fit') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.resizeMode || 'fit') === m ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
                 ))}
               </div>
               <div style={{ fontSize: 9.5, color: C.faint, lineHeight: 1.45, marginBottom: 8 }}>
-                {(editorCue?.resizeMode || 'fit') === 'scale'
+                {(c?.resizeMode || 'fit') === 'scale'
                   ? 'Drag the handles to grow or shrink the text itself.'
-                  : (editorCue?.resizeMode || 'fit') === 'fill'
+                  : (c?.resizeMode || 'fit') === 'fill'
                     ? 'Text auto-scales to fill the box height.'
                     : 'Box resizes freely; text reflows to fit.'}
               </div>
-              {(editorCue?.resizeMode || 'fit') === 'fill' && (
+              {(c?.resizeMode || 'fit') === 'fill' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginBottom: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Min</label>
-                    <input type="range" min="14" max="100" step="1" value={editorCue?.fillMin ?? 18} onChange={(e) => updateCueThrottled(editorCueIdx, { fillMin: Number(e.target.value) })} style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.fillMin ?? 18}</span>
+                    <input type="range" min="14" max="100" step="1" value={c?.fillMin ?? 18} onChange={(e) => patchTextT({ fillMin: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.fillMin ?? 18}</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Max</label>
-                    <input type="range" min="40" max={FONT_SIZE_MAX} step="5" value={editorCue?.fillMax ?? 165} onChange={(e) => updateCueThrottled(editorCueIdx, { fillMax: Number(e.target.value) })} style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.fillMax ?? 165}</span>
+                    <input type="range" min="40" max={FONT_SIZE_MAX} step="5" value={c?.fillMax ?? 165} onChange={(e) => patchTextT({ fillMax: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.fillMax ?? 165}</span>
                   </div>
                 </div>
               )}
               <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4 }}>Display</div>
               <div style={{ display: 'flex', gap: 4 }}>
                 {[['static', 'Static'], ['ticker', 'Ticker']].map(([m, lbl]) => (
-                  <button key={m} onClick={() => updateCue(editorCueIdx, { layoutMode: m })} style={{ flex: 1, background: (editorCue?.layoutMode || 'static') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (editorCue?.layoutMode || 'static') === m ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                  <button key={m} onClick={() => patchText({ layoutMode: m })} style={{ flex: 1, background: (c?.layoutMode || 'static') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.layoutMode || 'static') === m ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
                 ))}
               </div>
-              {(editorCue?.layoutMode || 'static') === 'ticker' && (
+              {(c?.layoutMode || 'static') === 'ticker' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 6 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1, whiteSpace: 'nowrap' }}>Speed (sec)</label>
-                    <input type="range" min="4" max="90" step="1" value={editorCue?.tickerSpeed ?? 18} onChange={(e) => updateCueThrottled(editorCueIdx, { tickerSpeed: Number(e.target.value) })} style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.tickerSpeed ?? 18}</span>
+                    <input type="range" min="4" max="90" step="1" value={c?.tickerSpeed ?? 18} onChange={(e) => patchTextT({ tickerSpeed: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.tickerSpeed ?? 18}</span>
                   </div>
                   <div style={{ display: 'flex', gap: 4 }}>
                     {[['ltr', 'Scroll ←'], ['rtl', 'Scroll →']].map(([d, lbl]) => (
-                      <button key={d} onClick={() => updateCue(editorCueIdx, { tickerDir: d })} style={{ flex: 1, background: (editorCue?.tickerDir || 'ltr') === d ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (editorCue?.tickerDir || 'ltr') === d ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                      <button key={d} onClick={() => patchText({ tickerDir: d })} style={{ flex: 1, background: (c?.tickerDir || 'ltr') === d ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.tickerDir || 'ltr') === d ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
                     ))}
                   </div>
                 </div>
@@ -1097,7 +1526,7 @@ export default function SongEditorModal() {
             <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Typography</div>
               <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Font Family</label>
-              <FontPicker value={editorCue?.font || FONT_OPTIONS[0].value} choices={fontChoices} onChange={(v) => updateCue(editorCueIdx, { font: v })} C={C} />
+              <FontPicker value={c?.font || FONT_OPTIONS[0].value} choices={fontChoices} onChange={(v) => patchText({ font: v })} C={C} />
               <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
                 {[
                   ['bold', Bold, 'Bold', true],
@@ -1110,10 +1539,10 @@ export default function SongEditorModal() {
                   // slide, exactly as they always have.
                   const active = selMode
                     ? !!canvasSel.attrs[k]
-                    : (k === 'bold' ? (editorCue?.bold !== false) : !!(editorCue?.[k]));
+                    : (k === 'bold' ? (c?.bold !== false) : !!(c?.[k]));
                   const toggle = () => {
                     if (selMode) { canvasApiRef.current?.applyStyle({ [k]: !active }); return; }
-                    updateCue(editorCueIdx, { [k]: !active });
+                    patchText({ [k]: !active });
                   };
                   return (
                     // preventDefault on mousedown: the highlight only exists
@@ -1130,35 +1559,35 @@ export default function SongEditorModal() {
               </div>
               {selMode && (
                 <div style={{ fontSize: 9.5, fontWeight: 700, color: '#c4b5fd', marginTop: 5, letterSpacing: 0.2 }}>
-                  Highlighted text — B / I / U / S style only that; Size and the rest still set the whole slide
+                  Highlighted text — B / I / U / S and Glow style only that. The canvas chips also size, colour, face and tracking it.
                 </div>
               )}
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <div style={{ flex: 1 }}>
                   <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Size</label>
-                  <NumField key={`size-${editorCueIdx}`} value={editorCue?.size || DEFAULT_LYRIC_SIZE} min={FONT_SIZE_MIN} max={FONT_SIZE_MAX} onCommit={(size) => {
+                  <NumField key={`size-${editorCueIdx}-${activeObj}`} value={c?.size || DEFAULT_LYRIC_SIZE} min={FONT_SIZE_MIN} max={FONT_SIZE_MAX} onCommit={(size) => {
                     // The box follows the font: a bigger size grows the box so
                     // the text draws at full size, a smaller one tightens it —
                     // either way every line stays visible, never clipped.
                     // Fill mode exempt (box drives size there, not vice versa).
-                    const st = fitStFor(editorCue || {}, size);
-                    updateCue(editorCueIdx, { size, box: fitBoxToText(editorCue?.text || '', st, editorBox) });
+                    const st = fitStFor(c || {}, size);
+                    patchText({ size, box: fitBoxToText(c?.text || '', st, cBox) });
                   }} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
                 </div>
                 <div style={{ flex: 1 }}>
                   <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Line Ht</label>
-                  <NumField key={`lh-${editorCueIdx}`} value={editorCue?.lineHeight || 1.05} min={0.3} max={5} decimal onCommit={(lineHeight) => updateCue(editorCueIdx, { lineHeight })} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
+                  <NumField key={`lh-${editorCueIdx}-${activeObj}`} value={c?.lineHeight || 1.05} min={0.3} max={5} decimal onCommit={(lineHeight) => patchText({ lineHeight })} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
                 <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1, whiteSpace: 'nowrap' }}>Tracking</label>
-                <input type="range" min="-2" max="20" step="0.5" value={editorCue?.letterSpacing || 0} onChange={(e) => updateCueThrottled(editorCueIdx, { letterSpacing: Number(e.target.value) })} style={{ flex: 1 }} />
-                <span style={{ fontSize: 11, color: C.muted, width: 32, textAlign: 'right' }}>{editorCue?.letterSpacing || 0}</span>
+                <input type="range" min="-2" max="20" step="0.5" value={c?.letterSpacing || 0} onChange={(e) => patchTextT({ letterSpacing: Number(e.target.value) })} style={{ flex: 1 }} />
+                <span style={{ fontSize: 11, color: C.muted, width: 32, textAlign: 'right' }}>{c?.letterSpacing || 0}</span>
               </div>
               <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4, marginTop: 8 }}>Letter Case</label>
               <div style={{ display: 'flex', gap: 4 }}>
                 {[['none', 'Aa'], ['title', 'Aa'], ['upper', 'AA']].map(([m, lbl]) => (
-                  <button key={m} onClick={() => updateCue(editorCueIdx, { case: m })} style={{ flex: 1, background: (editorCue?.case || 'none') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (editorCue?.case || 'none') === m ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{m === 'title' ? 'Tt' : lbl}</button>
+                  <button key={m} onClick={() => patchText({ case: m })} style={{ flex: 1, background: (c?.case || 'none') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.case || 'none') === m ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{m === 'title' ? 'Tt' : lbl}</button>
                 ))}
               </div>
             </div>
@@ -1171,16 +1600,16 @@ export default function SongEditorModal() {
                 <ColorPicker
                   C={C}
                   ACCENT={ACCENT}
-                  value={editorCue?.color || '#ffffff'}
-                  gradient={!!editorCue?.gradient}
-                  color1={editorCue?.gradientColor1 || '#f5f5f4'}
-                  color2={editorCue?.gradientColor2 || '#93c5fd'}
-                  angle={editorCue?.gradientAngle ?? 180}
-                  onChange={(p) => updateCue(editorCueIdx, p)}
-                  onLiveChange={(p) => updateCueThrottled(editorCueIdx, p)}
+                  value={c?.color || '#ffffff'}
+                  gradient={!!c?.gradient}
+                  color1={c?.gradientColor1 || '#f5f5f4'}
+                  color2={c?.gradientColor2 || '#93c5fd'}
+                  angle={c?.gradientAngle ?? 180}
+                  onChange={(p) => patchText(p)}
+                  onLiveChange={(p) => patchTextT(p)}
                 />
               </div>
-              {[['shadow', `Shadow ${editorCue?.shadow ? 'ON' : 'OFF'}`], ['glow', `Glow ${(glowSelActive ? glowSel.attrs.glow : editorCue?.glow) ? 'ON' : 'OFF'}`], ['outline', `Outline ${editorCue?.outline ? 'ON' : 'OFF'}`], ['highlight', `Highlight ${editorCue?.highlight ? 'ON' : 'OFF'}`]].map(([k, lbl]) => (
+              {[['shadow', `Shadow ${c?.shadow ? 'ON' : 'OFF'}`], ['glow', `Glow ${(glowSelActive ? glowSel.attrs.glow : c?.glow) ? 'ON' : 'OFF'}`], ['outline', `Outline ${c?.outline ? 'ON' : 'OFF'}`], ['highlight', `Highlight ${c?.highlight ? 'ON' : 'OFF'}`]].map(([k, lbl]) => (
                 <button key={k} onMouseDown={(ev) => { if (k === 'glow' && (selMode || glowPicking)) ev.preventDefault(); }} onClick={() => {
                   // With text highlighted, Glow styles exactly that
                   // highlight; otherwise it styles the whole slide.
@@ -1194,35 +1623,33 @@ export default function SongEditorModal() {
                       return;
                     }
                   }
-                  updateCue(editorCueIdx, { [k]: !editorCue?.[k] });
-                }} style={{ width: '100%', background: (k === 'glow' && glowSelActive ? glowSel.attrs.glow : editorCue?.[k]) ? 'rgba(34,197,94,0.15)' : C.elevated2, border: '1px solid ' + ((k === 'glow' && glowSelActive ? glowSel.attrs.glow : editorCue?.[k]) ? 'rgba(34,197,94,0.5)' : 'var(--ui-border2)'), color: (k === 'glow' && glowSelActive ? glowSel.attrs.glow : editorCue?.[k]) ? '#4ade80' : C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', marginBottom: 4 }}>{lbl}</button>
+                  patchText({ [k]: !c?.[k] });
+                }} style={{ width: '100%', background: (k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? 'rgba(34,197,94,0.15)' : C.elevated2, border: '1px solid ' + ((k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? 'rgba(34,197,94,0.5)' : 'var(--ui-border2)'), color: (k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? '#4ade80' : C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', marginBottom: 4 }}>{lbl}</button>
               ))}
-              {editorCue?.shadow && (
+              {c?.shadow && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 2 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Color</label>
-                    <input type="color" value={editorCue?.shadowColor || '#000000'} onChange={(e) => updateCue(editorCueIdx, { shadowColor: e.target.value })} style={{ width: 30, height: 24, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
+                    <input type="color" value={c?.shadowColor || '#000000'} onChange={(e) => patchText({ shadowColor: e.target.value })} style={{ width: 30, height: 24, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Blur</label>
-                    <input type="range" min="0" max="40" step="1" value={editorCue?.shadowBlur ?? 14} onChange={(e) => updateCueThrottled(editorCueIdx, { shadowBlur: Number(e.target.value) })} style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.shadowBlur ?? 14}</span>
+                    <input type="range" min="0" max="40" step="1" value={c?.shadowBlur ?? 14} onChange={(e) => patchTextT({ shadowBlur: Number(e.target.value) })} style={{ flex: 1, minWidth: 0 }} />
+                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right', flexShrink: 0 }}>{c?.shadowBlur ?? 14}</span>
                   </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <label style={{ fontSize: 10, color: C.faint, fontWeight: 700 }}>X</label>
-                      <input type="range" min="-30" max="30" step="1" value={editorCue?.shadowOffsetX ?? 0} onChange={(e) => updateCueThrottled(editorCueIdx, { shadowOffsetX: Number(e.target.value) })} style={{ flex: 1 }} />
-                      <span style={{ fontSize: 11, color: C.muted, width: 24, textAlign: 'right' }}>{editorCue?.shadowOffsetX ?? 0}</span>
-                    </div>
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <label style={{ fontSize: 10, color: C.faint, fontWeight: 700 }}>Y</label>
-                      <input type="range" min="-30" max="30" step="1" value={editorCue?.shadowOffsetY ?? 4} onChange={(e) => updateCueThrottled(editorCueIdx, { shadowOffsetY: Number(e.target.value) })} style={{ flex: 1 }} />
-                      <span style={{ fontSize: 11, color: C.muted, width: 24, textAlign: 'right' }}>{editorCue?.shadowOffsetY ?? 4}</span>
-                    </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, width: 12, flexShrink: 0 }}>X</label>
+                    <input type="range" min="-30" max="30" step="1" value={c?.shadowOffsetX ?? 0} onChange={(e) => patchTextT({ shadowOffsetX: Number(e.target.value) })} style={{ flex: 1, minWidth: 0 }} />
+                    <span style={{ fontSize: 11, color: C.muted, width: 24, textAlign: 'right', flexShrink: 0 }}>{c?.shadowOffsetX ?? 0}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, width: 12, flexShrink: 0 }}>Y</label>
+                    <input type="range" min="-30" max="30" step="1" value={c?.shadowOffsetY ?? 4} onChange={(e) => patchTextT({ shadowOffsetY: Number(e.target.value) })} style={{ flex: 1, minWidth: 0 }} />
+                    <span style={{ fontSize: 11, color: C.muted, width: 24, textAlign: 'right', flexShrink: 0 }}>{c?.shadowOffsetY ?? 4}</span>
                   </div>
                 </div>
               )}
-              {(selMode || glowSelActive || editorCue?.glow) && (
+              {(selMode || glowSelActive || c?.glow) && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 2 }}>
                   {selMode && (
                     <div style={{ fontSize: 9.5, fontWeight: 700, color: '#c4b5fd', letterSpacing: 0.2 }}>
@@ -1231,16 +1658,16 @@ export default function SongEditorModal() {
                   )}
                   {selMode && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {GLOW_PRESETS.map((c) => {
-                        const selColor = typeof canvasSel?.attrs?.glowColor === 'string' ? canvasSel.attrs.glowColor : (canvasSel?.attrs?.glow ? (editorCue?.glowColor || '#22d3ee') : null);
-                        const on = selColor && selColor.toLowerCase() === c.toLowerCase();
+                      {GLOW_PRESETS.map((gc) => {
+                        const selColor = typeof canvasSel?.attrs?.glowColor === 'string' ? canvasSel.attrs.glowColor : (canvasSel?.attrs?.glow ? (c?.glowColor || '#22d3ee') : null);
+                        const on = selColor && selColor.toLowerCase() === gc.toLowerCase();
                         return (
                           <button
-                            key={c}
-                            title={`Glow the highlighted text ${c}`}
+                            key={gc}
+                            title={`Glow the highlighted text ${gc}`}
                             onMouseDown={(ev) => ev.preventDefault()}
-                            onClick={() => canvasApiRef.current?.applyStyle({ glow: c })}
-                            style={{ width: 26, height: 26, borderRadius: 7, background: c, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), boxShadow: on ? `0 0 0 2px ${ACCENT}` : 'none', cursor: 'pointer', padding: 0 }}
+                            onClick={() => canvasApiRef.current?.applyStyle({ glow: gc })}
+                            style={{ width: 26, height: 26, borderRadius: 7, background: gc, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), boxShadow: on ? `0 0 0 2px ${ACCENT}` : 'none', cursor: 'pointer', padding: 0 }}
                           />
                         );
                       })}
@@ -1249,7 +1676,7 @@ export default function SongEditorModal() {
                   {!selMode && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Glow color</label>
-                    <input ref={glowColorRef} key={`glowc-${editorCueIdx}`} type="color" defaultValue={editorCue?.glowColor || '#22d3ee'} onMouseDown={() => {
+                    <input ref={glowColorRef} key={`glowc-${editorCueIdx}-${activeObj}`} type="color" defaultValue={c?.glowColor || '#22d3ee'} onMouseDown={() => {
                       setGlowPicking(true);
                       // Fresh intent: with no live highlight the latch (if any)
                       // is a word from an earlier pick, not this visit.
@@ -1257,7 +1684,7 @@ export default function SongEditorModal() {
                     }} onInput={(e) => {
                       if (!paintGlowSelection(e.target.value)) canvasApiRef.current?.previewGlow?.(e.target.value);
                     }} onChange={(e) => {
-                      if (!paintGlowSelection(e.target.value)) updateCue(editorCueIdx, { glowColor: e.target.value });
+                      if (!paintGlowSelection(e.target.value)) patchText({ glowColor: e.target.value });
                       canvasApiRef.current?.clearGlowPreview?.();
                       finishGlowPick();
                     }} onBlur={() => {
@@ -1270,34 +1697,66 @@ export default function SongEditorModal() {
                   )}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Strength</label>
-                    <input type="range" min="0" max="60" step="1" value={editorCue?.glowBlur ?? 18} onChange={(e) => updateCueThrottled(editorCueIdx, { glowBlur: Number(e.target.value) })} style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.glowBlur ?? 18}</span>
+                    <input type="range" min="0" max="60" step="1" value={c?.glowBlur ?? 18} onChange={(e) => patchTextT({ glowBlur: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.glowBlur ?? 18}</span>
                   </div>
                 </div>
               )}
-              {editorCue?.outline && (
+              {c?.outline && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 2 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Stroke</label>
-                    <input type="color" value={editorCue?.strokeColor || '#000000'} onChange={(e) => updateCue(editorCueIdx, { strokeColor: e.target.value })} style={{ width: 30, height: 24, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
+                    <input type="color" value={c?.strokeColor || '#000000'} onChange={(e) => patchText({ strokeColor: e.target.value })} style={{ width: 30, height: 24, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Width</label>
-                    <input type="range" min="0" max="8" step="0.5" value={editorCue?.strokeWidth ?? 1.5} onChange={(e) => updateCueThrottled(editorCueIdx, { strokeWidth: Number(e.target.value) })} style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.strokeWidth ?? 1.5}</span>
+                    <input type="range" min="0" max="8" step="0.5" value={c?.strokeWidth ?? 1.5} onChange={(e) => patchTextT({ strokeWidth: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.strokeWidth ?? 1.5}</span>
                   </div>
                 </div>
               )}
               {/* Gradient moved into the color picker: the Solid | Gradient
                   segmented control in the popover owns gradient on/off, both
                   stops and the angle. */}
-              {editorCue?.highlight && (
+              {c?.highlight && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Opacity</label>
-                  <input type="range" min="10" max="90" value={editorCue?.hlOpacity ?? 40} onChange={(e) => updateCueThrottled(editorCueIdx, { hlOpacity: Number(e.target.value) })} style={{ flex: 1 }} />
-                  <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{editorCue?.hlOpacity ?? 40}%</span>
+                  <input type="range" min="10" max="90" value={c?.hlOpacity ?? 40} onChange={(e) => patchTextT({ hlOpacity: Number(e.target.value) })} style={{ flex: 1 }} />
+                  <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.hlOpacity ?? 40}%</span>
                 </div>
               )}
+              {/* LAYER FILL — whole-text opacity, blend, and hollow/stroke-only
+                  type. Outline width is shared with the Outline toggle above, so
+                  turning stroke-only on never silently renders nothing. */}
+              <div style={{ borderTop: '1px solid var(--ui-border2)', marginTop: 8, paddingTop: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Text opacity</label>
+                  <input type="range" min="0" max="100" step="1" value={c?.opacity ?? 100} onChange={(e) => patchTextT({ opacity: Number(e.target.value) })} style={{ flex: 1 }} />
+                  <span style={{ fontSize: 11, color: C.muted, width: 30, textAlign: 'right' }}>{c?.opacity ?? 100}%</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                  <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, whiteSpace: 'nowrap' }}>Blend</label>
+                  <select
+                    value={c?.blendMode || 'normal'}
+                    onChange={(e) => patchText({ blendMode: e.target.value })}
+                    title="How this text layer mixes with the background and the ghost layer"
+                    style={{ flex: 1, minWidth: 0, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '5px 6px', fontSize: 10.5, outline: 'none' }}
+                  >
+                    {['normal', 'overlay', 'screen', 'soft-light', 'multiply', 'lighten', 'darken', 'color-dodge'].map((b) => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </div>
+                <button
+                  onClick={() => patchText({ strokeOnly: !c?.strokeOnly, outline: c?.strokeOnly ? c?.outline : true })}
+                  title="Hollow type: keep the stroke and drop the fill (the same look the ghost layer uses)"
+                  style={{
+                    width: '100%', marginTop: 6,
+                    background: c?.strokeOnly ? 'rgba(139,92,246,0.18)' : C.elevated2,
+                    border: `1px solid ${c?.strokeOnly ? 'rgba(139,92,246,0.55)' : 'var(--ui-border2)'}`,
+                    color: c?.strokeOnly ? '#c4b5fd' : C.muted,
+                    borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer',
+                  }}
+                >{c?.strokeOnly ? 'Hollow / stroke only ON' : 'Hollow / stroke only OFF'}</button>
+              </div>
             </div>
 
             {/* TRANSITIONS */}
@@ -1356,11 +1815,52 @@ export default function SongEditorModal() {
                   );
                 })}
               </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }} title="Overrides the Speed buttons for this slide only">This slide (sec)</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="10"
+                  step="0.05"
+                  value={editorCue?.transDuration ?? 0}
+                  onChange={(e) => updateCue(editorCueIdx, { transDuration: Math.max(0, Number(e.target.value) || 0) })}
+                  title="0 = use the Speed preset. Any other value is this slide's own transition duration."
+                  style={{ width: 68, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px', fontSize: 11, textAlign: 'center', outline: 'none' }}
+                />
+                <button
+                  onClick={() => updateCue(editorCueIdx, { transDuration: 0 })}
+                  title="Clear the per-slide override and use the Speed preset"
+                  style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: (editorCue?.transDuration || 0) > 0 ? '#c4b5fd' : C.faint, borderRadius: 6, padding: '6px 8px', fontSize: 9.5, fontWeight: 800, cursor: 'pointer' }}
+                >Auto</button>
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
                 <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, whiteSpace: 'nowrap' }}>Auto Next (sec)</label>
                 <input type="number" min="0" value={editorCue?.autoNext ?? 0} onChange={(e) => updateCue(editorCueIdx, { autoNext: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} style={{ width: 60, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
               </div>
             </div>
+
+            {editorCue && (
+              <CinematicPanel
+                C={C}
+                ACCENT={ACCENT}
+                cue={editorCue}
+                presets={cinePresets}
+                scope={cineScope}
+                onScopeChange={setCineScope}
+                onPatch={(patch) => updateCue(editorCueIdx, patch)}
+                onPatchLive={(patch) => updateCueThrottled(editorCueIdx, patch)}
+                onApplyPreset={applyCinematicPreset}
+                onSavePreset={saveCinematicPreset}
+                onDeletePreset={removeCinematicPreset}
+                onGhostSource={setGhostSource}
+                onGhostLastLine={moveLastLineToGhost}
+                ghostContext={ghostContext}
+                textBoxes={textObjs}
+                boxTarget={cineBoxTarget}
+                onBoxTargetChange={setCineBoxTarget}
+                sourceLabel={activeIdx > 0 ? `Box ${activeIdx + 1}` : 'Main text'}
+              />
+            )}
 
             {/* ONE apply-to-all. Sticky so it stays reachable however far the
                 sidebar has been scrolled. */}
@@ -1398,62 +1898,70 @@ export default function SongEditorModal() {
               <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {editorCue ? (
                 <LyricsCanvasEditor
-                  text={editorCue.text || ''}
-                  fontFamily={editorCue.font || FONT_OPTIONS[0].value}
-                  fontSize={Number(editorCue.size) || DEFAULT_LYRIC_SIZE}
-                  fontColor={editorCue.color || '#ffffff'}
-                  textAlign={editorCue.align || 'center'}
-                  lineHeight={editorCue.lineHeight || 1.05}
-                  letterSpacing={editorCue.letterSpacing || 0}
-                  strokeColor={editorCue.outline ? (editorCue.strokeColor || '#000000') : 'transparent'}
-                  strokeWidth={editorCue.outline ? (editorCue.strokeWidth || 1.5) : 0}
-                  shadowColor={editorCue.shadow ? (editorCue.shadowColor || '#000000') : 'transparent'}
-                  shadowBlur={editorCue.shadow ? (editorCue.shadowBlur ?? 14) : 0}
-                  shadowOffsetX={editorCue.shadowOffsetX ?? 0}
-                  shadowOffsetY={editorCue.shadowOffsetY ?? 4}
-                  glow={!!editorCue.glow}
-                  glowColor={editorCue.glowColor || '#22d3ee'}
-                  glowBlur={editorCue.glowBlur ?? 18}
-                  gradient={!!editorCue.gradient}
-                  gradientColor1={editorCue.gradientColor1 || '#f5f5f4'}
-                  gradientColor2={editorCue.gradientColor2 || '#93c5fd'}
-                  gradientAngle={editorCue.gradientAngle ?? 180}
-                  box={editorBox}
+                  text={c.text || ''}
+                  fontFamily={c.font || FONT_OPTIONS[0].value}
+                  fontSize={Number(c.size) || DEFAULT_LYRIC_SIZE}
+                  fontColor={c.color || '#ffffff'}
+                  textAlign={c.align || 'center'}
+                  lineHeight={c.lineHeight || 1.05}
+                  letterSpacing={c.letterSpacing || 0}
+                  strokeColor={c.outline ? (c.strokeColor || '#000000') : 'transparent'}
+                  strokeWidth={c.outline ? (c.strokeWidth || 1.5) : 0}
+                  shadowColor={c.shadow ? (c.shadowColor || '#000000') : 'transparent'}
+                  shadowBlur={c.shadow ? (c.shadowBlur ?? 14) : 0}
+                  shadowOffsetX={c.shadowOffsetX ?? 0}
+                  shadowOffsetY={c.shadowOffsetY ?? 4}
+                  glow={!!c.glow}
+                  glowColor={c.glowColor || '#22d3ee'}
+                  glowBlur={c.glowBlur ?? 18}
+                  gradient={!!c.gradient}
+                  gradientColor1={c.gradientColor1 || '#f5f5f4'}
+                  gradientColor2={c.gradientColor2 || '#93c5fd'}
+                  gradientAngle={c.gradientAngle ?? 180}
+                  box={cBox}
                   bgType={resolveBg(editorCue, editingSong)?.type || 'color'}
                   bgValue={resolveBg(editorCue, editingSong)?.value || '#000000'}
                   cueLocked={!!editorCue.locked}
-                  highlight={!!editorCue.highlight}
-                  hlOpacity={editorCue.hlOpacity ?? 40}
-                  caseMode={editorCue.case || 'none'}
-                  bold={editorCue.bold !== false}
-                  italic={!!editorCue.italic}
-                  underline={!!editorCue.underline}
-                  strike={!!editorCue.strike}
-                  valign={editorCue.valign || 'middle'}
-                  pad={editorCue.pad}
-                  fill={editorCue?.resizeMode === 'fill'}
-                  resizeMode={editorCue?.resizeMode || 'fit'}
-                  fillMax={editorCue?.fillMax ?? 165}
-                  fillMin={editorCue?.fillMin ?? 18}
-                  layoutMode={editorCue?.layoutMode || 'static'}
-                  tickerSpeed={editorCue?.tickerSpeed ?? 18}
-                  tickerDir={editorCue?.tickerDir || 'ltr'}
+                  highlight={!!c.highlight}
+                  hlOpacity={c.hlOpacity ?? 40}
+                  caseMode={c.case || 'none'}
+                  bold={c.bold !== false}
+                  italic={!!c.italic}
+                  underline={!!c.underline}
+                  strike={!!c.strike}
+                  valign={c.valign || 'middle'}
+                  pad={c.pad}
+                  fill={c?.resizeMode === 'fill'}
+                  resizeMode={c?.resizeMode || 'fit'}
+                  fillMax={c?.fillMax ?? 165}
+                  fillMin={c?.fillMin ?? 18}
+                  layoutMode={c?.layoutMode || 'static'}
+                  tickerSpeed={c?.tickerSpeed ?? 18}
+                  tickerDir={c?.tickerDir || 'ltr'}
+                  objects={textObjs}
+                  activeObj={activeIdx}
+                  onSelectObj={(i) => { canvasApiRef.current?.flush?.(); setActiveObj(i); }}
+                  onObjBoxChange={(i, b) => updateTextObject(editorCueIdx, i, { box: b })}
                   previewAnim={hoverAnim}
                   previewTick={previewTick}
-                  previewSpeed={editorCue?.speed ?? 0.5}                  onTextChange={(t) => {
+                  previewSpeed={editorCue?.transDuration || editorCue?.speed || 0.5}
+                  fx={editorCue?.fx || null}
+                  bgFx={editorCue?.bg_fx || null}
+                  ghost={ghostLayerOf(editorCue)}
+                  onTextChange={(t) => {
                     // Grow-only refit: text typed in the manual builder can
                     // grow its box so every line stays visible at the full
                     // font size — but it never SHRINKS a box here (parse,
                     // size and Apply own the exact fit), so a compact or
                     // hand-dragged box survives a typo fix. Locked = untouched.
                     const patch = { text: t };
-                    if (!editorCue?.locked) {
-                      patch.box = growBoxToText(t, fitStFor(editorCue || {}), editorBox);
+                    if (!c?.locked) {
+                      patch.box = growBoxToText(t, fitStFor(c || {}), cBox);
                     }
-                    updateCue(editorCueIdx, patch);
+                    patchText(patch);
                   }}
-                  onBoxChange={(b) => updateCue(editorCueIdx, { box: b })}
-                  onSizeChange={(s) => updateCue(editorCueIdx, { size: s })}
+                  onBoxChange={(b) => patchText({ box: b })}
+                  onSizeChange={(s) => patchText({ size: s })}
                   apiRef={canvasApiRef}
                   onSelectionChange={setCanvasSel}
                 />
@@ -1463,12 +1971,48 @@ export default function SongEditorModal() {
               </div>
             </div>
 
+            {/* TEXT BOXES — one chip per box on this slide. Selecting a chip
+                (or clicking a box straight on the canvas) is what the sidebar,
+                the toolbar and the canvas chips then style, so "which box am I
+                editing?" is always one glance away — and Add is here because
+                one text box per slide used to be a hard limit. */}
+            <div style={{ padding: '6px 12px', borderTop: '1px solid var(--ui-border2)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, marginRight: 2 }}>Boxes</span>
+              {textObjs.map((o, i) => {
+                const on = activeIdx === i;
+                const short = i === 0 ? 'Main' : (stripMarkup(o.text || '').replace(/\s+/g, ' ').trim().slice(0, 16) || `Box ${i}`);
+                return (
+                  <button
+                    key={o.id || i}
+                    onClick={() => selectTextBox(i)}
+                    title={i === 0 ? 'The main lyric of this slide' : `Extra text box ${i} — ${stripMarkup(o.text || '').replace(/\s+/g, ' ').trim().slice(0, 60) || 'empty — select it and type'}`}
+                    style={{ background: on ? 'rgba(0,170,255,0.16)' : C.elevated, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? C.text : C.muted, borderRadius: 999, padding: '4px 9px', fontSize: 10, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                  ><Type size={11} />{short}</button>
+                );
+              })}
+              {editorCueIdx >= 0 ? (
+                <>
+                  <ToolbarBtn onClick={addTextBox} title="Add another text box on this slide — a kicker, a scripture reference, a translation. Every box gets its own font, size, colour and position."><Plus size={13} /> <span>Add box</span></ToolbarBtn>
+                  <ToolbarBtn onClick={duplicateTextBox} disabled={activeIdx === 0} title="Duplicate the selected box"><Copy size={13} /></ToolbarBtn>
+                  <ToolbarBtn danger onClick={deleteTextBox} disabled={activeIdx === 0} title="Delete the selected box — the main lyric always stays"><Trash2 size={13} /></ToolbarBtn>
+                  <ToolbarBtn onClick={() => moveTextObjectInCue(editorCueIdx, activeIdx, 'front')} disabled={activeIdx === 0 || activeIdx >= textObjs.length - 1} title="Draw this box in front of the others"><BringToFront size={13} /></ToolbarBtn>
+                  <ToolbarBtn onClick={() => moveTextObjectInCue(editorCueIdx, activeIdx, 'back')} disabled={activeIdx <= 1} title="Draw this box behind the others"><SendToBack size={13} /></ToolbarBtn>
+                </>
+              ) : (
+                <span style={{ fontSize: 10, color: C.faint }}>Title slide — one text box</span>
+              )}
+              <div style={{ flex: 1 }} />
+              <span style={{ fontSize: 10, fontWeight: 700, color: activeIdx > 0 ? '#c4b5fd' : C.faint2, background: activeIdx > 0 ? 'rgba(139,92,246,0.14)' : 'transparent', border: '1px solid ' + (activeIdx > 0 ? 'rgba(139,92,246,0.4)' : 'transparent'), borderRadius: 999, padding: '3px 8px', whiteSpace: 'nowrap' }}>
+                {activeIdx > 0 ? 'Styling an extra box' : 'Styling the main lyric'}
+              </span>
+            </div>
+
             {/* toolbar — sits UNDER the canvas so the stage starts higher in
                 the column; buttons and behaviour are unchanged. The divider
                 moved from bottom to top for the same reason. */}
             <div style={{ padding: '8px 12px', borderTop: '1px solid var(--ui-border2)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || []), { label: 'Verse 1', text: '', box: DEFAULT_BOX }]; setEditingSong({ ...editingSong, cues }); setEditorCueIdx(cues.length - 1); startRename(cues.length - 1, cues[cues.length - 1], 'strip'); }} title="Add a new slide"><Plus size={14} /> <span>New Slide</span></ToolbarBtn>
-              <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || [])]; if (!cues.length) { cues.push({ label: 'Verse 1', text: '', box: DEFAULT_BOX, locked: false }); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(0); } else if (editorCueIdx >= 0 && cues[editorCueIdx] && !cues[editorCueIdx].box) { cues[editorCueIdx] = { ...cues[editorCueIdx], box: DEFAULT_BOX, locked: false }; setEditingSong({ ...editingSong, cues }); } }} title="Add/edit text box on this slide"><Type size={14} /> <span>Text</span></ToolbarBtn>
+              <ToolbarBtn onClick={() => setThemeOpen(true)} title="Song themes — apply a house look to this slide or the whole song"><PaletteIcon size={14} /> <span>Theme</span></ToolbarBtn>
               <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
               <ToolbarBtn onClick={undo} disabled={!hist.undo} title="Undo — Ctrl+Z. Takes back the last change (typing, sizes, a deleted slide, an Apply)"><Undo2 size={14} /></ToolbarBtn>
               <ToolbarBtn onClick={redo} disabled={!hist.redo} title="Redo — Ctrl+Shift+Z or Ctrl+Y"><Redo2 size={14} /></ToolbarBtn>
@@ -1477,15 +2021,15 @@ export default function SongEditorModal() {
               <ToolbarBtn danger onClick={() => { if (editorCueIdx < 0) return; const cues = [...(editingSong.cues || [])]; if (!cues.length) return; cues.splice(editorCueIdx, 1); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(Math.min(editorCueIdx, Math.max(0, cues.length - 1))); }} title="Delete slide"><Trash2 size={14} /></ToolbarBtn>
               <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
               {[['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight], ['justify', AlignHorizontalJustifyCenter]].map(([a, Icon]) => (
-                <ToolbarBtn key={a} onClick={() => updateCue(editorCueIdx, { align: a })} title={`Align ${a}`} active={(editorCue?.align || 'center') === a}><Icon size={14} /></ToolbarBtn>
+                <ToolbarBtn key={a} onClick={() => patchText({ align: a })} title={`Align ${a}`} active={(c?.align || 'center') === a}><Icon size={14} /></ToolbarBtn>
               ))}
               <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
               {[['top', AlignVerticalJustifyStart], ['middle', AlignVerticalJustifyCenter], ['bottom', AlignVerticalJustifyEnd]].map(([v, Icon]) => (
-                <ToolbarBtn key={v} onClick={() => updateCue(editorCueIdx, { valign: v })} title={`Vertical ${v}`} active={(editorCue?.valign || 'middle') === v}><Icon size={14} /></ToolbarBtn>
+                <ToolbarBtn key={v} onClick={() => patchText({ valign: v })} title={`Vertical ${v}`} active={(c?.valign || 'middle') === v}><Icon size={14} /></ToolbarBtn>
               ))}
               <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
-              <ToolbarBtn onClick={() => updateCue(editorCueIdx, { stack: 'front' })} title="Bring forward"><BringToFront size={14} /></ToolbarBtn>
-              <ToolbarBtn onClick={() => updateCue(editorCueIdx, { stack: 'back' })} title="Send back"><SendToBack size={14} /></ToolbarBtn>
+              <ToolbarBtn onClick={() => moveTextObjectInCue(editorCueIdx, activeIdx, 'front')} disabled={activeIdx === 0 || activeIdx >= textObjs.length - 1} title="Draw the selected box in front of the others"><BringToFront size={14} /></ToolbarBtn>
+              <ToolbarBtn onClick={() => moveTextObjectInCue(editorCueIdx, activeIdx, 'back')} disabled={activeIdx <= 1} title="Draw the selected box behind the others"><SendToBack size={14} /></ToolbarBtn>
               <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
               <div style={{ flex: 1 }} />
               <span style={{ fontSize: 10.5, fontWeight: 700, color: C.faint2, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '3px 9px' }}>
@@ -1501,6 +2045,11 @@ export default function SongEditorModal() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Slides</span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <button
+                    onClick={() => (applySel.length ? setApplySel([]) : selectAllSlides())}
+                    title={applySel.length ? 'Clear the ticks' : 'Tick every slide (title included) for bulk actions'}
+                    style={{ background: applySel.length ? 'rgba(139,92,246,0.2)' : C.elevated, border: '1px solid ' + (applySel.length ? 'rgba(139,92,246,0.55)' : 'var(--ui-border2)'), color: applySel.length ? '#c4b5fd' : C.muted, borderRadius: 6, padding: '4px 7px', fontSize: 10, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
+                  ><CheckSquare size={11} /> {applySel.length ? `${applySel.length} ticked` : 'Select'}</button>
                   {/* Live count: every change re-flows the blocks immediately —
                       the number is not a setting you confirm elsewhere. An empty
                       or half-typed value waits for blur rather than rebuilding
@@ -1509,6 +2058,15 @@ export default function SongEditorModal() {
                   <button onClick={() => splitCuesToLines()} title="Re-flow every section to N lines — merges (Part n) slides back together, or cuts long ones. Changing the number above already does this." style={{ background: '#1e1b4b', border: '1px solid ' + ACCENT, color: C.accLine, borderRadius: 6, padding: '4px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}><AlignLeft size={11} /> Split</button>
                 </div>
               </div>
+              {applySel.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8, background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.38)', borderRadius: 8, padding: '5px 7px' }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: '#c4b5fd', whiteSpace: 'nowrap' }}>{applySel.length} ticked</span>
+                  <span style={{ flex: 1 }} />
+                  <button onClick={duplicateSelected} title="Duplicate every ticked slide" style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 5, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}><Copy size={10} /> Copy</button>
+                  <button onClick={deleteSelectedSlides} title="Delete every ticked lyric slide (Ctrl+Z brings them back)" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', borderRadius: 5, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}><Trash2 size={10} /> Delete</button>
+                  <button onClick={() => setApplySel([])} title="Clear the ticks" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.faint, borderRadius: 5, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</button>
+                </div>
+              )}
               <div style={{ display: 'grid', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
                 {/* Title Slide Thumbnail */}
                 <div onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); dropCue(dragFrom, 0, 'before', false); }} onClick={(e) => slideClick(e, -1)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: editorCueIdx === -1 ? 'rgba(139,92,246,0.16)' : C.elevated, border: dragFrom != null ? '1px dashed ' + ACCENT : (editorCueIdx === -1 ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(-1) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
@@ -1576,6 +2134,16 @@ export default function SongEditorModal() {
                                     <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
                                       {renderLyricsLayout(c.text || '', st, box)}
                                     </div>
+                                    {/* Extra text boxes, drawn on the thumb the
+                                        same way the projector draws them. */}
+                                    {textObjectLayers(c).map((t, ti) => {
+                                      const tb = t.lyric.box;
+                                      return (
+                                        <div key={`tx-${ti}`} style={{ position: 'absolute', left: tb.x, top: tb.y, width: tb.w, height: tb.h, transform: tb.angle ? `rotate(${tb.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+                                          {renderLyricsLayout(t.text, { ...t.lyric, layoutMode: 'static' }, tb)}
+                                        </div>
+                                      );
+                                    })}
                                   </TileCanvas>
                                 );
                               })()}
@@ -1745,6 +2313,23 @@ export default function SongEditorModal() {
         </>
       </TabPanel>
     </Tabs>
+
+    {themeOpen && (
+      <SongThemePicker
+        C={C}
+        ACCENT={ACCENT}
+        themes={themes}
+        initialId={lastSongThemeId()}
+        canSave={!!editorCue && editorCueIdx !== -1}
+        canSaveTitle={editorCueIdx !== -1}
+        currentLabel={editorCueIdx === -1 ? 'Title slide' : `Slide ${editorCueIdx + 1}`}
+        onApply={applySongTheme}
+        onSaveCurrent={saveLookAsTheme}
+        onUpdateCurrent={updateLookTheme}
+        onDeleteCustom={removeLookTheme}
+        onClose={() => setThemeOpen(false)}
+      />
+    )}
 
     {/* ===== FOOTER ===== */}
     <div style={{ position: 'relative', padding: '10px 16px', borderTop: '1px solid var(--ui-border2)', display: 'flex', justifyContent: 'flex-end', gap: 10, flexShrink: 0 }}>

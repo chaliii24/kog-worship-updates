@@ -5,9 +5,9 @@ export const formatCountdown = (seconds) => {
   return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
 };
 
-export const TRANSITIONS = ['None', 'Fade', 'Slide Up', 'Slide Down', 'Slide Left', 'Slide Right', 'Zoom In', 'Zoom Out', 'Word Fade', 'Word Rise', 'Line Reveal', 'Type On', 'Character Cascade', 'Pulse', 'Shimmer', 'Blur In', 'Flip', 'Bounce', 'Drop', 'Sway', 'Split', 'Wipe Up', 'Spin', 'Neon'];
+export const TRANSITIONS = ['Hard Cut', 'None', 'Fade', 'Crossfade', 'Slide Up', 'Slide Down', 'Slide Left', 'Slide Right', 'Zoom In', 'Zoom Out', 'Word Fade', 'Word Rise', 'Line Reveal', 'Type On', 'Character Cascade', 'Pulse', 'Shimmer', 'Blur In', 'Flip', 'Bounce', 'Drop', 'Sway', 'Split', 'Wipe Up', 'Spin', 'Neon', 'Glitch', 'Distortion', 'Zoom Blur', 'Whip Pan'];
 
-export const TRANSITION_KEYS = { 'None': 'none', 'Fade': 'fade', 'Slide Up': 'slide-up', 'Slide Down': 'slide-down', 'Slide Left': 'slide-left', 'Slide Right': 'slide-right', 'Zoom In': 'zoom-in', 'Zoom Out': 'zoom-out', 'Word Fade': 'word-fade', 'Word Rise': 'word-rise', 'Line Reveal': 'line-reveal', 'Type On': 'type-on', 'Character Cascade': 'char-cascade', 'Pulse': 'pulse', 'Shimmer': 'shimmer', 'Blur In': 'blur-in', 'Flip': 'flip', 'Bounce': 'bounce', 'Drop': 'drop', 'Sway': 'sway', 'Split': 'split', 'Wipe Up': 'wipe-up', 'Spin': 'spin', 'Neon': 'neon' };
+export const TRANSITION_KEYS = { 'Hard Cut': 'hard-cut', 'None': 'none', 'Fade': 'fade', 'Crossfade': 'crossfade', 'Slide Up': 'slide-up', 'Slide Down': 'slide-down', 'Slide Left': 'slide-left', 'Slide Right': 'slide-right', 'Zoom In': 'zoom-in', 'Zoom Out': 'zoom-out', 'Word Fade': 'word-fade', 'Word Rise': 'word-rise', 'Line Reveal': 'line-reveal', 'Type On': 'type-on', 'Character Cascade': 'char-cascade', 'Pulse': 'pulse', 'Shimmer': 'shimmer', 'Blur In': 'blur-in', 'Flip': 'flip', 'Bounce': 'bounce', 'Drop': 'drop', 'Sway': 'sway', 'Split': 'split', 'Wipe Up': 'wipe-up', 'Spin': 'spin', 'Neon': 'neon', 'Glitch': 'glitch', 'Distortion': 'distort', 'Zoom Blur': 'zoom-blur', 'Whip Pan': 'whip' };
 
 export const SPEED_OPTIONS = [{ label: 'Very Fast', v: 0.15 }, { label: 'Fast', v: 0.3 }, { label: 'Medium', v: 0.5 }, { label: 'Slow', v: 1.0 }, { label: 'Very Slow', v: 1.5 }];
 
@@ -48,8 +48,13 @@ export const transitionAnimation = (trans, speed) => {
     'wipe-up': `wipeUp ${transitionSpeed} ease-out`,
     'spin': `spinIn ${transitionSpeed} ease-out`,
     'neon': `neonFlash ${transitionSpeed} linear`,
+    'crossfade': `crossfadeIn ${transitionSpeed} ease-in-out`,
+    'glitch': `glitchIn ${transitionSpeed} steps(12)`,
+    'distort': `distortIn ${transitionSpeed} ease-out`,
+    'zoom-blur': `zoomBlurIn ${transitionSpeed} ease-out`,
+    'whip': `whipIn ${transitionSpeed} cubic-bezier(.52,.02,.24,1)`,
   };
-  return (trans && trans !== 'none' && map[trans]) || '';
+  return (trans && trans !== 'none' && trans !== 'hard-cut' && map[trans]) || '';
 };
 
 // Keyframes for the transitions above — inject once per window that animates
@@ -78,17 +83,45 @@ export const TRANSITION_KEYFRAMES = `
 @keyframes wipeUp { 0% { clip-path: inset(100% 0 0 0); } 100% { clip-path: inset(0 0 0 0); } }
 @keyframes spinIn { 0% { opacity: 0; transform: rotate(-180deg) scale(0.5); } 100% { opacity: 1; transform: rotate(0) scale(1); } }
 @keyframes neonFlash { 0% { opacity: 0; } 8% { opacity: 1; } 14% { opacity: 0.15; } 20% { opacity: 1; } 28% { opacity: 0.35; } 36% { opacity: 1; } 100% { opacity: 1; } }
+@keyframes crossfadeIn { from { opacity: 0; filter: blur(3px); } to { opacity: 1; filter: blur(0); } }
+@keyframes glitchIn {
+  0% { opacity: 0; transform: translateX(-14px) skewX(6deg); clip-path: inset(12% 0 58% 0); }
+  12% { opacity: 1; transform: translateX(12px) skewX(-5deg); clip-path: inset(52% 0 8% 0); }
+  24% { opacity: 0.35; transform: translateX(-7px) skewX(3deg); clip-path: inset(4% 0 76% 0); }
+  38% { opacity: 1; transform: translateX(6px) skewX(-2deg); clip-path: inset(28% 0 34% 0); }
+  52% { opacity: 0.65; transform: translateX(-3px); clip-path: inset(62% 0 2% 0); }
+  70% { opacity: 1; transform: translateX(2px); clip-path: inset(0 0 0 0); }
+  100% { opacity: 1; transform: translateX(0); clip-path: inset(0 0 0 0); }
+}
+@keyframes distortIn {
+  0% { opacity: 0; transform: scale(1.22) skewX(-10deg); filter: blur(10px) contrast(1.6); }
+  55% { opacity: 1; transform: scale(1.03) skewX(3deg); filter: blur(2px) contrast(1.15); }
+  100% { opacity: 1; transform: scale(1) skewX(0); filter: blur(0) contrast(1); }
+}
+@keyframes zoomBlurIn {
+  0% { opacity: 0; transform: scale(1.45); filter: blur(18px); }
+  60% { opacity: 1; filter: blur(3px); }
+  100% { opacity: 1; transform: scale(1); filter: blur(0); }
+}
+@keyframes whipIn {
+  0% { opacity: 0; transform: translateX(16%) skewX(-9deg); filter: blur(8px); }
+  100% { opacity: 1; transform: translateX(0) skewX(0); filter: blur(0); }
+}
 `;
 
 // Common Windows fonts used when queryLocalFonts() is unavailable/denied.
+// The list is alphabetical-ish by family and deliberately includes the
+// non-Latin faces Windows ships (Mongolian Baiti, Mangal, Microsoft Uighur…):
+// a face without Latin glyphs still has to be PICKABLE by name.
 export const FALLBACK_SYSTEM_FONTS = [
   'Arial', 'Arial Black', 'Bahnschrift', 'Calibri', 'Calibri Light', 'Cambria', 'Candara',
-  'Comic Sans MS', 'Consolas', 'Constantia', 'Corbel', 'Courier New', 'Franklin Gothic Medium',
-  'Gabriola', 'Garamond', 'Georgia', 'Impact', 'Ink Free', 'Lucida Console', 'Lucida Sans Unicode',
-  'Malgun Gothic', 'Microsoft Himalaya', 'Microsoft JhengHei', 'Microsoft YaHei', 'Microsoft Sans Serif',
-  'MS Gothic', 'MV Boli', 'Nirmala UI', 'Palatino Linotype', 'Roboto', 'Segoe UI', 'Segoe UI Light',
-  'Segoe UI Semibold', 'Segoe UI Symbol', 'Sitka', 'Sylfaen', 'Tahoma', 'Times New Roman',
-  'Trebuchet MS', 'Verdana', 'Yu Gothic'
+  'Comic Sans MS', 'Consolas', 'Constantia', 'Corbel', 'Courier New', 'Ebrima', 'Franklin Gothic Medium',
+  'Gabriola', 'Garamond', 'Georgia', 'Impact', 'Ink Free', 'Kartika', 'Kokila', 'Lucida Console',
+  'Lucida Sans Unicode', 'Malgun Gothic', 'Mangal', 'Microsoft Himalaya', 'Microsoft JhengHei',
+  'Microsoft YaHei', 'Microsoft Sans Serif', 'Microsoft Uighur', 'Mongolian Baiti', 'MS Gothic',
+  'MV Boli', 'Nirmala UI', 'Palatino Linotype', 'Roboto', 'Segoe UI', 'Segoe UI Light',
+  'Segoe UI Semibold', 'Segoe UI Symbol', 'Shruti', 'Sitka', 'Sylfaen', 'Tahoma', 'Times New Roman',
+  'Trebuchet MS', 'Tunga', 'Verdana', 'Vrinda', 'Yu Gothic', 'Yu Gothic UI'
 ];
 
 // Song/lyric font presets — every entry maps to an @font-face in src/index.css
@@ -118,4 +151,8 @@ export const FONT_OPTIONS = [
   // Real 400/700/900 weights behind ONE family, so bold/italic toggles pick
   // a true face instead of a synthesized one.
   { label: 'Cinzel Decorative', value: '"Cinzel Decorative", Georgia, serif' },
+  // Anton - condensed display face (assets/fonts/anton, OFL.txt ships with
+  // it). Bundled so it is in the dropdown on every machine, not only where
+  // the font happens to be installed.
+  { label: 'Anton', value: '"Anton", Impact, sans-serif' },
 ];

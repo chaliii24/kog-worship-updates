@@ -115,7 +115,7 @@ export default function LeftSidebar() {
     handleExport,
     handleImport,
     shellOpenDataFolder,
-    setCustomSlideModal,
+    openCustomSlideEditor,
     setServices,
     setActiveService,
     serviceCollapsed,
@@ -566,7 +566,7 @@ export default function LeftSidebar() {
                     <span style={{ fontWeight: 700 }}><Video size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Video / Loop</span>
                     <span style={{ fontSize: 10, color: 'var(--ui-faint)' }}>+ Upload</span>
                   </button>
-                  <button onClick={() => { setCustomSlideModal(true); setServiceAddMenu(null); }} style={{ textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button onClick={() => { openCustomSlideEditor(null); setServiceAddMenu(null); }} style={{ textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontWeight: 700 }}><FileText size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Announcement</span>
                     <span style={{ fontSize: 10, color: 'var(--ui-faint)' }}>+ Add</span>
                   </button>
@@ -742,6 +742,9 @@ export default function LeftSidebar() {
                         )}
                         {(row.item.item_type === 'song' || row.item.item_type === 'medley') && (
                           <button onClick={(e) => { e.stopPropagation(); openArrangementForRow(row.item, row.idx); }} title={row.item.item_type === 'medley' ? 'Custom play order for the anchor song' : (row.item.meta?.arrangement?.order?.length ? 'Edit song arrangement' : 'Custom play order for this song')} style={{ background: row.item.meta?.arrangement?.order?.length ? 'rgba(139,92,246,0.16)' : 'transparent', border: '1px solid ' + (row.item.meta?.arrangement?.order?.length ? 'rgba(139,92,246,0.5)' : 'var(--ui-border)'), color: row.item.meta?.arrangement?.order?.length ? '#C4B5FD' : C.faint, padding: '3px 6px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><ListMusic size={12} /></button>
+                        )}
+                        {row.item.item_type === 'custom_slide' && (
+                          <button onClick={(e) => { e.stopPropagation(); openCustomSlideEditor(row.idx); }} title="Edit slide — text, font, colour, background, transition" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: C.faint, padding: '3px 6px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Pencil size={12} /></button>
                         )}
                         {isLive ? (
                           <button onClick={(e) => { e.stopPropagation(); stopServiceItemLive(row.item); }} title="Stop — take this item off air" style={{ background: 'rgba(239,68,68,0.18)', border: '1px solid rgba(239,68,68,0.55)', color: '#F87171', borderRadius: 6, fontSize: 9.5, fontWeight: 700, padding: '3px 8px', cursor: 'pointer' }}>■ Stop</button>

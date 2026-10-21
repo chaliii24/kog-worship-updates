@@ -860,7 +860,14 @@ export function splitCuesByLines(cues, linesPerSlide) {
     const baseLabel = (typeof cue.label === 'string' && cue.label.trim()) ? cue.label.trim() : 'Verse';
     for (let i = 0; i < lines.length; i += splitN) {
       const part = Math.floor(i / splitN) + 1;
-      out.push({ ...cue, label: `${baseLabel} (Part ${part})`, text: lines.slice(i, i + splitN).join('\n') });
+      const next = { ...cue, label: `${baseLabel} (Part ${part})`, text: lines.slice(i, i + splitN).join('\n') };
+      // A re-flow re-chunks a SECTION, so the slide's EXTRA text boxes (a
+      // kicker, a reference — see src/lib/songTextObjects.js) belong to one
+      // layout: they stay on the section's FIRST slide instead of being
+      // copied onto every part it turns into. Never touches parse-time cues —
+      // those have no boxes yet.
+      if (part > 1) delete next.texts;
+      out.push(next);
     }
   }
   return out;
