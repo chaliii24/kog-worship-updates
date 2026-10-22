@@ -21,8 +21,8 @@ export function useElapsedSeconds(start) {
 // Pink LIVE pill on the monitor tile — identical markup, self-ticking.
 export function LiveBadge({ start, C, PINK }) {
   const elapsed = useElapsedSeconds(start);
-  // White on the violet pill in both themes — theme text would flip dark in
-  // light mode and sink into the PINK background (badge sits on slide tiles).
+  // White on the live-green pill in both themes — theme text would flip dark
+  // in light mode and sink into the PINK background (badge sits on slide tiles).
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: PINK, color: '#FFFFFF', borderRadius: '999px', padding: '1px 8px', fontSize: '9px', fontWeight: '800', letterSpacing: '0.5px' }}>
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFFFFF' }} />{start ? formatCountdown(elapsed) : 'LIVE'}
@@ -35,7 +35,7 @@ export function LiveBadge({ start, C, PINK }) {
 export function TimerReadout({ start, duration, C, PINK }) {
   const elapsed = useElapsedSeconds(start);
   return (
-    <span style={{ fontSize: 20, fontWeight: 800, fontFamily: 'monospace', color: duration > 0 && elapsed > duration ? '#ef4444' : (start ? PINK : C.faint) }}>
+    <span style={{ fontSize: 20, fontWeight: 800, fontFamily: 'monospace', color: duration > 0 && elapsed > duration ? '#FF4545' : (start ? PINK : C.faint) }}>
       {formatCountdown(elapsed)}{duration > 0 ? ` / ${formatCountdown(duration)}` : ''}
     </span>
   );
@@ -402,7 +402,7 @@ export function OverlayFace({ overlay }) {
   return (
     <>
       {t.trim() ? (
-        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', borderTop: '3px solid #8b5cf6', padding: '22px 60px', fontSize: 42, fontWeight: 800, color: '#ffffff', textAlign: 'center', lineHeight: 1.3, whiteSpace: 'pre-wrap', overflow: 'hidden', pointerEvents: 'none', textShadow: '0 2px 14px rgba(0,0,0,0.8)' }}>{t}</div>
+        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', borderTop: '3px solid #FFB800', padding: '22px 60px', fontSize: 42, fontWeight: 800, color: '#ffffff', textAlign: 'center', lineHeight: 1.3, whiteSpace: 'pre-wrap', overflow: 'hidden', pointerEvents: 'none', textShadow: '0 2px 14px rgba(0,0,0,0.8)' }}>{t}</div>
       ) : null}
       {bug}
     </>

@@ -13,7 +13,7 @@ function SearchBox({ C, ACCENT, searchQ, setSearchQ, runSearch, busy, searchResu
     <div style={{ display: 'grid', gap: 8 }}>
       <div style={{ display: 'flex', gap: 6 }}>
         <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && runSearch()} placeholder="Search free photos (Online)…" style={{ ...FIELD, flex: 1 }} />
-        <button onClick={runSearch} disabled={busy === 'search'} style={{ background: ACCENT, border: 'none', color: '#fff', padding: '7px 11px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+        <button onClick={runSearch} disabled={busy === 'search'} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '7px 11px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
           {busy === 'search' ? <Loader2 size={13} /> : <Search size={13} />} Search
         </button>
       </div>
@@ -57,7 +57,7 @@ export default function PresentationInspector({
   const applyOnline = (r) => downloadBg(r);
 
   const tabBtn = (id, label, Icon) => (
-    <button onClick={() => setTab(id)} style={{ flex: 1, background: tab === id ? 'rgba(139,92,246,0.18)' : 'transparent', border: tab === id ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)', color: tab === id ? C.heading : C.muted, padding: '6px 4px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+    <button onClick={() => setTab(id)} style={{ flex: 1, background: tab === id ? 'rgba(255,184,0,0.18)' : 'transparent', border: tab === id ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)', color: tab === id ? C.heading : C.muted, padding: '6px 4px', borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
       <Icon size={12} /> {label}
     </button>
   );
@@ -114,7 +114,7 @@ export default function PresentationInspector({
               <span style={LBL}>Align</span>
               <div style={{ display: 'flex', gap: 4 }}>
                 {[['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight]].map(([a, Icon]) => (
-                  <button key={a} onClick={() => patchSlide({ align: a })} style={{ flex: 1, background: (slide.align || 'left') === a ? ACCENT : 'var(--ui-input)', border: '1px solid var(--ui-border2)', color: (slide.align || 'left') === a ? '#fff' : 'var(--ui-text)', borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={13} /></button>
+                  <button key={a} onClick={() => patchSlide({ align: a })} style={{ flex: 1, background: (slide.align || 'left') === a ? ACCENT : 'var(--ui-input)', border: '1px solid var(--ui-border2)', color: (slide.align || 'left') === a ? '#0D1014' : 'var(--ui-text)', borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={13} /></button>
                 ))}
               </div>
             </div>
@@ -136,7 +136,7 @@ export default function PresentationInspector({
         <>
           <div style={{ display: 'flex', gap: 5 }}>
             {[['color', 'Color'], ['gradient', 'Gradient'], ['image', 'Image'], ['video', 'Video']].map(([t, l]) => (
-              <button key={t} onClick={() => patchSlide({ bg: { type: t, value: t === 'color' ? '#0B0F19' : t === 'gradient' ? GRADIENT_PACK[0].css : (t === 'image' ? (imageAssets[0]?.url || null) : (videoAssets[0]?.url || null)) } })} style={{ flex: 1, background: (slide.bg?.type || 'color') === t ? ACCENT : 'var(--ui-input)', border: '1px solid var(--ui-border2)', color: (slide.bg?.type || 'color') === t ? '#fff' : 'var(--ui-text)', borderRadius: 6, padding: '5px 0', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{l}</button>
+              <button key={t} onClick={() => patchSlide({ bg: { type: t, value: t === 'color' ? '#0B0F19' : t === 'gradient' ? GRADIENT_PACK[0].css : (t === 'image' ? (imageAssets[0]?.url || null) : (videoAssets[0]?.url || null)) } })} style={{ flex: 1, background: (slide.bg?.type || 'color') === t ? ACCENT : 'var(--ui-input)', border: '1px solid var(--ui-border2)', color: (slide.bg?.type || 'color') === t ? '#0D1014' : 'var(--ui-text)', borderRadius: 6, padding: '5px 0', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{l}</button>
             ))}
           </div>
 
@@ -201,7 +201,7 @@ export default function PresentationInspector({
             <SearchBox C={C} ACCENT={ACCENT} searchQ={searchQ} setSearchQ={setSearchQ} runSearch={runSearch} busy={busy} searchResults={searchResults} onPick={applyOnline} />
           </div>
           {slide.image && (
-            <button onClick={() => patchSlide({ image: null })} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#F87171', borderRadius: 7, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Trash2 size={12} /> Remove image</button>
+            <button onClick={() => patchSlide({ image: null })} style={{ background: 'rgba(255,69,69,0.1)', border: '1px solid rgba(255,69,69,0.3)', color: '#FF4545', borderRadius: 7, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Trash2 size={12} /> Remove image</button>
           )}
         </>
       )}
@@ -210,7 +210,7 @@ export default function PresentationInspector({
         <span style={SECTION}>Layout</span>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 5 }}>
           {LAYOUTS.map(l => (
-            <button key={l.id} onClick={() => patchSlide({ layout: l.id, pos: {} })} style={{ background: slide.layout === l.id ? 'rgba(139,92,246,0.18)' : 'var(--ui-input)', border: slide.layout === l.id ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)', color: slide.layout === l.id ? C.heading : C.muted, borderRadius: 7, padding: '7px 4px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button key={l.id} onClick={() => patchSlide({ layout: l.id, pos: {} })} style={{ background: slide.layout === l.id ? 'rgba(255,184,0,0.18)' : 'var(--ui-input)', border: slide.layout === l.id ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)', color: slide.layout === l.id ? C.heading : C.muted, borderRadius: 7, padding: '7px 4px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 13 }}>{l.icon}</span> {l.name}
             </button>
           ))}

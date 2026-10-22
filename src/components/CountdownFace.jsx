@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
+import { COUNTDOWN_CLOCK_KEY, COUNTDOWN_CLOCK_FRESH_MS, countdownClockTarget } from '../lib/countdownClock';
 
 // Shared countdown renderer: the tab preview, the live-output monitor, the
 // projector window and the stage display all draw from this ONE component, so
@@ -39,7 +40,7 @@ export const ANIMATED_GRADIENTS = [
     id: 'aurora', name: 'Aurora',
     base: 'linear-gradient(135deg, #031a0d 0%, #052e16 60%, #02120a 100%)',
     blobs: [
-      { css: 'radial-gradient(circle, rgba(34,197,94,0.50) 0%, transparent 70%)', w: 900, h: 900, x: 8, y: 4, dx: 120, dy: 60, d: '11s' },
+      { css: 'radial-gradient(circle, rgba(54,201,130,0.50) 0%, transparent 70%)', w: 900, h: 900, x: 8, y: 4, dx: 120, dy: 60, d: '11s' },
       { css: 'radial-gradient(circle, rgba(45,212,191,0.38) 0%, transparent 70%)', w: 760, h: 760, x: 58, y: 42, dx: -140, dy: -70, d: '14s' },
     ],
   },
@@ -55,7 +56,7 @@ export const ANIMATED_GRADIENTS = [
     id: 'royal', name: 'Royal',
     base: 'linear-gradient(135deg, #160b2e 0%, #1e1b4b 60%, #0b0718 100%)',
     blobs: [
-      { css: 'radial-gradient(circle, rgba(139,92,246,0.50) 0%, transparent 70%)', w: 900, h: 900, x: 6, y: 8, dx: 140, dy: 60, d: '13s' },
+      { css: 'radial-gradient(circle, rgba(255,184,0,0.50) 0%, transparent 70%)', w: 900, h: 900, x: 6, y: 8, dx: 140, dy: 60, d: '13s' },
       { css: 'radial-gradient(circle, rgba(59,130,246,0.36) 0%, transparent 70%)', w: 740, h: 740, x: 60, y: 44, dx: -130, dy: -80, d: '10s' },
     ],
   },
@@ -80,7 +81,7 @@ export const ANIMATED_GRADIENTS = [
     base: 'linear-gradient(135deg, #150826 0%, #241040 60%, #0a0414 100%)',
     blobs: [
       { css: 'radial-gradient(circle, rgba(232,121,249,0.44) 0%, transparent 70%)', w: 900, h: 900, x: 12, y: 10, dx: -140, dy: 70, d: '13s' },
-      { css: 'radial-gradient(circle, rgba(167,139,250,0.38) 0%, transparent 70%)', w: 740, h: 740, x: 56, y: 46, dx: 120, dy: -70, d: '10s' },
+      { css: 'radial-gradient(circle, rgba(255,199,44,0.38) 0%, transparent 70%)', w: 740, h: 740, x: 56, y: 46, dx: 120, dy: -70, d: '10s' },
     ],
   },
   {
@@ -97,6 +98,8 @@ export const animatedPresetOf = (bgValue) => {
   const id = String(bgValue || '').replace(/^anim:/, '');
   return ANIMATED_GRADIENTS.find((g) => g.id === id) || ANIMATED_GRADIENTS[0];
 };
+
+// Shared media clock for the countdown video lives in lib/countdownClock.js.
 
 export const formatCountdownTime = (ms) => {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -324,7 +327,7 @@ export function TimerFace({ timer, scale = 1, fluid = false, surface = 'preview'
   // Final-5-seconds urgency: red time with a small shake on every surface.
   // Transform-only (GPU-cheap), and it self-clears at zero / on stop.
   const urgent = !over && remaining != null && remaining <= 5000 && remaining > 0;
-  const timeColor = (over && t.overtime) || urgent ? '#f87171' : '#ffffff';
+  const timeColor = (over && t.overtime) || urgent ? '#FF4545' : '#ffffff';
   const face = "'CMG Sans', system-ui, sans-serif";
   const anim = t.bgType === 'animated' ? animatedPresetOf(t.bgValue) : null;
   // Custom Media mode: Lower Third Ticker layout — media fills the top, the
@@ -460,6 +463,8 @@ export function TimerFace({ timer, scale = 1, fluid = false, surface = 'preview'
 // surface in the app plays the original audio, decided by `surface` + showOn:
 // the main output (or the stage only when the countdown routes stage-only),
 // so preview, stage mirror, monitor and phone can never double the room sound.
+// That same surface is the media-clock master; every silent copy follows its
+// position (lib/countdownClock.js) so picture and sound stay locked for hours.
 function VideoTimerSurface({ timer, media, mediaEpoch, frameStyle, scale, fluid, surface, phase }) {
   const videoRef = useRef(null);
   const fadedRef = useRef(false);
@@ -467,16 +472,148 @@ function VideoTimerSurface({ timer, media, mediaEpoch, frameStyle, scale, fluid,
   const baseVol = Math.min(1, Math.max(0, Number.isFinite(Number(audio.volume)) ? Number(audio.volume) : 0.9));
   const audioOn = audio.enabled !== false && audio.hasTrack !== false; // no-track → graceful silence
   const showOn = (timer.live && timer.live.showOn) || timer.showOn || 'both';
-  const ownsAudio = surface === 'main'
+  // Exactly ONE surface may play the original track. `audioOwner` is stamped
+  // per window by the main process (the oldest output of each role), so a
+  // second wall / monitor / preview can never play the same file underneath
+  // the first and turn the room into an echo. Absent flag (console payloads,
+  // older builds) falls back to the showOn routing unchanged.
+  const roleOwnsAudio = surface === 'main'
     ? (showOn === 'both' || showOn === 'main')
     : surface === 'stage' ? showOn === 'stage'
     : false;
+  const ownsAudio = timer.audioOwner === false ? false : roleOwnsAudio;
   const audible = !!(ownsAudio && audioOn && !audio.muted);
   const fadeSec = Math.max(0, Number(audio.fadeSec) || 0);
   const remaining = phase ? phase.remaining : null;
+  const paused = !!(phase && phase.paused);
+  const looping = media.loop !== false;
 
   // A fresh epoch (Go Live / Restart) re-arms the end fade.
   useEffect(() => { fadedRef.current = false; }, [mediaEpoch, media.video]);
+
+  // COUNTDOWN TRANSPORT OWNS THE MEDIA: a paused timer must freeze the video
+  // and its sound too. Otherwise the picture (and the track) keeps running
+  // under a frozen clock, and on Resume the media has moved on without the
+  // timer — the classic "the audio is ahead of the countdown" complaint.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    try {
+      if (paused) {
+        if (!el.paused) el.pause();
+      } else if (el.paused) {
+        const p = el.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+    } catch {}
+    // src/epoch belong here too: editing the background or Restarting mounts a
+    // fresh <video autoPlay>, and a still-paused timer must re-freeze it.
+  }, [paused, media.video, mediaEpoch]);
+
+  // SHARED MEDIA CLOCK — keep every copy of the video on the wall's timeline.
+  //   master (the one surface that owns the countdown) → publish currentTime;
+  //   every preview / mirror / extra wall            → chase it.
+  // Extrapolating from `time + (now − ts)` means the 500ms sample interval
+  // never costs accuracy; small differences are absorbed with ±8% rate nudges
+  // (followers are muted, so nothing is audible), and only a real drift of
+  // more than a second gets one hard seek. Loop wraps are taken modulo the
+  // duration so the wrap point can never cause a panic seek.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return undefined;
+
+    if (ownsAudio) {
+      const publish = () => {
+        const d = Number(el.duration) || 0;
+        if (!(d > 0)) return;
+        try {
+          localStorage.setItem(COUNTDOWN_CLOCK_KEY, JSON.stringify({
+            url: media.video,
+            epoch: mediaEpoch ?? null,
+            time: Number(el.currentTime) || 0,
+            duration: d,
+            playing: !el.paused && !el.ended,
+            loop: looping,
+            ts: Date.now(),
+          }));
+        } catch {}
+      };
+      // The master is the room's only sound source, so it must never sit
+      // silently frozen while the timer runs. Undo a stray OS/Chromium pause
+      // and nudge a decoder that reports playing but has stopped advancing
+      // (pause+play re-primes it in place, keeping the position).
+      let lastTime = el.currentTime;
+      let stalled = 0;
+      const heal = () => {
+        if (paused || el.ended) { lastTime = el.currentTime; stalled = 0; return; }
+        if (el.paused) {
+          const p = el.play();
+          if (p && p.catch) p.catch(() => {});
+          lastTime = el.currentTime; stalled = 0;
+          return;
+        }
+        if (el.seeking) { lastTime = el.currentTime; stalled = 0; return; }
+        if (el.currentTime !== lastTime) { lastTime = el.currentTime; stalled = 0; return; }
+        if (++stalled >= 2) {
+          stalled = 0;
+          try { el.pause(); } catch {}
+          const p = el.play();
+          if (p && p.catch) p.catch(() => {});
+        }
+      };
+      const tick = () => { heal(); publish(); };
+      tick();
+      const id = setInterval(tick, 500);
+      return () => clearInterval(id);
+    }
+
+    const follow = () => {
+      let clock = null;
+      try { clock = JSON.parse(localStorage.getItem(COUNTDOWN_CLOCK_KEY) || 'null'); } catch {}
+      const fresh = clock
+        && clock.url === media.video
+        && (clock.epoch ?? null) === (mediaEpoch ?? null)
+        && (Date.now() - (Number(clock.ts) || 0)) < COUNTDOWN_CLOCK_FRESH_MS;
+      if (!fresh) {
+        try { if (el.playbackRate !== 1) el.playbackRate = 1; } catch {}
+        return;
+      }
+      // Transport mirrors the master, so an OS-paused or finished wall can
+      // never leave a preview looping ahead of the room. A locally paused
+      // timer is authoritative: never resurrect it from a stale "playing"
+      // record (the clock is only rewritten twice a second).
+      if (!paused) {
+        if (clock.playing && el.paused) {
+          const p = el.play();
+          if (p && p.catch) p.catch(() => {});
+        } else if (!clock.playing && !el.paused) {
+          try { el.pause(); } catch {}
+        }
+      }
+      const d = Number(clock.duration) || Number(el.duration) || 0;
+      const solved = countdownClockTarget(clock, Date.now(), el.currentTime, d);
+      if (!solved) return;
+      const { target, diff } = solved;
+      try {
+        if (Math.abs(diff) > 1) {
+          el.currentTime = target;
+          if (el.playbackRate !== 1) el.playbackRate = 1;
+        } else if (diff > 0.12) {
+          if (el.playbackRate !== 1.08) el.playbackRate = 1.08;
+        } else if (diff < -0.12) {
+          if (el.playbackRate !== 0.92) el.playbackRate = 0.92;
+        } else if (el.playbackRate !== 1) {
+          el.playbackRate = 1;
+        }
+      } catch {}
+    };
+    follow();
+    const id = setInterval(follow, 500);
+    return () => {
+      clearInterval(id);
+      try { el.playbackRate = 1; } catch {}
+    };
+  }, [ownsAudio, media.video, mediaEpoch, looping, paused]);
 
   // React does not apply `muted`/`volume` as settable attributes — write the
   // DOM properties directly. Runs on mount too, so the initial state is exact.
@@ -486,9 +623,9 @@ function VideoTimerSurface({ timer, media, mediaEpoch, frameStyle, scale, fluid,
     try { el.muted = !audible; } catch {}
     if (audible && !fadedRef.current) {
       try { el.volume = baseVol; } catch {}
-      if (el.paused) { const p = el.play(); if (p && p.catch) p.catch(() => {}); }
+      if (!paused && el.paused) { const p = el.play(); if (p && p.catch) p.catch(() => {}); }
     }
-  }, [audible, baseVol]);
+  }, [audible, baseVol, paused]);
 
   // Optional end-of-countdown fade: ramps the audio down over the last
   // `fadeSec` seconds so it reaches silence exactly on 00:00 and stays there
@@ -500,7 +637,7 @@ function VideoTimerSurface({ timer, media, mediaEpoch, frameStyle, scale, fluid,
     const el = videoRef.current;
     if (!el) return;
     if (audible && !fadedRef.current) {
-      if (el.paused) { const p = el.play(); if (p && p.catch) p.catch(() => {}); }
+      if (!paused && el.paused) { const p = el.play(); if (p && p.catch) p.catch(() => {}); }
       if (fadeSec > 0 && remaining != null && remaining > 0 && remaining <= fadeSec * 1000) {
         try { el.volume = baseVol * Math.max(0, Math.min(1, remaining / (fadeSec * 1000))); } catch {}
       } else if (remaining != null && remaining <= 0) {
@@ -512,7 +649,7 @@ function VideoTimerSurface({ timer, media, mediaEpoch, frameStyle, scale, fluid,
         try { el.volume = baseVol; } catch {}
       }
     }
-  }, [audible, baseVol, fadeSec, remaining]);
+  }, [audible, baseVol, fadeSec, remaining, paused]);
 
   return (
     <div style={{ position: 'absolute', inset: 0, background: '#000', overflow: 'hidden', boxSizing: 'border-box' }}>

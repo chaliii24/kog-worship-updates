@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, Search, Download, Upload, Edit3, Image as ImageIcon, Video, ChevronDown, HelpCircle, ChevronLeft, CornerUpLeft, BookOpen, Music, Folder, Lightbulb, FolderOpen, Highlighter } from 'lucide-react';
+import { Plus, Search, Download, Upload, Edit3, Image as ImageIcon, Video, ChevronDown, ChevronLeft, ChevronRight, HelpCircle, CornerUpLeft, BookOpen, Music, Folder, Lightbulb, FolderOpen, Highlighter, LayoutGrid } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
@@ -22,6 +22,7 @@ export default function CenterWorkspace() {
     ACCENT,
     songs,
     activeSong,
+    activeCue,
     bibleTrans,
     dockTab,
     mediaLibrary,
@@ -99,7 +100,9 @@ export default function CenterWorkspace() {
     bibleNtCount,
     bibleFilteredBooks,
     bibleStep,
-    activePresentation
+    setViewTab,
+    setLeftOpen,
+    setDockTab
   } = app;
   // The picker only hands back a URL, so resolve the assigned default back to
   // its option for the thumbnail and the label.
@@ -168,6 +171,45 @@ export default function CenterWorkspace() {
     return () => window.removeEventListener('keydown', handler);
   }, [dockTab, bibleStep, bibleChapter, bibleFocusedVerse]);
 
+  // Grid selection is a WORKSPACE concern only: it brightens the tile the
+  // operator is looking at and drives the pagination. It never fires a slide.
+  // The live slide remains activeSlideIndex, owned by App.
+  const [selectedIdx, setSelectedIdx] = React.useState(0);
+  React.useEffect(() => {
+    setSelectedIdx(activeSlideIndex >= 0 ? activeSlideIndex : 0);
+  }, [activeSlideIndex, activeSong?.id]);
+  React.useEffect(() => {
+    setSelectedIdx((i) => (slideGrid.length ? Math.min(i, slideGrid.length - 1) : 0));
+  }, [slideGrid.length]);
+
+  const revealSlide = (i) => {
+    const root = gridScrollRef.current;
+    if (!root) return;
+    const el = root.querySelector(`[data-grid-pos="${i}"]`);
+    if (el) el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+  };
+  const selectSlide = (i) => {
+    setSelectedIdx(i);
+    revealSlide(i);
+  };
+
+  // Compact page list: first/last anchors with a window around the current
+  // slide. Every number is a real slide button; only the ellipsis is inert.
+  const pagerItems = (total, current) => {
+    if (total <= 9) return Array.from({ length: total }, (_, i) => i);
+    const out = [];
+    const start = Math.max(1, current - 2);
+    const end = Math.min(total - 2, current + 2);
+    out.push(0);
+    if (start === 2) out.push(1);
+    else if (start > 2) out.push('start-ellipsis');
+    for (let i = start; i <= end; i++) out.push(i);
+    if (end === total - 3) out.push(total - 2);
+    else if (end < total - 2) out.push('end-ellipsis');
+    out.push(total - 1);
+    return out;
+  };
+
   return (
 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
   <AnimatePresence mode="wait" initial={false}>
@@ -176,7 +218,7 @@ export default function CenterWorkspace() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 16px', flexShrink: 0, borderBottom: '1px solid var(--ui-border)', background: 'var(--ui-elev)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
           <div style={{ position: 'relative', flexShrink: 0 }}>
-            <button onClick={() => setBibleTransOpen(o => !o)} title="Select translation" style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.45)', color: '#8b5cf6', padding: '7px 11px', borderRadius: 10, fontSize: 11.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <button onClick={() => setBibleTransOpen(o => !o)} title="Select translation" style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(255,184,0,0.15)', border: '1px solid rgba(255,184,0,0.45)', color: '#FFB800', padding: '7px 11px', borderRadius: 10, fontSize: 11.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               {(bibleActiveEntry?.code || bibleTrans || 'BIBLE').toUpperCase()}
               <ChevronDown size={13} />
             </button>
@@ -197,22 +239,22 @@ export default function CenterWorkspace() {
                       const downloading = bibleDL.running && bibleDL.abbrev === b.abbrev;
                       const pct = downloading ? Math.round((bibleDL.progress || 0) * 100) : 0;
                       return (
-                        <div key={b.abbrev} style={{ minWidth: 0, display: 'grid', gap: 6, background: isActive ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.03)', border: isActive ? '1px solid rgba(139,92,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '9px 11px' }}>
+                        <div key={b.abbrev} style={{ minWidth: 0, display: 'grid', gap: 6, background: isActive ? 'rgba(255,184,0,0.15)' : 'rgba(255,255,255,0.03)', border: isActive ? '1px solid rgba(255,184,0,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '9px 11px' }}>
                           <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ui-text)', lineHeight: 1.35, overflowWrap: 'anywhere' }}>{b.name}</div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                            <span style={{ flex: 1, minWidth: 0, fontSize: 10.5, fontWeight: 600, color: isInstalled ? '#8b5cf6' : 'var(--ui-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{isInstalled ? `Installed · ${b.books} books` : downloading ? `Downloading… ${pct}%` : `${b.size || ''}${b.lang ? ` · ${b.lang}` : ''}`.replace(/^\W+/, '') || (b.code || b.abbrev).toUpperCase()}</span>
+                            <span style={{ flex: 1, minWidth: 0, fontSize: 10.5, fontWeight: 600, color: isInstalled ? '#FFB800' : 'var(--ui-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{isInstalled ? `Installed · ${b.books} books` : downloading ? `Downloading… ${pct}%` : `${b.size || ''}${b.lang ? ` · ${b.lang}` : ''}`.replace(/^\W+/, '') || (b.code || b.abbrev).toUpperCase()}</span>
                             {isInstalled ? (
-                              <button onClick={() => { setBibleTransOpen(false); if (!isActive) openBibleTranslation(b.abbrev); }} style={{ flexShrink: 0, background: isActive ? '#7c3aed' : 'rgba(255,255,255,0.06)', border: '1px solid var(--ui-border)', color: isActive ? '#FFFFFF' : 'var(--ui-text2)', padding: '5px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>{isActive ? 'Active' : 'Open'}</button>
+                              <button onClick={() => { setBibleTransOpen(false); if (!isActive) openBibleTranslation(b.abbrev); }} style={{ flexShrink: 0, background: isActive ? '#E5A000' : 'rgba(255,255,255,0.06)', border: '1px solid var(--ui-border)', color: isActive ? '#0D1014' : 'var(--ui-text2)', padding: '5px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>{isActive ? 'Active' : 'Open'}</button>
                             ) : (
                               <button onClick={() => downloadBible(b.abbrev)} disabled={downloading} style={{ flexShrink: 0, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '5px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: downloading ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>{downloading ? `${pct}%` : 'Download'}</button>
                             )}
                           </div>
                           {downloading && (
                             <div style={{ height: 4, background: 'rgba(255,255,255,0.08)', borderRadius: 999, overflow: 'hidden' }}>
-                              <div style={{ height: '100%', width: `${pct}%`, background: '#7c3aed', borderRadius: 999, transition: 'width 0.2s' }} />
+                              <div style={{ height: '100%', width: `${pct}%`, background: '#E5A000', borderRadius: 999, transition: 'width 0.2s' }} />
                             </div>
                           )}
-                          {isInstalled && b.abbrev !== 'kjv' && <button onClick={() => deleteBibleTranslation(b.abbrev)} style={{ justifySelf: 'start', background: 'transparent', border: 'none', color: '#f87171', fontSize: 10, fontWeight: 700, cursor: 'pointer', padding: 0 }}>Delete from device</button>}
+                          {isInstalled && b.abbrev !== 'kjv' && <button onClick={() => deleteBibleTranslation(b.abbrev)} style={{ justifySelf: 'start', background: 'transparent', border: 'none', color: '#FF4545', fontSize: 10, fontWeight: 700, cursor: 'pointer', padding: 0 }}>Delete from device</button>}
                         </div>
                       );
                     })}
@@ -223,17 +265,17 @@ export default function CenterWorkspace() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, minWidth: 0 }}>
-            <button onClick={resetBibleToBooks} style={{ background: 'transparent', border: 'none', padding: 0, color: bibleSel.bookIndex ? 'var(--ui-faint)' : '#8b5cf6', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>Books</button>
+            <button onClick={resetBibleToBooks} style={{ background: 'transparent', border: 'none', padding: 0, color: bibleSel.bookIndex ? 'var(--ui-faint)' : '#FFB800', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>Books</button>
             {bibleSel.bookIndex ? (
               <>
                 <span style={{ color: '#334155' }}>›</span>
-                <button onClick={resetBibleToBook} style={{ background: 'transparent', border: 'none', padding: 0, color: bibleSel.chapter ? 'var(--ui-faint)' : '#8b5cf6', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>{bibleSel.bookName}</button>
+                <button onClick={resetBibleToBook} style={{ background: 'transparent', border: 'none', padding: 0, color: bibleSel.chapter ? 'var(--ui-faint)' : '#FFB800', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>{bibleSel.bookName}</button>
               </>
             ) : null}
             {bibleSel.chapter ? (
               <>
                 <span style={{ color: '#334155' }}>›</span>
-                <span style={{ color: '#8b5cf6', fontWeight: 700, whiteSpace: 'nowrap' }}>Ch. {bibleSel.chapter}</span>
+                <span style={{ color: '#FFB800', fontWeight: 700, whiteSpace: 'nowrap' }}>Ch. {bibleSel.chapter}</span>
               </>
             ) : null}
           </div>
@@ -249,7 +291,7 @@ export default function CenterWorkspace() {
           {bibleSearchResults ? (
             <button onClick={() => setBibleSearchResults(null)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'transparent', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '7px 12px', borderRadius: 10, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}><CornerUpLeft size={12} /> Back</button>
           ) : null}
-          {bibleSelVerses.length ? <span style={{ fontSize: 10.5, fontWeight: 700, color: '#8b5cf6', whiteSpace: 'nowrap' }}>{bibleSelVerses.length} selected</span> : null}
+          {bibleSelVerses.length ? <span style={{ fontSize: 10.5, fontWeight: 700, color: '#FFB800', whiteSpace: 'nowrap' }}>{bibleSelVerses.length} selected</span> : null}
           <motion.button {...stubTap} onClick={requestBibleQueue} title="Add the selected verses to the plan — pick the section they belong to" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid var(--ui-border2)', color: 'var(--ui-text2)', padding: '7px 13px', borderRadius: 10, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}><Plus size={12} /> Add to Playlist</motion.button>
         </div>
       </div>
@@ -257,28 +299,28 @@ export default function CenterWorkspace() {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', padding: '8px 16px', flexShrink: 0, borderBottom: '1px solid var(--ui-border)', background: 'var(--ui-elev)' }}>
         <div style={{ display: 'flex', gap: 4, alignItems: 'center', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 3 }}>
           {['number', 'plain', 'sentence'].map(l => (
-            <motion.button {...stubTap} key={l} onClick={() => setBibleFmt(f => ({ ...f, layout: l }))} title={l === 'number' ? 'Show verse numbers' : l === 'plain' ? 'Plain verses, no numbers' : 'Sentence-case flow'} style={{ background: bibleFmt.layout === l ? 'rgba(139,92,246,0.18)' : 'transparent', border: 'none', borderRadius: 7, color: bibleFmt.layout === l ? '#8b5cf6' : 'var(--ui-faint)', padding: '4px 10px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{l === 'number' ? 'Vv.' : l === 'plain' ? 'Plain' : 'Flow'}</motion.button>
+            <motion.button {...stubTap} key={l} onClick={() => setBibleFmt(f => ({ ...f, layout: l }))} title={l === 'number' ? 'Show verse numbers' : l === 'plain' ? 'Plain verses, no numbers' : 'Sentence-case flow'} style={{ background: bibleFmt.layout === l ? 'rgba(255,184,0,0.18)' : 'transparent', border: 'none', borderRadius: 7, color: bibleFmt.layout === l ? '#FFB800' : 'var(--ui-faint)', padding: '4px 10px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{l === 'number' ? 'Vv.' : l === 'plain' ? 'Plain' : 'Flow'}</motion.button>
           ))}
         </div>
-        <motion.button {...stubTap} onClick={() => setBibleFmt(f => ({ ...f, bold: !f.bold }))} title="Toggle bold" style={{ background: bibleFmt.bold ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.04)', border: bibleFmt.bold ? '1px solid #8b5cf6' : '1px solid var(--ui-border)', color: bibleFmt.bold ? '#8b5cf6' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 11px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>B</motion.button>
-        <motion.button {...stubTap} onClick={() => setBibleFmt(f => ({ ...f, caps: !f.caps }))} title="Uppercase" style={{ background: bibleFmt.caps ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.04)', border: bibleFmt.caps ? '1px solid #8b5cf6' : '1px solid var(--ui-border)', color: bibleFmt.caps ? '#8b5cf6' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 11px', fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer' }}>Aa</motion.button>
+        <motion.button {...stubTap} onClick={() => setBibleFmt(f => ({ ...f, bold: !f.bold }))} title="Toggle bold" style={{ background: bibleFmt.bold ? 'rgba(255,184,0,0.18)' : 'rgba(255,255,255,0.04)', border: bibleFmt.bold ? '1px solid #FFB800' : '1px solid var(--ui-border)', color: bibleFmt.bold ? '#FFB800' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 11px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>B</motion.button>
+        <motion.button {...stubTap} onClick={() => setBibleFmt(f => ({ ...f, caps: !f.caps }))} title="Uppercase" style={{ background: bibleFmt.caps ? 'rgba(255,184,0,0.18)' : 'rgba(255,255,255,0.04)', border: bibleFmt.caps ? '1px solid #FFB800' : '1px solid var(--ui-border)', color: bibleFmt.caps ? '#FFB800' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 11px', fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer' }}>Aa</motion.button>
         {/* Scripture typeface: operator font, live on the wall like the rest. */}
         <div title="Scripture font (Default = stage style)" style={{ width: 150, flexShrink: 0 }}>
           <FontPicker value={bibleFmt.font || ''} choices={[{ label: 'Default font', value: '' }, ...FONT_OPTIONS]} onChange={(v) => setBibleFmt(f => ({ ...f, font: v || null }))} C={C} />
         </div>
         {/* Scripture text colour. */}
         <div title="Scripture text colour" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: '4px 7px' }}>
-          <span style={{ fontSize: 11, fontWeight: 800, color: bibleFmt.color ? '#8b5cf6' : 'var(--ui-faint)' }}>A</span>
+          <span style={{ fontSize: 11, fontWeight: 800, color: bibleFmt.color ? '#FFB800' : 'var(--ui-faint)' }}>A</span>
           <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(bibleFmt.color || '') ? bibleFmt.color : '#ffffff'} onChange={(e) => setBibleFmt(f => ({ ...f, color: e.target.value }))} title="Pick the scripture text colour" style={{ width: 26, height: 22, background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }} />
           {bibleFmt.color && <button onClick={() => setBibleFmt(f => ({ ...f, color: null }))} title="Back to the stage style colour" style={{ background: 'transparent', border: 'none', color: 'var(--ui-faint)', fontSize: 11, cursor: 'pointer', padding: '0 2px' }}>✕</button>}
         </div>
         {/* Marker-pen highlight for the ticked verses. */}
-        <motion.button {...stubTap} onClick={() => setBibleFmt(f => ({ ...f, mark: f.mark ? null : (f.mark || '#FDE047') }))} title={bibleFmt.mark ? 'Highlighter on — pick words on the live list' : 'Switch the highlighter on'} style={{ background: bibleFmt.mark ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.04)', border: bibleFmt.mark ? '1px solid #8b5cf6' : '1px solid var(--ui-border)', color: bibleFmt.mark ? '#8b5cf6' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 10px', cursor: 'pointer', display: 'flex' }}><Highlighter size={13} /></motion.button>
+        <motion.button {...stubTap} onClick={() => setBibleFmt(f => ({ ...f, mark: f.mark ? null : (f.mark || '#FDE047') }))} title={bibleFmt.mark ? 'Highlighter on — pick words on the live list' : 'Switch the highlighter on'} style={{ background: bibleFmt.mark ? 'rgba(255,184,0,0.18)' : 'rgba(255,255,255,0.04)', border: bibleFmt.mark ? '1px solid #FFB800' : '1px solid var(--ui-border)', color: bibleFmt.mark ? '#FFB800' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 10px', cursor: 'pointer', display: 'flex' }}><Highlighter size={13} /></motion.button>
         {bibleFmt.mark && (
           <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(bibleFmt.mark || '') ? bibleFmt.mark : '#FDE047'} onChange={(e) => setBibleFmt(f => ({ ...f, mark: e.target.value }))} title="Highlight colour" style={{ width: 30, height: 26, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 9, cursor: 'pointer', padding: 2 }} />
         )}
         <div style={{ position: 'relative' }}>
-          <motion.button {...stubTap} onClick={() => setBibleMediaOpen(o => !o)} title="Background media for scripture slides" style={{ display: 'flex', alignItems: 'center', gap: 6, background: bgShow ? 'rgba(139,92,246,0.18)' : 'rgba(255,255,255,0.04)', border: bgShow ? '1px solid #8b5cf6' : '1px solid var(--ui-border)', color: bgShow ? '#8b5cf6' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 11px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>
+          <motion.button {...stubTap} onClick={() => setBibleMediaOpen(o => !o)} title="Background media for scripture slides" style={{ display: 'flex', alignItems: 'center', gap: 6, background: bgShow ? 'rgba(255,184,0,0.18)' : 'rgba(255,255,255,0.04)', border: bgShow ? '1px solid #FFB800' : '1px solid var(--ui-border)', color: bgShow ? '#FFB800' : 'var(--ui-faint)', borderRadius: 9, padding: '6px 11px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>
             {bgShow && bgShow.type === 'video' ? <Video size={12} /> : <ImageIcon size={12} />}
             <span style={{ maxWidth: 110, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{bgShow ? (bgShow.type === 'color' ? bgShow.value : (bgShow.name ? mediaLabel(bgShow.name, bgShow.type) : 'Background')) : 'Background'}</span>
             <ChevronDown size={12} />
@@ -289,10 +331,10 @@ export default function CenterWorkspace() {
               <div style={{ position: 'absolute', top: 'calc(100% + 8px)', left: 0, width: 320, maxWidth: 'calc(100vw - 24px)', maxHeight: 400, zIndex: 61, display: 'flex', flexDirection: 'column', background: 'var(--ui-elev)', border: '1px solid var(--ui-border)', borderRadius: 12, boxShadow: '0 20px 50px rgba(0,0,0,0.6)', overflow: 'hidden' }}>
                 <div style={{ padding: '9px 11px', borderBottom: '1px solid var(--ui-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
                   <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.2 }}>Scripture Background</span>
-                  <motion.button {...stubTap} onClick={() => { selectBibleMedia(null, null, null); setBibleMediaOpen(false); }} title="Drop this session's background and fall back to the default" style={{ background: 'transparent', border: 'none', color: bibleMedia ? '#f87171' : 'var(--ui-faint)', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</motion.button>
+                  <motion.button {...stubTap} onClick={() => { selectBibleMedia(null, null, null); setBibleMediaOpen(false); }} title="Drop this session's background and fall back to the default" style={{ background: 'transparent', border: 'none', color: bibleMedia ? '#FF4545' : 'var(--ui-faint)', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</motion.button>
                 </div>
                 <div style={{ overflowY: 'auto', overflowX: 'hidden', padding: 10, display: 'grid', gap: 10 }}>
-                  <motion.button {...stubTap} onClick={() => { setScripturePicker('session'); setBibleMediaOpen(false); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(139,92,246,0.12)', border: '1px dashed rgba(139,92,246,0.5)', color: '#C4B5FD', borderRadius: 10, padding: '10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
+                  <motion.button {...stubTap} onClick={() => { setScripturePicker('session'); setBibleMediaOpen(false); }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(255,184,0,0.12)', border: '1px dashed rgba(255,184,0,0.5)', color: '#FFC72C', borderRadius: 10, padding: '10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
                     <FolderOpen size={12} /> Choose image or video…
                   </motion.button>
                   <motion.label {...stubTap} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-faint)', borderRadius: 10, padding: '7px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
@@ -346,7 +388,7 @@ export default function CenterWorkspace() {
               </div>
               <div style={{ display: 'flex', gap: 4 }}>
                 {[{ k: 'all', label: `All ${bibleAllBooks.length}` }, { k: 'ot', label: `OT ${bibleOtCount}` }, { k: 'nt', label: `NT ${bibleNtCount}` }].map(p => (
-                  <button key={p.k} onClick={() => setBibleTestament(p.k)} title={p.k === 'all' ? 'All 66 books' : p.k === 'ot' ? 'Old Testament (39)' : 'New Testament (27)'} style={{ background: bibleTestament === p.k ? '#7c3aed' : 'rgba(30,41,59,0.5)', border: bibleTestament === p.k ? '1px solid #7c3aed' : '1px solid var(--ui-border2)', color: bibleTestament === p.k ? '#FFFFFF' : 'var(--ui-muted)', borderRadius: 8, padding: '6px 12px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{p.label}</button>
+                  <button key={p.k} onClick={() => setBibleTestament(p.k)} title={p.k === 'all' ? 'All 66 books' : p.k === 'ot' ? 'Old Testament (39)' : 'New Testament (27)'} style={{ background: bibleTestament === p.k ? '#E5A000' : 'rgba(30,41,59,0.5)', border: bibleTestament === p.k ? '1px solid #E5A000' : '1px solid var(--ui-border2)', color: bibleTestament === p.k ? '#0D1014' : 'var(--ui-muted)', borderRadius: 8, padding: '6px 12px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{p.label}</button>
                 ))}
               </div>
               <div style={{ flex: 1 }} />
@@ -365,10 +407,10 @@ export default function CenterWorkspace() {
                         {group.list.map((b, i) => {
                           const active = bibleSel.bookIndex === b.nr;
                           return (
-                            <button key={b.nr} className="bible-item" onClick={() => selectBibleBook(b)} title={`${b.name} — ${b.chapters} chapters`} style={{ animationDelay: `${Math.min(i * 12, 240)}ms`, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 4, background: active ? 'rgba(139,92,246,0.18)' : 'var(--ui-elev2)', border: active ? '1px solid rgba(139,92,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '11px 12px', color: active ? '#8b5cf6' : 'var(--ui-text2)', cursor: 'pointer' }}>
+                            <button key={b.nr} className="bible-item" onClick={() => selectBibleBook(b)} title={`${b.name} — ${b.chapters} chapters`} style={{ animationDelay: `${Math.min(i * 12, 240)}ms`, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 4, background: active ? 'rgba(255,184,0,0.18)' : 'var(--ui-elev2)', border: active ? '1px solid rgba(255,184,0,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '11px 12px', color: active ? '#FFB800' : 'var(--ui-text2)', cursor: 'pointer' }}>
                               <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%' }}>
                                 <span style={{ fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</span>
-                                <span style={{ fontSize: 9, fontWeight: 800, color: active ? '#8b5cf6' : 'var(--ui-faint)', background: 'rgba(255,255,255,0.05)', borderRadius: 5, padding: '1px 5px', flexShrink: 0 }}>{b.abbr}</span>
+                                <span style={{ fontSize: 9, fontWeight: 800, color: active ? '#FFB800' : 'var(--ui-faint)', background: 'rgba(255,255,255,0.05)', borderRadius: 5, padding: '1px 5px', flexShrink: 0 }}>{b.abbr}</span>
                               </span>
                               <span style={{ fontSize: 10.5, color: 'var(--ui-faint)' }}>{b.chapters} chapters</span>
                             </button>
@@ -400,7 +442,7 @@ export default function CenterWorkspace() {
                 {Array.from({ length: bibleSel.totalChapters || 0 }, (_, i) => i + 1).map((ch, i) => {
                   const active = bibleChapter && bibleChapter.book === bibleSel.bookName && bibleChapter.chapter === ch;
                   return (
-                    <button key={ch} className="bible-item" onClick={() => selectBibleChapter(ch)} title={`${bibleSel.bookName} ${ch}`} style={{ animationDelay: `${Math.min(i * 8, 260)}ms`, background: active ? '#7c3aed' : 'var(--ui-elev2)', border: active ? '1px solid #7c3aed' : '1px solid var(--ui-border)', color: active ? '#FFFFFF' : 'var(--ui-muted)', borderRadius: 9, padding: '12px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{ch}</button>
+                    <button key={ch} className="bible-item" onClick={() => selectBibleChapter(ch)} title={`${bibleSel.bookName} ${ch}`} style={{ animationDelay: `${Math.min(i * 8, 260)}ms`, background: active ? '#E5A000' : 'var(--ui-elev2)', border: active ? '1px solid #E5A000' : '1px solid var(--ui-border)', color: active ? '#0D1014' : 'var(--ui-muted)', borderRadius: 9, padding: '12px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{ch}</button>
                   );
                 })}
               </div>
@@ -448,7 +490,7 @@ export default function CenterWorkspace() {
                     <div style={{ display: 'grid', gap: 6 }}>
                       {bibleSearchResults.map((r, i) => (
                         <button key={i} className="bible-item" onClick={async () => { setBibleSearchResults(null); const res = await loadBibleChapter(bibleTrans, r.bookIndex, r.chapter); if (res && res.bookIndex) { setBibleSelVerses([r.verse]); bibleLastVerseRef.current = r.verse; } }} style={{ animationDelay: `${Math.min(i * 10, 220)}ms`, textAlign: 'left', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--ui-border)', borderRadius: 10, padding: '9px 11px', cursor: 'pointer' }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: '#8b5cf6', marginBottom: 3 }}>{r.book} {r.chapter}:{r.verse}</div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#FFB800', marginBottom: 3 }}>{r.book} {r.chapter}:{r.verse}</div>
                           <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--ui-text2)' }}>{r.text}</div>
                         </button>
                       ))}
@@ -473,15 +515,15 @@ export default function CenterWorkspace() {
                             display: 'flex',
                             gap: 10,
                             cursor: 'pointer',
-                            background: focused ? 'rgba(139,92,246,0.18)' : selected ? 'rgba(46,16,101,0.3)' : 'transparent',
-                            border: focused ? '1px solid #8b5cf6' : '1px solid transparent',
-                            borderLeft: '1px solid ' + (selected ? '#8b5cf6' : focused ? '#8b5cf6' : 'transparent'),
+                            background: focused ? 'rgba(255,184,0,0.18)' : selected ? 'rgba(255,184,0,0.16)' : 'transparent',
+                            border: focused ? '1px solid #FFB800' : '1px solid transparent',
+                            borderLeft: '1px solid ' + (selected ? '#FFB800' : focused ? '#FFB800' : 'transparent'),
                             borderRadius: 8,
                             padding: '7px 9px',
                             outline: focused ? 'none' : undefined,
                           }}
                         >
-                          <span style={{ fontSize: 11, fontWeight: 800, color: '#8b5cf6', width: 22, flexShrink: 0, paddingTop: 2 }}>{v.verse}</span>
+                          <span style={{ fontSize: 11, fontWeight: 800, color: '#FFB800', width: 22, flexShrink: 0, paddingTop: 2 }}>{v.verse}</span>
                           <span style={{ fontSize: 13, lineHeight: 1.6, color: bibleFmt.bold ? 'var(--ui-text)' : 'var(--ui-text2)' }}>{formatBibleVerse(v)}</span>
                         </div>
                       );
@@ -490,7 +532,7 @@ export default function CenterWorkspace() {
                 ) : (
                   <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 40 }}>
                     <div style={{ textAlign: 'center', maxWidth: 360, display: 'grid', gap: 8, justifyItems: 'center' }}>
-                      <div style={{ width: 54, height: 54, borderRadius: 16, background: 'radial-gradient(140% 140% at 30% 20%, #4c1d95, #150b34)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><BookOpen size={26} color="#8b5cf6" /></div>
+                      <div style={{ width: 54, height: 54, borderRadius: 16, background: 'radial-gradient(140% 140% at 30% 20%, #252C35, #0D1014)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><BookOpen size={26} color="#FFB800" /></div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ui-text2)' }}>Pick a book, then a chapter</div>
                       <div style={{ fontSize: 11.5, color: 'var(--ui-faint)', lineHeight: 1.6 }}>Click a verse to send it live instantly. Use Ctrl+Click to multi-select or Shift+Click to grab a range, then Add to Playlist.</div>
                     </div>
@@ -502,9 +544,9 @@ export default function CenterWorkspace() {
         )}
       </div>
     </motion.div>
-  ) : (dockTab === 'presentations' || activePresentation) ? (
-  <PresentationWorkspace />
   ) : (dockTab === 'sermon') ? (
+  <PresentationWorkspace />
+  ) : (dockTab === 'presentations') ? (
   <SermonPanel />
   ) : (dockTab === 'countdown') ? (
   <CountdownPanel />
@@ -517,82 +559,270 @@ export default function CenterWorkspace() {
   ) : (dockTab === 'media') ? (
   <MediaBrowser />
   ) : (
-  <motion.div key="other" initial={{ opacity: 0, x: 26 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -26 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
-  <div style={{ padding: '12px 18px 8px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexShrink: 0 }}>
-    <div style={{ minWidth: 0 }}>
-      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{slideGrid[0]?.medTitle ? `${slideGrid[0].medTitle} • Medley` : (activeSong?.title || 'Welcome to KOGWorship')}</h2>
-      <p style={{ margin: '3px 0 0 0', fontSize: 11.5, color: C.faint }}>{slideGrid[0]?.medTitle ? `${slideGrid.length} slides in flow` : (arrangementStatus ? `${arrangementStatus.total} slides in arrangement` : (activeSong?.artist ? `${activeSong.artist} • ` : ''))}{slideGrid[0]?.medTitle || arrangementStatus ? '' : (activeSong?.cues ? `${activeSong.cues.length} slides` : 'Build your set, then project every lyric and verse with confidence.')}</p>
-    </div>
-    {activeSong && (
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-        {arrangementStatus && !slideGrid[0]?.medTitle && (
-          <span title="Custom play order from the service row — arrows walk this, not the song order" style={{ fontSize: 11, fontWeight: 800, color: '#C4B5FD', background: 'rgba(139,92,246,0.16)', border: '1px solid rgba(139,92,246,0.5)', borderRadius: 999, padding: '4px 10px' }}>Arr. {arrangementStatus.pos != null ? `${arrangementStatus.pos}/${arrangementStatus.total}` : (arrangementStatus.onTitle ? `title · ${arrangementStatus.total}` : `${arrangementStatus.total} steps`)}</span>
+  <motion.div key="other" initial={{ opacity: 0, x: 26 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -26 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
+  {/* WORKSPACE TOOLBAR — title, position, browsing and edit actions. Browsing
+      here is selection only; the live output changes when a tile is clicked or
+      the transport shortcuts are used, never from these controls. */}
+  <div className="kog-workspace-toolbar">
+    <div style={{ minWidth: 0, flex: 1 }}>
+      <h2 className="kog-workspace-title" title={slideGrid[0]?.medTitle ? `${slideGrid[0].medTitle} — Medley` : (activeSong?.title || 'No service plan loaded')}>
+        {slideGrid[0]?.medTitle ? `${slideGrid[0].medTitle} · Medley` : (activeSong?.title || 'No service plan loaded')}
+      </h2>
+      <p className="kog-workspace-sub">
+        {activeSong ? (
+          <>
+            {activeSong.artist ? <span>{activeSong.artist}</span> : null}
+            {activeSong.artist ? <span aria-hidden="true">·</span> : null}
+            <b>{slideGrid.length}</b> slide{slideGrid.length === 1 ? '' : 's'}
+            {arrangementStatus && !slideGrid[0]?.medTitle ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span title="Custom play order from the service row">Arrangement {arrangementStatus.pos != null ? `${arrangementStatus.pos}/${arrangementStatus.total}` : `${arrangementStatus.total} steps`}</span>
+              </>
+            ) : null}
+            {activeCue && activeCue.id !== 'clear' && activeSlideIndex >= 0 ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span style={{ color: 'var(--kog-success)' }}>Live on slide {activeSlideIndex + 1}</span>
+              </>
+            ) : null}
+          </>
+        ) : (
+          'Build a set from the song library, then project every lyric and verse with confidence.'
         )}
-        <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '4px 10px' }}>{activeSlideIndex >= 0 ? `Slide ${activeSlideIndex}/${slideGrid.length - 1}` : `${slideGrid.length} slides`}</span>
-        <motion.button {...stubTap} onClick={() => { if (activeSong) openEditorOn(activeSong, 'manual'); }} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '6px 12px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Edit3 size={12} /> Edit</motion.button>
-      </div>
-    )}
+      </p>
+    </div>
+
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+      <button
+        type="button"
+        className="kog-icon-btn"
+        onClick={() => selectSlide(Math.max(0, selectedIdx - 1))}
+        disabled={ !slideGrid.length || selectedIdx <= 0 }
+        title="Previous slide (browse only — does not change the live output)"
+        aria-label="Previous slide"
+      >
+        <ChevronLeft size={14} />
+      </button>
+      <span style={{ minWidth: 62, textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--ui-muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }} title="Selected slide (browsing position)">
+        {slideGrid.length ? `${selectedIdx + 1} / ${slideGrid.length}` : '0 / 0'}
+      </span>
+      <button
+        type="button"
+        className="kog-icon-btn"
+        onClick={() => selectSlide(Math.min(slideGrid.length - 1, selectedIdx + 1))}
+        disabled={ !slideGrid.length || selectedIdx >= slideGrid.length - 1 }
+        title="Next slide (browse only — does not change the live output)"
+        aria-label="Next slide"
+      >
+        <ChevronRight size={14} />
+      </button>
+      {activeSong && (
+        <>
+          <span style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 3px' }} aria-hidden="true" />
+          <motion.button {...stubTap} onClick={() => { if (activeSong) openEditorOn(activeSong, 'manual'); }} className="kog-icon-btn" title="Edit this song">
+            <Edit3 size={13} /> Edit
+          </motion.button>
+          <button
+            type="button"
+            className="kog-icon-btn"
+            onClick={() => clearWorkspace()}
+            title="Clear the workspace — unload this song. The live output is untouched."
+          >
+            Clear Canvas
+          </button>
+        </>
+      )}
+    </div>
   </div>
 
-  {/* Grid controls — same GRID DENSITY chips as the Show Builder (reference:
-      1-4 fixed columns instead of fluid auto-fill). */}
-  {activeSong && (
-    <div style={{ padding: '0 18px 8px 18px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-      <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1 }}>Grid Density</span>
+  {/* GRID HEADER — count, selected state and density. */}
+  <div className="kog-grid-header">
+    <LayoutGrid size={13} color="var(--ui-faint)" aria-hidden="true" />
+    <span className="kog-grid-caption">Slides</span>
+    <span style={{ fontSize: 11, color: 'var(--ui-faint)', fontVariantNumeric: 'tabular-nums' }}>
+      {slideGrid.length ? `${slideGrid.length} total` : 'Empty'}
+    </span>
+    <span style={{ flex: 1 }} />
+    {slideGrid.length ? (
+      <span className="kog-grid-caption kog-header-hide-sm" title="Selected slide, then the slide currently on air">
+        Selected {selectedIdx + 1}
+        {activeCue && activeCue.id !== 'clear' && activeSlideIndex >= 0 ? ` · Live ${activeSlideIndex + 1}` : ' · Nothing live'}
+      </span>
+    ) : null}
+    <div className="kog-segmented" role="group" aria-label="Grid density">
       {[1, 2, 3, 4].map(d => (
-        <button key={d} onClick={() => setGridDensity(d)} style={{ width: 26, height: 22, borderRadius: 4, background: gridDensity === d ? ACCENT : C.elevated2, color: gridDensity === d ? '#fff' : C.muted, border: '1px solid var(--ui-border2)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{d}</button>
+        <button
+          key={d}
+          type="button"
+          className="kog-seg-btn"
+          data-active={gridDensity === d ? '1' : '0'}
+          onClick={() => setGridDensity(d)}
+          title={`${d} column${d === 1 ? '' : 's'}`}
+          aria-pressed={gridDensity === d}
+        >
+          {d}
+        </button>
       ))}
-      <span style={{ flex: 1 }} />
-      <button onClick={() => clearWorkspace()} title="Clear workspace — unload this song back to welcome (live output untouched)" style={{ display: 'flex', alignItems: 'center', gap: 5, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '4px 10px', fontSize: 10.5, fontWeight: 800, letterSpacing: 0.6, cursor: 'pointer', textTransform: 'uppercase' }}>Clear canvas</button>
     </div>
-  )}
+  </div>
 
-  <div ref={gridScrollRef} style={{ flex: 1, overflowY: 'auto', padding: '8px 18px 16px 18px' }}>
+  <div ref={gridScrollRef} className="kog-grid-scroll">
     {activeSong ? (
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${gridDensity}, 1fr)`, gap: 14, alignContent: 'start' }}>
-        {slideGrid.map((tile, i) => (
-          <React.Fragment key={tile.medIdx != null ? `med-${tile.medIdx}` : (tile.arrIdx != null ? `arr-${tile.arrIdx}` : (tile.isTitle ? 'title' : (tile.cue?.id ?? `cue-${i}`)))}>
-            {/* Song Title Divider: full-width header where the flow crosses
-                into another song (skipped before the very first tile). */}
-            {tile.medFirstOfSong && tile.medIdx > 0 && (
-              <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
-                <div style={{ flex: 1, height: 1, background: 'var(--ui-border2)' }} />
-                <span style={{ fontSize: 11, fontWeight: 800, color: ACCENT, letterSpacing: 0.6, whiteSpace: 'nowrap' }}>{tile.medSong?.title || 'Next song'}</span>
-                <div style={{ flex: 1, height: 1, background: 'var(--ui-border2)' }} />
-              </div>
-            )}
-            <motion.div data-grid-pos={i} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 320, damping: 28, delay: Math.min(i * 0.03, 0.4) }} whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }} onClick={() => tile.medIdx != null ? fireMedleySlideAt(tile.medIdx) : (tile.isTitle ? fireTitleLive() : fireCueLive(tile.cue))}>
-              {renderSlideFace(tile, { aspect: (outputAspect || '16:9').replace(':', ' / ') })}
-            </motion.div>
-          </React.Fragment>
-        ))}
+      <div className="kog-slide-grid" style={{ gridTemplateColumns: `repeat(${gridDensity}, minmax(0, 1fr))` }}>
+        {slideGrid.map((tile, i) => {
+          const live = activeCue != null && activeCue.id !== 'clear' && activeSlideIndex === i;
+          const selected = selectedIdx === i;
+          const cueLabel = tile.isTitle ? 'Title' : (tile.cue?.label || 'Slide');
+          const bgType = String(tile.cue?.bg_type || '').toLowerCase();
+          const rawLabel = String(cueLabel).toLowerCase();
+          const kind = tile.isTitle ? 'TITLE'
+            : rawLabel.includes('verse') ? 'VERSE'
+              : rawLabel.includes('pre') ? 'PRE-CHORUS'
+                : rawLabel.includes('chorus') ? 'CHORUS'
+                  : rawLabel.includes('bridge') ? 'BRIDGE'
+                    : bgType === 'video' ? 'VIDEO'
+                      : bgType === 'image' ? 'IMAGE'
+                        : rawLabel === 'slide' || rawLabel === 'blank' ? 'SLIDE'
+                          : cueLabel.toUpperCase().slice(0, 16);
+          return (
+            <React.Fragment key={tile.medIdx != null ? `med-${tile.medIdx}` : (tile.arrIdx != null ? `arr-${tile.arrIdx}` : (tile.isTitle ? 'title' : (tile.cue?.id ?? `cue-${i}`)))}>
+              {/* Song Title Divider: full-width header where the flow crosses
+                  into another song (skipped before the very first tile). */}
+              {tile.medFirstOfSong && tile.medIdx > 0 && (
+                <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+                  <div style={{ flex: 1, height: 1, background: 'var(--ui-border2)' }} />
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--ui-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{tile.medSong?.title || 'Next song'}</span>
+                  <div style={{ flex: 1, height: 1, background: 'var(--ui-border2)' }} />
+                </div>
+              )}
+              <motion.div
+                data-grid-pos={i}
+                className="kog-slide-tile"
+                data-selected={selected ? '1' : '0'}
+                data-live={live ? '1' : '0'}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 28, delay: Math.min(i * 0.02, 0.24) }}
+                whileHover={{ y: -2 }}
+                whileTap={{ scale: 0.99 }}
+                onClick={() => { selectSlide(i); if (tile.medIdx != null) fireMedleySlideAt(tile.medIdx); else if (tile.isTitle) fireTitleLive(); else fireCueLive(tile.cue); }}
+                title={`${kind}${tile.isTitle ? '' : ` · ${tile.cue?.label || 'Slide'}`} — click to send live`}
+                style={{ display: 'flex', flexDirection: 'column', gap: 6, cursor: 'pointer' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, height: 16 }}>
+                  <span style={{ fontSize: 9.5, fontWeight: 700, color: selected ? 'var(--kog-accent)' : 'var(--ui-faint)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--ui-muted)', flexShrink: 0 }}>{kind}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 10.5, color: 'var(--ui-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {tile.isTitle ? (tile.medSong?.title || activeSong?.title || 'Song title') : (tile.cue?.label || 'Slide')}
+                  </span>
+                  {live ? <span className="kog-live-chip">LIVE</span> : null}
+                </div>
+                <div className="kog-slide-face" style={{ position: 'relative', padding: 0, lineHeight: 0 }}>
+                  {renderSlideFace(tile, { aspect: (outputAspect || '16:9').replace(':', ' / '), radius: '6px', showLiveBadge: false })}
+                </div>
+                {tile.medSong ? (
+                  <span style={{ fontSize: 9.5, color: 'var(--ui-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tile.medSong.title || 'Song'}</span>
+                ) : null}
+              </motion.div>
+            </React.Fragment>
+          );
+        })}
       </div>
     ) : (
-      <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: C.faint2, borderRadius: 14 }}>
+      <div style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px 0' }}>
         <motion.div
-          initial={{ opacity: 0, y: 14 }}
+          initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-          style={{ width: '100%', maxWidth: 760, flex: '1 0 auto', borderRadius: 12, border: '1px solid var(--ui-border2)', background: 'radial-gradient(100% 70% at 50% 0%, rgba(139,92,246,0.13), transparent 70%), var(--ui-elev)', padding: '56px 34px 34px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}
+          style={{ width: '100%', maxWidth: 560, border: '1px solid var(--ui-border2)', background: 'var(--ui-elev)', borderRadius: 8, padding: '34px 30px 28px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}
         >
-          <div style={{ position: 'relative', marginBottom: 16 }}>
-            <Folder size={84} color={ACCENT} strokeWidth={1.2} />
-            <span style={{ position: 'absolute', right: -18, bottom: -4, width: 48, height: 48, borderRadius: 15, background: ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 22px rgba(0,0,0,0.5)' }}>
-              <Music size={24} color="#fff" />
-            </span>
+          <div style={{ width: 44, height: 44, borderRadius: 8, border: '1px solid var(--ui-border2)', background: 'var(--ui-elev2)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+            <Music size={20} color="var(--ui-muted)" strokeWidth={1.6} />
           </div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: C.text, textAlign: 'center' }}>No Service Plan Loaded</div>
-          <div style={{ fontSize: 13.5, textAlign: 'center', maxWidth: 520, lineHeight: 1.6, color: C.muted, marginTop: 8 }}>
-            Add a song from the Songs tab, or open a saved service from the Shows tab to begin.
+          <div style={{ fontSize: 19, fontWeight: 600, color: 'var(--ui-text)', letterSpacing: '-0.01em' }}>No slides loaded</div>
+          <div style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--ui-muted)', marginTop: 8, maxWidth: 400 }}>
+            Open a saved service or add a song from the library. Everything you add appears here as real, output-accurate thumbnails.
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 9, padding: '12px 15px', marginTop: 24, maxWidth: 560, width: '100%', boxSizing: 'border-box' }}>
-            <Lightbulb size={16} color={C.muted} style={{ flexShrink: 0, marginTop: 1 }} />
-            <span style={{ fontSize: 12, lineHeight: 1.6, color: C.muted }}>Tip: Assign a display under Live Outputs, then press Start to project to your screens.</span>
+          <div style={{ display: 'flex', gap: 8, marginTop: 22, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button
+              type="button"
+              onClick={() => { setDockTab('shows'); setViewTab('songs'); setLeftOpen(true); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 14px', border: '1px solid var(--kog-accent)', borderRadius: 5, background: 'var(--kog-accent-bg)', color: 'var(--kog-accent-hover)', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+            >
+              <Music size={13} /> Open song library
+            </button>
+            <button
+              type="button"
+              onClick={() => { setDockTab('shows'); setViewTab('shows'); setLeftOpen(true); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 14px', border: '1px solid var(--ui-border2)', borderRadius: 5, background: 'var(--ui-elev)', color: 'var(--ui-text2)', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+            >
+              <Folder size={13} /> Open saved shows
+            </button>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, borderTop: '1px solid var(--ui-border)', marginTop: 24, paddingTop: 14, textAlign: 'left' }}>
+            <Lightbulb size={13} color="var(--ui-faint)" style={{ flexShrink: 0, marginTop: 1 }} />
+            <span style={{ fontSize: 11, lineHeight: 1.55, color: 'var(--ui-faint)' }}>Assign a display in the top bar, then send a slide live. The Live Output panel previews exactly what the room sees.</span>
           </div>
         </motion.div>
       </div>
     )}
   </div>
+
+  {/* NUMBERED PAGINATION — browsing only. Never fires the live output. */}
+  <nav className="kog-pagination" aria-label="Slide navigation">
+    <button
+      type="button"
+      className="kog-page-btn"
+      data-nav="1"
+      onClick={() => selectSlide(Math.max(0, selectedIdx - 1))}
+      disabled={!slideGrid.length || selectedIdx <= 0}
+      title="Previous slide (browse only)"
+      aria-label="Previous slide"
+    >
+      <ChevronLeft size={13} />
+    </button>
+    {slideGrid.length === 0 ? (
+      <span style={{ fontSize: 10.5, color: 'var(--ui-faint)', padding: '0 4px' }}>No slides</span>
+    ) : pagerItems(slideGrid.length, selectedIdx).map((item) => (
+      typeof item === 'number' ? (
+        <button
+          key={item}
+          type="button"
+          className="kog-page-btn"
+          data-active={selectedIdx === item ? '1' : '0'}
+          data-live={activeCue != null && activeCue.id !== 'clear' && activeSlideIndex === item ? '1' : '0'}
+          onClick={() => selectSlide(item)}
+          title={`Select slide ${item + 1}${activeSlideIndex === item ? ' (live)' : ''}`}
+          aria-label={`Slide ${item + 1}`}
+          aria-current={selectedIdx === item ? 'true' : undefined}
+        >
+          {item + 1}
+        </button>
+      ) : (
+        <span key={item} className="kog-page-ellipsis" aria-hidden="true">…</span>
+      )
+    ))}
+    <button
+      type="button"
+      className="kog-page-btn"
+      data-nav="1"
+      onClick={() => selectSlide(Math.min(slideGrid.length - 1, selectedIdx + 1))}
+      disabled={!slideGrid.length || selectedIdx >= slideGrid.length - 1}
+      title="Next slide (browse only)"
+      aria-label="Next slide"
+    >
+      <ChevronRight size={13} />
+    </button>
+    {slideGrid.length ? (
+      <span className="kog-pagination-meta">
+        {selectedIdx + 1} of {slideGrid.length}
+        {activeCue && activeCue.id !== 'clear' && activeSlideIndex >= 0 ? ` · Live ${activeSlideIndex + 1}` : ' · Standby'}
+      </span>
+    ) : null}
+  </nav>
   </motion.div>
   )}
   </AnimatePresence>

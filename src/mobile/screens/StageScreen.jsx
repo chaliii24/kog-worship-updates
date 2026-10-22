@@ -134,7 +134,7 @@ export default function StageScreen({ C, state, status, onSwitchRole }) {
     <div style={{ minHeight: '100dvh', maxWidth: 880, width: '100%', margin: '0 auto', background: bg, color: curColor, display: 'flex', flexDirection: 'column', padding: 'calc(14px + env(safe-area-inset-top)) 18px calc(14px + env(safe-area-inset-bottom))' }}>
       {/* STATUS STRIP: live dot · clock · control */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: landscape ? '1vh' : '1.4vh', marginBottom: landscape ? '1vh' : '1.4vh', borderBottom: `1px solid ${hairline}`, flexShrink: 0 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: cleared ? '#3f3f46' : '#22c55e', boxShadow: cleared ? 'none' : '0 0 10px #22c55e', flexShrink: 0 }} />
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: cleared ? '#3f3f46' : '#36C982', boxShadow: cleared ? 'none' : '0 0 10px #36C982', flexShrink: 0 }} />
         <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: 2, color: faint }}>{cleared ? 'CLEARED' : 'LIVE'}</span>
         <span style={{ flex: 1 }} />
         {cfg?.clock && (
@@ -167,7 +167,7 @@ export default function StageScreen({ C, state, status, onSwitchRole }) {
 
       {/* Stage alert: same message the monitor shows (stage-only). */}
       {alertActive && (
-        <div style={{ marginBottom: landscape ? '1vh' : '1.4vh', borderRadius: 10, padding: '10px 12px', background: alertRaw.level === 'urgent' ? '#dc2626' : '#b45309', color: '#ffffff', fontSize: 15, fontWeight: 900, textAlign: 'center', flexShrink: 0 }}>
+        <div style={{ marginBottom: landscape ? '1vh' : '1.4vh', borderRadius: 10, padding: '10px 12px', background: alertRaw.level === 'urgent' ? '#FF4545' : '#b45309', color: '#ffffff', fontSize: 15, fontWeight: 900, textAlign: 'center', flexShrink: 0 }}>
           {String(alertRaw.text)}
         </div>
       )}
@@ -298,7 +298,7 @@ export default function StageScreen({ C, state, status, onSwitchRole }) {
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(10px + env(safe-area-inset-bottom))', textAlign: 'center', fontSize: 12, fontWeight: 800, color: '#f87171' }}
+          style={{ position: 'fixed', left: 0, right: 0, bottom: 'calc(10px + env(safe-area-inset-bottom))', textAlign: 'center', fontSize: 12, fontWeight: 800, color: '#FF4545' }}
         >
           Connection lost — reconnecting…
         </motion.div>

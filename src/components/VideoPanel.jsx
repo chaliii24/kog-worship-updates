@@ -282,12 +282,12 @@ export default function VideoPanel() {
     } catch {}
   };
 
-  const borderLive = '2px solid #ef4444';
-  const borderCued = '2px solid #22c55e';
+  const borderLive = '2px solid #FF4545';
+  const borderCued = '2px solid #36C982';
   const stageBorder = !cur ? '1px solid var(--ui-border2)' : wallShowsUs ? borderLive : borderCued;
   const stageShadow = wallShowsUs
-    ? '0 0 0 1px rgba(239,68,68,0.55), 0 0 28px rgba(239,68,68,0.28)'
-    : (cur ? '0 0 0 1px rgba(34,197,94,0.4), 0 0 22px rgba(34,197,94,0.16)' : 'none');
+    ? '0 0 0 1px rgba(255,69,69,0.55), 0 0 28px rgba(255,69,69,0.28)'
+    : (cur ? '0 0 0 1px rgba(54,201,130,0.4), 0 0 22px rgba(54,201,130,0.16)' : 'none');
   const progress = dur > 0 ? Math.min(1, time / dur) : 0;
 
   const scrub = (
@@ -380,8 +380,8 @@ export default function VideoPanel() {
 
             {/* status chip: cued (green, ready) vs live (red, on the wall) */}
             {cur && (
-              <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(0,0,0,0.62)', border: `1px solid ${wallShowsUs ? 'rgba(239,68,68,0.7)' : 'rgba(34,197,94,0.6)'}`, color: wallShowsUs ? '#f87171' : '#4ade80', borderRadius: 999, padding: '3px 10px', fontSize: 10, fontWeight: 900, letterSpacing: 1 }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: wallShowsUs ? '#ef4444' : '#22c55e', boxShadow: wallShowsUs ? '0 0 8px #ef4444' : '0 0 8px #22c55e' }} />
+              <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(0,0,0,0.62)', border: `1px solid ${wallShowsUs ? 'rgba(255,69,69,0.7)' : 'rgba(54,201,130,0.6)'}`, color: wallShowsUs ? '#FF4545' : '#36C982', borderRadius: 999, padding: '3px 10px', fontSize: 10, fontWeight: 900, letterSpacing: 1 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: wallShowsUs ? '#FF4545' : '#36C982', boxShadow: wallShowsUs ? '0 0 8px #FF4545' : '0 0 8px #36C982' }} />
                 {wallShowsUs ? 'LIVE' : 'CUED'}
               </div>
             )}
@@ -398,7 +398,7 @@ export default function VideoPanel() {
                 <span style={{ fontSize: 11, color: '#e4e4e7', width: 38, fontVariantNumeric: 'tabular-nums' }}>{fmt(time)}</span>
                 {scrub}
                 <span style={{ fontSize: 11, color: '#a1a1aa', width: 38, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>-{fmt(Math.max(0, dur - time))}</span>
-                <button onClick={toggleLoop} title={loop ? 'Looping — click to play through' : 'Repeat this video'} style={{ background: loop ? 'rgba(139,92,246,0.4)' : 'rgba(255,255,255,0.1)', border: '1px solid ' + (loop ? 'rgba(139,92,246,0.7)' : 'rgba(255,255,255,0.2)'), color: loop ? '#d8b4fe' : '#d4d4d8', borderRadius: 7, padding: '5px 8px', cursor: 'pointer', display: 'flex', flexShrink: 0 }}><Repeat size={13} /></button>
+                <button onClick={toggleLoop} title={loop ? 'Looping — click to play through' : 'Repeat this video'} style={{ background: loop ? 'rgba(255,184,0,0.4)' : 'rgba(255,255,255,0.1)', border: '1px solid ' + (loop ? 'rgba(255,184,0,0.7)' : 'rgba(255,255,255,0.2)'), color: loop ? '#FFC72C' : '#d4d4d8', borderRadius: 7, padding: '5px 8px', cursor: 'pointer', display: 'flex', flexShrink: 0 }}><Repeat size={13} /></button>
                 <button onClick={() => setMuted((m) => !m)} title={muted ? 'Unmute (booth)' : 'Mute (booth)'} style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#d4d4d8', borderRadius: 7, padding: '5px 8px', cursor: 'pointer', display: 'flex', flexShrink: 0 }}>{muted ? <VolumeX size={13} /> : <Volume2 size={13} />}</button>
                 <input type="range" min={0} max={1} step={0.01} value={muted ? 0 : vol} onChange={(e) => { const v = Number(e.target.value); setVol(v); if (v > 0) setMuted(false); }} title="Booth volume" style={{ width: 64, flexShrink: 0, accentColor: '#fff', cursor: 'pointer' }} />
                 <button onClick={toggleFull} title="Fullscreen" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#d4d4d8', borderRadius: 7, padding: '5px 8px', cursor: 'pointer', display: 'flex', flexShrink: 0 }}><Maximize size={13} /></button>
@@ -421,9 +421,9 @@ export default function VideoPanel() {
             title={cur ? (wallShowsUs ? 'Wall is showing this video — press to re-sync it to the booth' : 'Play this video in the booth and on the projector wall') : 'Cue a video first'}
             style={{
               width: '100%', marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              background: !cur ? C.elevated2 : wallShowsUs ? 'rgba(239,68,68,0.14)' : 'linear-gradient(180deg, #dc2626, #b91c1c)',
-              border: !cur ? '1px solid var(--ui-border2)' : wallShowsUs ? '1px solid rgba(239,68,68,0.55)' : 'none',
-              color: !cur ? C.faint : wallShowsUs ? '#f87171' : '#fff',
+              background: !cur ? C.elevated2 : wallShowsUs ? 'rgba(255,69,69,0.14)' : 'linear-gradient(180deg, #FF4545, #C73030)',
+              border: !cur ? '1px solid var(--ui-border2)' : wallShowsUs ? '1px solid rgba(255,69,69,0.55)' : 'none',
+              color: !cur ? C.faint : wallShowsUs ? '#FF4545' : '#fff',
               borderRadius: 10, padding: '11px 0', fontSize: 13, fontWeight: 900, letterSpacing: 0.4,
               cursor: !cur ? 'default' : 'pointer', opacity: !cur ? 0.6 : 1,
               boxShadow: !cur || wallShowsUs ? 'none' : '0 8px 24px rgba(220,38,38,0.35)',

@@ -30,7 +30,7 @@ function Segmented({ C, ACCENT, options, value, onPick }) {
           <button
             key={v}
             onClick={() => onPick(v)}
-            style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? C.text : C.muted, borderRadius: 8, padding: '8px 6px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+            style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? '#0D1014' : C.muted, borderRadius: 8, padding: '8px 6px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
           >
             {Icon ? <Icon size={13} /> : null}{lbl}
           </button>
@@ -87,6 +87,11 @@ export default function CountdownPanel() {
   // A changed file (or a closed tab) must release the test element — nothing
   // plays from a stale URL.
   useEffect(() => { stopAudioTest(); }, [media.video, stopAudioTest]);
+  // Go Live hands the sound to the wall immediately. A test clip still playing
+  // from this panel would be a second copy of the same track (echo), so kill
+  // it the moment the countdown becomes live. Unmount releases it too.
+  useEffect(() => { if (live) stopAudioTest(); }, [live, stopAudioTest]);
+  useEffect(() => () => stopAudioTest(), [stopAudioTest]);
   const imgPickRef = useRef(null);
   const vidPickRef = useRef(null);
   const wmPickRef = useRef(null);
@@ -182,18 +187,18 @@ export default function CountdownPanel() {
   return (
     <motion.div key="countdown" initial={{ opacity: 0, x: 26 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -26 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
       <div style={{ padding: '12px 18px 8px 18px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-        <Clock size={16} color={live ? '#4ade80' : C.faint} />
+        <Clock size={16} color={live ? '#36C982' : C.faint} />
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Countdown Timer</h2>
         {live && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: paused ? 'rgba(251,191,36,0.15)' : 'rgba(34,197,94,0.15)', border: '1px solid ' + (paused ? 'rgba(251,191,36,0.5)' : 'rgba(34,197,94,0.5)'), color: paused ? '#fbbf24' : '#4ade80', borderRadius: 999, padding: '3px 10px', fontSize: 10, fontWeight: 800, letterSpacing: 1 }}>
-            <span style={{ width: 7, height: 7, borderRadius: '50%', background: paused ? '#f59e0b' : '#22c55e', boxShadow: '0 0 8px ' + (paused ? '#f59e0b' : '#22c55e') }} /> {paused ? 'PAUSED' : 'LIVE'}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: paused ? 'rgba(251,191,36,0.15)' : 'rgba(54,201,130,0.15)', border: '1px solid ' + (paused ? 'rgba(251,191,36,0.5)' : 'rgba(54,201,130,0.5)'), color: paused ? '#fbbf24' : '#36C982', borderRadius: 999, padding: '3px 10px', fontSize: 10, fontWeight: 800, letterSpacing: 1 }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: paused ? '#f59e0b' : '#36C982', boxShadow: '0 0 8px ' + (paused ? '#f59e0b' : '#36C982') }} /> {paused ? 'PAUSED' : 'LIVE'}
           </span>
         )}
         <span style={{ flex: 1 }} />
         <button
           onClick={() => setRightOpen((v) => !v)}
           title={rightOpen ? 'Hide the Live Output sidebar' : 'Show the Live Output sidebar'}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: rightOpen ? 'rgba(139,92,246,0.16)' : 'transparent', border: '1px solid ' + (rightOpen ? 'rgba(139,92,246,0.5)' : 'var(--ui-border2)'), color: rightOpen ? '#C4B5FD' : C.muted, borderRadius: 8, padding: '6px 11px', fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: rightOpen ? 'rgba(255,184,0,0.16)' : 'transparent', border: '1px solid ' + (rightOpen ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), color: rightOpen ? '#FFC72C' : C.muted, borderRadius: 8, padding: '6px 11px', fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
         >
           <PanelRight size={13} /> Live Output
         </button>
@@ -242,7 +247,7 @@ export default function CountdownPanel() {
                 </div>
                 <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
                   {durationPresets.map(([v, lbl]) => (
-                    <button key={v} onClick={() => set({ durationSec: v })} style={{ flex: 1, background: cfg.durationSec === v ? ACCENT : C.elevated2, border: '1px solid ' + (cfg.durationSec === v ? ACCENT : 'var(--ui-border2)'), color: cfg.durationSec === v ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: isVideoMode ? 10.5 : 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                    <button key={v} onClick={() => set({ durationSec: v })} style={{ flex: 1, background: cfg.durationSec === v ? ACCENT : C.elevated2, border: '1px solid ' + (cfg.durationSec === v ? ACCENT : 'var(--ui-border2)'), color: cfg.durationSec === v ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: isVideoMode ? 10.5 : 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
                   ))}
                 </div>
                 {isVideoMode && (
@@ -282,7 +287,7 @@ export default function CountdownPanel() {
               <label style={fieldLabel(C)}>Background</label>
               <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
                 {[['color', 'Color'], ['gradient', 'Gradient'], ['animated', 'Animated'], ['media', 'Media']].map(([v, lbl]) => (
-                  <button key={v} onClick={() => v === 'media' ? setMedia({}) : set({ bgType: v, bgValue: v === 'color' ? '#052e16' : v === 'animated' ? 'anim:aurora' : GRADIENT_PACK[4].css })} style={{ flex: 1, background: cfg.bgType === v ? ACCENT : C.elevated2, border: '1px solid ' + (cfg.bgType === v ? ACCENT : 'var(--ui-border2)'), color: cfg.bgType === v ? C.text : C.muted, borderRadius: 6, padding: '7px 0', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                  <button key={v} onClick={() => v === 'media' ? setMedia({}) : set({ bgType: v, bgValue: v === 'color' ? '#052e16' : v === 'animated' ? 'anim:aurora' : GRADIENT_PACK[4].css })} style={{ flex: 1, background: cfg.bgType === v ? ACCENT : C.elevated2, border: '1px solid ' + (cfg.bgType === v ? ACCENT : 'var(--ui-border2)'), color: cfg.bgType === v ? '#0D1014' : C.muted, borderRadius: 6, padding: '7px 0', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
                 ))}
               </div>
               {cfg.bgType === 'color' ? (
@@ -319,7 +324,7 @@ export default function CountdownPanel() {
                           {media.images.map((src, i) => (
                             <div key={`${src}|${i}`} style={{ position: 'relative', width: 56, height: 32, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--ui-border2)', background: '#000' }}>
                               <img src={src} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              <button onClick={() => setMedia({ images: media.images.filter((_, x) => x !== i) })} title="Remove" style={{ position: 'absolute', top: 1, right: 1, width: 16, height: 16, borderRadius: 999, background: 'rgba(0,0,0,0.7)', border: 'none', color: '#f87171', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}><X size={10} /></button>
+                              <button onClick={() => setMedia({ images: media.images.filter((_, x) => x !== i) })} title="Remove" style={{ position: 'absolute', top: 1, right: 1, width: 16, height: 16, borderRadius: 999, background: 'rgba(0,0,0,0.7)', border: 'none', color: '#FF4545', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}><X size={10} /></button>
                             </div>
                           ))}
                         </div>
@@ -331,7 +336,7 @@ export default function CountdownPanel() {
                       </div>
                       <div style={{ display: 'flex', gap: 4 }}>
                         {[5, 10, 15].map((s) => (
-                          <button key={s} onClick={() => setMedia({ slideSec: s })} style={{ flex: 1, background: media.slideSec === s ? ACCENT : C.elevated2, border: '1px solid ' + (media.slideSec === s ? ACCENT : 'var(--ui-border2)'), color: media.slideSec === s ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{s}s</button>
+                          <button key={s} onClick={() => setMedia({ slideSec: s })} style={{ flex: 1, background: media.slideSec === s ? ACCENT : C.elevated2, border: '1px solid ' + (media.slideSec === s ? ACCENT : 'var(--ui-border2)'), color: media.slideSec === s ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{s}s</button>
                         ))}
                       </div>
                       {/* Watermark badge (slideshow only): logo pinned to a
@@ -342,10 +347,10 @@ export default function CountdownPanel() {
                           {media.watermark?.url ? (
                             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <img src={media.watermark.url} alt="" draggable={false} style={{ width: 30, height: 30, borderRadius: 999, objectFit: 'cover', border: '1px solid var(--ui-border2)', background: '#000' }} />
-                              <button onClick={() => setWatermarkOpts({ url: null })} title="Remove watermark" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: '#f87171', borderRadius: 6, padding: '4px 10px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>Remove</button>
+                              <button onClick={() => setWatermarkOpts({ url: null })} title="Remove watermark" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: '#FF4545', borderRadius: 6, padding: '4px 10px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>Remove</button>
                             </span>
                           ) : (
-                            <button onClick={() => wmPickRef.current?.click()} disabled={mediaBusy} title="Pick a logo image" style={{ background: ACCENT, border: 'none', color: '#fff', borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: mediaBusy ? 'default' : 'pointer', opacity: mediaBusy ? 0.6 : 1 }}>{mediaBusy ? 'Copying…' : 'Pick logo'}</button>
+                            <button onClick={() => wmPickRef.current?.click()} disabled={mediaBusy} title="Pick a logo image" style={{ background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: mediaBusy ? 'default' : 'pointer', opacity: mediaBusy ? 0.6 : 1 }}>{mediaBusy ? 'Copying…' : 'Pick logo'}</button>
                           )}
                         </div>
                         <input ref={wmPickRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { setWatermark(e.target.files?.[0]); e.target.value = ''; }} />
@@ -355,7 +360,7 @@ export default function CountdownPanel() {
                               {[['tl', 'Top Left'], ['tr', 'Top Right'], ['bl', 'Bottom Left'], ['br', 'Bottom Right']].map(([v, lbl]) => {
                                 const cur = media.watermark?.pos || 'tl';
                                 return (
-                                  <button key={v} onClick={() => setWatermarkOpts({ pos: v })} style={{ flex: 1, background: cur === v ? ACCENT : C.elevated2, border: '1px solid ' + (cur === v ? ACCENT : 'var(--ui-border2)'), color: cur === v ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                                  <button key={v} onClick={() => setWatermarkOpts({ pos: v })} style={{ flex: 1, background: cur === v ? ACCENT : C.elevated2, border: '1px solid ' + (cur === v ? ACCENT : 'var(--ui-border2)'), color: cur === v ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
                                 );
                               })}
                             </div>
@@ -389,7 +394,7 @@ export default function CountdownPanel() {
                           Loop video
                         </label>
                         {media.video && (
-                          <button onClick={() => setMedia({ video: null })} style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid var(--ui-border2)', color: '#f87171', borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Remove</button>
+                          <button onClick={() => setMedia({ video: null })} style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid var(--ui-border2)', color: '#FF4545', borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Remove</button>
                         )}
                       </div>
                       {/* ORIGINAL AUDIO (video mode only): enable/mute, volume,
@@ -420,10 +425,10 @@ export default function CountdownPanel() {
                             </div>
                           ))}
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <button onClick={toggleAudioTest} disabled={live || !media.video} title={live ? 'Stop the countdown first — the live output owns the sound' : "Play this video's audio for 5 seconds"} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: audioTesting ? 'rgba(239,68,68,0.18)' : ACCENT, border: '1px solid ' + (audioTesting ? '#f87171' : 'transparent'), color: audioTesting ? '#f87171' : '#fff', borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: live || !media.video ? 'default' : 'pointer', opacity: live ? 0.55 : 1 }}>
+                            <button onClick={toggleAudioTest} disabled={live || !media.video} title={live ? 'Stop the countdown first — the live output owns the sound' : "Play this video's audio for 5 seconds"} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: audioTesting ? 'rgba(255,69,69,0.18)' : ACCENT, border: '1px solid ' + (audioTesting ? '#FF4545' : 'transparent'), color: audioTesting ? '#FF4545' : '#0D1014', borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: live || !media.video ? 'default' : 'pointer', opacity: live ? 0.55 : 1 }}>
                               {audioTesting ? <><Square size={12} /> Stop test</> : <><Volume2 size={12} /> Test audio</>}
                             </button>
-                            <span style={{ fontSize: 10.5, color: media.videoAudio?.unsupported ? '#f87171' : media.videoAudio?.hasTrack === false ? '#fbbf24' : C.faint2, lineHeight: 1.4 }}>
+                            <span style={{ fontSize: 10.5, color: media.videoAudio?.unsupported ? '#FF4545' : media.videoAudio?.hasTrack === false ? '#fbbf24' : C.faint2, lineHeight: 1.4 }}>
                               {media.videoAudio?.unsupported
                                 ? 'This format may not play here — MP4 (H.264/AAC) or WebM recommended.'
                                 : media.videoAudio?.probed === false
@@ -465,7 +470,7 @@ export default function CountdownPanel() {
               <motion.button
                 {...stubTap}
                 onClick={() => (live ? stopCountdownLive() : fireCountdownLive())}
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: live ? 'rgba(239,68,68,0.9)' : '#10b981', border: 'none', color: '#fff', borderRadius: 10, padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: live ? 'rgba(255,69,69,0.9)' : '#36C982', border: 'none', color: '#fff', borderRadius: 10, padding: '10px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}
               >
                 {live ? <Square size={14} /> : <Play size={14} />} {live ? 'Stop Timer' : 'Go Live'}
               </motion.button>
@@ -482,7 +487,7 @@ export default function CountdownPanel() {
                 <motion.button
                   {...stubTap}
                   onClick={() => (paused ? resumeCountdownLive() : pauseCountdownLive())}
-                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: paused ? '#10b981' : C.elevated2, border: '1px solid ' + (paused ? 'transparent' : 'var(--ui-border2)'), color: paused ? '#fff' : C.text, borderRadius: 10, padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: paused ? '#36C982' : C.elevated2, border: '1px solid ' + (paused ? 'transparent' : 'var(--ui-border2)'), color: paused ? '#fff' : C.text, borderRadius: 10, padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
                 >
                   {paused ? <Play size={13} /> : <Pause size={13} />} {paused ? 'Resume' : 'Pause'}
                 </motion.button>
@@ -537,7 +542,7 @@ export default function CountdownPanel() {
                     placeholder="Name this setup…"
                     style={{ flex: 1, minWidth: 0, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: '7px 10px', fontSize: 12, outline: 'none' }}
                   />
-                  <button onClick={saveCdTemplate} disabled={!tplName.trim()} title="Save the current media setup" style={{ background: tplName.trim() ? ACCENT : C.elevated2, border: 'none', color: '#fff', borderRadius: 7, padding: '7px 14px', fontSize: 11.5, fontWeight: 800, cursor: tplName.trim() ? 'pointer' : 'default', opacity: tplName.trim() ? 1 : 0.5 }}>Save</button>
+                  <button onClick={saveCdTemplate} disabled={!tplName.trim()} title="Save the current media setup" style={{ background: tplName.trim() ? ACCENT : C.elevated2, border: 'none', color: tplName.trim() ? '#0D1014' : C.muted, borderRadius: 7, padding: '7px 14px', fontSize: 11.5, fontWeight: 800, cursor: tplName.trim() ? 'pointer' : 'default', opacity: tplName.trim() ? 1 : 0.5 }}>Save</button>
                 </div>
                 {(cdTemplates || []).length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -547,7 +552,7 @@ export default function CountdownPanel() {
                           {t.name}
                           <span style={{ color: C.muted, fontWeight: 600 }}> · {(t.bgMedia || {}).kind === 'video' ? 'video' : `${((t.bgMedia || {}).images || []).length} slides`}</span>
                         </button>
-                        <button onClick={() => setCdTemplates((prev) => (prev || []).filter((x) => x.name !== t.name))} title="Delete template" style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', display: 'flex', padding: 4 }}><X size={13} /></button>
+                        <button onClick={() => setCdTemplates((prev) => (prev || []).filter((x) => x.name !== t.name))} title="Delete template" style={{ background: 'transparent', border: 'none', color: '#FF4545', cursor: 'pointer', display: 'flex', padding: 4 }}><X size={13} /></button>
                       </div>
                     ))}
                   </div>

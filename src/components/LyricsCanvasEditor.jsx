@@ -29,7 +29,7 @@ const STYLE_TOGGLES = [
 // the two controls operators ask for next — a face and a colour for ONE word
 // (or one line) without changing the rest of the slide. Buttons only, because
 // the textarea must keep focus for the highlight to survive the click.
-const SEL_COLORS = ['#ffffff', '#fde68a', '#fca5a5', '#a5f3fc', '#c4b5fd', '#86efac'];
+const SEL_COLORS = ['#ffffff', '#fde68a', '#FF8A8A', '#a5f3fc', '#FFC72C', '#86efac'];
 const SEL_FONTS = [
   FONT_OPTIONS.find((f) => f.label === 'CMG Sans Wide (Default)'),
   FONT_OPTIONS.find((f) => f.label === 'CMG Sans CAPS'),
@@ -1489,7 +1489,7 @@ export default function LyricsCanvasEditor({
           <span title={hasSel
             ? `Sizes the HIGHLIGHTED text. Only that phrase changes — the rest of the slide keeps its size. Highlight by dragging a phrase, double-clicking a word, or triple-clicking a whole line.`
             : 'Scales the line under the caret. Put each phrase on its own line (Enter) to size lines differently — or triple-click a line to highlight it first.'}
-          style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1, color: hasSel ? '#ffffff' : '#c4b5fd', whiteSpace: 'nowrap', cursor: 'help' }}>
+          style={{ fontSize: 9, fontWeight: 800, letterSpacing: 1, color: hasSel ? '#ffffff' : '#FFC72C', whiteSpace: 'nowrap', cursor: 'help' }}>
             {hasSel ? 'SELECTION' : 'LINE SIZE'}
           </span>
           {LINE_SCALE_PRESETS.map((v) => {
@@ -1553,7 +1553,7 @@ export default function LyricsCanvasEditor({
           <button type="button" title={`Cycle the highlighted text’s face${tgtAttrs.font ? ` (now: ${(SEL_FONTS.find((f) => f.value === tgtAttrs.font) || {}).label || 'custom'})` : ''}`} onClick={cycleSelFont} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#cfe9ff', borderRadius: 999, padding: '2px 7px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4, fontFamily: 'Georgia, serif' }}>Aa</button>
           <button type="button" title="Tighter tracking on the highlighted text" onClick={() => nudgeSelTrack(-1)} style={{ minWidth: 22, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#cfe9ff', borderRadius: 999, padding: '2px 6px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>−</button>
           <button type="button" title="Wider tracking on the highlighted text" onClick={() => nudgeSelTrack(1)} style={{ minWidth: 22, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#cfe9ff', borderRadius: 999, padding: '2px 6px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>+</button>
-          <button type="button" title="Clear all inline styling on the highlighted text" onClick={clearSelStyle} style={{ background: 'rgba(239,68,68,0.14)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5', borderRadius: 999, padding: '2px 6px', fontSize: 9.5, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>Clear</button>
+          <button type="button" title="Clear all inline styling on the highlighted text" onClick={clearSelStyle} style={{ background: 'rgba(255,69,69,0.14)', border: '1px solid rgba(255,69,69,0.4)', color: '#FF8A8A', borderRadius: 999, padding: '2px 6px', fontSize: 9.5, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>Clear</button>
         </div>
       )}
 
@@ -1565,7 +1565,7 @@ export default function LyricsCanvasEditor({
           <div style={{ position: 'absolute', left: box.x, top: Math.max(2, pillTop) }}>
             <button
               onClick={startEdit}
-              style={{ pointerEvents: 'auto', background: 'rgba(9,10,15,0.82)', border: `1px solid ${ACCENT}`, color: '#c4b5fd', borderRadius: 999, padding: '2px 9px', fontSize: 10, fontWeight: 800, letterSpacing: 0.4, cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: 1.5, boxShadow: '0 2px 8px rgba(0,0,0,0.5)' }}
+              style={{ pointerEvents: 'auto', background: 'rgba(9,10,15,0.82)', border: `1px solid ${ACCENT}`, color: '#FFC72C', borderRadius: 999, padding: '2px 9px', fontSize: 10, fontWeight: 800, letterSpacing: 0.4, cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: 1.5, boxShadow: '0 2px 8px rgba(0,0,0,0.5)' }}
             >
               &#9998; Edit text
             </button>
@@ -1577,7 +1577,7 @@ export default function LyricsCanvasEditor({
 }
 
 const badgeStyle = {
-  green: { fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: '3px 8px', borderRadius: 999, background: 'rgba(34,197,94,0.16)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.45)' },
+  green: { fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: '3px 8px', borderRadius: 999, background: 'rgba(54,201,130,0.16)', color: '#36C982', border: '1px solid rgba(54,201,130,0.45)' },
   cyan: { fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: '3px 8px', borderRadius: 999, background: 'rgba(0,170,255,0.16)', color: '#93c5fd', border: '1px solid rgba(0,170,255,0.45)' },
   amber: { fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: '3px 8px', borderRadius: 999, background: 'rgba(245,158,11,0.16)', color: '#fcd34d', border: '1px solid rgba(245,158,11,0.45)' },
 };

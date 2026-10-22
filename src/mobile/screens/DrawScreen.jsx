@@ -116,12 +116,12 @@ export default function DrawScreen({ C, ACCENT, state, send }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ background: C.elevated, border: `1px solid ${onAir ? 'rgba(139,92,246,0.5)' : C.border2}`, borderRadius: 16, padding: 14, position: 'relative', overflow: 'hidden' }}>
-        {onAir && <span style={{ position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderRadius: 3, background: '#8b5cf6' }} />}
+      <div style={{ background: C.elevated, border: `1px solid ${onAir ? 'rgba(255,184,0,0.5)' : C.border2}`, borderRadius: 16, padding: 14, position: 'relative', overflow: 'hidden' }}>
+        {onAir && <span style={{ position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderRadius: 3, background: '#FFB800' }} />}
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
-          <PenLine size={13} color={onAir ? '#a78bfa' : C.faint} />
+          <PenLine size={13} color={onAir ? '#FFC72C' : C.faint} />
           <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1.6, textTransform: 'uppercase', color: C.faint }}>Draw on output</span>
-          {onAir && <span style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#a78bfa', background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.4)', padding: '2px 7px', borderRadius: 6 }}>ON WALL</span>}
+          {onAir && <span style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#FFC72C', background: 'rgba(255,184,0,0.15)', border: '1px solid rgba(255,184,0,0.4)', padding: '2px 7px', borderRadius: 6 }}>ON WALL</span>}
         </div>
 
         {/* Live miniature underneath (untouchable here), drawing layer above. */}
@@ -164,7 +164,7 @@ export default function DrawScreen({ C, ACCENT, state, send }) {
           ))}
           <span style={{ width: 8 }} />
           {DRAW_WIDTHS.map((wd) => (
-            <button key={wd} onClick={() => setWidth(wd)} title={`${wd}px`} style={{ width: 34, height: 34, borderRadius: 9, background: width === wd ? ACCENT : C.elevated2, border: `1px solid ${width === wd ? ACCENT : C.border2}`, color: width === wd ? '#fff' : C.muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit' }}>
+            <button key={wd} onClick={() => setWidth(wd)} title={`${wd}px`} style={{ width: 34, height: 34, borderRadius: 9, background: width === wd ? ACCENT : C.elevated2, border: `1px solid ${width === wd ? ACCENT : C.border2}`, color: width === wd ? '#0D1014' : C.muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit' }}>
               <span style={{ width: wd, height: wd, borderRadius: '50%', background: 'currentColor' }} />
             </button>
           ))}
@@ -174,7 +174,7 @@ export default function DrawScreen({ C, ACCENT, state, send }) {
           <motion.button {...stubTap} onClick={undo} disabled={!local.length} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: C.elevated2, border: `1px solid ${C.border2}`, color: local.length ? C.text : C.faint2, borderRadius: 10, padding: '11px 0', fontSize: 13, fontWeight: 800, cursor: local.length ? 'pointer' : 'default', fontFamily: 'inherit', opacity: local.length ? 1 : 0.5 }}>
             <Undo2 size={15} /> Undo
           </motion.button>
-          <motion.button {...stubTap} onClick={clear} disabled={!onAir} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.45)', color: '#f87171', borderRadius: 10, padding: '11px 0', fontSize: 13, fontWeight: 800, cursor: onAir ? 'pointer' : 'default', fontFamily: 'inherit', opacity: onAir ? 1 : 0.5 }}>
+          <motion.button {...stubTap} onClick={clear} disabled={!onAir} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(255,69,69,0.10)', border: '1px solid rgba(255,69,69,0.45)', color: '#FF4545', borderRadius: 10, padding: '11px 0', fontSize: 13, fontWeight: 800, cursor: onAir ? 'pointer' : 'default', fontFamily: 'inherit', opacity: onAir ? 1 : 0.5 }}>
             <Trash2 size={15} /> Clear all
           </motion.button>
         </div>

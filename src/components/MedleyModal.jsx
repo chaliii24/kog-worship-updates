@@ -215,7 +215,7 @@ export default function MedleyModal({ anchor, existing, onSave, onClose, anchorA
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 10, color: C.faint, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>Anchor song parts — {anchor?.title || ''}</div>
             {anchorArranged && (
-              <div style={{ fontSize: 11, color: '#C4B5FD', background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.4)', borderRadius: 7, padding: '6px 9px', marginBottom: 7 }}>
+              <div style={{ fontSize: 11, color: '#FFC72C', background: 'rgba(255,184,0,0.12)', border: '1px solid rgba(255,184,0,0.4)', borderRadius: 7, padding: '6px 9px', marginBottom: 7 }}>
                 Anchor plays a custom arrangement — the flow follows it. Change it with the Arrange button on the service row.
               </div>
             )}
@@ -226,7 +226,7 @@ export default function MedleyModal({ anchor, existing, onSave, onClose, anchorA
                   <button
                     key={part}
                     onClick={() => toggleAnchorPart(part)}
-                    style={{ background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#fff' : C.muted, borderRadius: 999, padding: '6px 13px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
+                    style={{ background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#0D1014' : C.muted, borderRadius: 999, padding: '6px 13px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
                   >{part}</button>
                 );
               })}
@@ -243,7 +243,7 @@ export default function MedleyModal({ anchor, existing, onSave, onClose, anchorA
                   <div style={{ fontSize: 12.5, fontWeight: 800, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.title || 'Song'}</div>
                   <div style={{ fontSize: 10.5, color: C.muted }}>{(l.parts || []).join(', ') || 'ALL'}{l.skip === false ? '' : ' · no title'} · {countFor(l.songId, l.parts && l.parts.length ? l.parts : ['ALL'], l.skip, l._details ? l._details.cues : null)} slides</div>
                 </div>
-                <button onClick={() => setLinks((prev) => prev.filter((_, x) => x !== i))} title="Remove link" style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={13} /></button>
+                <button onClick={() => setLinks((prev) => prev.filter((_, x) => x !== i))} title="Remove link" style={{ background: 'transparent', border: 'none', color: '#FF4545', cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={13} /></button>
               </div>
             ))}
           </div>
@@ -281,7 +281,7 @@ export default function MedleyModal({ anchor, existing, onSave, onClose, anchorA
                     <button
                       key={part}
                       onClick={() => togglePart(part)}
-                      style={{ background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#fff' : C.muted, borderRadius: 999, padding: '6px 13px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
+                      style={{ background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#0D1014' : C.muted, borderRadius: 999, padding: '6px 13px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
                     >{part}</button>
                   );
                 })}
@@ -293,7 +293,7 @@ export default function MedleyModal({ anchor, existing, onSave, onClose, anchorA
             </label>
             <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
               <button onClick={() => { setPicked(null); setChecked([]); }} style={{ flex: 1, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, padding: '8px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={linkPickedWithDetails} disabled={!checked.length} style={{ flex: 2, background: checked.length ? ACCENT : C.elevated2, border: 'none', color: '#fff', borderRadius: 8, padding: '8px 0', fontSize: 12, fontWeight: 800, cursor: checked.length ? 'pointer' : 'default', opacity: checked.length ? 1 : 0.5 }}>
+              <button onClick={linkPickedWithDetails} disabled={!checked.length} style={{ flex: 2, background: checked.length ? ACCENT : C.elevated2, border: 'none', color: checked.length ? '#0D1014' : C.muted, borderRadius: 8, padding: '8px 0', fontSize: 12, fontWeight: 800, cursor: checked.length ? 'pointer' : 'default', opacity: checked.length ? 1 : 0.5 }}>
                 <Plus size={13} style={{ verticalAlign: '-2px', marginRight: 4 }} /> Link to Song
               </button>
             </div>
@@ -304,7 +304,7 @@ export default function MedleyModal({ anchor, existing, onSave, onClose, anchorA
           <button onClick={maybeClose} style={{ flex: 1, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>Cancel</button>
           <button
             onClick={save}
-            style={{ flex: 2, background: ACCENT, border: 'none', color: '#fff', borderRadius: 8, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
+            style={{ flex: 2, background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 8, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
           >
             {links.length ? `Save Medley (${links.length} link${links.length === 1 ? '' : 's'})` : 'Save'}
           </button>

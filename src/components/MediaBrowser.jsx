@@ -107,7 +107,7 @@ export default function MediaBrowser() {
   const actions = (it) => (
     <span style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
       {activeSong && (
-        <button onClick={(e) => { e.stopPropagation(); applyBg(it); }} title="Set as the open song's background" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: '#4ade80', borderRadius: 6, fontSize: 10, fontWeight: 800, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Use</button>
+        <button onClick={(e) => { e.stopPropagation(); applyBg(it); }} title="Set as the open song's background" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: '#36C982', borderRadius: 6, fontSize: 10, fontWeight: 800, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Use</button>
       )}
       {!it.builtin && (
         <button onClick={(e) => { e.stopPropagation(); removeMediaAsset(it.asset); }} title="Remove from library" style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={12} /></button>
@@ -127,7 +127,7 @@ export default function MediaBrowser() {
               <button
                 key={f.id}
                 onClick={() => setFilter(f.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#fff' : C.muted, borderRadius: 999, padding: '6px 12px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: on ? '0 0 0 1px rgba(139,92,246,0.5), 0 6px 20px rgba(139,92,246,0.35)' : 'none' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#0D1014' : C.muted, borderRadius: 999, padding: '6px 12px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: on ? '0 0 0 1px rgba(255,184,0,0.5), 0 6px 20px rgba(255,184,0,0.35)' : 'none' }}
               >
                 {Icon ? <Icon size={12} /> : null}{f.label}
                 <span style={{ fontSize: 10, fontWeight: 800, opacity: on ? 0.85 : 0.6 }}>{n}</span>
@@ -154,7 +154,7 @@ export default function MediaBrowser() {
         </select>
         <div style={{ display: 'flex', background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: 2, gap: 2 }}>
           {[['grid', LayoutGrid, 'Grid view'], ['list', List, 'List view']].map(([v, Icon, tip]) => (
-            <button key={v} onClick={() => setViewPersist(v)} title={tip} style={{ background: view === v ? ACCENT : 'transparent', border: 'none', color: view === v ? '#fff' : C.muted, borderRadius: 6, padding: '5px 8px', cursor: 'pointer', display: 'flex', boxShadow: view === v ? '0 0 12px rgba(139,92,246,0.45)' : 'none' }}><Icon size={14} /></button>
+            <button key={v} onClick={() => setViewPersist(v)} title={tip} style={{ background: view === v ? ACCENT : 'transparent', border: 'none', color: view === v ? '#0D1014' : C.muted, borderRadius: 6, padding: '5px 8px', cursor: 'pointer', display: 'flex', boxShadow: view === v ? '0 0 12px rgba(255,184,0,0.45)' : 'none' }}><Icon size={14} /></button>
           ))}
         </div>
       </div>
@@ -176,7 +176,7 @@ export default function MediaBrowser() {
                   <div style={{ fontSize: 12.5, fontWeight: 800, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3 }}>
                     {it.builtin
-                      ? <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.8, color: '#4ade80' }}>BUILT-IN</span>
+                      ? <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.8, color: '#36C982' }}>BUILT-IN</span>
                       : <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.8, color: C.faint, textTransform: 'uppercase' }}>{it.kind}</span>}
                     {actions(it)}
                   </div>

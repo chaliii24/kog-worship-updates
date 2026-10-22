@@ -160,7 +160,7 @@ export default function VideoLibrarySidebar() {
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={(e) => { if (e.target === e.currentTarget) setDragOver(false); }}
       onDrop={(e) => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer && e.dataTransfer.files); }}
-      style={{ flex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column', background: dragOver ? 'rgba(139,92,246,0.08)' : 'transparent' }}
+      style={{ flex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column', background: dragOver ? 'rgba(255,184,0,0.08)' : 'transparent' }}
     >
       <div style={{ flexShrink: 0, padding: '10px 12px 8px 12px', borderBottom: '1px solid var(--ui-border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -178,7 +178,7 @@ export default function VideoLibrarySidebar() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 8, flexWrap: 'wrap' }}>
           {[['all', 'All'], ['mp4', 'MP4'], ['webm', 'WebM'], ['mov', 'MOV']].map(([v, lbl]) => (
-            <button key={v} onClick={() => setTypeFilter(v)} style={{ borderRadius: 999, padding: '3px 11px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', background: typeFilter === v ? 'rgba(139,92,246,0.16)' : 'transparent', border: typeFilter === v ? '1px solid rgba(139,92,246,0.5)' : '1px solid var(--ui-border2)', color: typeFilter === v ? '#C4B5FD' : C.muted }}>{lbl}</button>
+            <button key={v} onClick={() => setTypeFilter(v)} style={{ borderRadius: 999, padding: '3px 11px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', background: typeFilter === v ? 'rgba(255,184,0,0.16)' : 'transparent', border: typeFilter === v ? '1px solid rgba(255,184,0,0.5)' : '1px solid var(--ui-border2)', color: typeFilter === v ? '#FFC72C' : C.muted }}>{lbl}</button>
           ))}
           <span style={{ flex: 1 }} />
           <select value={sort} onChange={(e) => setSort(e.target.value)} title="Sort order" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, color: C.muted, fontSize: 10.5, fontWeight: 700, padding: '4px 6px', cursor: 'pointer', outline: 'none' }}>
@@ -187,7 +187,7 @@ export default function VideoLibrarySidebar() {
           </select>
         </div>
         {busy && <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, marginTop: 6, textAlign: 'center' }}>Copying into the library…</div>}
-        {dragOver && <div style={{ fontSize: 11, fontWeight: 800, color: '#C4B5FD', marginTop: 6, textAlign: 'center' }}>Drop to add to the library</div>}
+        {dragOver && <div style={{ fontSize: 11, fontWeight: 800, color: '#FFC72C', marginTop: 6, textAlign: 'center' }}>Drop to add to the library</div>}
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 10 }}>
@@ -202,15 +202,15 @@ export default function VideoLibrarySidebar() {
               const isLive = liveUrl === a.url;
               const isCued = cur && cur.url === a.url;
               return (
-                <div key={a.url} style={{ background: C.elevated2, border: '1px solid ' + (isLive ? 'rgba(239,68,68,0.6)' : isCued ? 'rgba(34,197,94,0.45)' : 'var(--ui-border2)'), borderRadius: 9, overflow: 'hidden' }}>
+                <div key={a.url} style={{ background: C.elevated2, border: '1px solid ' + (isLive ? 'rgba(255,69,69,0.6)' : isCued ? 'rgba(54,201,130,0.45)' : 'var(--ui-border2)'), borderRadius: 9, overflow: 'hidden' }}>
                   <button onClick={() => queue(a)} title={`Cue ${libName(a)}`} style={{ display: 'block', width: '100%', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}>
                     <VideoThumb url={a.url} h={72} rounded={0} />
                   </button>
                   <div style={{ padding: '6px 8px' }}>
-                    <div title={libName(a)} style={{ fontSize: 11, fontWeight: 700, color: isLive ? '#f87171' : isCued ? '#4ade80' : C.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{libName(a)}</div>
+                    <div title={libName(a)} style={{ fontSize: 11, fontWeight: 700, color: isLive ? '#FF4545' : isCued ? '#36C982' : C.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{libName(a)}</div>
                     <div style={{ display: 'flex', gap: 4, marginTop: 5 }}>
                       <button onClick={() => queue(a)} style={{ flex: 1, background: 'transparent', border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 6, padding: '3px 0', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>Cue</button>
-                      <button onClick={() => queueOnly(a)} title="Add to Up Next without cueing" style={{ flex: 1, background: queued ? 'rgba(139,92,246,0.16)' : 'transparent', border: '1px solid ' + (queued ? 'rgba(139,92,246,0.5)' : 'var(--ui-border2)'), color: queued ? '#C4B5FD' : C.muted, borderRadius: 6, padding: '3px 0', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}><Plus size={10} /> Queue</button>
+                      <button onClick={() => queueOnly(a)} title="Add to Up Next without cueing" style={{ flex: 1, background: queued ? 'rgba(255,184,0,0.16)' : 'transparent', border: '1px solid ' + (queued ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), color: queued ? '#FFC72C' : C.muted, borderRadius: 6, padding: '3px 0', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}><Plus size={10} /> Queue</button>
                     </div>
                   </div>
                 </div>
@@ -224,12 +224,12 @@ export default function VideoLibrarySidebar() {
               const isLive = liveUrl === a.url;
               const isCued = cur && cur.url === a.url;
               return (
-                <div key={a.url} style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.elevated2, border: '1px solid ' + (isLive ? 'rgba(239,68,68,0.6)' : isCued ? 'rgba(34,197,94,0.45)' : 'var(--ui-border2)'), borderRadius: 9, padding: '6px 8px 6px 6px', minWidth: 0 }}>
+                <div key={a.url} style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.elevated2, border: '1px solid ' + (isLive ? 'rgba(255,69,69,0.6)' : isCued ? 'rgba(54,201,130,0.45)' : 'var(--ui-border2)'), borderRadius: 9, padding: '6px 8px 6px 6px', minWidth: 0 }}>
                   <button onClick={() => queue(a)} title={`Cue ${libName(a)}`} style={{ width: 72, flexShrink: 0, background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}>
                     <VideoThumb url={a.url} h={42} />
                   </button>
-                  <button onClick={() => queue(a)} title={`Cue ${libName(a)}`} style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', color: isLive ? '#f87171' : isCued ? '#4ade80' : C.text2, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{libName(a)}</button>
-                  <button onClick={() => queueOnly(a)} title="Add to Up Next without cueing" style={{ background: queued ? 'rgba(139,92,246,0.16)' : 'transparent', border: '1px solid ' + (queued ? 'rgba(139,92,246,0.5)' : 'var(--ui-border2)'), color: queued ? '#C4B5FD' : C.muted, borderRadius: 6, padding: '4px 7px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}><Plus size={10} /></button>
+                  <button onClick={() => queue(a)} title={`Cue ${libName(a)}`} style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', color: isLive ? '#FF4545' : isCued ? '#36C982' : C.text2, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{libName(a)}</button>
+                  <button onClick={() => queueOnly(a)} title="Add to Up Next without cueing" style={{ background: queued ? 'rgba(255,184,0,0.16)' : 'transparent', border: '1px solid ' + (queued ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), color: queued ? '#FFC72C' : C.muted, borderRadius: 6, padding: '4px 7px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}><Plus size={10} /></button>
                 </div>
               );
             })}

@@ -482,6 +482,7 @@ function createWindow() {
     minWidth: Math.min(1024, bootArea.width),
     minHeight: Math.min(640, bootArea.height),
     title: 'KOG Worship - Matrix Command',
+    backgroundColor: '#0D1014',
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: true,
@@ -888,21 +889,31 @@ function createOutputWindow(output) {
 
   win.loadURL(`${startUrl}${outputRoute(output)}`);
   win.webContents.on('did-finish-load', () => {
-    if (win && !win.isDestroyed()) {
-      // A window that loads and stays up is healthy — a crash hours ago must
-      // not count toward a future crash loop.
-      outputCrashCount.delete(output.id);
-      win.setTitle(outputTitle(output));
-      win.webContents.send('update-output-aspect', output.aspect || '16:9');
-      // Rotation / custom viewport / edge-blend settings for THIS window.
-      // A windowed surface IS the composed area: send it without the viewport
-      // so the region is not applied a second time inside the small window.
-      win.webContents.send('output-config', windowedSurface ? { ...output, viewport: null } : output);
-      // A frameless fullscreen window sitting over the console has to hold
-      // the keyboard, otherwise Esc arrives at the operator window underneath
-      // and the exit below never fires.
-      if (onPrimary && !isWindowed) win.focus();
-    }
+    if (!win || win.isDestroyed()) return;
+    // A rebuild can replace this window while the old page is still loading.
+    // Its late load must not push config into a window that is already gone.
+    const current = outputWindows.get(output.id);
+    if (!current || current.win !== win) return;
+    // Read the CURRENT definition, not the one captured when the window was
+    // created: the operator may have changed resolution / aspect / rotation
+    // while the page was loading, and `output-config` was sent before the
+    // renderer had a listener. Re-sending the creation-time copy here used to
+    // overwrite those newer settings, so the change looked like it did nothing.
+    const liveDef = current.def || output;
+    const liveWindowed = current.windowed;
+    // A window that loads and stays up is healthy — a crash hours ago must
+    // not count toward a future crash loop.
+    outputCrashCount.delete(output.id);
+    win.setTitle(outputTitle(liveDef));
+    win.webContents.send('update-output-aspect', liveDef.aspect || '16:9');
+    // Rotation / custom viewport / edge-blend settings for THIS window.
+    // A windowed surface IS the composed area: send it without the viewport
+    // so the region is not applied a second time inside the small window.
+    win.webContents.send('output-config', liveWindowed ? { ...liveDef, viewport: null } : liveDef);
+    // A frameless fullscreen window sitting over the console has to hold
+    // the keyboard, otherwise Esc arrives at the operator window underneath
+    // and the exit below never fires.
+    if (onPrimary && !isWindowed) win.focus();
   });
   if (onPrimary) {
     win.webContents.on('before-input-event', (event, input) => {
@@ -968,6 +979,13 @@ function closeOutputWindow(id) {
   if (entry) entry.expectClose = true;
   if (entry?.win && !entry.win.isDestroyed()) entry.win.close();
   outputWindows.delete(id);
+  // The owner may have been this window: hand the sound to the next wall in
+  // line by re-stamping the live countdown payloads. Plain slides are left
+  // alone (they carry no audio, so a re-send would only cost a repaint).
+  if ((lastLiveSlide && lastLiveSlide.timer) || (lastLiveStage && lastLiveStage.current && lastLiveStage.current.timer)) {
+    broadcastLiveSlide();
+    broadcastLiveStage();
+  }
 }
 
 // Crash-loop breaker state for recoverOutputWindow below.
@@ -1360,11 +1378,54 @@ let lastLiveStage = null;
 // its own channel, cached like everything else for late-opened windows.
 let lastLiveOverlay = null;
 
+// ── COUNTDOWN AUDIO OWNERSHIP ──────────────────────────────────────────────
+// A countdown video's own track may only ever come out of ONE wall. Every
+// lyrics output receives the same slide payload, and the console's framed
+// preview renders the same component — so without a per-window stamp two
+// surfaces play the same file a few milliseconds apart and the room hears a
+// doubled, echoey song. Stamp each payload: the oldest running output of a
+// role owns the sound, every other copy is silently muted (see CountdownFace
+// `ownsAudio`). The console previews never own audio at all.
+function firstOutputId(role) {
+  for (const [id, entry] of outputWindows) {
+    if (entry.role === role && entry.win && !entry.win.isDestroyed()) return id;
+  }
+  return null;
+}
+
+function withSlideAudioOwner(slide, owns) {
+  const timer = slide && slide.timer;
+  if (!timer) return slide;
+  return { ...slide, timer: { ...timer, audioOwner: !!owns } };
+}
+
+function withStageAudioOwner(stage, owns) {
+  const timer = stage && stage.current && stage.current.timer;
+  if (!timer) return stage;
+  return { ...stage, current: { ...stage.current, timer: { ...timer, audioOwner: !!owns } } };
+}
+
+function broadcastLiveSlide() {
+  if (!lastLiveSlide) return;
+  const owner = firstOutputId('lyrics');
+  for (const [id, { win, role }] of outputWindows) {
+    if (role !== 'lyrics') continue;
+    sendToOutput(win, 'render-live-slide', withSlideAudioOwner(lastLiveSlide, id === owner));
+  }
+}
+
+function broadcastLiveStage() {
+  if (!lastLiveStage) return;
+  const owner = firstOutputId('stage');
+  for (const [id, { win, role }] of outputWindows) {
+    if (role !== 'stage') continue;
+    sendToOutput(win, 'render-live-stage', withStageAudioOwner(lastLiveStage, id === owner));
+  }
+}
+
 ipcMain.on('update-live-slide', (event, slideData) => {
   lastLiveSlide = slideData || null;
-  for (const { win, role } of outputWindows.values()) {
-    if (role === 'lyrics') sendToOutput(win, 'render-live-slide', slideData);
-  }
+  broadcastLiveSlide();
 });
 
 // The operator window owns everything a phone needs to render (live slide,
@@ -1376,9 +1437,7 @@ ipcMain.on('mobile-state', (event, snap) => {
 
 ipcMain.on('update-live-stage', (event, stageData) => {
   lastLiveStage = stageData || null;
-  for (const { win, role } of outputWindows.values()) {
-    if (role === 'stage') sendToOutput(win, 'render-live-stage', stageData);
-  }
+  broadcastLiveStage();
 });
 
 ipcMain.on('update-live-overlay', (event, overlay) => {
@@ -1430,7 +1489,23 @@ ipcMain.on('update-stage-config', (event, feed) => {
 // Pulled by an output window once its render listeners are registered, so
 // there is no load-order race (a push on did-finish-load could arrive
 // before the window is listening and be lost).
-ipcMain.handle('get-live-state', () => ({ slide: lastLiveSlide, stage: lastLiveStage, config: lastStageConfig, overlay: lastLiveOverlay, draw: lastLiveDraw, lift: lastLyricLift }));
+ipcMain.handle('get-live-state', (event) => {
+  // Which output is asking? Audio ownership is per-window, so a wall opened
+  // after the countdown started must be stamped for itself — never inherit
+  // the console's un-flagged copy and start a second audio source.
+  let senderId = null;
+  for (const [id, entry] of outputWindows) {
+    if (entry.win && !entry.win.isDestroyed() && entry.win.webContents === event.sender) { senderId = id; break; }
+  }
+  return {
+    slide: withSlideAudioOwner(lastLiveSlide, senderId != null && senderId === firstOutputId('lyrics')),
+    stage: withStageAudioOwner(lastLiveStage, senderId != null && senderId === firstOutputId('stage')),
+    config: lastStageConfig,
+    overlay: lastLiveOverlay,
+    draw: lastLiveDraw,
+    lift: lastLyricLift,
+  };
+});
 
 // Next-slide media warm-up: the console fires this while the current slide is
 // still on screen (type + url only — bytes never travel through IPC). Lyrics

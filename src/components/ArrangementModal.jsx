@@ -258,7 +258,7 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
                   onDragOver={(e) => { e.preventDefault(); if (dropAt !== 'end') setDropAt('end'); }}
                   onDragLeave={() => setDropAt((d) => (d === 'end' ? null : d))}
                   onDrop={dropAtEnd}
-                  style={{ flex: 1, minHeight: 180, background: dropAt === 'end' ? 'rgba(139,92,246,0.10)' : C.elevated, border: '1px dashed ' + (dropAt === 'end' ? ACCENT : 'var(--ui-border2)'), borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', maxHeight: 340 }}
+                  style={{ flex: 1, minHeight: 180, background: dropAt === 'end' ? 'rgba(255,184,0,0.10)' : C.elevated, border: '1px dashed ' + (dropAt === 'end' ? ACCENT : 'var(--ui-border2)'), borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', maxHeight: 340 }}
                 >
                   {flow.map((entry, i) => {
                     const list = cuesOf(entry.part);
@@ -281,7 +281,7 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
                             </div>
                             <button onClick={() => move(i, -1)} title="Move up" style={btn}><ChevronUp size={13} /></button>
                             <button onClick={() => move(i, 1)} title="Move down" style={btn}><ChevronDown size={13} /></button>
-                            <button onClick={() => removeAt(i)} title="Drop from the flow" style={{ ...btn, color: '#f87171' }}><Trash2 size={13} /></button>
+                            <button onClick={() => removeAt(i)} title="Drop from the flow" style={{ ...btn, color: '#FF4545' }}><Trash2 size={13} /></button>
                           </div>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6, paddingLeft: 24 }}>
                             {list.map((c, si) => (
@@ -289,7 +289,7 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
                                 {si + 1}
                               </span>
                             ))}
-                            {!list.length && <span style={{ fontSize: 10.5, color: '#f87171' }}>section gone from song — re-pick below</span>}
+                            {!list.length && <span style={{ fontSize: 10.5, color: '#FF4545' }}>section gone from song — re-pick below</span>}
                           </div>
                         </div>
                       </div>
@@ -311,11 +311,11 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
                   key={n}
                   onClick={() => setLinesPer(n)}
                   title={`${n} lines per slide`}
-                  style={{ background: linesPer === n ? ACCENT : C.elevated2, border: '1px solid ' + (linesPer === n ? ACCENT : 'var(--ui-border2)'), color: linesPer === n ? '#fff' : C.muted, borderRadius: 6, padding: '4px 11px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
+                  style={{ background: linesPer === n ? ACCENT : C.elevated2, border: '1px solid ' + (linesPer === n ? ACCENT : 'var(--ui-border2)'), color: linesPer === n ? '#0D1014' : C.muted, borderRadius: 6, padding: '4px 11px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
                 >{n}</button>
               ))}
               <span style={{ fontSize: 10.5, color: C.muted, flex: 1, minWidth: 0 }}>lines per slide — rebuilds the song</span>
-              <button onClick={tidy} disabled={tidying} style={{ background: tidying ? C.elevated2 : ACCENT, border: 'none', color: tidying ? C.muted : '#fff', borderRadius: 7, padding: '7px 14px', fontSize: 11.5, fontWeight: 800, cursor: tidying ? 'default' : 'pointer' }}>
+              <button onClick={tidy} disabled={tidying} style={{ background: tidying ? C.elevated2 : ACCENT, border: 'none', color: tidying ? C.muted: '#0D1014', borderRadius: 7, padding: '7px 14px', fontSize: 11.5, fontWeight: 800, cursor: tidying ? 'default' : 'pointer' }}>
                 {tidying ? 'Rebuilding…' : 'Apply'}
               </button>
             </div>
@@ -323,11 +323,11 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={reset} title="Each section once, song order" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, padding: '10px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><RotateCcw size={13} /> Reset</button>
               {existing != null && (
-                <button onClick={() => save(true)} title="Forget the custom flow — plain song again" style={{ background: 'transparent', border: '1px solid rgba(248,113,113,0.5)', color: '#f87171', borderRadius: 8, padding: '10px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>Remove</button>
+                <button onClick={() => save(true)} title="Forget the custom flow — plain song again" style={{ background: 'transparent', border: '1px solid rgba(255,69,69,0.5)', color: '#FF4545', borderRadius: 8, padding: '10px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>Remove</button>
               )}
               <span style={{ flex: 1 }} />
               <button onClick={maybeClose} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, padding: '10px 18px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={() => save(false)} disabled={!flow.length} style={{ background: flow.length ? ACCENT : C.elevated2, border: 'none', color: flow.length ? '#fff' : C.muted, borderRadius: 8, padding: '10px 18px', fontSize: 12.5, fontWeight: 800, cursor: flow.length ? 'pointer' : 'default' }}>Save Arrangement</button>
+              <button onClick={() => save(false)} disabled={!flow.length} style={{ background: flow.length ? ACCENT : C.elevated2, border: 'none', color: flow.length ? '#0D1014' : C.muted, borderRadius: 8, padding: '10px 18px', fontSize: 12.5, fontWeight: 800, cursor: flow.length ? 'pointer' : 'default' }}>Save Arrangement</button>
             </div>
           </>
         )}

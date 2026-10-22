@@ -6,11 +6,11 @@
 export const GRADIENT_PACK = [
   { id: 'g-midnight', name: 'Midnight', css: 'linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0b1220 100%)' },
   { id: 'g-ocean', name: 'Deep Ocean', css: 'linear-gradient(135deg, #0b1220 0%, #0e4b6e 55%, #071b2b 100%)' },
-  { id: 'g-royal', name: 'Royal', css: 'linear-gradient(135deg, #1e1b4b 0%, #4c1d95 55%, #160b2e 100%)' },
+  { id: 'g-royal', name: 'Royal', css: 'linear-gradient(135deg, #1e1b4b 0%, #2A313A 55%, #160b2e 100%)' },
   { id: 'g-ember', name: 'Ember', css: 'linear-gradient(135deg, #2a0e05 0%, #7c2d12 55%, #1a0803 100%)' },
   { id: 'g-forest', name: 'Forest', css: 'linear-gradient(135deg, #052e16 0%, #166534 55%, #031a0d 100%)' },
   { id: 'g-sunrise', name: 'Sunrise', css: 'linear-gradient(135deg, #1e1b4b 0%, #b45309 70%, #0f172a 100%)' },
-  { id: 'g-violet', name: 'Violet Haze', css: 'radial-gradient(circle at 30% 20%, #4c1d95 0%, #0b1220 60%)' }
+  { id: 'g-violet', name: 'Violet Haze', css: 'radial-gradient(circle at 30% 20%, #2A313A 0%, #0b1220 60%)' }
 ];
 
 export const PRESENTATION_LAYOUTS = [

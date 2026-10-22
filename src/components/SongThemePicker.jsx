@@ -113,7 +113,7 @@ export default function SongThemePicker({
       <motion.div {...modalPanel} role="dialog" aria-modal="true" aria-label="Song themes" style={{ width: 'min(780px, 96vw)', maxHeight: 'calc(100vh - 40px)', background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: 16, boxShadow: '0 30px 90px rgba(0,0,0,0.65)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* HEADER */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '16px 18px 12px', borderBottom: '1px solid var(--ui-border2)', flexShrink: 0 }}>
-          <span style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(139,92,246,0.16)', border: '1px solid rgba(139,92,246,0.4)', color: '#c4b5fd', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Layers size={17} /></span>
+          <span style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(255,184,0,0.16)', border: '1px solid rgba(255,184,0,0.4)', color: '#FFC72C', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Layers size={17} /></span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 16, fontWeight: 800, color: C.text }}>Song Themes</div>
             <div style={{ fontSize: 11.5, color: C.faint, lineHeight: 1.5, marginTop: 2 }}>
@@ -135,7 +135,7 @@ export default function SongThemePicker({
                   onClick={() => setSelectedId(t.id)}
                   title={`${t.name} — ${t.note || ''}`}
                   style={{
-                    textAlign: 'left', padding: 8, borderRadius: 12, cursor: 'pointer', background: active ? 'rgba(139,92,246,0.14)' : C.elevated,
+                    textAlign: 'left', padding: 8, borderRadius: 12, cursor: 'pointer', background: active ? 'rgba(255,184,0,0.14)' : C.elevated,
                     border: `1px solid ${active ? ACCENT : 'var(--ui-border2)'}`,
                     boxShadow: active ? `0 0 0 1px ${ACCENT}` : 'none', display: 'flex', flexDirection: 'column', gap: 7,
                   }}
@@ -143,7 +143,7 @@ export default function SongThemePicker({
                   <ThemePreview theme={t} C={C} />
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                     <span style={{ fontSize: 12, fontWeight: 800, color: active ? C.text : C.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
-                    {t.custom && <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase', color: '#c4b5fd', background: 'rgba(139,92,246,0.18)', border: '1px solid rgba(139,92,246,0.4)', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>Custom</span>}
+                    {t.custom && <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase', color: '#FFC72C', background: 'rgba(255,184,0,0.18)', border: '1px solid rgba(255,184,0,0.4)', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>Custom</span>}
                     {active && <span style={{ marginLeft: 'auto', color: ACCENT, display: 'flex', flexShrink: 0 }}><Check size={14} /></span>}
                   </div>
                   <div style={{ fontSize: 10, color: C.faint, lineHeight: 1.4, marginTop: -3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.note}</div>
@@ -155,7 +155,7 @@ export default function SongThemePicker({
           {/* SAVE CURRENT LOOK */}
           <div style={{ marginTop: 14, background: C.elevated, border: '1px dashed var(--ui-border2)', borderRadius: 12, padding: 11 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
-              <Sparkles size={13} color="#c4b5fd" />
+              <Sparkles size={13} color="#FFC72C" />
               <span style={{ fontSize: 11, fontWeight: 800, color: C.text2 }}>Save this slide as a theme</span>
               <span style={{ fontSize: 10, color: C.faint, marginLeft: 'auto' }}>{currentLabel || 'Current look'}</span>
             </div>
@@ -174,10 +174,10 @@ export default function SongThemePicker({
                 onClick={save}
                 disabled={!canSave}
                 title={canSave ? 'Save the current slide’s type, placement, effects and background' : 'Open a slide first'}
-                style={{ background: canSave ? ACCENT : C.elevated2, border: 'none', color: canSave ? '#fff' : C.faint, borderRadius: 8, padding: '8px 13px', fontSize: 11.5, fontWeight: 800, cursor: canSave ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 5 }}
+                style={{ background: canSave ? ACCENT : C.elevated2, border: 'none', color: canSave ? '#0D1014' : C.faint, borderRadius: 8, padding: '8px 13px', fontSize: 11.5, fontWeight: 800, cursor: canSave ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 5 }}
               ><Save size={13} /> Save look</button>
             </div>
-            {savedMsg && <div style={{ fontSize: 10.5, fontWeight: 700, color: '#4ade80', marginTop: 6 }}>{savedMsg}</div>}
+            {savedMsg && <div style={{ fontSize: 10.5, fontWeight: 700, color: '#36C982', marginTop: 6 }}>{savedMsg}</div>}
             {canSaveTitle === false && <div style={{ fontSize: 10, color: C.faint, marginTop: 6 }}>The title slide is open — switch to a lyric slide to save its look.</div>}
           </div>
         </div>
@@ -192,7 +192,7 @@ export default function SongThemePicker({
             {isCustom && (
               <>
                 <button type="button" onClick={update} disabled={!canSave} title="Copy this slide’s current look onto the selected custom theme" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: canSave ? C.text2 : C.faint, borderRadius: 7, padding: '5px 9px', fontSize: 10.5, fontWeight: 700, cursor: canSave ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 4 }}><Save size={11} /> Update from slide</button>
-                <button type="button" onClick={() => { onDeleteCustom?.(selected.id); setSelectedId('house'); }} title={`Delete “${selected.name}”`} style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171', borderRadius: 7, padding: '5px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Trash2 size={12} /></button>
+                <button type="button" onClick={() => { onDeleteCustom?.(selected.id); setSelectedId('house'); }} title={`Delete “${selected.name}”`} style={{ background: 'transparent', border: '1px solid rgba(255,69,69,0.35)', color: '#FF4545', borderRadius: 7, padding: '5px 8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Trash2 size={12} /></button>
               </>
             )}
             <span style={{ flex: 1 }} />
@@ -209,7 +209,7 @@ export default function SongThemePicker({
               onClick={() => onApply?.(selected, 'all', includeBg)}
               disabled={!selected}
               title="Apply this theme to every slide in the song"
-              style={{ background: ACCENT, border: `1px solid ${ACCENT}`, color: '#fff', borderRadius: 8, padding: '8px 15px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
+              style={{ background: ACCENT, border: `1px solid ${ACCENT}`, color: '#0D1014', borderRadius: 8, padding: '8px 15px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
             >Apply to all slides</button>
           </div>
         </div>

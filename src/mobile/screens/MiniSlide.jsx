@@ -109,7 +109,7 @@ export default function MiniSlide({ C, text, style, timer, presentation, badge, 
               <div style={{ position: 'absolute', inset: 0, background: '#0a0a0a' }} />
             )}
             {isVideoBg && (
-              <span style={{ position: 'absolute', left: 8, top: 8, fontSize: 10, fontWeight: 900, letterSpacing: 1, color: '#d8b4fe', background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(192,132,252,0.5)', borderRadius: 5, padding: '2px 6px' }}>VIDEO</span>
+              <span style={{ position: 'absolute', left: 8, top: 8, fontSize: 10, fontWeight: 900, letterSpacing: 1, color: '#FFC72C', background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(192,132,252,0.5)', borderRadius: 5, padding: '2px 6px' }}>VIDEO</span>
             )}
             {timer ? (
               <div style={{ position: 'absolute', inset: 0 }}>
@@ -118,7 +118,7 @@ export default function MiniSlide({ C, text, style, timer, presentation, badge, 
             ) : presentation ? (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 60 }}>
                 <div style={{ fontSize: 54, fontWeight: 800, color: '#fff', textAlign: 'center' }}>{presentation.deckTitle || 'Presentation'}</div>
-                <div style={{ fontSize: 30, color: '#a78bfa', fontWeight: 700 }}>
+                <div style={{ fontSize: 30, color: '#FFC72C', fontWeight: 700 }}>
                   Slide {(presentation.index ?? 0) + 1}{presentation.total ? ` of ${presentation.total}` : ''}
                 </div>
               </div>

@@ -14,7 +14,7 @@ export const ICON_HUES = {
   countdown: '#fb923c', // orange
   scripture: '#facc15', // yellow
   outputs: '#22d3ee', // cyan
-  stage: '#818cf8', // indigo
+  stage: '#FFC72C', // gold
   remote: '#2dd4bf', // teal
   settings: '#94a3b8', // slate
   application: '#94a3b8', // slate (same function as settings)
@@ -23,9 +23,9 @@ export const ICON_HUES = {
   templates: '#f472b6', // pink
   bibles: '#facc15', // yellow (same function as scripture)
   data: '#a3e635', // lime
-  song: '#a78bfa', // violet
-  medley: '#e879f9', // fuchsia
-  update: '#4ade80', // green
+  song: '#FFC72C', // gold
+  medley: '#FFB800', // gold (linked songs are still songs)
+  update: '#36C982', // green
   log: '#cbd5e1', // pale slate
 };
 

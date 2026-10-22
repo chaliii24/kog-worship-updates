@@ -38,7 +38,7 @@ function TextBoxTarget({ C, ACCENT, boxes = [], value = 'all', onChange }) {
     <div style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: '6px 7px', marginBottom: 7 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
         <span style={{ fontSize: 8.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 0.8 }}>Preset type → boxes</span>
-        <span style={{ fontSize: 8.5, color: all ? '#4ade80' : C.faint, fontWeight: 700 }}>
+        <span style={{ fontSize: 8.5, color: all ? '#36C982' : C.faint, fontWeight: 700 }}>
           {all ? 'All' : `${picked.length}/${boxes.length}`}
         </span>
       </div>
@@ -313,7 +313,7 @@ export default function CinematicPanel({
                   {presets.filter((p) => p.custom).map((p) => (
                     <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 4, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '3px 5px' }}>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 9.5, fontWeight: 700, color: C.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
-                      <button onClick={() => onDeletePreset?.(p.id)} title="Delete this saved preset" style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: 10, cursor: 'pointer', padding: 1 }}>✕</button>
+                      <button onClick={() => onDeletePreset?.(p.id)} title="Delete this saved preset" style={{ background: 'transparent', border: 'none', color: '#FF4545', fontSize: 10, cursor: 'pointer', padding: 1 }}>✕</button>
                     </div>
                   ))}
                 </div>
@@ -402,7 +402,7 @@ export default function CinematicPanel({
                 ))}
               </div>
 
-              <div style={{ fontSize: 9, color: ghostContext.prev ? '#c4b5fd' : C.faint, lineHeight: 1.45, marginBottom: 5 }}>
+              <div style={{ fontSize: 9, color: ghostContext.prev ? '#FFC72C' : C.faint, lineHeight: 1.45, marginBottom: 5 }}>
                 {ghostContext.prev ? `Prev: “${ghostContext.prev.slice(0, 70)}”` : 'No previous slide line to echo.'}
               </div>
 
@@ -417,7 +417,7 @@ export default function CinematicPanel({
               <button
                 onClick={() => onGhostLastLine?.()}
                 title="Move the last line of this slide's lyric into the ghost layer (Ctrl+Z undoes it)"
-                style={{ width: '100%', background: 'rgba(139,92,246,0.14)', border: '1px solid rgba(139,92,246,0.45)', color: '#c4b5fd', borderRadius: 6, padding: '5px 0', fontSize: 9.5, fontWeight: 800, cursor: 'pointer', marginBottom: 8 }}
+                style={{ width: '100%', background: 'rgba(255,184,0,0.14)', border: '1px solid rgba(255,184,0,0.45)', color: '#FFC72C', borderRadius: 6, padding: '5px 0', fontSize: 9.5, fontWeight: 800, cursor: 'pointer', marginBottom: 8 }}
               >Move last lyric line → ghost</button>
 
               <SliderRow C={C} label="Opacity" value={ghost.opacity ?? 20} min={0} max={60} suffix="%" onChange={(v) => setGhost({ opacity: v })} />
@@ -461,7 +461,7 @@ export default function CinematicPanel({
 
               <div style={{ display: 'flex', gap: 3, marginBottom: 6 }}>
                 {[['none', 'Aa'], ['upper', 'AA'], ['lower', 'aa']].map(([m, label]) => (
-                  <button key={m} onClick={() => setGhost({ case: m })} style={{ flex: 1, background: (ghost.case || 'upper') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (ghost.case || 'upper') === m ? C.text : C.muted, borderRadius: 5, padding: '4px 0', fontSize: 9, fontWeight: 800, cursor: 'pointer' }}>{label}</button>
+                  <button key={m} onClick={() => setGhost({ case: m })} style={{ flex: 1, background: (ghost.case || 'upper') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (ghost.case || 'upper') === m ? '#0D1014' : C.muted, borderRadius: 5, padding: '4px 0', fontSize: 9, fontWeight: 800, cursor: 'pointer' }}>{label}</button>
                 ))}
                 <select
                   value={ghost.blendMode || 'screen'}

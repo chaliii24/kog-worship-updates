@@ -125,7 +125,7 @@ export default function AudioPanel() {
           <button
             key={v}
             onClick={() => setTab(v)}
-            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 10, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: tab === v ? ACCENT : C.elevated2, border: `1px solid ${tab === v ? ACCENT : 'var(--ui-border2)'}`, color: tab === v ? '#fff' : C.muted }}
+            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 10, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: tab === v ? ACCENT : C.elevated2, border: `1px solid ${tab === v ? ACCENT : 'var(--ui-border2)'}`, color: tab === v ? '#0D1014' : C.muted }}
           ><Icon size={14} /> {lbl}</button>
         ))}
       </div>
@@ -169,15 +169,15 @@ export default function AudioPanel() {
                   {/* Transport */}
                   <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
                     {s.trackPlaying ? (
-                      <motion.button {...stubTap} onClick={() => audioEngine.trackPause()} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(239,68,68,0.14)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', borderRadius: 9, padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}><Pause size={14} /> Pause</motion.button>
+                      <motion.button {...stubTap} onClick={() => audioEngine.trackPause()} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(255,69,69,0.14)', border: '1px solid rgba(255,69,69,0.4)', color: '#FF4545', borderRadius: 9, padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}><Pause size={14} /> Pause</motion.button>
                     ) : (
-                      <motion.button {...stubTap} onClick={() => audioEngine.trackPlay()} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#10b981', border: 'none', color: '#fff', borderRadius: 9, padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}><Play size={14} /> Play</motion.button>
+                      <motion.button {...stubTap} onClick={() => audioEngine.trackPlay()} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#36C982', border: 'none', color: '#fff', borderRadius: 9, padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}><Play size={14} /> Play</motion.button>
                     )}
                     <motion.button {...stubTap} onClick={() => audioEngine.trackStop()} title="Stop and rewind" style={{ width: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 9, padding: '9px 0', cursor: 'pointer' }}><Square size={14} /></motion.button>
                     <button
                       onClick={() => audioEngine.setTrackLoop(!s.trackLoop)}
                       title="Loop the track"
-                      style={{ fontSize: 11, fontWeight: 800, borderRadius: 8, padding: '9px 12px', cursor: 'pointer', background: s.trackLoop ? 'rgba(139,92,246,0.16)' : C.elevated2, border: s.trackLoop ? '1px solid rgba(139,92,246,0.5)' : '1px solid var(--ui-border2)', color: s.trackLoop ? '#C4B5FD' : C.muted }}
+                      style={{ fontSize: 11, fontWeight: 800, borderRadius: 8, padding: '9px 12px', cursor: 'pointer', background: s.trackLoop ? 'rgba(255,184,0,0.16)' : C.elevated2, border: s.trackLoop ? '1px solid rgba(255,184,0,0.5)' : '1px solid var(--ui-border2)', color: s.trackLoop ? '#FFC72C' : C.muted }}
                     >Loop</button>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
@@ -194,7 +194,7 @@ export default function AudioPanel() {
                     {audioEngine.isSplit(attachedUrl) && (
                       <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
                         {[['both', 'House + Ears'], ['L', 'House (L)'], ['R', 'Ears (R)']].map(([v, lbl]) => (
-                          <button key={v} onClick={() => audioEngine.setHouseSide(v)} style={{ fontSize: 10.5, fontWeight: 800, borderRadius: 7, padding: '6px 10px', cursor: 'pointer', background: s.houseSide === v ? 'rgba(139,92,246,0.16)' : C.elevated2, border: s.houseSide === v ? '1px solid rgba(139,92,246,0.5)' : '1px solid var(--ui-border2)', color: s.houseSide === v ? '#C4B5FD' : C.muted }}>{lbl}</button>
+                          <button key={v} onClick={() => audioEngine.setHouseSide(v)} style={{ fontSize: 10.5, fontWeight: 800, borderRadius: 7, padding: '6px 10px', cursor: 'pointer', background: s.houseSide === v ? 'rgba(255,184,0,0.16)' : C.elevated2, border: s.houseSide === v ? '1px solid rgba(255,184,0,0.5)' : '1px solid var(--ui-border2)', color: s.houseSide === v ? '#FFC72C' : C.muted }}>{lbl}</button>
                         ))}
                       </div>
                     )}
@@ -228,11 +228,11 @@ export default function AudioPanel() {
                     return (
                       <div key={asset.url || i} style={{ background: C.elevated2, border: attached ? `1px solid ${PINK}` : '1px solid var(--ui-border2)', borderRadius: 10, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {displayNameOf(asset.url, mediaLibrary)}{split ? <span style={{ color: '#C4B5FD', fontWeight: 800 }}> · SPLIT</span> : null}
+                          {displayNameOf(asset.url, mediaLibrary)}{split ? <span style={{ color: '#FFC72C', fontWeight: 800 }}> · SPLIT</span> : null}
                         </span>
                         <button onClick={() => { audioEngine.trackLoad(asset.url); audioEngine.trackPlay(); }} title="Preview" style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.text, borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Play</button>
-                        {activeSong && !attached && <button onClick={() => applyMediaToActiveSong('audio', asset.url)} style={{ background: '#1b3b2a', border: '1px solid #22c55e', color: '#4ade80', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Attach</button>}
-                        <button onClick={() => audioEngine.setSplit(asset.url, !split)} title="Toggle split-track mode" style={{ background: split ? 'rgba(139,92,246,0.16)' : 'transparent', border: '1px solid var(--ui-border2)', color: split ? '#C4B5FD' : C.faint, borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>S</button>
+                        {activeSong && !attached && <button onClick={() => applyMediaToActiveSong('audio', asset.url)} style={{ background: '#1b3b2a', border: '1px solid #36C982', color: '#36C982', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Attach</button>}
+                        <button onClick={() => audioEngine.setSplit(asset.url, !split)} title="Toggle split-track mode" style={{ background: split ? 'rgba(255,184,0,0.16)' : 'transparent', border: '1px solid var(--ui-border2)', color: split ? '#FFC72C' : C.faint, borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>S</button>
                         <button onClick={() => removeMediaAsset(asset)} title="Remove" style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', display: 'flex' }}><Trash2 size={12} /></button>
                       </div>
                     );
@@ -246,13 +246,13 @@ export default function AudioPanel() {
         {/* ============ PADS ============ */}
         {tab === 'pads' && (
           <>
-            <div style={{ background: C.elevated, border: `1px solid ${s.padOn ? 'rgba(34,197,94,0.45)' : 'var(--ui-border2)'}`, borderRadius: 12, padding: '12px 14px' }}>
+            <div style={{ background: C.elevated, border: `1px solid ${s.padOn ? 'rgba(54,201,130,0.45)' : 'var(--ui-border2)'}`, borderRadius: 12, padding: '12px 14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 12, fontWeight: 800, color: C.text }}>Pads</span>
-                {s.padOn && s.padKey && <span style={{ fontSize: 11, fontWeight: 800, color: '#4ade80' }}>· {s.padKey} droning</span>}
+                {s.padOn && s.padKey && <span style={{ fontSize: 11, fontWeight: 800, color: '#36C982' }}>· {s.padKey} droning</span>}
                 <button
                   onClick={() => audioEngine.setPadEnabled(!s.padOn)}
-                  style={{ marginLeft: 'auto', fontSize: 11.5, fontWeight: 800, borderRadius: 999, padding: '7px 16px', cursor: 'pointer', background: s.padOn ? 'rgba(34,197,94,0.16)' : C.elevated2, border: s.padOn ? '1px solid rgba(34,197,94,0.5)' : '1px solid var(--ui-border2)', color: s.padOn ? '#4ade80' : C.muted }}
+                  style={{ marginLeft: 'auto', fontSize: 11.5, fontWeight: 800, borderRadius: 999, padding: '7px 16px', cursor: 'pointer', background: s.padOn ? 'rgba(54,201,130,0.16)' : C.elevated2, border: s.padOn ? '1px solid rgba(54,201,130,0.5)' : '1px solid var(--ui-border2)', color: s.padOn ? '#36C982' : C.muted }}
                 >{s.padOn ? 'ON' : 'OFF'}</button>
               </div>
               {/* Register — which octave the grid plays in. Sits above the keys
@@ -266,7 +266,7 @@ export default function AudioPanel() {
                       key={o.id}
                       onClick={() => audioEngine.setPadOctave(o.id)}
                       title={o.id === 0 ? 'C3 — low and deep, sits under speech' : o.id === 1 ? 'C4 — one octave up, airy and open' : 'C5 — two octaves up, high shimmer'}
-                      style={{ borderRadius: 8, padding: '7px 15px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', background: on ? 'rgba(34,197,94,0.18)' : C.elevated2, border: on ? '1px solid rgba(34,197,94,0.55)' : '1px solid var(--ui-border2)', color: on ? '#4ade80' : C.text2 }}
+                      style={{ borderRadius: 8, padding: '7px 15px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', background: on ? 'rgba(54,201,130,0.18)' : C.elevated2, border: on ? '1px solid rgba(54,201,130,0.55)' : '1px solid var(--ui-border2)', color: on ? '#36C982' : C.text2 }}
                     >{o.label}</button>
                   );
                 })}
@@ -278,17 +278,17 @@ export default function AudioPanel() {
                     <button
                       key={key}
                       onClick={() => audioEngine.padStart(key)}
-                      style={{ borderRadius: 9, padding: '12px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer', background: on ? 'rgba(34,197,94,0.18)' : C.elevated2, border: on ? '1px solid rgba(34,197,94,0.55)' : '1px solid var(--ui-border2)', color: on ? '#4ade80' : C.text2 }}
+                      style={{ borderRadius: 9, padding: '12px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer', background: on ? 'rgba(54,201,130,0.18)' : C.elevated2, border: on ? '1px solid rgba(54,201,130,0.55)' : '1px solid var(--ui-border2)', color: on ? '#36C982' : C.text2 }}
                     >{key}</button>
                   );
                 })}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
                 <Volume2 size={13} color={C.faint} />
-                <input type="range" min={0} max={1} step={0.01} value={s.padVol} onChange={(e) => audioEngine.setPadVolume(Number(e.target.value))} style={{ flex: 1, accentColor: '#22c55e' }} title="Pad master volume" />
+                <input type="range" min={0} max={1} step={0.01} value={s.padVol} onChange={(e) => audioEngine.setPadVolume(Number(e.target.value))} style={{ flex: 1, accentColor: '#36C982' }} title="Pad master volume" />
                 <span style={{ fontSize: 11, color: C.muted, width: 36, textAlign: 'right' }}>{Math.round(s.padVol * 100)}%</span>
               </div>
-              <motion.button {...stubTap} onClick={() => audioEngine.padFadeOut()} style={{ width: '100%', marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', borderRadius: 9, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>
+              <motion.button {...stubTap} onClick={() => audioEngine.padFadeOut()} style={{ width: '100%', marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(255,69,69,0.12)', border: '1px solid rgba(255,69,69,0.4)', color: '#FF4545', borderRadius: 9, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>
                 <Square size={13} /> Fade Out / Stop
               </motion.button>
               <div style={{ fontSize: 11, color: C.faint, marginTop: 8, lineHeight: 1.6 }}>Switching keys or octave crossfades the drone — no silence between songs, prayers or transitions.</div>
@@ -299,17 +299,17 @@ export default function AudioPanel() {
         {/* ============ BGM PLAYLIST ============ */}
         {tab === 'bgm' && (
           <>
-            <div style={{ background: C.elevated, border: `1px solid ${s.bgmPlaying ? 'rgba(34,197,94,0.45)' : 'var(--ui-border2)'}`, borderRadius: 12, padding: '12px 14px' }}>
+            <div style={{ background: C.elevated, border: `1px solid ${s.bgmPlaying ? 'rgba(54,201,130,0.45)' : 'var(--ui-border2)'}`, borderRadius: 12, padding: '12px 14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 13, fontWeight: 800, color: C.text }}>{nowBgmUrl ? displayNameOf(nowBgmUrl, mediaLibrary) : 'Walk-in / walk-out music'}</span>
-                {s.bgmPlaying && <span style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#4ade80', background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)', padding: '2px 7px', borderRadius: 6 }}>PLAYING</span>}
+                {s.bgmPlaying && <span style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#36C982', background: 'rgba(54,201,130,0.15)', border: '1px solid rgba(54,201,130,0.4)', padding: '2px 7px', borderRadius: 6 }}>PLAYING</span>}
               </div>
               <div style={{ display: 'flex', gap: 6, marginTop: 10, alignItems: 'center' }}>
                 <button onClick={() => audioEngine.bgmPrev()} title="Previous" style={{ width: 42, display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 9, padding: '9px 0', cursor: 'pointer' }}><SkipBack size={15} /></button>
                 {s.bgmPlaying ? (
-                  <motion.button {...stubTap} onClick={() => audioEngine.bgmPause()} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(239,68,68,0.14)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', borderRadius: 9, padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}><Pause size={14} /> Pause</motion.button>
+                  <motion.button {...stubTap} onClick={() => audioEngine.bgmPause()} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(255,69,69,0.14)', border: '1px solid rgba(255,69,69,0.4)', color: '#FF4545', borderRadius: 9, padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}><Pause size={14} /> Pause</motion.button>
                 ) : (
-                  <motion.button {...stubTap} onClick={() => audioEngine.bgmPlay()} disabled={!s.bgmQueue.length} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: s.bgmQueue.length ? '#10b981' : C.elevated2, border: 'none', color: '#fff', borderRadius: 9, padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: s.bgmQueue.length ? 'pointer' : 'default', opacity: s.bgmQueue.length ? 1 : 0.5 }}><Play size={14} /> Play</motion.button>
+                  <motion.button {...stubTap} onClick={() => audioEngine.bgmPlay()} disabled={!s.bgmQueue.length} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: s.bgmQueue.length ? '#36C982' : C.elevated2, border: 'none', color: '#fff', borderRadius: 9, padding: '9px 0', fontSize: 12.5, fontWeight: 800, cursor: s.bgmQueue.length ? 'pointer' : 'default', opacity: s.bgmQueue.length ? 1 : 0.5 }}><Play size={14} /> Play</motion.button>
                 )}
                 <button onClick={() => audioEngine.bgmNext()} title="Next" style={{ width: 42, display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 9, padding: '9px 0', cursor: 'pointer' }}><SkipForward size={15} /></button>
               </div>
@@ -326,7 +326,7 @@ export default function AudioPanel() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
                   <span style={{ fontSize: 11, color: C.faint }}>Fade over</span>
                   {[3, 4, 5].map((sec) => (
-                    <button key={sec} onClick={() => audioEngine.setBgmFadeSec(sec)} style={{ fontSize: 11, fontWeight: 800, borderRadius: 7, padding: '5px 12px', cursor: 'pointer', background: s.bgmFadeSec === sec ? 'rgba(139,92,246,0.16)' : C.elevated2, border: s.bgmFadeSec === sec ? '1px solid rgba(139,92,246,0.5)' : '1px solid var(--ui-border2)', color: s.bgmFadeSec === sec ? '#C4B5FD' : C.muted }}>{sec}s</button>
+                    <button key={sec} onClick={() => audioEngine.setBgmFadeSec(sec)} style={{ fontSize: 11, fontWeight: 800, borderRadius: 7, padding: '5px 12px', cursor: 'pointer', background: s.bgmFadeSec === sec ? 'rgba(255,184,0,0.16)' : C.elevated2, border: s.bgmFadeSec === sec ? '1px solid rgba(255,184,0,0.5)' : '1px solid var(--ui-border2)', color: s.bgmFadeSec === sec ? '#FFC72C' : C.muted }}>{sec}s</button>
                   ))}
                 </div>
               )}
@@ -336,7 +336,7 @@ export default function AudioPanel() {
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={(e) => { e.preventDefault(); setDragOver(false); importBgmFiles(e.dataTransfer?.files); }}
-              style={{ background: dragOver ? 'rgba(139,92,246,0.12)' : C.elevated, border: `1px dashed ${dragOver ? 'rgba(139,92,246,0.6)' : 'var(--ui-border2)'}`, borderRadius: 12, padding: 14, textAlign: 'center' }}
+              style={{ background: dragOver ? 'rgba(255,184,0,0.12)' : C.elevated, border: `1px dashed ${dragOver ? 'rgba(255,184,0,0.6)' : 'var(--ui-border2)'}`, borderRadius: 12, padding: 14, textAlign: 'center' }}
             >
               <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text2 }}>Drag & drop MP3 / WAV files here</div>
               <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
@@ -345,7 +345,7 @@ export default function AudioPanel() {
                   <input ref={fileRef} type="file" accept="audio/mpeg,audio/wav,audio/mp4,audio/ogg,audio/aac,.mp3,.m4a,.wav,.ogg,.aac" multiple onChange={(e) => { importBgmFiles(e.target.files); e.target.value = ''; }} style={{ display: 'none' }} />
                 </label>
                 {s.bgmQueue.length > 0 && (
-                  <button onClick={() => audioEngine.bgmClear()} title="Clear the playlist" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: '#f87171', borderRadius: 8, padding: '0 12px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>Clear</button>
+                  <button onClick={() => audioEngine.bgmClear()} title="Clear the playlist" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: '#FF4545', borderRadius: 8, padding: '0 12px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>Clear</button>
                 )}
               </div>
             </div>
@@ -362,8 +362,8 @@ export default function AudioPanel() {
                   {s.bgmQueue.map((url, i) => {
                     const current = i === s.bgmIndex && s.bgmPlaying;
                     return (
-                      <div key={url + i} style={{ background: current ? 'rgba(34,197,94,0.08)' : C.elevated2, border: current ? '1px solid rgba(34,197,94,0.45)' : '1px solid var(--ui-border2)', borderRadius: 10, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <button onClick={() => audioEngine.bgmPlay(i)} title="Play this track" style={{ background: 'transparent', border: 'none', color: current ? '#4ade80' : C.muted, cursor: 'pointer', display: 'flex' }}>{current ? <Pause size={13} /> : <Play size={13} />}</button>
+                      <div key={url + i} style={{ background: current ? 'rgba(54,201,130,0.08)' : C.elevated2, border: current ? '1px solid rgba(54,201,130,0.45)' : '1px solid var(--ui-border2)', borderRadius: 10, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <button onClick={() => audioEngine.bgmPlay(i)} title="Play this track" style={{ background: 'transparent', border: 'none', color: current ? '#36C982' : C.muted, cursor: 'pointer', display: 'flex' }}>{current ? <Pause size={13} /> : <Play size={13} />}</button>
                         <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{i + 1}. {displayNameOf(url, mediaLibrary)}</span>
                         <button onClick={() => audioEngine.bgmRemove(i)} title="Remove" style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', display: 'flex' }}><Trash2 size={12} /></button>
                       </div>

@@ -70,8 +70,8 @@ export default function BibleScreen({ C, ACCENT, state, send }) {
   const liveItem = items.find((i) => i.live) || null;
 
   const card = (children, live) => (
-    <div style={{ background: C.elevated, border: `1px solid ${live ? 'rgba(34,197,94,0.5)' : C.border2}`, borderRadius: 16, padding: 14, position: 'relative', overflow: 'hidden' }}>
-      {live && <span style={{ position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderRadius: 3, background: '#22c55e' }} />}
+    <div style={{ background: C.elevated, border: `1px solid ${live ? 'rgba(54,201,130,0.5)' : C.border2}`, borderRadius: 16, padding: 14, position: 'relative', overflow: 'hidden' }}>
+      {live && <span style={{ position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderRadius: 3, background: '#36C982' }} />}
       {children}
     </div>
   );
@@ -97,7 +97,7 @@ export default function BibleScreen({ C, ACCENT, state, send }) {
             {catalog.map((t) => {
               const on = t.abbrev === abbrev;
               return (
-                <button key={t.abbrev} onClick={() => pickTrans(t.abbrev)} style={{ flex: '0 0 auto', borderRadius: 8, padding: '8px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: on ? ACCENT : C.elevated2, border: `1px solid ${on ? ACCENT : C.border2}`, color: on ? '#fff' : C.muted }}>
+                <button key={t.abbrev} onClick={() => pickTrans(t.abbrev)} style={{ flex: '0 0 auto', borderRadius: 8, padding: '8px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: on ? ACCENT : C.elevated2, border: `1px solid ${on ? ACCENT : C.border2}`, color: on ? '#0D1014' : C.muted }}>
                   {t.code || t.abbrev}
                 </button>
               );
@@ -105,16 +105,16 @@ export default function BibleScreen({ C, ACCENT, state, send }) {
           </div>
         )}
         {panel?.error && catalog.length > 0 && (
-          <div style={{ fontSize: 12, color: '#f87171', marginTop: 8 }}>{panel.error}</div>
+          <div style={{ fontSize: 12, color: '#FF4545', marginTop: 8 }}>{panel.error}</div>
         )}
         {/* Reference jump: John 3:16, Psalm 23, 1 Peter 1:5 … */}
         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
           <input value={refText} onChange={(e) => setRefText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') goRef(); }} placeholder="John 3:16" style={{ flex: 1, minWidth: 0, background: C.elevated2, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.text, fontSize: 13, fontWeight: 700, padding: '9px 10px', outline: 'none', fontFamily: 'inherit' }} />
-          <button onClick={goRef} style={{ background: ACCENT, border: 'none', color: '#fff', borderRadius: 8, padding: '0 16px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>Go</button>
+          <button onClick={goRef} style={{ background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 8, padding: '0 16px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>Go</button>
         </div>
         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
           {[['browse', 'Browse'], ['search', 'Search']].map(([v, lbl]) => (
-            <button key={v} onClick={() => setMode(v)} style={{ flex: 1, borderRadius: 8, padding: '8px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: mode === v ? ACCENT : C.elevated2, border: `1px solid ${mode === v ? ACCENT : C.border2}`, color: mode === v ? '#fff' : C.muted }}>{lbl}</button>
+            <button key={v} onClick={() => setMode(v)} style={{ flex: 1, borderRadius: 8, padding: '8px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: mode === v ? ACCENT : C.elevated2, border: `1px solid ${mode === v ? ACCENT : C.border2}`, color: mode === v ? '#0D1014' : C.muted }}>{lbl}</button>
           ))}
         </div>
       </>, false)}
@@ -127,7 +127,7 @@ export default function BibleScreen({ C, ACCENT, state, send }) {
             <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
               <input value={bookQ} onChange={(e) => setBookQ(e.target.value)} placeholder="Filter books…" style={{ flex: 1, minWidth: 0, background: C.elevated2, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.text, fontSize: 12.5, fontWeight: 600, padding: '8px 10px', outline: 'none', fontFamily: 'inherit' }} />
               {[['all', 'All'], ['ot', 'OT'], ['nt', 'NT']].map(([v, lbl]) => (
-                <button key={v} onClick={() => setTestament(v)} style={{ borderRadius: 8, padding: '8px 12px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: testament === v ? ACCENT : C.elevated2, border: `1px solid ${testament === v ? ACCENT : C.border2}`, color: testament === v ? '#fff' : C.muted }}>{lbl}</button>
+                <button key={v} onClick={() => setTestament(v)} style={{ borderRadius: 8, padding: '8px 12px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: testament === v ? ACCENT : C.elevated2, border: `1px solid ${testament === v ? ACCENT : C.border2}`, color: testament === v ? '#0D1014' : C.muted }}>{lbl}</button>
               ))}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
@@ -154,14 +154,14 @@ export default function BibleScreen({ C, ACCENT, state, send }) {
               {(passage.verses || []).map((v) => {
                 const on = sel.includes(Number(v.verse));
                 return (
-                  <button key={v.verse} onClick={() => toggleVerse(Number(v.verse))} style={{ textAlign: 'left', borderRadius: 9, padding: '8px 10px', fontSize: 13, lineHeight: 1.55, cursor: 'pointer', fontFamily: 'inherit', background: on ? 'rgba(139,92,246,0.16)' : 'transparent', border: `1px solid ${on ? ACCENT : 'transparent'}`, color: C.text }}>
+                  <button key={v.verse} onClick={() => toggleVerse(Number(v.verse))} style={{ textAlign: 'left', borderRadius: 9, padding: '8px 10px', fontSize: 13, lineHeight: 1.55, cursor: 'pointer', fontFamily: 'inherit', background: on ? 'rgba(255,184,0,0.16)' : 'transparent', border: `1px solid ${on ? ACCENT : 'transparent'}`, color: C.text }}>
                     <b style={{ color: on ? ACCENT : C.faint, marginRight: 7 }}>{v.verse}</b>{v.text}
                   </button>
                 );
               })}
             </div>
             <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-              <motion.button {...stubTap} onClick={fireSelected} disabled={!sel.length} style={{ flex: 1.4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: sel.length ? ACCENT : C.elevated2, border: `1px solid ${sel.length ? ACCENT : C.border2}`, color: sel.length ? '#fff' : C.muted, borderRadius: 10, padding: '12px 0', fontSize: 14, fontWeight: 900, cursor: sel.length ? 'pointer' : 'default', fontFamily: 'inherit', opacity: sel.length ? 1 : 0.6 }}>
+              <motion.button {...stubTap} onClick={fireSelected} disabled={!sel.length} style={{ flex: 1.4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: sel.length ? ACCENT : C.elevated2, border: `1px solid ${sel.length ? ACCENT : C.border2}`, color: sel.length ? '#0D1014' : C.muted, borderRadius: 10, padding: '12px 0', fontSize: 14, fontWeight: 900, cursor: sel.length ? 'pointer' : 'default', fontFamily: 'inherit', opacity: sel.length ? 1 : 0.6 }}>
                 <Play size={15} /> Fire{sel.length ? ` (${sel.length})` : ''}
               </motion.button>
               <motion.button {...stubTap} onClick={() => send('bibleBooks', { abbrev })} style={{ flex: 1, background: C.elevated2, border: `1px solid ${C.border2}`, color: C.text2, borderRadius: 10, padding: '12px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -177,7 +177,7 @@ export default function BibleScreen({ C, ACCENT, state, send }) {
           {head(Search, 'Search this Bible')}
           <div style={{ display: 'flex', gap: 6 }}>
             <input value={refText} onChange={(e) => setRefText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && refText.trim().length >= 2) send('bibleSearch', { abbrev, q: refText.trim() }); }} placeholder="grace, Macedonia, still waters…" style={{ flex: 1, minWidth: 0, background: C.elevated2, border: `1px solid ${C.border2}`, borderRadius: 8, color: C.text, fontSize: 13, fontWeight: 600, padding: '9px 10px', outline: 'none', fontFamily: 'inherit' }} />
-            <button onClick={() => { if (refText.trim().length >= 2) send('bibleSearch', { abbrev, q: refText.trim() }); }} style={{ background: ACCENT, border: 'none', color: '#fff', borderRadius: 8, padding: '0 16px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}><Search size={14} /></button>
+            <button onClick={() => { if (refText.trim().length >= 2) send('bibleSearch', { abbrev, q: refText.trim() }); }} style={{ background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 8, padding: '0 16px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}><Search size={14} /></button>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8, maxHeight: 340, overflowY: 'auto' }}>
             {(panel?.results || []).map((r, i) => (
@@ -193,11 +193,11 @@ export default function BibleScreen({ C, ACCENT, state, send }) {
 
       {/* ── ACTIVE PROJECT ── */}
       {card(<>
-        {head(Play, `Active project${state?.service?.name ? ` · ${state.service.name}` : ''}`, liveItem ? <span style={{ marginLeft: 'auto', fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#4ade80', background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)', padding: '2px 7px', borderRadius: 6 }}>LIVE</span> : null)}
+        {head(Play, `Active project${state?.service?.name ? ` · ${state.service.name}` : ''}`, liveItem ? <span style={{ marginLeft: 'auto', fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#36C982', background: 'rgba(54,201,130,0.15)', border: '1px solid rgba(54,201,130,0.4)', padding: '2px 7px', borderRadius: 6 }}>LIVE</span> : null)}
         {liveItem ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{liveItem.title}</span>
-            <motion.button {...stubTap} onClick={() => send('serviceStop', { id: liveItem.id })} style={{ flexShrink: 0, borderRadius: 9, padding: '9px 15px', fontSize: 12.5, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit', background: 'rgba(239,68,68,0.16)', border: '1px solid rgba(239,68,68,0.5)', color: '#f87171' }}>Stop</motion.button>
+            <motion.button {...stubTap} onClick={() => send('serviceStop', { id: liveItem.id })} style={{ flexShrink: 0, borderRadius: 9, padding: '9px 15px', fontSize: 12.5, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit', background: 'rgba(255,69,69,0.16)', border: '1px solid rgba(255,69,69,0.5)', color: '#FF4545' }}>Stop</motion.button>
           </div>
         ) : (
           <div style={{ fontSize: 12.5, color: C.faint }}>Nothing live from the service order right now.</div>
@@ -209,12 +209,12 @@ export default function BibleScreen({ C, ACCENT, state, send }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
             {showHits.length === 0 && <div style={{ fontSize: 12.5, color: C.faint }}>No shows match.</div>}
             {showHits.map((item) => (
-              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 9, background: item.live ? 'rgba(34,197,94,0.10)' : C.elevated2, border: `1px solid ${item.live ? 'rgba(34,197,94,0.5)' : C.border2}`, borderRadius: 11, padding: '9px 11px' }}>
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 9, background: item.live ? 'rgba(54,201,130,0.10)' : C.elevated2, border: `1px solid ${item.live ? 'rgba(54,201,130,0.5)' : C.border2}`, borderRadius: 11, padding: '9px 11px' }}>
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: 'block', fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.title}</span>
                   <span style={{ display: 'block', fontSize: 11, color: C.faint, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.section || ''}{item.subtitle ? ` · ${item.subtitle}` : ''}</span>
                 </span>
-                <motion.button {...stubTap} onClick={() => send(item.live ? 'serviceStop' : 'serviceGo', { id: item.id })} style={{ flexShrink: 0, borderRadius: 9, padding: '9px 15px', fontSize: 12.5, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit', background: item.live ? 'rgba(239,68,68,0.16)' : ACCENT, border: `1px solid ${item.live ? 'rgba(239,68,68,0.5)' : ACCENT}`, color: item.live ? '#f87171' : '#fff' }}>{item.live ? 'Stop' : 'Go'}</motion.button>
+                <motion.button {...stubTap} onClick={() => send(item.live ? 'serviceStop' : 'serviceGo', { id: item.id })} style={{ flexShrink: 0, borderRadius: 9, padding: '9px 15px', fontSize: 12.5, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit', background: item.live ? 'rgba(255,69,69,0.16)' : ACCENT, border: `1px solid ${item.live ? 'rgba(255,69,69,0.5)' : ACCENT}`, color: item.live ? '#FF4545' : '#0D1014' }}>{item.live ? 'Stop' : 'Go'}</motion.button>
               </div>
             ))}
           </div>

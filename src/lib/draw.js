@@ -10,7 +10,7 @@
 
 export const DRAW_W = 1280;
 export const DRAW_H = 720;
-export const DRAW_COLORS = ['#f87171', '#fbbf24', '#4ade80', '#60a5fa', '#c084fc', '#ffffff'];
+export const DRAW_COLORS = ['#FF4545', '#fbbf24', '#36C982', '#60a5fa', '#c084fc', '#ffffff'];
 export const DRAW_WIDTHS = [6, 12, 20];
 export const MAX_STROKES = 20;
 export const MAX_POINTS_PER_STROKE = 120;
@@ -19,7 +19,7 @@ export const MAX_POINTS_PER_STROKE = 120;
 // clean stroke or null when there is nothing drawable.
 export function sanitizeDrawStroke(raw) {
   if (!raw || typeof raw !== 'object') return null;
-  const color = typeof raw.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.color) ? raw.color : '#f87171';
+  const color = typeof raw.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.color) ? raw.color : '#FF4545';
   const width = Math.min(40, Math.max(2, Math.round(Number(raw.width) || 12)));
   const pts = Array.isArray(raw.points) ? raw.points : [];
   const clean = [];

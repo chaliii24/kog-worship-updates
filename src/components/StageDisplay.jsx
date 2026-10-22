@@ -87,7 +87,7 @@ export default function StageDisplay({ currentSlide, C = {}, cfg = null, flow = 
   const bg = high ? '#000000' : '#0b0b10';
   const curColor = m.contrast === 'high-white' ? '#ffffff' : m.contrast === 'high-yellow' ? '#fde047' : (C.text || '#f4f4f5');
   const nextColor = m.contrast === 'high-white' ? '#e9e9ec' : m.contrast === 'high-yellow' ? '#fff7d6' : '#a1a1aa';
-  const eyebrowColor = high ? (m.contrast === 'high-white' ? '#ffffff' : '#fde047') : (C.accLine || '#8b5cf6');
+  const eyebrowColor = high ? (m.contrast === 'high-white' ? '#ffffff' : '#fde047') : (C.accLine || '#FFB800');
   const faint = high ? 'rgba(255,255,255,0.55)' : (C.faint || '#71717a');
   const hairline = high ? '#232327' : '#1e1e2a';
 
@@ -122,7 +122,7 @@ export default function StageDisplay({ currentSlide, C = {}, cfg = null, flow = 
   // timer: it appears the moment Start or Pause gives it a real value.
   const segSecs = segSeconds(seg, now);
   const segActive = !!(seg && (seg.running || seg.remain != null));
-  const segColor = !segActive ? '#ffffff' : (!seg.countUp && segSecs <= 0 ? '#ef4444' : (high ? '#fde047' : (C.text || '#fff')));
+  const segColor = !segActive ? '#ffffff' : (!seg.countUp && segSecs <= 0 ? '#FF4545' : (high ? '#fde047' : (C.text || '#fff')));
 
   const heroText = stripMarkup(current.text);
   const eyebrow = [current.title, current.label || (heroText ? '' : 'Current')].filter(Boolean).join('  ·  ');
@@ -144,7 +144,7 @@ export default function StageDisplay({ currentSlide, C = {}, cfg = null, flow = 
       {/* STATUS STRIP: live dot + song · metronome · segment · clock */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: px(0.02), paddingBottom: px(0.016), marginBottom: px(0.016), borderBottom: `1px solid ${hairline}`, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: px(0.012), minWidth: 0 }}>
-          <span style={{ width: px(0.011), height: px(0.011), borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 12px #22c55e', animation: 'stageLivePulse 2.2s ease-in-out infinite', flexShrink: 0 }} />
+          <span style={{ width: px(0.011), height: px(0.011), borderRadius: '50%', background: '#36C982', boxShadow: '0 0 12px #36C982', animation: 'stageLivePulse 2.2s ease-in-out infinite', flexShrink: 0 }} />
           <span style={{ fontSize: px(0.0135), fontWeight: 800, letterSpacing: '2.5px', color: faint, whiteSpace: 'nowrap' }}>LIVE</span>
           {current.title && (
             <span style={{ fontSize: px(0.0145), fontWeight: 700, color: faint, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{current.title}</span>
@@ -173,7 +173,7 @@ export default function StageDisplay({ currentSlide, C = {}, cfg = null, flow = 
 
       {/* STAGE ALERT: stage-only message (info = amber, urgent = red + blink) */}
       {alertActive && (
-        <div style={{ marginBottom: px(0.018), borderRadius: px(0.012), padding: `${px(0.014)}px ${px(0.02)}`, background: alertRaw.level === 'urgent' ? '#dc2626' : '#b45309', color: '#ffffff', fontSize: px(0.030), fontWeight: 900, textAlign: 'center', letterSpacing: '0.5px', flexShrink: 0, animation: alertRaw.level === 'urgent' ? 'stageAlertBlink 1s ease-in-out infinite' : 'none', whiteSpace: 'pre-wrap', overflow: 'hidden' }}>
+        <div style={{ marginBottom: px(0.018), borderRadius: px(0.012), padding: `${px(0.014)}px ${px(0.02)}`, background: alertRaw.level === 'urgent' ? '#FF4545' : '#b45309', color: '#ffffff', fontSize: px(0.030), fontWeight: 900, textAlign: 'center', letterSpacing: '0.5px', flexShrink: 0, animation: alertRaw.level === 'urgent' ? 'stageAlertBlink 1s ease-in-out infinite' : 'none', whiteSpace: 'pre-wrap', overflow: 'hidden' }}>
           {String(alertRaw.text)}
         </div>
       )}

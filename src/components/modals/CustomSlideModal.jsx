@@ -65,7 +65,7 @@ export default function CustomSlideModal({ C, ACCENT, newSlideData, setNewSlideD
 
   const labelStyle = { fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.1, display: 'block', marginBottom: 5 };
   const inputStyle = { width: '100%', boxSizing: 'border-box', background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '9px 10px', color: C.text, fontSize: 13, outline: 'none' };
-  const segBtn = (on) => ({ flex: 1, background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#fff' : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+  const segBtn = (on) => ({ flex: 1, background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' });
   const toggle = (key, on, Icon, title) => (
     <button type="button" title={title} onClick={() => setLyric({ [key]: !on })} style={{ ...segBtn(on), gap: 4, padding: '7px 0', fontSize: 11, fontWeight: 700 }}>
       {Icon ? <Icon size={13} /> : null}
@@ -76,7 +76,7 @@ export default function CustomSlideModal({ C, ACCENT, newSlideData, setNewSlideD
     <motion.div {...modalOverlay} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: 14 }}>
       <motion.div {...modalPanel} style={{ background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: 14, width: 'min(820px, 96vw)', maxHeight: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '15px 18px 12px', borderBottom: '1px solid var(--ui-border2)', flexShrink: 0 }}>
-          <span style={{ width: 32, height: 32, borderRadius: 9, background: 'rgba(139,92,246,0.16)', border: '1px solid rgba(139,92,246,0.4)', color: '#c4b5fd', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Sparkles size={16} /></span>
+          <span style={{ width: 32, height: 32, borderRadius: 9, background: 'rgba(255,184,0,0.16)', border: '1px solid rgba(255,184,0,0.4)', color: '#FFC72C', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Sparkles size={16} /></span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>{editing ? 'Edit Non-Song Slide' : 'Add Non-Song Slide'}</div>
             <div style={{ fontSize: 11, color: C.faint, marginTop: 2 }}>Title and subtitle name it in the service order — the content below is what the room sees.</div>
@@ -202,12 +202,12 @@ export default function CustomSlideModal({ C, ACCENT, newSlideData, setNewSlideD
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5, marginBottom: 7 }}>
               {GRADIENT_PACK.map((g) => (
-                <div key={g.id} onClick={() => setBg('gradient', g.css)} title={g.name} style={{ aspectRatio: '16 / 9', borderRadius: 6, cursor: 'pointer', background: g.css, border: style.backgroundType === 'gradient' && style.backgroundValue === g.css ? '2px solid #22c55e' : '1px solid var(--ui-border2)' }} />
+                <div key={g.id} onClick={() => setBg('gradient', g.css)} title={g.name} style={{ aspectRatio: '16 / 9', borderRadius: 6, cursor: 'pointer', background: g.css, border: style.backgroundType === 'gradient' && style.backgroundValue === g.css ? '2px solid #36C982' : '1px solid var(--ui-border2)' }} />
               ))}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
               {ANIMATED_GRADIENTS.map((g) => (
-                <div key={g.id} onClick={() => setBg('animated', `anim:${g.id}`)} title={`${g.name} (animated loop)`} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, cursor: 'pointer', background: g.base, overflow: 'hidden', border: style.backgroundType === 'animated' && style.backgroundValue === `anim:${g.id}` ? '2px solid #22c55e' : '1px solid var(--ui-border2)' }}>
+                <div key={g.id} onClick={() => setBg('animated', `anim:${g.id}`)} title={`${g.name} (animated loop)`} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, cursor: 'pointer', background: g.base, overflow: 'hidden', border: style.backgroundType === 'animated' && style.backgroundValue === `anim:${g.id}` ? '2px solid #36C982' : '1px solid var(--ui-border2)' }}>
                   <span style={{ position: 'absolute', bottom: 1, left: 0, right: 0, textAlign: 'center', fontSize: 7, fontWeight: 800, color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{g.name}</span>
                 </div>
               ))}
@@ -229,7 +229,7 @@ export default function CustomSlideModal({ C, ACCENT, newSlideData, setNewSlideD
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '11px 18px', borderTop: '1px solid var(--ui-border2)', flexShrink: 0 }}>
           <motion.button {...stubTap} onClick={onCancel} style={{ background: C.border, border: 'none', color: C.text, padding: '9px 16px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Cancel</motion.button>
-          <motion.button {...stubTap} onClick={onAdd} style={{ background: ACCENT, border: 'none', color: '#fff', padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{editing ? 'Save Changes' : 'Add to Service Plan'}</motion.button>
+          <motion.button {...stubTap} onClick={onAdd} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{editing ? 'Save Changes' : 'Add to Service Plan'}</motion.button>
         </div>
       </motion.div>
     </motion.div>

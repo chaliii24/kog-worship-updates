@@ -85,10 +85,10 @@ export default function SermonPanel() {
   return (
     <motion.div key="sermon" initial={{ opacity: 0, x: 26 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -26 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
       <div style={{ padding: '12px 18px 8px 18px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-        <MonitorPlay size={16} color={s.loaded ? '#4ade80' : C.faint} />
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Presentation</h2>
+        <MonitorPlay size={16} color={s.loaded ? '#36C982' : C.faint} />
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Presentation Playback</h2>
         {s.loaded && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: s.passthrough ? 'rgba(139,92,246,0.15)' : 'rgba(34,197,94,0.15)', border: '1px solid ' + (s.passthrough ? 'rgba(139,92,246,0.5)' : 'rgba(34,197,94,0.5)'), color: s.passthrough ? '#a78bfa' : '#4ade80', borderRadius: 999, padding: '3px 10px', fontSize: 10, fontWeight: 800, letterSpacing: 1 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: s.passthrough ? 'rgba(255,184,0,0.15)' : 'rgba(54,201,130,0.15)', border: '1px solid ' + (s.passthrough ? 'rgba(255,184,0,0.5)' : 'rgba(54,201,130,0.5)'), color: s.passthrough ? '#FFC72C' : '#36C982', borderRadius: 999, padding: '3px 10px', fontSize: 10, fontWeight: 800, letterSpacing: 1 }}>
             {s.passthrough ? shownBy.toUpperCase() : 'LYRICS'}
           </span>
         )}
@@ -108,7 +108,7 @@ export default function SermonPanel() {
                 <div style={{ fontSize: 13, fontWeight: 800, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title || s.file || 'Sermon'}</div>
                 <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{s.displayLabel || ''}{s.total ? ` · ${s.total} slides` : ''}</div>
               </div>
-              {s.error && <div style={{ fontSize: 12, color: '#f87171', marginTop: 6, lineHeight: 1.5 }}>{s.error}</div>}
+              {s.error && <div style={{ fontSize: 12, color: '#FF4545', marginTop: 6, lineHeight: 1.5 }}>{s.error}</div>}
             </div>
             )}
 
@@ -126,7 +126,7 @@ export default function SermonPanel() {
                         <button
                           key={v}
                           onClick={() => sermonSetLayer(v)}
-                          style={{ flex: 1, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? C.text : C.muted, borderRadius: 8, padding: '9px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
+                          style={{ flex: 1, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? '#0D1014' : C.muted, borderRadius: 8, padding: '9px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
                         >{lbl}</button>
                       );
                     })}
@@ -139,7 +139,7 @@ export default function SermonPanel() {
                     <motion.button {...stubTap} onClick={() => sermonNav(-1)} title="Previous slide" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, borderRadius: 8, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>
                       <ChevronLeft size={15} /> Prev
                     </motion.button>
-                    <motion.button {...stubTap} onClick={() => sermonNav(1)} title="Next slide" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: ACCENT, border: 'none', color: '#fff', borderRadius: 8, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>
+                    <motion.button {...stubTap} onClick={() => sermonNav(1)} title="Next slide" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 8, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>
                       Next <ChevronRight size={15} />
                     </motion.button>
                   </div>
@@ -159,7 +159,7 @@ export default function SermonPanel() {
                 <motion.button
                   {...stubTap}
                   onClick={() => sermonClose()}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', borderRadius: 8, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: 'rgba(255,69,69,0.12)', border: '1px solid rgba(255,69,69,0.4)', color: '#FF4545', borderRadius: 8, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}
                 >
                   <X size={14} /> Close presentation
                 </motion.button>
@@ -179,7 +179,7 @@ export default function SermonPanel() {
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1 }}>Grid Density</span>
                   {[2, 3, 4, 5].map(d => (
-                    <button key={d} onClick={() => setSermonDensity(d)} style={{ width: 26, height: 22, borderRadius: 4, background: sermonDensity === d ? ACCENT : C.elevated2, color: sermonDensity === d ? '#fff' : C.muted, border: '1px solid var(--ui-border2)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{d}</button>
+                    <button key={d} onClick={() => setSermonDensity(d)} style={{ width: 26, height: 22, borderRadius: 4, background: sermonDensity === d ? ACCENT : C.elevated2, color: sermonDensity === d ? '#0D1014' : C.muted, border: '1px solid var(--ui-border2)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{d}</button>
                   ))}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: `repeat(${sermonDensity}, 1fr)`, gap: 8, maxHeight: 380, overflowY: 'auto', padding: 2 }}>
@@ -221,9 +221,9 @@ export default function SermonPanel() {
                     <Play size={12} color="#fff" style={{ marginLeft: 2 }} />
                   </span>
                 </div>
-                <div style={{ fontSize: 17, fontWeight: 800, color: C.text, textAlign: 'center' }}>No Sermon Loaded</div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: C.text, textAlign: 'center' }}>No Presentation Loaded</div>
                 <div style={{ fontSize: 12.5, color: C.muted, textAlign: 'center' }}>
-                  {dragOver ? 'Drop the file to open it.' : 'Open a presentation to project it behind the lyrics.'}
+                  {dragOver ? 'Drop the file to open it.' : 'Open a PowerPoint or slideshow file to project it behind the lyrics.'}
                 </div>
                 <div style={{ fontSize: 11, color: C.faint, textAlign: 'center' }}>
                   .pptx .ppt .ppsx .pps .odp .otp .dps — shown with {providers ? (
@@ -231,7 +231,7 @@ export default function SermonPanel() {
                   ) : '…'}
                 </div>
                 {s.error && (
-                  <div style={{ fontSize: 12, color: '#f87171', textAlign: 'center', lineHeight: 1.5 }}>{s.error}</div>
+                  <div style={{ fontSize: 12, color: '#FF4545', textAlign: 'center', lineHeight: 1.5 }}>{s.error}</div>
                 )}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, width: '100%', marginTop: 'auto', paddingTop: 14 }}>
@@ -282,7 +282,7 @@ export default function SermonPanel() {
               <motion.button
                 {...stubTap}
                 onClick={() => sermonSetLayer(s.passthrough ? 'kog' : 'passthrough')}
-                style={{ width: '100%', marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: s.passthrough ? '#10b981' : C.elevated2, border: s.passthrough ? 'none' : '1px solid var(--ui-border2)', color: '#fff', borderRadius: 10, padding: '12px 0', fontSize: 13.5, fontWeight: 800, cursor: 'pointer' }}
+                style={{ width: '100%', marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: s.passthrough ? '#36C982' : C.elevated2, border: s.passthrough ? 'none' : '1px solid var(--ui-border2)', color: '#fff', borderRadius: 10, padding: '12px 0', fontSize: 13.5, fontWeight: 800, cursor: 'pointer' }}
               >
                 {s.passthrough ? (<><Play size={14} /> Show Lyrics (F1)</>) : (<><Square size={14} /> Reveal {shownBy} (F2)</>)}
               </motion.button>

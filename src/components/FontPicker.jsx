@@ -119,8 +119,8 @@ export default function FontPicker({ value, choices, onChange, C }) {
         onClick={() => pick(o)}
         style={{
           display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', cursor: 'pointer',
-          background: selected ? 'rgba(139,92,246,0.18)' : (hot ? 'rgba(255,255,255,0.06)' : 'transparent'),
-          borderLeft: `2px solid ${selected ? (C.accLine || '#8b5cf6') : 'transparent'}`,
+          background: selected ? 'rgba(255,184,0,0.18)' : (hot ? 'rgba(255,255,255,0.06)' : 'transparent'),
+          borderLeft: `2px solid ${selected ? (C.accLine || '#FFB800') : 'transparent'}`,
         }}
       >
         {/* The NAME is always in the UI face, never in the font itself: a face
@@ -148,7 +148,7 @@ export default function FontPicker({ value, choices, onChange, C }) {
         ref={btnRef}
         type="button"
         onClick={() => setOpen(o => !o)}
-        style={{ width: '100%', background: C.input, color: C.text, border: open ? `1px solid ${C.accLine || '#8b5cf6'}` : '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
+        style={{ width: '100%', background: C.input, color: C.text, border: open ? `1px solid ${C.accLine || '#FFB800'}` : '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
       >
         {/* The current font's NAME, in the UI face — a face without Latin
             glyphs would show its own name as blank boxes. The dropdown rows

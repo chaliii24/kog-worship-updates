@@ -71,14 +71,14 @@ export default function ScriptureSectionModal({
         padding: '9px 11px',
         borderRadius: 9,
         cursor: 'pointer',
-        background: on ? 'rgba(139,92,246,0.16)' : C.elevated,
-        border: on ? `1px solid ${ACCENT || '#8b5cf6'}` : '1px solid var(--ui-border2)',
-        boxShadow: on ? '0 0 0 1px rgba(139,92,246,0.3)' : 'none',
+        background: on ? 'rgba(255,184,0,0.16)' : C.elevated,
+        border: on ? `1px solid ${ACCENT || '#FFB800'}` : '1px solid var(--ui-border2)',
+        boxShadow: on ? '0 0 0 1px rgba(255,184,0,0.3)' : 'none',
       }}
     >
-      <span style={{ width: 9, height: 9, borderRadius: '50%', flexShrink: 0, background: on ? (ACCENT || '#8b5cf6') : 'transparent', border: on ? 'none' : '1px solid var(--ui-border3, var(--ui-border2))' }} />
+      <span style={{ width: 9, height: 9, borderRadius: '50%', flexShrink: 0, background: on ? (ACCENT || '#FFB800') : 'transparent', border: on ? 'none' : '1px solid var(--ui-border3, var(--ui-border2))' }} />
       <span style={{ minWidth: 0, flex: 1 }}>
-        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 800, color: on ? (ACCENT || '#8b5cf6') : C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
+        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 800, color: on ? (ACCENT || '#FFB800') : C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
         <span style={{ display: 'block', fontSize: 10, color: C.faint, marginTop: 1 }}>{subtitle}</span>
       </span>
       <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 800, color: C.faint, background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '1px 7px', visibility: n == null ? 'hidden' : 'visible' }}>
@@ -99,7 +99,7 @@ export default function ScriptureSectionModal({
         style={{ background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: 14, width: 470, maxWidth: '92vw', maxHeight: '86vh', display: 'flex', flexDirection: 'column', padding: 22, boxSizing: 'border-box' }}
       >
         <h2 style={{ margin: '0 0 6px 0', fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <ListMusic size={16} color={ACCENT || '#8b5cf6'} />
+          <ListMusic size={16} color={ACCENT || '#FFB800'} />
           Add to Playlist
         </h2>
         <p style={{ margin: '0 0 14px 0', fontSize: 12, lineHeight: 1.5, color: C.muted || C.faint, flexShrink: 0 }}>
@@ -124,7 +124,7 @@ export default function ScriptureSectionModal({
             ref={okRef}
             data-testid="bible-queue-confirm"
             onClick={() => onPick?.(picked)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: ACCENT || '#8b5cf6', border: 'none', color: '#fff', padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: ACCENT || '#FFB800', border: 'none', color: '#0D1014', padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
           >
             <Plus size={13} /> Add to Section
           </motion.button>

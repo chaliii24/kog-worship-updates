@@ -68,8 +68,8 @@ export default function RemoteMenu({ C, ACCENT, onClose, dropUp = false }) {
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 900 }}>
           <Smartphone size={15} color={ACCENT} /> Phone remote
         </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10, fontWeight: 900, letterSpacing: 1, color: running ? '#4ade80' : C.faint }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: running ? '#22c55e' : C.faint2, boxShadow: running ? '0 0 8px #22c55e' : 'none' }} />
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 10, fontWeight: 900, letterSpacing: 1, color: running ? '#36C982' : C.faint }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: running ? '#36C982' : C.faint2, boxShadow: running ? '0 0 8px #36C982' : 'none' }} />
           {running ? 'ON' : 'OFF'}
         </span>
       </div>
@@ -110,7 +110,7 @@ export default function RemoteMenu({ C, ACCENT, onClose, dropUp = false }) {
               {info.clients > 0 ? `${info.clients} phone${info.clients === 1 ? '' : 's'} connected` : 'No phones connected'}
               {info.paired > 0 && <span style={{ color: C.faint }}> · {info.paired} paired</span>}
             </span>
-            <button onClick={() => act('lan-revoke')} title="Disconnect every phone and force re-pairing" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 10.5, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' }}>
+            <button onClick={() => act('lan-revoke')} title="Disconnect every phone and force re-pairing" style={{ background: 'rgba(255,69,69,0.10)', border: '1px solid rgba(255,69,69,0.35)', color: '#FF4545', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 10.5, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' }}>
               <Trash2 size={12} /> Disconnect all
             </button>
           </div>
@@ -128,7 +128,7 @@ export default function RemoteMenu({ C, ACCENT, onClose, dropUp = false }) {
               <b style={{ color: C.text }}>1.</b> Both devices must be on the same WiFi (guest networks often block this).<br />
               <b style={{ color: C.text }}>2.</b> The computer must not be asleep.<br />
               <b style={{ color: C.text }}>3.</b> Windows may be blocking the port — run this in an admin terminal:
-              <div onClick={() => copy(info.firewallHint, 'fw')} title="Click to copy" style={{ marginTop: 7, background: C.input, border: `1px solid ${C.border2}`, borderRadius: 7, padding: '8px 9px', fontSize: 10.5, fontFamily: 'ui-monospace, Consolas, monospace', color: copied === 'fw' ? '#4ade80' : C.text2, wordBreak: 'break-all', cursor: 'pointer' }}>
+              <div onClick={() => copy(info.firewallHint, 'fw')} title="Click to copy" style={{ marginTop: 7, background: C.input, border: `1px solid ${C.border2}`, borderRadius: 7, padding: '8px 9px', fontSize: 10.5, fontFamily: 'ui-monospace, Consolas, monospace', color: copied === 'fw' ? '#36C982' : C.text2, wordBreak: 'break-all', cursor: 'pointer' }}>
                 {copied === 'fw' ? 'Copied ✓' : info.firewallHint}
               </div>
             </div>
@@ -137,7 +137,7 @@ export default function RemoteMenu({ C, ACCENT, onClose, dropUp = false }) {
       </AnimatePresence>
 
       {/* Server toggle */}
-      <motion.button {...stubTap} onClick={() => act(running ? 'lan-stop' : 'lan-start')} style={{ width: '100%', marginTop: 11, background: running ? 'rgba(239,68,68,0.10)' : 'rgba(34,197,94,0.12)', border: `1px solid ${running ? 'rgba(239,68,68,0.4)' : 'rgba(34,197,94,0.45)'}`, color: running ? '#f87171' : '#4ade80', borderRadius: 9, padding: '9px', fontSize: 12, fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontFamily: 'inherit' }}>
+      <motion.button {...stubTap} onClick={() => act(running ? 'lan-stop' : 'lan-start')} style={{ width: '100%', marginTop: 11, background: running ? 'rgba(255,69,69,0.10)' : 'rgba(54,201,130,0.12)', border: `1px solid ${running ? 'rgba(255,69,69,0.4)' : 'rgba(54,201,130,0.45)'}`, color: running ? '#FF4545' : '#36C982', borderRadius: 9, padding: '9px', fontSize: 12, fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontFamily: 'inherit' }}>
         <Power size={14} /> {running ? 'Turn remote off' : 'Turn remote on'}
       </motion.button>
     </motion.div>
@@ -149,9 +149,9 @@ function UrlRow({ label, value, C, copied, onCopy }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.elevated2, border: `1px solid ${C.border2}`, borderRadius: 9, padding: '7px 9px' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1.3, textTransform: 'uppercase', color: C.faint }}>{label}</div>
-        <div style={{ fontSize: 11.5, fontFamily: 'ui-monospace, Consolas, monospace', color: copied ? '#4ade80' : C.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+        <div style={{ fontSize: 11.5, fontFamily: 'ui-monospace, Consolas, monospace', color: copied ? '#36C982' : C.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
       </div>
-      <button onClick={onCopy} title="Copy" style={{ background: 'transparent', border: `1px solid ${C.border2}`, color: copied ? '#4ade80' : C.muted, borderRadius: 7, padding: 6, cursor: 'pointer', display: 'flex', flexShrink: 0, fontFamily: 'inherit' }}>
+      <button onClick={onCopy} title="Copy" style={{ background: 'transparent', border: `1px solid ${C.border2}`, color: copied ? '#36C982' : C.muted, borderRadius: 7, padding: 6, cursor: 'pointer', display: 'flex', flexShrink: 0, fontFamily: 'inherit' }}>
         {copied ? <Check size={13} /> : <Copy size={13} />}
       </button>
     </div>

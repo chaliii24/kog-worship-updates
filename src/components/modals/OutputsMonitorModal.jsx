@@ -4,9 +4,9 @@ import { motion } from 'motion/react';
 import { modalOverlay, panelLg, stubTap, iconBtnTap } from '../../lib/anim';
 
 const ROLE_COLORS = {
-  lyrics: '#8b5cf6',
-  stage: '#8B5CF6',
-  media: '#22C55E'
+  lyrics: '#FFB800',
+  stage: '#7DD3FC',
+  media: '#36C982'
 };
 
 const ROLE_OPTIONS = [
@@ -80,8 +80,8 @@ const SDI_FORMATS = [
 
 function Pill({ ok, label, title }) {
   return (
-    <span title={title} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: ok ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', border: `1px solid ${ok ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)'}`, color: ok ? '#22c55e' : '#f87171', borderRadius: 999, padding: '3px 8px', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.6 }}>
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: ok ? '#22c55e' : '#f87171' }} />
+    <span title={title} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: ok ? 'rgba(54,201,130,0.12)' : 'rgba(255,69,69,0.12)', border: `1px solid ${ok ? 'rgba(54,201,130,0.4)' : 'rgba(255,69,69,0.4)'}`, color: ok ? '#36C982' : '#FF4545', borderRadius: 999, padding: '3px 8px', fontSize: 9.5, fontWeight: 800, letterSpacing: 0.6 }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: ok ? '#36C982' : '#FF4545' }} />
       {label}
     </span>
   );
@@ -175,12 +175,28 @@ export default function OutputsMonitorModal({
   }, []);
 
   const statusById = Object.fromEntries(status.map(s => [s.id, s]));
-  const assignedDisplayIds = status.map(s => s.displayId).filter(Boolean);
   const hasDisplays = !!(outputDisplays && outputDisplays.length);
+  // The wall the rest of the outputs mirror. Usually the 'projector' entry;
+  // fall back to the first lyrics output if an older layout renamed/removed it.
+  const mainOutput = outputs.find(o => o.id === 'projector') || outputs.find(o => o.role === 'lyrics') || outputs[0] || null;
+  const matchMain = (out) => updateOutput(out.id, {
+    resolution: mainOutput?.resolution || 'native',
+    aspect: mainOutput?.aspect || '16:9'
+  });
 
   const changeDisplay = (id, value) => {
     const displayId = value === '' ? null : (value === 'preview' ? 'preview' : Number(value));
     updateOutput(id, { displayId, enabled: displayId !== null });
+    // One physical screen, one fullscreen output. Assigning this display here
+    // takes it off any other output; otherwise both windows sit on top of each
+    // other and editing the covered one looks like a dead control.
+    if (displayId !== null && displayId !== 'preview') {
+      for (const other of outputs) {
+        if (other.id !== id && other.displayId === displayId) {
+          updateOutput(other.id, { displayId: null, enabled: false });
+        }
+      }
+    }
   };
 
   // ---- DeckLink / UltraStudio SDI bridge ---------------------------------
@@ -283,11 +299,11 @@ export default function OutputsMonitorModal({
                       </div>
                     )}
                     <span style={{ position: 'absolute', top: 8, left: 8, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.12)', padding: '3px 9px', borderRadius: 999, fontSize: 10, fontWeight: 800, color: accent, textTransform: 'uppercase', letterSpacing: 1 }}>
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: isOpen ? '#22c55e' : C.faint2, boxShadow: isOpen ? '0 0 8px #22c55e' : 'none' }} />
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: isOpen ? '#36C982' : C.faint2, boxShadow: isOpen ? '0 0 8px #36C982' : 'none' }} />
                       {isOpen ? 'Live' : 'Off'}
                     </span>
                     {removable && (
-                      <motion.button {...iconBtnTap} onClick={() => removeOutput(out.id)} title="Remove output" style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.12)', color: '#f87171', borderRadius: 7, padding: 4, cursor: 'pointer', display: 'flex' }}><Trash2 size={13} /></motion.button>
+                      <motion.button {...iconBtnTap} onClick={() => removeOutput(out.id)} title="Remove output" style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.12)', color: '#FF4545', borderRadius: 7, padding: 4, cursor: 'pointer', display: 'flex' }}><Trash2 size={13} /></motion.button>
                     )}
                   </div>
 
@@ -310,7 +326,18 @@ export default function OutputsMonitorModal({
                     </select>
 
                     <div>
-                      <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>Resolution</div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 3 }}>
+                        <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1 }}>Resolution</div>
+                        {mainOutput && out.id !== mainOutput.id && (
+                          <button
+                            onClick={() => matchMain(out)}
+                            title={`Copy ${mainOutput.name || 'the main output'}'s resolution and aspect`}
+                            style={{ background: 'transparent', border: 'none', color: PINK, padding: 0, fontSize: 9.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          >
+                            Match main
+                          </button>
+                        )}
+                      </div>
                       <select
                         value={out.resolution || 'native'}
                         onChange={(e) => {
@@ -335,7 +362,7 @@ export default function OutputsMonitorModal({
                       <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>Aspect Ratio</div>
                       <div style={{ display: 'flex', gap: 3 }}>
                         {ASPECT_OPTIONS.map(a => (
-                          <motion.button key={a} {...stubTap} onClick={() => updateOutput(out.id, { aspect: a })} style={{ flex: 1, background: (out.aspect || '16:9') === a ? 'rgba(255,79,163,0.14)' : C.elevated, border: (out.aspect || '16:9') === a ? `1px solid ${PINK}` : '1px solid var(--ui-border2)', color: (out.aspect || '16:9') === a ? PINK : C.muted, borderRadius: 6, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>{a}</motion.button>
+                          <motion.button key={a} {...stubTap} onClick={() => updateOutput(out.id, { aspect: a })} style={{ flex: 1, background: (out.aspect || '16:9') === a ? 'rgba(54,201,130,0.14)' : C.elevated, border: (out.aspect || '16:9') === a ? `1px solid ${PINK}` : '1px solid var(--ui-border2)', color: (out.aspect || '16:9') === a ? PINK : C.muted, borderRadius: 6, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>{a}</motion.button>
                         ))}
                       </div>
                     </div>
@@ -348,9 +375,14 @@ export default function OutputsMonitorModal({
                       style={{ width: '100%', background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 8, color: C.text2, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', cursor: hasDisplays ? 'pointer' : 'not-allowed', outline: 'none' }}
                     >
                       <option value="">Off — no output window</option>
-                      {(outputDisplays || []).map(d => (
-                        <option key={d.id} value={d.id}>{d.label}{d.primary ? ' (Primary)' : ''} · {d.width}×{d.height}</option>
-                      ))}
+                      {(outputDisplays || []).map(d => {
+                        const owner = outputs.find(o => o.id !== out.id && o.displayId === d.id);
+                        return (
+                          <option key={d.id} value={d.id}>
+                            {d.label}{d.primary ? ' (Primary)' : ''} · {d.width}×{d.height}{owner ? ` · ${owner.name}` : ''}
+                          </option>
+                        );
+                      })}
                       <option value="preview">Preview window (dev)</option>
                     </select>
 
@@ -364,7 +396,7 @@ export default function OutputsMonitorModal({
                       {...stubTap}
                       onClick={() => setOpenAdv((prev) => ({ ...prev, [out.id]: !prev[out.id] }))}
                       title="Rotation, custom pixel window (LED wall), edge blending"
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, background: openAdv[out.id] ? 'rgba(139,92,246,0.14)' : C.elevated, border: `1px solid ${openAdv[out.id] ? 'rgba(139,92,246,0.45)' : 'var(--ui-border2)'}`, color: openAdv[out.id] ? '#a78bfa' : C.muted, borderRadius: 7, padding: '5px 8px', fontSize: 10.5, fontWeight: 800, letterSpacing: 0.6, cursor: 'pointer' }}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, background: openAdv[out.id] ? 'rgba(255,184,0,0.14)' : C.elevated, border: `1px solid ${openAdv[out.id] ? 'rgba(255,184,0,0.45)' : 'var(--ui-border2)'}`, color: openAdv[out.id] ? '#FFC72C' : C.muted, borderRadius: 7, padding: '5px 8px', fontSize: 10.5, fontWeight: 800, letterSpacing: 0.6, cursor: 'pointer' }}
                     >
                       <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><RotateCw size={11} /> SCREEN SETUP</span>
                       <ChevronDown size={12} style={{ transform: openAdv[out.id] ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
@@ -377,7 +409,7 @@ export default function OutputsMonitorModal({
                       {...stubTap}
                       onClick={() => setOutputRunning(out.id, !isOpen)}
                       title={isOpen ? 'Stop this output' : 'Start this output (nothing opens until you do)'}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: isOpen ? 'rgba(239,68,68,0.14)' : accent, border: isOpen ? '1px solid rgba(239,68,68,0.4)' : '1px solid transparent', color: isOpen ? '#f87171' : '#fff', padding: '7px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: isOpen ? 'rgba(255,69,69,0.14)' : accent, border: isOpen ? '1px solid rgba(255,69,69,0.4)' : '1px solid transparent', color: isOpen ? '#FF4545' : '#0D1014', padding: '7px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
                     >
                       <Power size={13} /> {isOpen ? 'Stop Output' : 'Start Output'}
                     </motion.button>
@@ -395,16 +427,17 @@ export default function OutputsMonitorModal({
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
               {outputDisplays.map(d => {
-                const inUse = assignedDisplayIds.includes(d.id);
+                const owner = outputs.find(o => o.displayId === d.id);
+                const live = status.find(s => s.displayId === d.id && s.open);
                 return (
-                  <div key={d.id} style={{ background: C.elevated2, border: inUse ? `1px solid ${PINK}` : '1px solid var(--ui-border2)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e', flexShrink: 0 }} />
+                  <div key={d.id} style={{ background: C.elevated2, border: owner ? `1px solid ${PINK}` : '1px solid var(--ui-border2)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#36C982', boxShadow: '0 0 8px #36C982', flexShrink: 0 }} />
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 12.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {d.label}{d.primary ? ' · Primary' : ''}
                       </div>
                       <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-                        Online · {d.width}×{d.height}{inUse ? ' · In use' : ''}
+                        Online · {d.width}×{d.height}{live ? ` · In use by ${live.name}` : owner ? ` · Assigned to ${owner.name}` : ''}
                       </div>
                     </div>
                   </div>
@@ -423,12 +456,12 @@ export default function OutputsMonitorModal({
                 <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: 0.8 }}>IDENTIFY DISPLAYS</span>
               </div>
               <div style={{ fontSize: 11, color: C.muted, lineHeight: 1.5 }}>
-                Flashes a numbered overlay — carrying each screen's hardware port (<span style={{ color: '#a78bfa', fontWeight: 800 }}>\\.\DISPLAY1</span>) — on every connected screen for 6 seconds, so a technician can match each output window to its monitor port.
+                Flashes a numbered overlay — carrying each screen's hardware port (<span style={{ color: '#FFC72C', fontWeight: 800 }}>\\.\DISPLAY1</span>) — on every connected screen for 6 seconds, so a technician can match each output window to its monitor port.
               </div>
               <div style={{ fontSize: 10, color: C.faint2, lineHeight: 1.5 }}>
                 Live outputs bind to the display handle itself (not loose coordinates), never take keyboard focus on a secondary display, and hide the mouse cursor.
               </div>
-              <motion.button {...stubTap} onClick={() => ipc && ipc.send('identify-displays')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(139,92,246,0.9)', border: '1px solid transparent', color: '#fff', padding: '7px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>
+              <motion.button {...stubTap} onClick={() => ipc && ipc.send('identify-displays')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(255,184,0,0.9)', border: '1px solid transparent', color: '#fff', padding: '7px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>
                 <Crosshair size={13} /> Identify now
               </motion.button>
             </div>
@@ -511,7 +544,7 @@ export default function OutputsMonitorModal({
                 />
               </div>
 
-              <div style={{ fontSize: 10.5, color: sdi.lastError ? '#f87171' : C.muted, lineHeight: 1.5, minHeight: 16 }}>
+              <div style={{ fontSize: 10.5, color: sdi.lastError ? '#FF4545' : C.muted, lineHeight: 1.5, minHeight: 16 }}>
                 {sdi.lastError
                   ? sdi.lastError
                   : sdi.checking
@@ -530,7 +563,7 @@ export default function OutputsMonitorModal({
               </div>
 
               {sdi.running ? (
-                <motion.button {...stubTap} onClick={stopSdi} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(239,68,68,0.14)', border: '1px solid rgba(239,68,68,0.45)', color: '#f87171', padding: '7px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>
+                <motion.button {...stubTap} onClick={stopSdi} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(255,69,69,0.14)', border: '1px solid rgba(255,69,69,0.45)', color: '#FF4545', padding: '7px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>
                   <Square size={12} /> Stop SDI
                 </motion.button>
               ) : (
@@ -538,7 +571,7 @@ export default function OutputsMonitorModal({
                   {...stubTap}
                   onClick={startSdi}
                   disabled={sdi.busy || !sdiReady || !sdi.device || !openOut}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: sdiReady && sdi.device && openOut && !sdi.busy ? 'rgba(139,92,246,0.9)' : C.elevated, border: '1px solid var(--ui-border2)', color: sdiReady && sdi.device && openOut && !sdi.busy ? '#fff' : C.faint2, padding: '7px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 800, cursor: sdi.busy || !sdiReady || !sdi.device || !openOut ? 'not-allowed' : 'pointer', opacity: sdi.busy ? 0.7 : 1 }}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: sdiReady && sdi.device && openOut && !sdi.busy ? 'rgba(255,184,0,0.9)' : C.elevated, border: '1px solid var(--ui-border2)', color: sdiReady && sdi.device && openOut && !sdi.busy ? '#fff' : C.faint2, padding: '7px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 800, cursor: sdi.busy || !sdiReady || !sdi.device || !openOut ? 'not-allowed' : 'pointer', opacity: sdi.busy ? 0.7 : 1 }}
                 >
                   <Play size={12} /> {sdi.busy ? 'Starting…' : 'Start SDI'}
                 </motion.button>
@@ -630,7 +663,7 @@ function ScreenSetupPanel({ out, updateOutput, displays, C, PINK }) {
   );
 
   return (
-    <div style={{ background: C.elevated, border: '1px dashed rgba(139,92,246,0.35)', borderRadius: 9, padding: '10px 10px 11px', display: 'flex', flexDirection: 'column', gap: 11 }}>
+    <div style={{ background: C.elevated, border: '1px dashed rgba(255,184,0,0.35)', borderRadius: 9, padding: '10px 10px 11px', display: 'flex', flexDirection: 'column', gap: 11 }}>
       {/* Rotation */}
       <div>
         <span style={lbl}>Display Rotation</span>
@@ -641,7 +674,7 @@ function ScreenSetupPanel({ out, updateOutput, displays, C, PINK }) {
               {...stubTap}
               onClick={() => updateOutput(out.id, { rotation: r })}
               title={r === 0 ? 'Normal orientation' : `Rotate output ${r}° clockwise`}
-              style={{ flex: 1, background: rot === r ? 'rgba(139,92,246,0.16)' : C.elevated2, border: rot === r ? '1px solid rgba(139,92,246,0.55)' : '1px solid var(--ui-border2)', color: rot === r ? '#a78bfa' : C.muted, borderRadius: 6, padding: '4px 0', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}
+              style={{ flex: 1, background: rot === r ? 'rgba(255,184,0,0.16)' : C.elevated2, border: rot === r ? '1px solid rgba(255,184,0,0.55)' : '1px solid var(--ui-border2)', color: rot === r ? '#FFC72C' : C.muted, borderRadius: 6, padding: '4px 0', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}
             >
               {r}°
             </motion.button>
@@ -689,7 +722,7 @@ function ScreenSetupPanel({ out, updateOutput, displays, C, PINK }) {
             <div style={{ marginTop: 8 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
                 <span style={{ ...lbl, marginBottom: 2 }}>Gamma curve</span>
-                <span style={{ fontSize: 10.5, fontWeight: 800, color: '#a78bfa' }}>{(Number(blend.gamma) || 1).toFixed(2)}</span>
+                <span style={{ fontSize: 10.5, fontWeight: 800, color: '#FFC72C' }}>{(Number(blend.gamma) || 1).toFixed(2)}</span>
               </div>
               <input
                 type="range"

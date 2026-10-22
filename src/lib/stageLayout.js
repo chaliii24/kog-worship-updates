@@ -86,7 +86,7 @@ export function trafficState(now, timer, seg, warnSec) {
     remainMs = seg.endsAt - now;
   }
   if (remainMs == null) return null;
-  if (remainMs <= 0) return '#ef4444';
+  if (remainMs <= 0) return '#FF4545';
   if (remainMs <= (Number(warnSec) || 0) * 1000) return '#eab308';
-  return '#22c55e';
+  return '#36C982';
 }

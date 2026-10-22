@@ -92,13 +92,13 @@ const ScriptureTemplatePicker = ({ value, onChange, C, PINK }) => {
                 padding: 7,
                 borderRadius: 10,
                 cursor: 'pointer',
-                background: on ? 'rgba(139,92,246,0.14)' : C.elevated,
-                border: on ? `1px solid ${PINK || '#8b5cf6'}` : '1px solid var(--ui-border2)',
-                boxShadow: on ? `0 0 0 1px rgba(139,92,246,0.35)` : 'none',
+                background: on ? 'rgba(255,184,0,0.14)' : C.elevated,
+                border: on ? `1px solid ${PINK || '#FFB800'}` : '1px solid var(--ui-border2)',
+                boxShadow: on ? `0 0 0 1px rgba(255,184,0,0.35)` : 'none',
               }}
             >
               <TemplateThumb tpl={t} />
-              <div style={{ fontSize: 10.5, fontWeight: 800, color: on ? (PINK || '#8b5cf6') : C.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{t.label}</div>
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: on ? (PINK || '#FFB800') : C.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{t.label}</div>
             </motion.button>
           );
         })}

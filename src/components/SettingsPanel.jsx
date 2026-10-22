@@ -9,18 +9,21 @@ import { useApp } from '../context/AppContext';
 import { ICON_HUES, iconHue } from '../lib/icons';
 import CcliReportPanel from './CcliReportPanel';
 
-// Settings tab (ex-Functions): GPresenter-style sections, but every row is a
+// Settings (ex-Functions): GPresenter-style sections, but every row is a
 // REAL control already wired in this app — no decorative toggles. Sections
 // omitted on purpose: Language and License (this app has neither).
+// `group` is what the modal's section rail uses to keep related pages
+// together; `blurb` gives the content pane a one-line orientation.
 const SECTIONS = [
-  { id: 'application', label: 'Application', icon: Info, kind: 'application' },
-  { id: 'appearance', label: 'Appearance', icon: Palette, kind: 'appearance' },
-  { id: 'display', label: 'Display', icon: Monitor, kind: 'display' },
-  { id: 'templates', label: 'Song Templates', icon: LayoutTemplate, kind: 'templates' },
-  { id: 'bibles', label: 'Bible Translations', icon: BookOpen, kind: 'bibles' },
-  { id: 'reports', label: 'CCLI Report', icon: FileText, kind: 'reports' },
-  { id: 'data', label: 'Data Management', icon: Database, kind: 'data' },
+  { id: 'application', label: 'Application', icon: Info, kind: 'application', group: 'General', blurb: 'Build details, updates, diagnostics and shortcuts.' },
+  { id: 'appearance', label: 'Appearance', icon: Palette, kind: 'appearance', group: 'General', blurb: 'Choose the theme and how icons read across the console.' },
+  { id: 'display', label: 'Display', icon: Monitor, kind: 'display', group: 'General', blurb: 'Default shape for live output and a shortcut to the output mixer.' },
+  { id: 'templates', label: 'Song Templates', icon: LayoutTemplate, kind: 'templates', group: 'Library', blurb: 'Reusable service orders you can drop into any Sunday.' },
+  { id: 'bibles', label: 'Bible Translations', icon: BookOpen, kind: 'bibles', group: 'Library', blurb: 'Offline translations installed on this machine.' },
+  { id: 'reports', label: 'CCLI Report', icon: FileText, kind: 'reports', group: 'Library', blurb: 'Turn dated service plans into a song usage report.' },
+  { id: 'data', label: 'Data Management', icon: Database, kind: 'data', group: 'System', blurb: 'Back up, restore and locate the app data on this machine.' },
 ];
+const SECTION_GROUPS = ['General', 'Library', 'System'];
 
 const ASPECTS = ['16:9', '4:3', '16:10', '21:9', '32:9'];
 const RELEASES_URL = 'https://github.com/chaliii24/kog-worship-updates/releases';
@@ -93,43 +96,70 @@ export default function SettingsPanel() {
   const busy = phase === 'checking' || phase === 'downloading' || phase === 'installing';
   const pct = Math.round(updateProgress?.percent || 0);
   const storageBytes = (appInfo?.storage?.dbBytes || 0) + (appInfo?.storage?.bibleBytes || 0);
+  const activeSection = SECTIONS.find((s) => s.id === section) || SECTIONS[0];
+  const ActiveIcon = activeSection.icon;
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'grid', gap: 10, alignContent: 'start' }}>
-      {/* Section nav */}
-      <div style={{ display: 'grid', gap: 4 }}>
-        {SECTIONS.map((s) => {
-          const Icon = s.icon;
-          const on = section === s.id;
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+      {/* Section rail — grouped by what the setting affects, so the dialog
+          reads as General / Library / System instead of one long list. */}
+      <nav aria-label="Settings sections" style={{ width: 210, flexShrink: 0, borderRight: '1px solid var(--ui-border)', padding: '16px 10px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 15, background: 'rgba(255,255,255,0.015)' }}>
+        {SECTION_GROUPS.map((group) => {
+          const items = SECTIONS.filter((s) => s.group === group);
+          if (!items.length) return null;
           return (
-            <button
-              key={s.id}
-              onClick={() => setSection(s.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 9, textAlign: 'left',
-                background: on ? 'rgba(139,92,246,0.16)' : 'transparent',
-                border: '1px solid ' + (on ? 'rgba(139,92,246,0.5)' : 'transparent'),
-                color: on ? '#C4B5FD' : C.text2, borderRadius: 9, padding: '8px 11px',
-                fontSize: 12.5, fontWeight: on ? 800 : 600, cursor: 'pointer',
-              }}
-            >
-              <Icon size={14} color={iconTheme === 'prism' ? iconHue(s.kind, C) : undefined} /> {s.label}
-            </button>
+            <div key={group} style={{ display: 'grid', gap: 3 }}>
+              <div style={{ padding: '0 9px 4px', fontSize: 9.5, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.faint }}>{group}</div>
+              {items.map((s) => {
+                const Icon = s.icon;
+                const on = section === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setSection(s.id)}
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left',
+                      background: on ? 'rgba(255,184,0,0.16)' : 'transparent',
+                      border: '1px solid ' + (on ? 'rgba(255,184,0,0.45)' : 'transparent'),
+                      color: on ? '#FFC72C' : C.text2, borderRadius: 8, padding: '8px 9px',
+                      fontSize: 12, fontWeight: on ? 800 : 600, cursor: 'pointer',
+                    }}
+                  >
+                    <Icon size={14} color={iconTheme === 'prism' ? iconHue(s.kind, C) : undefined} />
+                    <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           );
         })}
-      </div>
+      </nav>
 
-      <div style={{ height: 1, background: 'var(--ui-border)' }} />
+      {/* Content pane — one page at a time, with a real width for rows. */}
+      <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', padding: '20px 24px 26px' }}>
+        <div style={{ maxWidth: 760, margin: '0 auto', display: 'grid', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <span style={{ width: 32, height: 32, borderRadius: 9, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.accLine, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <ActiveIcon size={16} color={iconTheme === 'prism' ? iconHue(activeSection.kind, C) : undefined} />
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: C.text, lineHeight: 1.25 }}>{activeSection.label}</h3>
+              <p style={{ margin: '3px 0 0 0', fontSize: 11.5, lineHeight: 1.55, color: C.muted }}>{activeSection.blurb}</p>
+            </div>
+          </div>
+
+          <div style={{ height: 1, background: 'var(--ui-border)' }} />
 
       {/* APPLICATION */}
       {section === 'application' && (
         <div style={{ display: 'grid', gap: 8, alignContent: 'start' }}>
           {/* ABOUT — the old Help-menu product card lives here now that the
               top menu bar is gone. */}
-          <div style={{ background: 'radial-gradient(130% 160% at 20% 0%, rgba(139,92,246,0.28), rgba(139,92,246,0.04) 55%, transparent 80%), var(--ui-elev)', border: '1px solid var(--ui-border)', borderRadius: 10, padding: '12px 14px' }}>
+          <div style={{ background: 'radial-gradient(130% 160% at 20% 0%, rgba(255,184,0,0.28), rgba(255,184,0,0.04) 55%, transparent 80%), var(--ui-elev)', border: '1px solid var(--ui-border)', borderRadius: 10, padding: '12px 14px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 15, fontWeight: 900, letterSpacing: 0.4 }}>KOGWorship</span>
-              <span style={{ fontSize: 10.5, fontWeight: 800, color: '#fff', background: ACCENT, borderRadius: 999, padding: '2px 10px' }}>v{appInfo?.version || '—'}</span>
+              <span style={{ fontSize: 10.5, fontWeight: 800, color: '#0D1014', background: ACCENT, borderRadius: 999, padding: '2px 10px' }}>v{appInfo?.version || '—'}</span>
               <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Presentation Suite</span>
             </div>
             <p style={{ fontSize: 12, lineHeight: 1.65, color: C.text2, margin: '8px 0 10px 0' }}>
@@ -150,7 +180,7 @@ export default function SettingsPanel() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 6 }}>
             {[
               { label: 'Songs', value: libraryStats?.songs ?? '—' },
               { label: 'Slides', value: libraryStats?.cues ?? '—' },
@@ -231,6 +261,7 @@ export default function SettingsPanel() {
           <div style={{ fontSize: 11, color: C.faint2, lineHeight: 1.6 }}>Dark is the operator-tuned OLED Midnight workspace; Light is for bright offices and daytime prep.</div>
 
           <div style={{ fontSize: 10, color: C.faint, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.2, marginTop: 4 }}>Icon style</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
           {[
             {
               id: 'prism', name: 'Prism Slate',
@@ -274,6 +305,7 @@ export default function SettingsPanel() {
               </button>
             );
           })}
+          </div>
         </div>
       )}
 
@@ -309,7 +341,7 @@ export default function SettingsPanel() {
             <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 9, padding: '8px 10px' }}>
               <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
               <button onClick={() => applyTemplate(t.id)} title="Load into the service order" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, borderRadius: 7, padding: '5px 11px', fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Play size={11} /> Use</button>
-              <button onClick={() => removeTemplate(t.id)} title="Delete template" style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={13} /></button>
+              <button onClick={() => removeTemplate(t.id)} title="Delete template" style={{ background: 'transparent', border: 'none', color: '#FF4545', cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={13} /></button>
             </div>
           ))}
           {!(templates || []).length && (
@@ -321,28 +353,28 @@ export default function SettingsPanel() {
 
       {/* BIBLE TRANSLATIONS */}
       {section === 'bibles' && (
-        <div style={{ display: 'grid', gap: 6, alignContent: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 8, alignContent: 'start' }}>
           <input
             value={bibleLibQuery}
             onChange={(e) => setBibleLibQuery(e.target.value)}
             placeholder={`Search ${bibleLib.length} versions…`}
-            style={{ background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '8px 10px', fontSize: 12, outline: 'none', width: '100%', boxSizing: 'border-box' }}
+            style={{ background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '8px 10px', fontSize: 12, outline: 'none', width: '100%', boxSizing: 'border-box', gridColumn: '1 / -1' }}
           />
-          {bibleLibLoading && <div style={{ fontSize: 11, color: C.faint2 }}>Loading catalog…</div>}
+          {bibleLibLoading && <div style={{ fontSize: 11, color: C.faint2, gridColumn: '1 / -1' }}>Loading catalog…</div>}
           {[...bibleLibFiltered].sort((a, b) => ((b.installed ? 1 : 0) - (a.installed ? 1 : 0)) || a.name.localeCompare(b.name)).map((b) => {
             const isInstalled = b.installed;
             const isActive = bibleTrans === b.abbrev;
             const downloading = bibleDL.running && bibleDL.abbrev === b.abbrev;
             const pct = downloading ? Math.round((bibleDL.progress || 0) * 100) : 0;
             return (
-              <div key={b.abbrev} style={{ display: 'grid', gap: 6, background: isActive ? 'rgba(139,92,246,0.12)' : C.elevated, border: '1px solid ' + (isActive ? 'rgba(139,92,246,0.5)' : 'var(--ui-border2)'), borderRadius: 9, padding: '8px 10px' }}>
+              <div key={b.abbrev} style={{ display: 'grid', gap: 6, background: isActive ? 'rgba(255,184,0,0.12)' : C.elevated, border: '1px solid ' + (isActive ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), borderRadius: 9, padding: '8px 10px' }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: C.text, lineHeight: 1.35 }}>{b.name}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ flex: 1, minWidth: 0, fontSize: 10.5, fontWeight: 600, color: C.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {isInstalled ? `Installed · ${b.books} books` : downloading ? `Downloading… ${pct}%` : `${b.size || ''}${b.lang ? ` · ${b.lang}` : ''}`.replace(/^\W+/, '') || (b.code || b.abbrev).toUpperCase()}
                   </span>
                   {isInstalled ? (
-                    <button onClick={() => { if (!isActive) openBibleTranslation(b.abbrev); }} style={{ flexShrink: 0, background: isActive ? '#7c3aed' : C.elevated2, border: '1px solid var(--ui-border)', color: isActive ? '#fff' : C.text2, padding: '5px 12px', borderRadius: 7, fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>{isActive ? 'Active' : 'Open'}</button>
+                    <button onClick={() => { if (!isActive) openBibleTranslation(b.abbrev); }} style={{ flexShrink: 0, background: isActive ? '#E5A000' : C.elevated2, border: '1px solid var(--ui-border)', color: isActive ? '#0D1014' : C.text2, padding: '5px 12px', borderRadius: 7, fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>{isActive ? 'Active' : 'Open'}</button>
                   ) : (
                     <button onClick={() => downloadBible(b.abbrev)} disabled={downloading} style={{ flexShrink: 0, background: C.elevated2, border: '1px solid var(--ui-border)', color: C.text2, padding: '5px 12px', borderRadius: 7, fontSize: 11, fontWeight: 800, cursor: downloading ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>{downloading ? `${pct}%` : 'Download'}</button>
                   )}
@@ -353,7 +385,7 @@ export default function SettingsPanel() {
                   </div>
                 )}
                 {isInstalled && b.abbrev !== 'kjv' && (
-                  <button onClick={() => deleteBibleTranslation(b.abbrev)} style={{ justifySelf: 'start', background: 'transparent', border: 'none', color: '#f87171', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', padding: 0 }}>Delete from device</button>
+                  <button onClick={() => deleteBibleTranslation(b.abbrev)} style={{ justifySelf: 'start', background: 'transparent', border: 'none', color: '#FF4545', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', padding: 0 }}>Delete from device</button>
                 )}
               </div>
             );
@@ -378,6 +410,9 @@ export default function SettingsPanel() {
           <div style={{ fontSize: 11, color: C.faint2, lineHeight: 1.6 }}>Backups are portable JSON — move them between machines, then Import to restore. Per-song backups live under Songs → Export.</div>
         </div>
       )}
+
+        </div>
+      </div>
     </div>
   );
 }

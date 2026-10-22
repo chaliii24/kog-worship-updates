@@ -100,11 +100,11 @@ export default function MessageStudioModal({ C, ACCENT, ovDraft, setOvDraft, ove
         style={{ width: 600, maxWidth: '94vw', maxHeight: '88vh', background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: 14, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '16px 18px 10px 18px', flexShrink: 0 }}>
-          <Megaphone size={15} color={overlayLive ? '#4ade80' : ACCENT} />
+          <Megaphone size={15} color={overlayLive ? '#36C982' : ACCENT} />
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: C.text, flex: 1 }}>Message Studio</h2>
           {overlayLive && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 900, letterSpacing: 1, color: '#4ade80' }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e' }} />LIVE
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 900, letterSpacing: 1, color: '#36C982' }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#36C982', boxShadow: '0 0 8px #36C982' }} />LIVE
             </span>
           )}
           <button onClick={onClose} title="Close (Esc)" style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', display: 'flex', padding: 4 }}><X size={16} /></button>
@@ -131,7 +131,7 @@ export default function MessageStudioModal({ C, ACCENT, ovDraft, setOvDraft, ove
                 return (
                   <button key={s.id} onClick={() => setOvDraft((d) => ({ ...d, style: s.id }))} title={s.tip} style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}>
                     <StyleSchematic id={s.id} active={on} accent={ACCENT} />
-                    <div style={{ fontSize: 11, fontWeight: 800, color: on ? '#C4B5FD' : C.muted, marginTop: 5 }}>{s.label}</div>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: on ? '#FFC72C' : C.muted, marginTop: 5 }}>{s.label}</div>
                   </button>
                 );
               })}
@@ -142,7 +142,7 @@ export default function MessageStudioModal({ C, ACCENT, ovDraft, setOvDraft, ove
             <div style={{ ...micro, marginBottom: 6 }}>Auto-clear</div>
             <div style={{ display: 'flex', gap: 6 }}>
               {[[5, '5s'], [10, '10s'], [30, '30s'], [0, 'Pinned']].map(([v, lbl]) => (
-                <button key={lbl} onClick={() => setOvDraft((d) => ({ ...d, secs: v }))} title={v === 0 ? 'Stays until cleared' : `Auto-clears after ${v} seconds`} style={{ flex: 1, background: ovDraft.secs === v ? 'rgba(139,92,246,0.18)' : C.elevated2, border: '1px solid ' + (ovDraft.secs === v ? 'rgba(139,92,246,0.55)' : 'var(--ui-border2)'), color: ovDraft.secs === v ? '#C4B5FD' : C.muted, borderRadius: 8, padding: '8px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>{lbl}</button>
+                <button key={lbl} onClick={() => setOvDraft((d) => ({ ...d, secs: v }))} title={v === 0 ? 'Stays until cleared' : `Auto-clears after ${v} seconds`} style={{ flex: 1, background: ovDraft.secs === v ? 'rgba(255,184,0,0.18)' : C.elevated2, border: '1px solid ' + (ovDraft.secs === v ? 'rgba(255,184,0,0.55)' : 'var(--ui-border2)'), color: ovDraft.secs === v ? '#FFC72C' : C.muted, borderRadius: 8, padding: '8px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>{lbl}</button>
               ))}
             </div>
           </div>
@@ -155,12 +155,12 @@ export default function MessageStudioModal({ C, ACCENT, ovDraft, setOvDraft, ove
                   <img src={ovDraft.media.url} alt="" style={{ width: 96, height: 54, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--ui-border2)', background: '#000', flexShrink: 0 }} />
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5, width: 88, flexShrink: 0 }}>
                     {[['tl', 'Top left'], ['tr', 'Top right'], ['bl', 'Bottom left'], ['br', 'Bottom right']].map(([v, tip]) => (
-                      <button key={v} onClick={() => setOvDraft((d) => ({ ...d, media: d.media ? { ...d.media, pos: v } : d.media }))} title={tip} style={{ height: 30, borderRadius: 7, background: ovDraft.media.pos === v ? 'rgba(139,92,246,0.3)' : C.elevated2, border: '1px solid ' + (ovDraft.media.pos === v ? 'rgba(139,92,246,0.6)' : 'var(--ui-border2)'), cursor: 'pointer', display: 'flex', padding: 4, justifyContent: v.includes('l') ? 'flex-start' : 'flex-end', alignItems: v[0] === 't' ? 'flex-start' : 'flex-end' }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 3, background: ovDraft.media.pos === v ? '#C4B5FD' : C.faint }} />
+                      <button key={v} onClick={() => setOvDraft((d) => ({ ...d, media: d.media ? { ...d.media, pos: v } : d.media }))} title={tip} style={{ height: 30, borderRadius: 7, background: ovDraft.media.pos === v ? 'rgba(255,184,0,0.3)' : C.elevated2, border: '1px solid ' + (ovDraft.media.pos === v ? 'rgba(255,184,0,0.6)' : 'var(--ui-border2)'), cursor: 'pointer', display: 'flex', padding: 4, justifyContent: v.includes('l') ? 'flex-start' : 'flex-end', alignItems: v[0] === 't' ? 'flex-start' : 'flex-end' }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 3, background: ovDraft.media.pos === v ? '#FFC72C' : C.faint }} />
                       </button>
                     ))}
                   </div>
-                  <button onClick={() => setOvDraft((d) => ({ ...d, media: null }))} title="Remove the corner bug (keeps the text)" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: '#f87171', borderRadius: 8, padding: '7px 12px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', flexShrink: 0 }}>Remove</button>
+                  <button onClick={() => setOvDraft((d) => ({ ...d, media: null }))} title="Remove the corner bug (keeps the text)" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: '#FF4545', borderRadius: 8, padding: '7px 12px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', flexShrink: 0 }}>Remove</button>
                 </>
               ) : (
                 <label title="PNG / JPG / GIF from the media library" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
@@ -185,8 +185,8 @@ export default function MessageStudioModal({ C, ACCENT, ovDraft, setOvDraft, ove
                         {t.style === 'center' ? 'Center' : t.style === 'banner' ? 'Banner' : 'Lower'} · {t.secs === 0 ? 'Pinned' : `${t.secs}s`}{t.media ? ' · bug' : ''}{t.text ? ` · ${t.text}` : ''}
                       </span>
                     </button>
-                    <button onClick={() => fireTpl(t)} title={`Fire "${t.name}" straight to the wall`} style={{ background: ACCENT, border: 'none', color: '#fff', borderRadius: 7, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><Play size={13} /></button>
-                    <button onClick={() => setOvTemplates((prev) => prev.filter((x) => x.name !== t.name))} title={`Delete template "${t.name}"`} style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', display: 'flex', padding: 5, flexShrink: 0 }}><Trash2 size={13} /></button>
+                    <button onClick={() => fireTpl(t)} title={`Fire "${t.name}" straight to the wall`} style={{ background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 7, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><Play size={13} /></button>
+                    <button onClick={() => setOvTemplates((prev) => prev.filter((x) => x.name !== t.name))} title={`Delete template "${t.name}"`} style={{ background: 'transparent', border: 'none', color: '#FF4545', cursor: 'pointer', display: 'flex', padding: 5, flexShrink: 0 }}><Trash2 size={13} /></button>
                   </div>
                 ))}
               </div>
@@ -206,9 +206,9 @@ export default function MessageStudioModal({ C, ACCENT, ovDraft, setOvDraft, ove
 
         <div style={{ display: 'flex', gap: 8, padding: '12px 18px 16px 18px', borderTop: '1px solid var(--ui-border2)', flexShrink: 0 }}>
           {overlayLive && (
-            <motion.button {...stubTap} onClick={() => clearOverlay && clearOverlay()} title="Take the message down (the slide stays)" style={{ flex: 1, background: 'transparent', border: '1px solid rgba(239,68,68,0.45)', color: '#f87171', borderRadius: 9, padding: '11px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>Clear</motion.button>
+            <motion.button {...stubTap} onClick={() => clearOverlay && clearOverlay()} title="Take the message down (the slide stays)" style={{ flex: 1, background: 'transparent', border: '1px solid rgba(255,69,69,0.45)', color: '#FF4545', borderRadius: 9, padding: '11px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>Clear</motion.button>
           )}
-          <motion.button {...stubTap} onClick={show} title="Pin this message above the live slide" style={{ flex: 2, background: ovReady ? ACCENT : C.elevated2, border: '1px solid ' + (ovReady ? ACCENT : 'var(--ui-border2)'), color: '#fff', borderRadius: 9, padding: '11px 0', fontSize: 13.5, fontWeight: 900, cursor: ovReady ? 'pointer' : 'default', opacity: ovReady ? 1 : 0.55 }}>Show on wall</motion.button>
+          <motion.button {...stubTap} onClick={show} title="Pin this message above the live slide" style={{ flex: 2, background: ovReady ? ACCENT : C.elevated2, border: '1px solid ' + (ovReady ? ACCENT : 'var(--ui-border2)'), color: ovReady ? '#0D1014' : C.muted, borderRadius: 9, padding: '11px 0', fontSize: 13.5, fontWeight: 900, cursor: ovReady ? 'pointer' : 'default', opacity: ovReady ? 1 : 0.55 }}>Show on wall</motion.button>
         </div>
       </motion.div>
     </motion.div>

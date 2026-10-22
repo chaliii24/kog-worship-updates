@@ -214,7 +214,7 @@ export default function CcliReportPanel() {
             <span style={{ fontSize: 12, fontWeight: 700, color: C.text, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.title}</span>
             <span style={{ fontSize: 11.5, color: C.text2, fontVariantNumeric: 'tabular-nums' }}>{m.ccli || '—'}</span>
             <span style={{ fontSize: 12, fontWeight: 800, color: C.text2, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.times}</span>
-            <button onClick={() => setManual((list) => list.filter((_, k) => k !== i))} title="Remove" style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', display: 'flex', padding: 3 }}><Trash2 size={12} /></button>
+            <button onClick={() => setManual((list) => list.filter((_, k) => k !== i))} title="Remove" style={{ background: 'transparent', border: 'none', color: '#FF4545', cursor: 'pointer', display: 'flex', padding: 3 }}><Trash2 size={12} /></button>
           </div>
         ))}
       </div>

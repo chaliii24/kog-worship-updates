@@ -12,11 +12,11 @@ import { extractCcli } from '../electron/ccliReport.js';
 import { LiveBadge, TileVideo, TileCanvas, BackgroundVideo, LiveVideo, OverlayFace, overlayOnAir } from './lib/perf';
 import SplashScreen from './components/SplashScreen';
 import WelcomeScreen from './components/WelcomeScreen';
+import SettingsModal from './components/SettingsModal';
 import StageDisplay from './components/StageDisplay';
 import { loadVideoList } from './components/VideoLibrarySidebar';
 import ProjectorDisplay from './components/ProjectorDisplay';
 import TopHeader from './components/TopHeader';
-import BottomDock from './components/BottomDock';
 import LiveOutputPanel from './components/LiveOutputPanel';
 import LeftSidebar from './components/LeftSidebar';
 import CenterWorkspace from './components/CenterWorkspace';
@@ -41,8 +41,7 @@ import TemplateNameModal from './components/modals/TemplateNameModal';
 import HotkeysModal from './components/modals/HotkeysModal';
 import OutputsMonitorModal from './components/modals/OutputsMonitorModal';
 import ConfirmModal from './components/modals/ConfirmModal';
-import ScriptureSectionModal from './components/modals/ScriptureSectionModal';
-import { DEFAULT_COUNTDOWN, nextTargetTime, animatedPresetOf } from './components/CountdownFace';
+import ScriptureSectionModal from './components/modals/ScriptureSectionModal';import { DEFAULT_COUNTDOWN, nextTargetTime, animatedPresetOf } from './components/CountdownFace';
 import CountdownPreview, { countdownProof } from './components/CountdownPreview';
 import { sanitizeDrawStroke, pushDrawStroke } from './lib/draw.js';
 import { DrawOverlay } from './components/DrawOverlay.jsx';
@@ -67,6 +66,15 @@ const SONG_DRAFT_KEY = 'kog-song-draft';
 // only while there are unsaved changes, and it is dropped the moment that work
 // is saved or deliberately discarded.
 const SERVICE_DRAFT_KEY = 'kog-service-draft';
+
+// The plan the console opens on — and the one "Start Blank" must produce.
+// Built fresh each call so a reset never shares the startup object.
+const blankServicePlan = () => ({
+  id: null,
+  name: 'Sunday Service',
+  date: new Date().toISOString().split('T')[0],
+  items: [],
+});
 
 export default function App() {
   const isOutputWindow = typeof window !== 'undefined' && (
@@ -180,9 +188,10 @@ export default function App() {
   const [activeCue, setActiveCue] = useState(null);
 
   // Panel Collapse State
-  const [leftOpen, setLeftOpen] = useState(false);
+  const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [showHotkeys, setShowHotkeys] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [aboutStatus, setAboutStatus] = useState('');
   const [updateReady, setUpdateReady] = useState(null);
   const [updateProgress, setUpdateProgress] = useState(null);
@@ -422,7 +431,7 @@ export default function App() {
   const [dragIndex, setDragIndex] = useState(null);
   const [showTemplateNameModal, setShowTemplateNameModal] = useState(false);
   const [templateNameValue, setTemplateNameValue] = useState('');
-  const [activeService, setActiveService] = useState({ id: null, name: 'Sunday Service', date: new Date().toISOString().split('T')[0], items: [] });
+  const [activeService, setActiveService] = useState(blankServicePlan);
   const [customSlideModal, setCustomSlideModal] = useState(false);
   // Which service row is being edited (null = adding a new slide). Keeping the
   // index here means the modal's state lives only in the modal's form, and the
@@ -880,8 +889,18 @@ export default function App() {
 
   const deletePresentationDeck = async (id) => {
     if (!window.require || !id) return;
+    // Destructive and unrecoverable — confirm first, and name the deck so the
+    // operator knows which row the click landed on.
+    const target = (presentations || []).find(p => p.id === id);
+    const ok = await appConfirm(
+      `Delete "${target?.title || 'this slideshow deck'}"? All ${target?.slideCount || 'its'} slides are removed from this device and cannot be recovered.`,
+      { title: 'Delete slideshow deck', confirmLabel: 'Delete' }
+    );
+    if (!ok) return;
     const { ipcRenderer } = window.require('electron');
     await ipcRenderer.invoke('db-delete-presentation', id);
+    // A deleted deck must not keep navigating on the live output.
+    setActivePresentation(ap => (ap && ap.deck && ap.deck.id === id) ? null : ap);
     await fetchPresentations();
   };
 
@@ -1049,11 +1068,20 @@ export default function App() {
         // Screen hardware for THIS output (rotation / custom viewport /
         // edge blend). A push can land before this effect runs, so also
         // pull once on mount — same pattern as get-live-state above.
+        // The pull is answered asynchronously: a LIVE push can arrive after
+        // the request was read but before its reply lands. Applying that
+        // older reply last would silently undo the newest setting, so count
+        // pushes and ignore a reply once a newer one has arrived.
+        let cfgSeq = 0;
         ipcRenderer.on('output-config', (_e, cfg) => {
-          if (!cfg || cfg.id === outputId) setOutputCfg(cfg);
+          if (!cfg || cfg.id === outputId) {
+            cfgSeq += 1;
+            setOutputCfg(cfg);
+          }
         });
+        const requestSeq = cfgSeq;
         ipcRenderer.invoke('output-config-request', outputId)
-          .then((cfg) => { if (cfg) setOutputCfg(cfg); })
+          .then((cfg) => { if (cfg && cfgSeq === requestSeq) setOutputCfg(cfg); })
           .catch(() => {});
       }
       pullLiveState(outputRoleName === 'stage');
@@ -1210,10 +1238,11 @@ export default function App() {
 
   useEffect(() => {
     if (dockTab === 'media' || dockTab === 'audio' || dockTab === 'videos') fetchMediaLibrary();
-    // Settings tab warms every section's data on visit (stats, version,
-    // templates, Bible catalog) so rows never show stale numbers.
-    if (dockTab === 'settings') { fetchLibraryStats(); fetchAppInfo(); fetchTemplates(); refreshBibleLib(); }
-  }, [dockTab]);
+    // Settings opens as a dialog now — warm every section's data as it opens
+    // (stats, version, templates, Bible catalog) so rows never show stale
+    // numbers from the last time it was visited.
+    if (showSettings) { fetchLibraryStats(); fetchAppInfo(); fetchTemplates(); refreshBibleLib(); }
+  }, [dockTab, showSettings]);
 
   useEffect(() => {
     try { localStorage.setItem('bibleMedia', JSON.stringify(bibleMedia)); } catch {}
@@ -1739,6 +1768,9 @@ export default function App() {
       // (and 'b' clears the live output) — which reads as "I can't type
       // anything". Never hijack keys while the editor modal is open.
       if (isEditorOpen) return;
+      // Settings is a modal workspace above the console: keystrokes there
+      // (searching translations, naming a template) must not fire live cues.
+      if (showSettings) return;
       // Don't handle arrow keys for slide grid when in scripture verse viewer
       // (its own viewer owns Left/Right there) — but Space/B/L still drive
       // the live song, so looking up a verse never freezes the show.
@@ -1787,7 +1819,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleNextCue, handlePrevCue, jumpToSection, medleyModal, arrangementModal, showModalOpen, showBuilder, builderSheet, builderTileIdx, dockTab, bibleStep, isEditorOpen, sermon, liveOverlay]);
+  }, [handleNextCue, handlePrevCue, jumpToSection, medleyModal, arrangementModal, showModalOpen, showBuilder, builderSheet, builderTileIdx, dockTab, bibleStep, isEditorOpen, showSettings, sermon, liveOverlay]);
 
   const toggleTarget = (id) => setTargetedDisplays(prev => prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]);
   const addNewDisplay = () => {
@@ -2652,7 +2684,12 @@ export default function App() {
     sendStageData({ title: deck.title, label: slidePayload.label, text: s.notes || '', timestamp: slidePayload.timestamp }, null);
   };
 
-  const presentDeck = (deck) => firePresentationSlide(deck, 0);
+  const presentDeck = (deck) => {
+    // Presenting a deck belongs in the Slideshow workspace: that is where the
+    // slide grid, live transport and editing controls now live.
+    setDockTab('sermon');
+    firePresentationSlide(deck, 0);
+  };
 
   const stopPresentation = () => setActivePresentation(null);
 
@@ -2954,7 +2991,20 @@ export default function App() {
   const addOutput = () => {
     setOutputs(prev => {
       const id = `out-${Math.random().toString(36).slice(2, 8)}`;
-      return [...prev, { id, name: `Output ${prev.length + 1}`, role: 'lyrics', displayId: null, enabled: false, resolution: 'native', aspect: '16:9' }];
+      // A second output is another picture of the SAME service, so start it
+      // with the main output's resolution/aspect. Otherwise it begins on
+      // "Native" and silently looks different from the wall the operator just
+      // configured.
+      const main = prev.find(o => o.id === 'projector') || prev.find(o => o.role === 'lyrics') || prev[0] || {};
+      return [...prev, {
+        id,
+        name: `Output ${prev.length + 1}`,
+        role: 'lyrics',
+        displayId: null,
+        enabled: false,
+        resolution: main.resolution || 'native',
+        aspect: main.aspect || '16:9'
+      }];
     });
   };
 
@@ -2962,14 +3012,34 @@ export default function App() {
     setOutputs(prev => prev.filter(o => o.id !== id));
   };
 
-  const firstDisplayId = () => (outputDisplays && outputDisplays.length ? outputDisplays[0].id : 'preview');
-
   // Outputs never auto-open on launch: `enabled` is runtime-only (stripped when
   // saved) and starts false, so the operator must explicitly start each output.
   const setOutputRunning = (id, running) => {
-    setOutputs(prev => prev.map(o => (o.id === id
-      ? { ...o, enabled: !!running, displayId: running && !o.displayId ? firstDisplayId() : o.displayId }
-      : o)));
+    setOutputs(prev => {
+      const target = prev.find(o => o.id === id);
+      if (!target) return prev;
+      // A display can only show one fullscreen output. If another output owns
+      // the display this one is about to use, hand the display over instead of
+      // stacking two windows (the covered one then looks like its settings do
+      // nothing). Starting an unassigned output picks the first FREE display,
+      // never the wall the main output is already using.
+      const used = new Set(prev
+        .filter(o => o.id !== id && o.displayId != null && o.displayId !== 'preview')
+        .map(o => o.displayId));
+      const free = (outputDisplays || []).find(d => !used.has(d.id));
+      const displayId = running && !target.displayId
+        ? (free ? free.id : 'preview')
+        : target.displayId;
+      return prev.map(o => {
+        if (o.id === id) {
+          return { ...o, enabled: !!running, displayId: running ? displayId : o.displayId };
+        }
+        if (running && displayId != null && displayId !== 'preview' && o.displayId === displayId) {
+          return { ...o, displayId: null, enabled: false };
+        }
+        return o;
+      });
+    });
   };
 
   // Screen sermons (slideshow behind the lyrics output): same functional
@@ -3521,6 +3591,9 @@ export default function App() {
     }
   };
   const serviceSnapRef = useRef(null);
+  // If boot recovery adopted a plan, remember its toast so choosing "Start
+  // Blank" can take the (now untrue) "recovered" notice off the screen.
+  const serviceRecoveredToastRef = useRef(null);
   const [serviceDirty, setServiceDirty] = useState(false);
   // Re-entrant X guard: a second close request while the quit dialog is open
   // is ignored (the first dialog owns the decision).
@@ -3550,6 +3623,26 @@ export default function App() {
     }
   };
 
+  // "Start Blank" is an explicit choice, not just a welcome-screen dismissal.
+  // Boot recovery may already have adopted an unsaved plan from the crash-safe
+  // mirror while the welcome screen was up; starting blank must drop that plan
+  // (and its draft) instead of showing the operator last session's order. The
+  // snapshot is rebased so the empty plan reads clean — there is nothing to
+  // save or recover until they build something.
+  const startBlankWorkspace = () => {
+    clearServiceDraft();
+    if (serviceRecoveredToastRef.current != null) {
+      toast.close(serviceRecoveredToastRef.current);
+      serviceRecoveredToastRef.current = null;
+    }
+    serviceSnapRef.current = null;
+    setServiceDirty(false);
+    setSelectedServiceId('');
+    setServiceCollapsed([]);
+    setActiveService(blankServicePlan());
+    setShowWelcome(false);
+  };
+
   // Boot recovery. Declared BEFORE the dirty-tracking effect below on purpose:
   // it queues the recovered plan while that effect is still baselining the
   // blank opening order, so what comes back reads as UNSAVED work — which is
@@ -3568,7 +3661,7 @@ export default function App() {
     if (!svc || !Array.isArray(svc.items) || !svc.items.length) return; // nothing worth recovering
     setActiveService(svc);
     const at = Number(draft.at) || Date.now();
-    toast.add({
+    serviceRecoveredToastRef.current = toast.add({
       type: 'info',
       title: 'Service plan recovered',
       description: `Picked up from ${new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — Save to keep it.`,
@@ -4118,7 +4211,7 @@ export default function App() {
   // button swallows hover in Chromium, so its tooltip — which is the only
   // explanation of WHY it is grey — would never show.
   const ToolbarBtn = ({ children, danger, active, disabled, title, onClick }) => (
-    <button title={title} aria-disabled={disabled || undefined} onClick={disabled ? undefined : onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: active ? 'rgba(34,197,94,0.15)' : C.elevated, border: '1px solid ' + (active ? 'rgba(34,197,94,0.5)' : 'var(--ui-border2)'), color: danger ? '#f87171' : C.text2, borderRadius: 7, padding: '6px 9px', fontSize: 11, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1 }}>{children}</button>
+    <button title={title} aria-disabled={disabled || undefined} onClick={disabled ? undefined : onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: active ? 'rgba(54,201,130,0.15)' : C.elevated, border: '1px solid ' + (active ? 'rgba(54,201,130,0.5)' : 'var(--ui-border2)'), color: danger ? '#FF4545' : C.text2, borderRadius: 7, padding: '6px 9px', fontSize: 11, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1 }}>{children}</button>
   );
 
   // cueLyricStyle lives in lib/lyrics — shared with the editor's slide strip
@@ -4750,7 +4843,7 @@ export default function App() {
   // Only operator chrome (LIVE pill, #index, section chip) sits on top.
   // Ticker cues render as static lines — a thumbnail must not start a
   // marquee per tile.
-  const renderSlideFace = (tile, { height = '150px', aspect, radius = '10px', bg, media } = {}) => {
+  const renderSlideFace = (tile, { height = '150px', aspect, radius = '10px', bg, media, showLiveBadge = true } = {}) => {
     const cue = tile.cue;
     const isTitle = tile.isTitle;
     // Medley tiles bring their own song; plain tiles use the open song.
@@ -4796,7 +4889,7 @@ export default function App() {
       if (hit) return hit;
     }
     const face = (
-      <div style={{ position: 'relative', height: aspect ? 'auto' : height, aspectRatio: aspect, borderRadius: radius, overflow: 'hidden', background: faceBg, border: isLive ? `2px solid ${PINK}` : '1px solid var(--ui-blight)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', boxShadow: isLive ? `0 0 0 2px rgba(255,79,163,0.25), 0 8px 24px rgba(0,0,0,0.45)` : '0 4px 14px rgba(0,0,0,0.35)', boxSizing: 'border-box' }}>
+      <div style={{ position: 'relative', height: aspect ? 'auto' : height, aspectRatio: aspect, borderRadius: radius, overflow: 'hidden', background: faceBg, border: isLive ? `1px solid ${PINK}` : '1px solid var(--ui-border2)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', boxShadow: 'none', boxSizing: 'border-box' }}>
         {mediaLayer && (
           mediaLayer.type === 'image' ? (
             <img key={`bgimg-${mediaLayer.url}`} src={mediaLayer.url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1 }} />
@@ -4839,16 +4932,16 @@ export default function App() {
           })}
         </TileCanvas>
         <div style={{ position: 'absolute', top: 6, left: 8, display: 'flex', alignItems: 'center', gap: 6, zIndex: 2 }}>
-          {isLive && <LiveBadge start={slideTimer.start} C={C} PINK={PINK} />}
+          {isLive && showLiveBadge && <LiveBadge start={slideTimer.start} C={C} PINK={PINK} />}
         </div>
-        <div style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, background: 'rgba(0,0,0,0.45)', color: isLive ? PINK : '#ddd6fe', borderRadius: 6, padding: '1px 6px', fontSize: 9, fontWeight: 800 }}>
-          {isTitle ? '♬' : `#${tile.num}`}
+        <div style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, background: 'rgba(0,0,0,0.55)', color: isLive ? PINK : '#FFC72C', borderRadius: 4, padding: '1px 6px', fontSize: 9, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+          {isTitle ? 'TITLE' : `#${tile.num}`}
         </div>
         {/* Section chip: compact pill so the real render behind it stays visible. Medley tiles add their song tag. */}
         <div style={{ position: 'absolute', bottom: 6, left: 8, zIndex: 2, display: 'flex', alignItems: 'center', gap: 4, maxWidth: 'calc(100% - 16px)' }}>
-          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '1.5px', textTransform: 'uppercase', color: isLive ? PINK : '#ddd6fe', background: 'rgba(0,0,0,0.45)', borderRadius: 6, padding: '2px 6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
-          {tile.medSong && <span style={{ flexShrink: 0, fontSize: 8, fontWeight: 800, color: '#c4b5fd', background: 'rgba(0,0,0,0.45)', borderRadius: 4, padding: '2px 5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110 }}>{tile.medSong.title || 'Song'}</span>}
-          {hasMedia && mediaLayer && mediaLayer.type && <span style={{ flexShrink: 0, fontSize: 8, background: 'rgba(192,132,252,0.25)', border: '1px solid rgba(192,132,252,0.5)', color: '#d8b4fe', borderRadius: 4, padding: '0 4px' }}>{String(mediaLayer.type).toUpperCase()}</span>}
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.6px', textTransform: 'uppercase', color: isLive ? PINK : '#FFC72C', background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '2px 6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+          {tile.medSong && <span style={{ flexShrink: 0, fontSize: 8, fontWeight: 700, color: '#FFC72C', background: 'rgba(0,0,0,0.55)', borderRadius: 4, padding: '2px 5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 110 }}>{tile.medSong.title || 'Song'}</span>}
+          {hasMedia && mediaLayer && mediaLayer.type && <span style={{ flexShrink: 0, fontSize: 8, fontWeight: 700, background: 'rgba(255,184,0,0.18)', border: '1px solid rgba(255,184,0,0.45)', color: '#FFC72C', borderRadius: 4, padding: '0 4px' }}>{String(mediaLayer.type).toUpperCase()}</span>}
         </div>
       </div>
     );
@@ -5543,7 +5636,7 @@ export default function App() {
 
   const dockItems = [
     { id: 'shows', label: 'Shows', iconId: 'list-video', accent: true },
-    { id: 'sermon', label: 'Presentation', iconId: 'presentation', accent: false },
+    { id: 'sermon', label: 'Slideshow', iconId: 'presentation', accent: false },
     { id: 'media', label: 'Media', iconId: 'film', accent: false },
     { id: 'videos', label: 'Videos', iconId: 'clapperboard', accent: false },
     { id: 'audio', label: 'Audio', iconId: 'music', accent: false },
@@ -5639,11 +5732,14 @@ export default function App() {
 
   const handleDockSelect = (item) => {
     if (item.id === 'outputs') { setShowOutputMonitor(true); return; }
+    // Settings is a dialog, not a workspace: opening it must not replace the
+    // page the operator is on, so the sidebar selection stays where it was.
+    if (item.id === 'settings') { setShowSettings(true); return; }
     setDockTab(item.id);
-    // Countdown, Scripture, Presentation, Media, Audio and Stage own the full
-    // center width — the left tools column closes itself so the workspace
-    // gets the room.
-    setLeftOpen(item.id !== 'scripture' && item.id !== 'countdown' && item.id !== 'sermon' && item.id !== 'media' && item.id !== 'audio' && item.id !== 'stage');
+    // The sidebar is persistent production navigation now: changing workspace
+    // never hides it. Operators deliberately collapse it with the panel button
+    // when they want the whole centre width.
+    setLeftOpen(true);
     // The Countdown editor brings its own live preview + Go Live, so while
     // that tab is active the global right sidebar stays visible but LOCKED
     // (LiveOutputPanel's `locked` prop) instead of closing — the countdown
@@ -5757,7 +5853,7 @@ export default function App() {
         logoImage={logoImage}
         onStartNewShow={() => { setShowWelcome(false); openNewShow(); }}
         onOpenSavedShows={() => { setShowWelcome(false); setDockTab('shows'); setLeftOpen(true); setActiveTab('service'); }}
-        onStartBlank={() => setShowWelcome(false)}
+        onStartBlank={startBlankWorkspace}
         onOpenRecent={(id) => { setShowWelcome(false); loadService(id); setDockTab('shows'); setLeftOpen(true); setActiveTab('service'); }}
       />
     );
@@ -5905,8 +6001,23 @@ export default function App() {
       <TopHeader
         C={C}
         PINK={PINK}
-        showName={dockTab === 'shows' && activeService?.name ? activeService.name : ''}
-        showDate={dockTab === 'shows' && activeService?.date ? activeService.date : ''}
+        ACCENT={ACCENT}
+        dockTab={dockTab}
+        showName={activeService?.name || ''}
+        showDate={activeService?.date || ''}
+        activeCue={activeCue}
+        activeLabel={activeCue?.label || ''}
+        slideIndex={activeSlideIndex}
+        slideCount={slideGrid.length}
+        projectorOn={projectorOn}
+        outputDisplays={outputDisplays}
+        selectedOutputDisplay={outputs.find(o => o.id === 'projector')?.displayId ?? null}
+        selectOutputDisplay={selectOutputDisplay}
+        onOpenOutputs={() => setShowOutputMonitor(true)}
+        onOpenHotkeys={() => setShowHotkeys(true)}
+        onToggleOutput={toggleDevProjectorWindow}
+        rightOpen={rightOpen}
+        setRightOpen={setRightOpen}
       />
 
       {/* ===== MAIN WORKSPACE =====
@@ -5920,18 +6031,30 @@ export default function App() {
       </>
       ) : (
       <>
-      {/* Right sidebar runs full height, so the header + workspace live in
-          their own column that stops at the panel's left edge. */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0, width: '100%' }}>
-      <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      {/* ===== TOP HEADER (cut where the right sidebar starts) ===== */}
+      {/* ===== TOP HEADER (full width) ===== */}
       <TopHeader
         C={C}
         PINK={PINK}
-        showName={dockTab === 'shows' && activeService?.name ? activeService.name : ''}
-        showDate={dockTab === 'shows' && activeService?.date ? activeService.date : ''}
+        ACCENT={ACCENT}
+        dockTab={dockTab}
+        showName={activeService?.name || ''}
+        showDate={activeService?.date || ''}
+        activeCue={activeCue}
+        activeLabel={activeCue?.label || ''}
+        slideIndex={activeSlideIndex}
+        slideCount={slideGrid.length}
+        projectorOn={projectorOn}
+        outputDisplays={outputDisplays}
+        selectedOutputDisplay={outputs.find(o => o.id === 'projector')?.displayId ?? null}
+        selectOutputDisplay={selectOutputDisplay}
+        onOpenOutputs={() => setShowOutputMonitor(true)}
+        onOpenHotkeys={() => setShowHotkeys(true)}
+        onToggleOutput={toggleDevProjectorWindow}
+        rightOpen={rightOpen}
+        setRightOpen={setRightOpen}
       />
 
+      {/* THREE-AREA CONSOLE: persistent navigation · workspace · live output */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0, width: '100%' }}>
 
 {/* LEFT SIDEBAR */}
@@ -5939,8 +6062,6 @@ export default function App() {
 
         {/* CENTER WORKSPACE: SCRIPTURE BROWSER / SLIDE GRID / LAUNCHPAD */}
         <CenterWorkspace />
-      </div>
-      </div>
 
         {/* RIGHT SIDEBAR: OUTPUT MONITOR + CONTROLS. On the Countdown tab
             it stays mounted but LOCKED (preview visible, firing controls
@@ -6003,22 +6124,6 @@ export default function App() {
         />
         )}
       </div>
-
-      {/* ===== BOTTOM GLOBAL DOCK ===== */}
-      <BottomDock
-        C={C}
-        PINK={PINK}
-        ACCENT={ACCENT}
-        dockItems={dockItems}
-        dockTab={dockTab}
-        activeId={showOutputMonitor ? 'outputs' : undefined}
-        onSelect={handleDockSelect}
-        iconTheme={iconTheme}
-        onOutputs={toggleDevProjectorWindow}
-        outputDisplays={outputDisplays}
-        selectedOutputDisplay={outputs.find(o => o.id === 'projector')?.displayId ?? null}
-        selectOutputDisplay={selectOutputDisplay}
-      />
       </>
       )}
 
@@ -6118,6 +6223,12 @@ export default function App() {
       {/* KEYBOARD SHORTCUT GUIDE */}
       <AnimatePresence>
       {showHotkeys && <HotkeysModal C={C} ACCENT={ACCENT} onClose={() => setShowHotkeys(false)} />}
+      </AnimatePresence>
+
+      {/* SETTINGS DIALOG — opened from the sidebar's Settings entry. It is a
+          workspace-level modal now, not a 264px sidebar page. */}
+      <AnimatePresence>
+      {showSettings && <SettingsModal C={C} onClose={() => setShowSettings(false)} />}
       </AnimatePresence>
 
       {/* LIVE OUTPUTS MONITOR */}

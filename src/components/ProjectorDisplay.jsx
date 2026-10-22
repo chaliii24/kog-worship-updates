@@ -82,12 +82,19 @@ function OutputPerfHud({ slideKey }) {
   );
 }
 
-export default function ProjectorDisplay({ currentSlide, C, aspect, config, overlay = null, draw = null, lift = 0, framed = false, frameAspect = '16:9' }) {
+export default function ProjectorDisplay({ currentSlide, C, aspect, config, overlay = null, draw = null, lift = 0, framed = false, frameAspect = '16:9', surface = null }) {
   const rootRef = useRef(null);
   const [win, setWin] = useState(() => ({ w: framed ? 0 : window.innerWidth, h: framed ? 0 : window.innerHeight }));
   // The wall must never throw: a null/undefined slide (boot race, corrupt
   // payload) renders black and stays alive instead of killing the window.
   const cs = currentSlide || {};
+  // AUDIO OWNERSHIP: a framed ProjectorDisplay is a PICTURE of the wall (the
+  // console's Live Output card, the right-sidebar preview, the Show Builder),
+  // never the wall itself. It must stay silent — otherwise the same countdown
+  // video plays here AND in the real output window, slightly offset, and the
+  // room hears the song twice (echo / flanging). Only the real wall passes
+  // `main` through to the countdown surface.
+  const timerSurface = surface || (framed ? 'preview' : 'main');
 
   // FRAMED = this component is being used as a PICTURE of the wall (the
   // console's Live Output card, the Show Builder preview) rather than as the
@@ -530,7 +537,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
           <AnimatePresence>
             {cs.timer && (
               <motion.div key="countdown-live" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.6 }} style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#000', zIndex: 1 }}>
-                <TimerFace timer={cs.timer} scale={vh / 720} surface="main" />
+                <TimerFace timer={cs.timer} scale={vh / 720} surface={timerSurface} />
               </motion.div>
             )}
           </AnimatePresence>

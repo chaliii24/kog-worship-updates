@@ -251,35 +251,40 @@ export default function LiveOutputPanel({
     // editor closes (and on boot), so the old slide+fade-in with its 0.3s
     // delay flashed a dark ghost of this panel over its own slot on every
     // load. It renders instantly at full opacity.
-    <div className="right-panel-shell" style={{ flex: '0 1 340px', minWidth: 280, maxWidth: '35vw', height: '100%', minHeight: 0, overflow: 'hidden', background: C.panel, borderLeft: '1px solid var(--ui-border)', flexDirection: 'column', display: 'flex' }}>
+    <div className="kog-live-panel">
       {/* Preview + transport only — this block is FIXED, never scrolls. The
           live word list and the scripture styling controls moved down into the
           Highlight / Settings tabs, which is what stopped the old preview
           half from growing until it squeezed the options to zero height. */}
-      <div style={{ padding: '12px 12px 6px 12px', borderBottom: '1px solid ' + C.border, flex: '0 0 auto', minHeight: 0, overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 800, color: C.heading, textTransform: 'uppercase', letterSpacing: 1.5 }}>Live Output</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            {/* TELESTRATOR ARM — off by default, so an ordinary preview click
-                can never draw by accident. Locked while Countdown owns the
-                wall, like every other firing control in this panel. */}
-            <button
-              onClick={() => setDrawMode((d) => !d)}
-              disabled={locked}
-              title={drawMode ? 'Pen armed — drag on the preview to draw on the wall' : 'Draw on the live output with the mouse'}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 7, fontSize: 10, fontWeight: 800, cursor: locked ? 'default' : 'pointer', background: drawMode ? 'rgba(239,68,68,0.16)' : C.elevated, border: '1px solid ' + (drawMode ? 'rgba(239,68,68,0.55)' : C.border2), color: drawMode ? '#f87171' : C.faint, opacity: locked ? 0.45 : 1, transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease' }}
-            >
-              <PenLine size={12} /> Draw
-            </button>
-            <span style={{ fontSize: 11, fontWeight: 700, color: C.muted }}>{activeSlideIndex >= 0 ? `${activeSlideIndex}/${slideCount - 1}` : '—'}</span>
-          </div>
+      <div style={{ padding: '0 12px 8px', borderBottom: '1px solid ' + C.border, flex: '0 0 auto', minHeight: 0, overflowY: 'auto' }}>
+        <div className="kog-live-head" style={{ margin: '0 -12px 10px', padding: '11px 12px' }}>
+          <h2>Live Output</h2>
+          <span className="kog-spacer" />
+          <span className="kog-status-pill" data-live={wallLive ? '1' : '0'} title={wallLive ? 'This slide is on the live output' : 'No live output is showing a slide'}>
+            <span className="kog-dot" />
+            {wallLive ? 'Live' : 'Standby'}
+          </span>
+          <span style={{ fontSize: 10.5, fontWeight: 600, color: C.muted, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+            {activeSlideIndex >= 0 ? `${activeSlideIndex + 1} / ${slideCount}` : '—'}
+          </span>
+          {/* TELESTRATOR ARM — off by default, so an ordinary preview click
+              can never draw by accident. Locked while Countdown owns the
+              wall, like every other firing control in this panel. */}
+          <button
+            onClick={() => setDrawMode((d) => !d)}
+            disabled={locked}
+            title={drawMode ? 'Pen armed — drag on the preview to draw on the wall' : 'Draw on the live output with the mouse'}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 7px', borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: locked ? 'default' : 'pointer', background: drawMode ? 'rgba(255,184,0,0.16)' : C.elevated, border: '1px solid ' + (drawMode ? 'rgba(255,184,0,0.5)' : C.border2), color: drawMode ? '#FFC72C' : C.faint, opacity: locked ? 0.45 : 1, transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease' }}
+          >
+            <PenLine size={12} /> Draw
+          </button>
         </div>
-        <div style={{ marginBottom: 8, position: 'relative', borderRadius: 10, border: wallLive ? '2px solid #ef4444' : '1px solid transparent', boxShadow: wallLive ? '0 0 22px -6px rgba(239,68,68,0.6)' : 'none', transition: 'border-color 0.45s ease, box-shadow 0.45s ease', padding: wallLive ? 1 : 0 }}>
-          <span style={{ position: 'absolute', top: 6, left: 6, zIndex: 5, display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#fff', background: '#dc2626', borderRadius: 6, padding: '2px 8px', boxShadow: '0 2px 10px rgba(0,0,0,0.5)', opacity: wallLive ? 1 : 0, transition: 'opacity 0.45s ease', pointerEvents: 'none' }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff' }} />LIVE
+        <div style={{ marginBottom: 8, position: 'relative' }}>
+          <span style={{ position: 'absolute', top: 6, left: 6, zIndex: 5, display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', color: '#07130D', background: 'var(--kog-success)', borderRadius: 4, padding: '2px 7px', opacity: wallLive ? 1 : 0, transition: 'opacity 0.3s ease', pointerEvents: 'none' }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#07130D' }} />LIVE
           </span>
           {pptOnAir ? (
-            <div style={{ aspectRatio: '16 / 9', borderRadius: 8, overflow: 'hidden', background: '#000', border: '1px solid var(--ui-border2)', position: 'relative' }}>
+            <div style={{ aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', background: '#000', border: '1px solid var(--ui-border2)', position: 'relative' }}>
               {sermonShot ? (
                 <img src={sermonShot} alt={`Slide ${sermonIdx}`} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
               ) : (
@@ -288,7 +293,7 @@ export default function LiveOutputPanel({
                 </span>
               )}
               {sermon.total ? (
-                <span style={{ position: 'absolute', left: 6, bottom: 6, fontSize: 9.5, fontWeight: 800, color: '#fff', background: 'rgba(0,0,0,0.6)', borderRadius: 5, padding: '1px 7px' }}>
+                <span style={{ position: 'absolute', left: 6, bottom: 6, fontSize: 9.5, fontWeight: 700, color: '#fff', background: 'rgba(0,0,0,0.6)', borderRadius: 4, padding: '1px 7px' }}>
                   Slide {sermonIdx} of {sermon.total}
                 </span>
               ) : null}
@@ -299,7 +304,7 @@ export default function LiveOutputPanel({
                can never drift from the actual output — same background, same
                text boxes, same fit, same fill. The card itself is a fixed
                16:9 window (it never changes size with the output aspect). */
-            <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 8, overflow: 'hidden', background: '#000', border: '1px solid var(--ui-border2)' }}>
+            <div className="kog-live-preview" data-live={wallLive ? '1' : '0'} style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9' }}>
               <ProjectorDisplay framed frameAspect={wallFrameAspect} currentSlide={monitorContent} config={{ aspect: 'fill' }} />
             </div>
           )}
@@ -324,7 +329,7 @@ export default function LiveOutputPanel({
                   key={(s && s.id) || i}
                   d={strokeToPath((s && s.points) || [])}
                   fill="none"
-                  stroke={(s && s.color) || '#f87171'}
+                  stroke={(s && s.color) || '#FF4545'}
                   strokeWidth={(s && s.width) || 12}
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -346,8 +351,8 @@ export default function LiveOutputPanel({
             ))}
             <span style={{ width: 1, height: 16, background: C.border2, flex: '0 0 auto' }} />
             {DRAW_WIDTHS.map((w) => (
-              <button key={w} onClick={() => setPenWidth(w)} title={`${w}px nib`} style={{ width: 26, height: 18, borderRadius: 6, background: penWidth === w ? 'rgba(239,68,68,0.18)' : C.elevated, border: '1px solid ' + (penWidth === w ? 'rgba(239,68,68,0.5)' : C.border2), cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>
-                  <span style={{ width: Math.max(4, w * 0.7), height: Math.max(2, Math.min(7, w * 0.45)), borderRadius: 99, background: penWidth === w ? '#f87171' : C.faint }} />
+              <button key={w} onClick={() => setPenWidth(w)} title={`${w}px nib`} style={{ width: 26, height: 18, borderRadius: 6, background: penWidth === w ? 'rgba(255,69,69,0.18)' : C.elevated, border: '1px solid ' + (penWidth === w ? 'rgba(255,69,69,0.5)' : C.border2), cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>
+                  <span style={{ width: Math.max(4, w * 0.7), height: Math.max(2, Math.min(7, w * 0.45)), borderRadius: 99, background: penWidth === w ? '#FF4545' : C.faint }} />
               </button>
             ))}
             <span style={{ flex: 1 }} />
@@ -436,15 +441,14 @@ export default function LiveOutputPanel({
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 7,
-                background: 'linear-gradient(180deg, #8b5cf6, #7c3aed)',
-                border: 'none',
-                color: '#FFFFFF',
-                padding: '9px 14px',
-                borderRadius: 9,
-                fontSize: 12,
-                fontWeight: 800,
+                background: 'var(--kog-accent)',
+                border: '1px solid var(--kog-accent)',
+                color: '#171208',
+                padding: '8px 14px',
+                borderRadius: 5,
+                fontSize: 11.5,
+                fontWeight: 700,
                 cursor: 'pointer',
-                boxShadow: '0 0 0 1px rgba(139,92,246,0.5), 0 8px 24px rgba(139,92,246,0.3)',
               }}
             >
               <Zap size={13} />
@@ -463,10 +467,10 @@ export default function LiveOutputPanel({
             every upload, and on a short window it pushed Clear Lyrics / Clear
             All past the fold where they could not be reached at all. */}
         <div style={{ display: 'flex', gap: 6, marginTop: 8, flexShrink: 0 }}>
-          <motion.button {...stubTap} onClick={clearLyrics} title="Take the words off the screen and keep the background running" style={{ flex: 1, minWidth: 0, background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.35)', color: '#c4b5fd', padding: '7px 4px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Type size={12} /> Clear Lyrics</motion.button>
-          <motion.button {...stubTap} onClick={() => fireCueLive({ id: 'clear', label: 'Clear', text: '' })} title="Clear everything — words and background" style={{ flex: 1, minWidth: 0, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171', padding: '7px 4px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Square size={12} /> Clear All</motion.button>
-          <motion.button {...iconBtnTap} onClick={handlePrevCue} style={{ width: 44, background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><SkipBack size={14} /></motion.button>
-          <motion.button {...iconBtnTap} onClick={handleNextCue} style={{ width: 44, background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><SkipForward size={14} /></motion.button>
+          <motion.button {...stubTap} onClick={clearLyrics} className="kog-clear-lyrics" title="Take the words off the screen and keep the background running"><Type size={12} /> Clear Lyrics</motion.button>
+          <motion.button {...stubTap} onClick={() => fireCueLive({ id: 'clear', label: 'Clear', text: '' })} className="kog-clear-all" title="Clear everything — words and background"><Square size={12} /> Clear All</motion.button>
+          <motion.button {...iconBtnTap} onClick={handlePrevCue} style={{ width: 32, height: 30, flex: '0 0 auto', background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Previous cue"><SkipBack size={14} /></motion.button>
+          <motion.button {...iconBtnTap} onClick={handleNextCue} style={{ width: 32, height: 30, flex: '0 0 auto', background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Next cue"><SkipForward size={14} /></motion.button>
         </div>
         {studioOpen && (
           <MessageStudioModal
@@ -545,7 +549,7 @@ export default function LiveOutputPanel({
               data-testid={`scripture-tab-${id}`}
               onClick={() => pickScriptureTab(id)}
               title={tip}
-              style={{ flex: 1, minWidth: 0, background: scriptureTab === id ? 'rgba(139,92,246,0.18)' : 'transparent', border: 'none', borderRadius: 8, color: scriptureTab === id ? '#8b5cf6' : C.faint, padding: '6px 4px', fontSize: 10, fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+              style={{ flex: 1, minWidth: 0, background: scriptureTab === id ? 'rgba(255,184,0,0.18)' : 'transparent', border: 'none', borderRadius: 8, color: scriptureTab === id ? '#FFB800' : C.faint, padding: '6px 4px', fontSize: 10, fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
             >
               {label}
               {id === 'highlight' && liveBible && liveBible.markWords.length > 0 ? (
@@ -627,7 +631,7 @@ export default function LiveOutputPanel({
             value={bibleFmt.template || DEFAULT_SCRIPTURE_TEMPLATE}
             onChange={(id) => setBibleFmt && setBibleFmt(f => ({ ...f, template: id }))}
             C={C}
-            PINK="#8b5cf6"
+            PINK="#FFB800"
           />
           <div style={{ fontSize: 9.5, color: C.faint, lineHeight: 1.6 }}>
             The template decides placement, size range and the default face; a font or colour picked on Settings still wins over it. A passage already on the wall re-renders as you tap — the choice is remembered for the next service.
@@ -645,21 +649,21 @@ export default function LiveOutputPanel({
                     key={l}
                     onClick={() => setBibleFmt && setBibleFmt(f => ({ ...f, layout: l }))}
                     title={l === 'number' ? 'Show verse numbers' : l === 'plain' ? 'Plain verses, no numbers' : 'Sentence-case flow'}
-                    style={{ background: bibleFmt.layout === l ? 'rgba(139,92,246,0.18)' : 'transparent', border: 'none', borderRadius: 7, color: bibleFmt.layout === l ? '#8b5cf6' : C.faint, padding: '5px 11px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                    style={{ background: bibleFmt.layout === l ? 'rgba(255,184,0,0.18)' : 'transparent', border: 'none', borderRadius: 7, color: bibleFmt.layout === l ? '#FFB800' : C.faint, padding: '5px 11px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
                   >{l === 'number' ? 'Vv.' : l === 'plain' ? 'Plain' : 'Flow'}</motion.button>
                 ))}
               </div>
-              <motion.button {...stubTap} onClick={() => setBibleFmt && setBibleFmt(f => ({ ...f, bold: !f.bold }))} title="Toggle bold" style={{ background: bibleFmt.bold ? 'rgba(139,92,246,0.18)' : C.elevated, border: bibleFmt.bold ? '1px solid #8b5cf6' : '1px solid var(--ui-border2)', color: bibleFmt.bold ? '#8b5cf6' : C.faint, borderRadius: 9, padding: '7px 12px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>B</motion.button>
-              <motion.button {...stubTap} onClick={() => setBibleFmt && setBibleFmt(f => ({ ...f, caps: !f.caps }))} title="Uppercase" style={{ background: bibleFmt.caps ? 'rgba(139,92,246,0.18)' : C.elevated, border: bibleFmt.caps ? '1px solid #8b5cf6' : '1px solid var(--ui-border2)', color: bibleFmt.caps ? '#8b5cf6' : C.faint, borderRadius: 9, padding: '7px 12px', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer' }}>Aa</motion.button>
+              <motion.button {...stubTap} onClick={() => setBibleFmt && setBibleFmt(f => ({ ...f, bold: !f.bold }))} title="Toggle bold" style={{ background: bibleFmt.bold ? 'rgba(255,184,0,0.18)' : C.elevated, border: bibleFmt.bold ? '1px solid #FFB800' : '1px solid var(--ui-border2)', color: bibleFmt.bold ? '#FFB800' : C.faint, borderRadius: 9, padding: '7px 12px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>B</motion.button>
+              <motion.button {...stubTap} onClick={() => setBibleFmt && setBibleFmt(f => ({ ...f, caps: !f.caps }))} title="Uppercase" style={{ background: bibleFmt.caps ? 'rgba(255,184,0,0.18)' : C.elevated, border: bibleFmt.caps ? '1px solid #FFB800' : '1px solid var(--ui-border2)', color: bibleFmt.caps ? '#FFB800' : C.faint, borderRadius: 9, padding: '7px 12px', fontSize: 11, fontWeight: 700, letterSpacing: 0.5, cursor: 'pointer' }}>Aa</motion.button>
               <div title="Scripture font (Default = stage style)" style={{ flex: '1 1 150px', minWidth: 130 }}>
                 <FontPicker value={bibleFmt.font || ''} choices={[{ label: 'Default font', value: '' }, ...FONT_OPTIONS]} onChange={(v) => setBibleFmt && setBibleFmt(f => ({ ...f, font: v || null }))} C={C} />
               </div>
               <div title="Scripture text colour" style={{ display: 'flex', alignItems: 'center', gap: 4, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 9, padding: '4px 7px' }}>
-                <span style={{ fontSize: 11, fontWeight: 800, color: bibleFmt.color ? '#8b5cf6' : C.faint }}>A</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: bibleFmt.color ? '#FFB800' : C.faint }}>A</span>
                 <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(bibleFmt.color || '') ? bibleFmt.color : '#ffffff'} onChange={(e) => setBibleFmt && setBibleFmt(f => ({ ...f, color: e.target.value }))} title="Pick the scripture text colour" style={{ width: 26, height: 22, background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }} />
                 {bibleFmt.color && <button onClick={() => setBibleFmt && setBibleFmt(f => ({ ...f, color: null }))} title="Back to the stage style colour" style={{ background: 'transparent', border: 'none', color: C.faint, fontSize: 11, cursor: 'pointer', padding: '0 2px' }}>✕</button>}
               </div>
-              <motion.button {...stubTap} data-testid="bible-highlighter" onClick={() => { const on = !bibleFmt.mark; setBibleFmt && setBibleFmt(f => ({ ...f, mark: on ? (f.mark || '#FDE047') : null })); if (on) pickScriptureTab('highlight'); }} title={bibleFmt.mark ? 'Highlighter on — pick words on the Highlight tab' : 'Switch the highlighter on, then tap words on the Highlight tab'} style={{ background: bibleFmt.mark ? 'rgba(139,92,246,0.18)' : C.elevated, border: bibleFmt.mark ? '1px solid #8b5cf6' : '1px solid var(--ui-border2)', color: bibleFmt.mark ? '#8b5cf6' : C.faint, borderRadius: 9, padding: '7px 10px', cursor: 'pointer', display: 'flex' }}><Highlighter size={13} /></motion.button>
+              <motion.button {...stubTap} data-testid="bible-highlighter" onClick={() => { const on = !bibleFmt.mark; setBibleFmt && setBibleFmt(f => ({ ...f, mark: on ? (f.mark || '#FDE047') : null })); if (on) pickScriptureTab('highlight'); }} title={bibleFmt.mark ? 'Highlighter on — pick words on the Highlight tab' : 'Switch the highlighter on, then tap words on the Highlight tab'} style={{ background: bibleFmt.mark ? 'rgba(255,184,0,0.18)' : C.elevated, border: bibleFmt.mark ? '1px solid #FFB800' : '1px solid var(--ui-border2)', color: bibleFmt.mark ? '#FFB800' : C.faint, borderRadius: 9, padding: '7px 10px', cursor: 'pointer', display: 'flex' }}><Highlighter size={13} /></motion.button>
               {bibleFmt.mark && (
                 <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(bibleFmt.mark || '') ? bibleFmt.mark : '#FDE047'} onChange={(e) => setBibleFmt && setBibleFmt(f => ({ ...f, mark: e.target.value }))} title="Highlight colour" style={{ width: 30, height: 26, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 9, cursor: 'pointer', padding: 2 }} />
               )}
@@ -674,7 +678,7 @@ export default function LiveOutputPanel({
             <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 7, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span>Scripture Background</span>
               {bibleMedia ? (
-                <motion.button {...stubTap} onClick={() => selectBibleMediaLive(null, null, null)} title="Drop this session's background and fall back to the default" style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</motion.button>
+                <motion.button {...stubTap} onClick={() => selectBibleMediaLive(null, null, null)} title="Drop this session's background and fall back to the default" style={{ background: 'transparent', border: 'none', color: '#FF4545', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</motion.button>
               ) : null}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -724,12 +728,12 @@ export default function LiveOutputPanel({
         <TabPanel id="overlay" className="box-border flex-1 min-h-0 overflow-y-auto p-2.5">
           <div style={{ display: 'grid', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Megaphone size={12} color={overlayLive ? '#4ade80' : C.faint} />
+              <Megaphone size={12} color={overlayLive ? '#36C982' : C.faint} />
               <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>Message</span>
               <span style={{ flex: 1 }} />
               {overlayLive && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#4ade80' }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 7px #22c55e' }} />LIVE
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#36C982' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#36C982', boxShadow: '0 0 7px #36C982' }} />LIVE
                 </span>
               )}
             </div>
@@ -742,12 +746,12 @@ export default function LiveOutputPanel({
             />
             <div style={{ display: 'flex', gap: 4 }}>
               {[['lower', 'Lower'], ['center', 'Center'], ['banner', 'Banner']].map(([v, lbl]) => (
-                <button key={v} onClick={() => setOvDraft((d) => ({ ...d, style: v }))} title={v === 'lower' ? 'Lower-third bar' : v === 'center' ? 'Centered card' : 'Top banner'} style={{ flex: 1, background: ovDraft.style === v ? 'rgba(139,92,246,0.18)' : 'transparent', border: '1px solid ' + (ovDraft.style === v ? 'rgba(139,92,246,0.55)' : 'var(--ui-border2)'), color: ovDraft.style === v ? '#C4B5FD' : C.muted, borderRadius: 7, padding: '5px 0', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>{lbl}</button>
+                <button key={v} onClick={() => setOvDraft((d) => ({ ...d, style: v }))} title={v === 'lower' ? 'Lower-third bar' : v === 'center' ? 'Centered card' : 'Top banner'} style={{ flex: 1, background: ovDraft.style === v ? 'rgba(255,184,0,0.18)' : 'transparent', border: '1px solid ' + (ovDraft.style === v ? 'rgba(255,184,0,0.55)' : 'var(--ui-border2)'), color: ovDraft.style === v ? '#FFC72C' : C.muted, borderRadius: 7, padding: '5px 0', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>{lbl}</button>
               ))}
             </div>
             <div style={{ display: 'flex', gap: 4 }}>
               {[[5, '5s'], [10, '10s'], [30, '30s'], [0, 'Pinned']].map(([v, lbl]) => (
-                <button key={lbl} onClick={() => setOvDraft((d) => ({ ...d, secs: v }))} title={v === 0 ? 'Stays until cleared' : `Auto-clears after ${v} seconds`} style={{ flex: 1, background: ovDraft.secs === v ? 'rgba(139,92,246,0.18)' : 'transparent', border: '1px solid ' + (ovDraft.secs === v ? 'rgba(139,92,246,0.55)' : 'var(--ui-border2)'), color: ovDraft.secs === v ? '#C4B5FD' : C.muted, borderRadius: 7, padding: '5px 0', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>{lbl}</button>
+                <button key={lbl} onClick={() => setOvDraft((d) => ({ ...d, secs: v }))} title={v === 0 ? 'Stays until cleared' : `Auto-clears after ${v} seconds`} style={{ flex: 1, background: ovDraft.secs === v ? 'rgba(255,184,0,0.18)' : 'transparent', border: '1px solid ' + (ovDraft.secs === v ? 'rgba(255,184,0,0.55)' : 'var(--ui-border2)'), color: ovDraft.secs === v ? '#FFC72C' : C.muted, borderRadius: 7, padding: '5px 0', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>{lbl}</button>
               ))}
             </div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -756,11 +760,11 @@ export default function LiveOutputPanel({
                   <img src={ovDraft.media.url} alt="" style={{ width: 44, height: 25, objectFit: 'cover', borderRadius: 5, border: '1px solid var(--ui-border2)', background: '#000', flexShrink: 0 }} />
                   <div style={{ display: 'flex', gap: 3 }}>
                     {[['tl', '↖', 'Top left'], ['tr', '↗', 'Top right'], ['bl', '↙', 'Bottom left'], ['br', '↘', 'Bottom right']].map(([v, lbl, tip]) => (
-                      <button key={v} onClick={() => setOvDraft((d) => ({ ...d, media: d.media ? { ...d.media, pos: v } : d.media }))} title={tip} style={{ width: 24, background: ovDraft.media.pos === v ? 'rgba(139,92,246,0.18)' : 'transparent', border: '1px solid ' + (ovDraft.media.pos === v ? 'rgba(139,92,246,0.55)' : 'var(--ui-border2)'), color: ovDraft.media.pos === v ? '#C4B5FD' : C.muted, borderRadius: 6, padding: '3px 0', fontSize: 11, fontWeight: 800, cursor: 'pointer', lineHeight: 1 }}>{lbl}</button>
+                      <button key={v} onClick={() => setOvDraft((d) => ({ ...d, media: d.media ? { ...d.media, pos: v } : d.media }))} title={tip} style={{ width: 24, background: ovDraft.media.pos === v ? 'rgba(255,184,0,0.18)' : 'transparent', border: '1px solid ' + (ovDraft.media.pos === v ? 'rgba(255,184,0,0.55)' : 'var(--ui-border2)'), color: ovDraft.media.pos === v ? '#FFC72C' : C.muted, borderRadius: 6, padding: '3px 0', fontSize: 11, fontWeight: 800, cursor: 'pointer', lineHeight: 1 }}>{lbl}</button>
                     ))}
                   </div>
                   <span style={{ flex: 1 }} />
-                  <button onClick={() => setOvDraft((d) => ({ ...d, media: null }))} title="Remove the corner bug (keeps the text)" style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>Remove</button>
+                  <button onClick={() => setOvDraft((d) => ({ ...d, media: null }))} title="Remove the corner bug (keeps the text)" style={{ background: 'transparent', border: 'none', color: '#FF4545', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>Remove</button>
                 </>
               ) : (
                 <label title="Pin a logo or art image to a wall corner (PNG/JPG/GIF)" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 7, padding: '5px 10px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>
@@ -777,9 +781,9 @@ export default function LiveOutputPanel({
               )}
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
-              <motion.button {...stubTap} onClick={() => { if (ovReady && fireOverlay) fireOverlay(ovDraft.text, { style: ovDraft.style, secs: ovDraft.secs, media: ovDraft.media || null }); }} title="Pin this message above the live slide" style={{ flex: 1, background: ovReady ? ACCENT : C.elevated2, border: '1px solid ' + (ovReady ? ACCENT : 'var(--ui-border2)'), color: '#fff', borderRadius: 7, padding: '7px 0', fontSize: 11.5, fontWeight: 800, cursor: ovReady ? 'pointer' : 'default', opacity: ovReady ? 1 : 0.55 }}>Show</motion.button>
+              <motion.button {...stubTap} onClick={() => { if (ovReady && fireOverlay) fireOverlay(ovDraft.text, { style: ovDraft.style, secs: ovDraft.secs, media: ovDraft.media || null }); }} title="Pin this message above the live slide" style={{ flex: 1, background: ovReady ? 'var(--kog-accent)' : C.elevated2, border: '1px solid ' + (ovReady ? 'var(--kog-accent)' : 'var(--ui-border2)'), color: ovReady ? '#171208' : C.muted, borderRadius: 5, padding: '7px 0', fontSize: 11.5, fontWeight: 700, cursor: ovReady ? 'pointer' : 'default', opacity: ovReady ? 1 : 0.55 }}>Show</motion.button>
               {overlayLive && (
-                <motion.button {...stubTap} onClick={() => clearOverlay && clearOverlay()} title="Take the message down (the slide stays)" style={{ flex: 1, background: 'transparent', border: '1px solid rgba(239,68,68,0.45)', color: '#f87171', borderRadius: 7, padding: '7px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>Clear</motion.button>
+                <motion.button {...stubTap} onClick={() => clearOverlay && clearOverlay()} title="Take the message down (the slide stays)" style={{ flex: 1, background: 'transparent', border: '1px solid rgba(255,69,69,0.45)', color: '#FF4545', borderRadius: 7, padding: '7px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>Clear</motion.button>
               )}
               <button onClick={() => setStudioOpen(true)} title="Open the message studio (visual styles, templates)" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 7, padding: '7px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}><SlidersHorizontal size={13} /></button>
             </div>

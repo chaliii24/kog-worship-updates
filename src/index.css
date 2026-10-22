@@ -64,7 +64,7 @@
 }
 .kog-sa-thumb:hover,
 .kog-sa-thumb[data-dragging] {
-  background: var(--kog-accent, #8b5cf6);
+  background: var(--kog-accent, #FFB800);
 }
 @media (prefers-reduced-motion: reduce) {
   .kog-sa-thumb { transition: none; }
@@ -239,60 +239,79 @@
      designed look. App.jsx sets <html data-theme> + color-scheme so
      native controls (scrollbars, selects, color pickers) follow too.
      ===================================================================== */
-  --ui-bg: #090a0f;
+  --ui-bg: #0D1014;
   /* Chrome and canvas, split the way the Presentations tab already does it.
      Both side panels (left command centre, right Live Output) sit on
-     --ui-panel; the centre stage drops to --ui-bg so the workspace reads as
+     --ui-sidebar; the centre stage drops to --ui-bg so the workspace reads as
      the recessed canvas between them. Contrast comes from what sits ON the
      stage — slide tiles, the empty-state card — not from a second colour
      invented for the middle column. */
   --ui-stage: var(--ui-bg);
-  --ui-panel: #13151e;
-  --ui-elev: #171a25;
-  --ui-elev2: #1c1f2c;
-  --ui-input: #171a25;
-  --ui-border: #191d28;
-  --ui-border2: #222636;
-  --ui-blight: rgba(255, 255, 255, 0.06);
-  --ui-text: #e2e8f0;
-  --ui-text2: #cbd5e1;
-  --ui-muted: #64748b;
-  --ui-faint: #475569;
-  --ui-dock-idle: #8b8b9e;
-  --ui-dock-hover: #e2e8f0;
-  --ui-dock-active: #ede9fe;
-  --ui-hover-bg: rgba(255, 255, 255, 0.05);
-  --ui-hover-border: rgba(148, 163, 184, 0.22);
-  --ui-tip-bg: #1e293b;
-  --ui-tip-text: #f1f5f9;
-  --ui-scroll-track: #090a0f;
-  --ui-scroll-thumb: #2f3547;
+  --ui-sidebar: #101419;
+  --ui-panel: #14191F;
+  --ui-elev: #1A2027;
+  /* One derived step between the secondary panel and hover. The supplied
+     palette names the resting and hover surfaces; raised controls need a
+     third value so inputs do not flatten into the cards around them. */
+  --ui-elev2: #1F262E;
+  --ui-input: #1A2027;
+  --ui-border: #29313B;
+  --ui-border2: #29313B;
+  --ui-blight: rgba(255, 255, 255, 0.07);
+  --ui-text: #F1F2F3;
+  --ui-text2: #A1A8B3;
+  --ui-muted: #737D8B;
+  --ui-faint: #737D8B;
+  --ui-dock-idle: #737D8B;
+  --ui-dock-hover: #F1F2F3;
+  --ui-dock-active: #FFC72C;
+  --ui-hover-bg: #252C35;
+  --ui-hover-border: rgba(255, 184, 0, 0.24);
+  --ui-tip-bg: #1A2027;
+  --ui-tip-text: #F1F2F3;
+  --ui-scroll-track: #0D1014;
+  --ui-scroll-thumb: #29313B;
+  --kog-accent: #FFB800;
+  --kog-accent-hover: #FFC72C;
+  --kog-accent-pressed: #E5A000;
+  --kog-accent-bg: #332609;
+  --kog-success: #36C982;
+  --kog-warning: #E2AE58;
+  --kog-error: #FF4545;
 }
 
 [data-theme='light'] {
   color-scheme: light;
-  --ui-bg: #e9ecf2;
+  --ui-bg: #EEF0F2;
   --ui-stage: var(--ui-bg);
-  --ui-panel: #ffffff;
-  --ui-elev: #f6f8fb;
-  --ui-elev2: #eef1f6;
-  --ui-input: #ffffff;
-  --ui-border: #dfe3ea;
-  --ui-border2: #c7cedb;
+  --ui-sidebar: #F7F8F9;
+  --ui-panel: #FFFFFF;
+  --ui-elev: #F7F8F9;
+  --ui-elev2: #EDEFF2;
+  --ui-input: #FFFFFF;
+  --ui-border: #E1E4E8;
+  --ui-border2: #CFD5DC;
   --ui-blight: rgba(15, 23, 42, 0.08);
-  --ui-text: #0f172a;
-  --ui-text2: #334155;
-  --ui-muted: #5b6b81;
-  --ui-faint: #7c8798;
-  --ui-dock-idle: #64748b;
-  --ui-dock-hover: #0f172a;
-  --ui-dock-active: #6d28d9;
-  --ui-hover-bg: rgba(15, 23, 42, 0.05);
-  --ui-hover-border: rgba(100, 116, 139, 0.3);
-  --ui-tip-bg: #ffffff;
-  --ui-tip-text: #0f172a;
-  --ui-scroll-track: #eef1f6;
-  --ui-scroll-thumb: #c7cedb;
+  --ui-text: #161A1F;
+  --ui-text2: #3E4651;
+  --ui-muted: #6B7480;
+  --ui-faint: #8A929C;
+  --ui-dock-idle: #6B7480;
+  --ui-dock-hover: #161A1F;
+  --ui-dock-active: #A86F00;
+  --ui-hover-bg: #E8EBEF;
+  --ui-hover-border: rgba(168, 111, 0, 0.28);
+  --ui-tip-bg: #FFFFFF;
+  --ui-tip-text: #161A1F;
+  --ui-scroll-track: #EEF0F2;
+  --ui-scroll-thumb: #CFD5DC;
+  --kog-accent: #A86F00;
+  --kog-accent-hover: #8A5A00;
+  --kog-accent-pressed: #7A5500;
+  --kog-accent-bg: #FFF3CC;
+  --kog-success: #1F8A57;
+  --kog-warning: #A8741F;
+  --kog-error: #C73030;
 }
 
 /* Smooth theme flip: App adds .theme-fading to <html> only while a toggle
@@ -445,7 +464,7 @@ textarea {
   width: 0;
   height: 2px;
   border-radius: 2px;
-  background: #8b5cf6;
+  background: #FFB800;
   transform: translateX(-50%);
   transition: width 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease;
   opacity: 0;
@@ -463,18 +482,18 @@ textarea {
 }
 
 .dock-btn:focus-visible {
-  outline: 2px solid rgba(139, 92, 246, 0.7);
+  outline: 2px solid rgba(255, 184, 0, 0.7);
   outline-offset: 2px;
 }
 
 .dock-btn[data-active='1'] {
-  background: rgba(139, 92, 246, 0.10);
-  border-color: rgba(167, 139, 250, 0.55);
+  background: rgba(255, 184, 0, 0.10);
+  border-color: rgba(255, 199, 44, 0.55);
   color: var(--ui-dock-active);
   box-shadow:
-    0 0 0 1px rgba(167, 139, 250, 0.18),
-    0 0 16px rgba(139, 92, 246, 0.38),
-    0 0 36px rgba(139, 92, 246, 0.16),
+    0 0 0 1px rgba(255, 199, 44, 0.18),
+    0 0 16px rgba(255, 184, 0, 0.38),
+    0 0 36px rgba(255, 184, 0, 0.16),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
   animation: dockGlowIn 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -482,24 +501,24 @@ textarea {
 @keyframes dockGlowIn {
   0% {
     box-shadow:
-      0 0 0 1px rgba(167, 139, 250, 0),
-      0 0 0 rgba(139, 92, 246, 0),
-      0 0 0 rgba(139, 92, 246, 0);
+      0 0 0 1px rgba(255, 199, 44, 0),
+      0 0 0 rgba(255, 184, 0, 0),
+      0 0 0 rgba(255, 184, 0, 0);
     background: transparent;
   }
   55% {
     box-shadow:
-      0 0 0 1px rgba(167, 139, 250, 0.35),
-      0 0 22px rgba(139, 92, 246, 0.55),
-      0 0 44px rgba(139, 92, 246, 0.28);
+      0 0 0 1px rgba(255, 199, 44, 0.35),
+      0 0 22px rgba(255, 184, 0, 0.55),
+      0 0 44px rgba(255, 184, 0, 0.28);
   }
   100% {
     box-shadow:
-      0 0 0 1px rgba(167, 139, 250, 0.18),
-      0 0 16px rgba(139, 92, 246, 0.38),
-      0 0 36px rgba(139, 92, 246, 0.16),
+      0 0 0 1px rgba(255, 199, 44, 0.18),
+      0 0 16px rgba(255, 184, 0, 0.38),
+      0 0 36px rgba(255, 184, 0, 0.16),
       inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    background: rgba(139, 92, 246, 0.10);
+    background: rgba(255, 184, 0, 0.10);
   }
 }
 
@@ -529,7 +548,7 @@ textarea {
 }
 
 .dock-cta:hover {
-  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.35);
+  box-shadow: 0 6px 16px rgba(255, 184, 0, 0.35);
 }
 
 .dock-tip-wrap {
@@ -607,10 +626,10 @@ textarea {
   justify-content: space-between;
   gap: 6px;
   padding: 4px 6px;
-  border: 1px solid rgba(139, 92, 246, 0.55);
+  border: 1px solid rgba(255, 184, 0, 0.55);
   border-radius: 7px;
-  background: rgba(139, 92, 246, 0.10);
-  color: #c4b5fd;
+  background: rgba(255, 184, 0, 0.10);
+  color: #FFC72C;
   font-size: 10.5px;
   font-weight: 700;
   line-height: 1.3;
@@ -621,8 +640,8 @@ textarea {
 }
 
 .dd-trigger:hover {
-  background: rgba(139, 92, 246, 0.17);
-  border-color: rgba(167, 139, 250, 0.9);
+  background: rgba(255, 184, 0, 0.17);
+  border-color: rgba(255, 199, 44, 0.9);
 }
 
 /* Neutral tone for pickers that sit inside a panel (book / chapter). */
@@ -682,7 +701,7 @@ textarea {
   overscroll-behavior: contain;
   padding: 4px;
   background: var(--ui-elev2);
-  border: 1px solid rgba(139, 92, 246, 0.45);
+  border: 1px solid rgba(255, 184, 0, 0.45);
   border-radius: 8px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
   animation: ddPanelIn 140ms cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -713,8 +732,8 @@ textarea {
 }
 
 .dd-opt[data-active='1'] {
-  background: rgba(139, 92, 246, 0.22);
-  color: #c4b5fd;
+  background: rgba(255, 184, 0, 0.22);
+  color: #FFC72C;
   font-weight: 700;
 }
 
@@ -722,7 +741,7 @@ textarea {
    A ring separates it from plain hover and from the selected-row tint. */
 .dd-opt[data-hl='1'] {
   background: var(--ui-hover-bg);
-  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.4);
+  box-shadow: inset 0 0 0 1px rgba(255, 184, 0, 0.4);
 }
 
 .dd-empty {
@@ -771,9 +790,9 @@ textarea {
 }
 
 .svc-add[data-active='1'] {
-  background: rgba(139, 92, 246, 0.16);
-  border-color: rgba(139, 92, 246, 0.5);
-  color: #c4b5fd;
+  background: rgba(255, 184, 0, 0.16);
+  border-color: rgba(255, 184, 0, 0.5);
+  color: #FFC72C;
 }
 
 .svc-add:disabled {
@@ -794,6 +813,8 @@ textarea {
   padding: 8px 10px;
   border-bottom: 1px solid var(--ui-border);
   flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .side-tabs .side-tab {
@@ -837,9 +858,9 @@ textarea {
 }
 
 .side-tabs .side-tab[data-active='1'] {
-  background: rgba(139, 92, 246, 0.16);
-  border-color: rgba(139, 92, 246, 0.5);
-  color: #c4b5fd;
+  background: rgba(255, 184, 0, 0.16);
+  border-color: rgba(255, 184, 0, 0.5);
+  color: #FFC72C;
 }
 
 .side-tabs .side-tab .tab-n {
@@ -847,6 +868,46 @@ textarea {
   opacity: 0.7;
   font-weight: 700;
   letter-spacing: 0;
+}
+
+/* The Untitled UI tab primitives still carry their library brand colours.
+   Keep the console palette here: quiet neutral tabs, golden-yellow for the
+   selected one, and a neutral count pill instead of the purple token. */
+.side-tabs [role='tablist'] {
+  width: 100%;
+  min-width: 0;
+}
+.side-tabs [role='tab'] {
+  min-width: 0;
+}
+.side-tabs [role='tab'][data-selected='true'] {
+  background: rgba(255, 184, 0, 0.14) !important;
+  color: var(--kog-accent-hover) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 184, 0, 0.42);
+}
+.side-tabs [role='tab']:hover:not([data-selected='true']) {
+  background: var(--ui-hover-bg) !important;
+  color: var(--ui-text2) !important;
+}
+.side-tabs [role='tab']:focus-visible {
+  outline: 2px solid rgba(255, 184, 0, 0.75);
+  outline-offset: 1px;
+}
+.side-tabs [role='tab'] > span > span {
+  height: 15px;
+  padding: 0 5px !important;
+  border-radius: 999px;
+  background: var(--ui-elev2) !important;
+  color: var(--ui-faint) !important;
+  font-size: 9px !important;
+  font-weight: 700 !important;
+  line-height: 15px;
+  box-shadow: inset 0 0 0 1px var(--ui-border) !important;
+}
+.side-tabs [role='tab'][data-selected='true'] > span > span {
+  background: rgba(255, 184, 0, 0.18) !important;
+  color: var(--kog-accent-hover) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 184, 0, 0.4) !important;
 }
 
 /* =====================================================================
@@ -871,6 +932,201 @@ textarea {
 .row:focus-within .row-act {
   opacity: 1;
   transform: none;
+}
+
+/* =====================================================================
+   Service Order — a clean running list, not a stack of cards.
+   Each group is pinned by a hairline above it and a rule that runs out
+   from its label, so a section reads as a divider in the order instead of
+   a word floating in the gap. The row's title owns the full width;
+   editing/firing controls surface as a compact floating cluster only on
+   hover or keyboard focus.
+   ===================================================================== */
+.svc-section {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  padding: 11px 6px 5px;
+  border-top: 1px solid var(--ui-border);
+  border-radius: 0 0 7px 7px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--ui-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  transition: background-color 130ms ease, color 130ms ease;
+}
+
+/* The first group sits directly under the add-to toolbar, which already
+   draws the edge above it — no second rule on top of that. */
+.svc-section:first-child {
+  margin-top: 2px;
+  border-top-color: transparent;
+}
+
+/* Short accent bar: the group's own marker, and the only thing that turns
+   yellow when this section is the active target. */
+.svc-section::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 3px;
+  height: 11px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.5;
+  transition: opacity 130ms ease;
+}
+
+/* The rule that runs out from the label to the panel edge. */
+.svc-section::after {
+  content: '';
+  flex: 1 1 auto;
+  min-width: 8px;
+  height: 1px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, var(--ui-border2), transparent);
+  opacity: 0.9;
+  transition: opacity 130ms ease;
+}
+
+.svc-section:hover { color: var(--ui-text2); background: var(--ui-hover-bg); }
+.svc-section:hover::before { opacity: 0.85; }
+.svc-section[data-target='1'] { color: var(--kog-accent-hover); }
+.svc-section[data-target='1']::before { opacity: 1; }
+.svc-section[data-target='1']::after {
+  background: linear-gradient(90deg, rgba(255, 184, 0, 0.7), rgba(255, 184, 0, 0));
+}
+.svc-section-chevron {
+  flex: 0 0 auto;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.svc-section:hover .svc-section-chevron,
+.svc-section:focus-within .svc-section-chevron { opacity: 1; }
+.svc-section-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.svc-section-tail {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 4px;
+  border: 1px solid var(--ui-border2);
+  border-radius: 4px;
+  background: var(--ui-elev2);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  pointer-events: none;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--ui-faint);
+  transition: opacity 140ms ease;
+}
+.svc-section:hover .svc-section-tail,
+.svc-section:focus-within .svc-section-tail {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.svc-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 6px 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: grab;
+  transition: background-color 130ms ease, border-color 130ms ease;
+}
+.svc-item:hover { background: var(--ui-hover-bg); }
+.svc-item[data-selected='1'] {
+  background: rgba(255, 184, 0, 0.12);
+  border-color: rgba(255, 184, 0, 0.55);
+}
+.svc-item[data-live='1'] {
+  background: rgba(54, 201, 130, 0.10);
+  border-color: rgba(54, 201, 130, 0.45);
+}
+.svc-item[data-live='1'][data-selected='1'] { border-color: var(--kog-success); }
+.svc-item .svc-index {
+  width: 12px;
+  flex: 0 0 auto;
+  text-align: left;
+  color: var(--ui-faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.svc-item[data-live='1'] .svc-index { color: var(--kog-success); }
+.svc-item .svc-kind {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+.svc-item .svc-body { flex: 1; min-width: 0; }
+.svc-item .svc-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ui-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.svc-item .svc-meta {
+  margin-top: 1px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--ui-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.svc-actions {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 3px;
+  border: 1px solid var(--ui-border2);
+  border-radius: 6px;
+  background: var(--ui-elev2);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.38);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%) translateX(4px);
+  transition: opacity 130ms ease, transform 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.svc-item:hover .svc-actions,
+.svc-item:focus-within .svc-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(-50%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .svc-item,
+  .svc-actions,
+  .svc-section-chevron,
+  .svc-section-tail { transition: none; }
 }
 
 /* =====================================================================
@@ -1078,4 +1334,756 @@ textarea {
 }
 @media (prefers-reduced-motion: reduce) {
   [data-kog-output] * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
+}
+
+/* =====================================================================
+   KOG WORSHIP � CONSOLE DESIGN SYSTEM
+   Charcoal surfaces, golden-yellow accents, hairline borders. These
+   classes are the shared chrome for the header, sidebar navigation,
+   workspace toolbar, slide grid and numbered pagination. Component
+   logic stays in React; this file owns appearance only.
+   ===================================================================== */
+.kog-app-header {
+  height: 56px;
+  flex: 0 0 56px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  background: var(--ui-panel);
+  border-bottom: 1px solid var(--ui-border);
+  position: relative;
+  z-index: 20;
+}
+
+.kog-header-service {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kog-header-service-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.kog-header-service strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ui-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+  letter-spacing: 0.01em;
+}
+.kog-header-service span {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--ui-faint);
+  letter-spacing: 0.02em;
+}
+.kog-header-service .kog-header-service-date {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid rgba(255, 184, 0, 0.32);
+  border-radius: 4px;
+  background: rgba(255, 184, 0, 0.12);
+  color: var(--kog-accent-hover);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.kog-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 5px;
+  border: 1px solid var(--ui-border2);
+  background: var(--ui-elev);
+  color: var(--ui-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.kog-status-pill[data-live='1'] {
+  color: var(--kog-success);
+  border-color: rgba(54, 201, 130, 0.34);
+  background: rgba(54, 201, 130, 0.08);
+}
+.kog-status-pill .kog-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+.kog-status-pill[data-live='1'] .kog-dot {
+  box-shadow: 0 0 0 3px rgba(54, 201, 130, 0.12);
+}
+
+.kog-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0 8px;
+  border-radius: 5px;
+  border: 1px solid var(--ui-border2);
+  background: var(--ui-elev);
+  color: var(--ui-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.kog-icon-btn:hover {
+  background: var(--ui-hover-bg);
+  border-color: var(--ui-border2);
+  color: var(--ui-text);
+}
+.kog-icon-btn[data-active='1'] {
+  background: var(--kog-accent-bg);
+  border-color: rgba(255, 184, 0, 0.45);
+  color: var(--kog-accent-hover);
+}
+.kog-icon-btn:focus-visible,
+.kog-nav-btn:focus-visible,
+.kog-page-btn:focus-visible,
+.kog-seg-btn:focus-visible,
+.kog-icon-btn:focus-visible {
+  outline: 2px solid var(--kog-accent);
+  outline-offset: 1px;
+}
+
+.kog-header-select {
+  height: 28px;
+  max-width: 210px;
+  background: var(--ui-elev);
+  border: 1px solid var(--ui-border2);
+  border-radius: 5px;
+  color: var(--ui-text2);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 0 7px;
+  outline: none;
+  cursor: pointer;
+}
+.kog-header-select:focus-visible { outline: 2px solid var(--kog-accent); outline-offset: 1px; }
+.kog-header-select:disabled { color: var(--ui-faint); cursor: default; }
+
+/* ---------------- Left sidebar ---------------- */
+.kog-sidebar {
+  width: 264px;
+  min-width: 264px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--ui-sidebar);
+  border-right: 1px solid var(--ui-border);
+  overflow: hidden;
+}
+.kog-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  flex: 0 0 auto;
+}
+.kog-brand img { width: 30px; height: 30px; object-fit: contain; border-radius: 5px; flex: 0 0 auto; }
+.kog-brand-name { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; color: var(--ui-text); line-height: 1.15; white-space: nowrap; }
+.kog-brand-name em { font-style: normal; color: var(--kog-accent); font-weight: 600; }
+.kog-brand-sub { display: block; margin-top: 2px; font-size: 9px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ui-faint); }
+
+.kog-nav { padding: 2px 8px 8px; display: flex; flex-direction: column; gap: 1px; flex: 0 0 auto; }
+.kog-nav-label { padding: 8px 8px 5px; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ui-faint); }
+.kog-nav-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.kog-nav-btn svg { flex: 0 0 auto; opacity: 0.9; }
+.kog-nav-btn span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kog-nav-btn:hover { background: var(--ui-hover-bg); color: var(--ui-text); }
+.kog-nav-btn[data-active='1'] {
+  background: var(--kog-accent-bg);
+  border-color: rgba(255, 184, 0, 0.22);
+  color: var(--kog-accent-hover);
+  font-weight: 600;
+}
+.kog-nav-btn[data-active='1']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--kog-accent);
+}
+.kog-nav-count {
+  margin-left: auto;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--ui-faint);
+  background: var(--ui-elev2);
+  border: 1px solid var(--ui-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  line-height: 1.2;
+}
+
+.kog-sidebar-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px 7px;
+  border-top: 1px solid var(--ui-border);
+  flex: 0 0 auto;
+}
+.kog-sidebar-section h2 {
+  margin: 0;
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ui-muted);
+}
+.kog-sidebar-section .kog-spacer { flex: 1; }
+.kog-sidebar-section button {
+  border: 0;
+  background: transparent;
+  color: var(--ui-faint);
+  padding: 2px;
+  display: inline-flex;
+  flex-shrink: 0;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.kog-sidebar-section button:hover { color: var(--ui-text); background: var(--ui-hover-bg); }
+
+/* Workspace guide — what replaces the Service Order on non-Home tabs. */
+.kog-sidebar-guide {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 12px 16px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.kog-guide-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.kog-guide-icon {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: var(--kog-accent-bg);
+  border: 1px solid rgba(255, 184, 0, 0.26);
+  color: var(--kog-accent-hover);
+}
+.kog-guide-hero h3 {
+  margin: 1px 0 0;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--ui-text);
+  letter-spacing: -0.01em;
+}
+.kog-guide-hero p {
+  margin: 5px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ui-muted);
+}
+.kog-guide-card {
+  padding: 11px 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: 7px;
+  background: var(--ui-elev);
+}
+.kog-guide-eyebrow {
+  margin-bottom: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ui-faint);
+}
+.kog-guide-card ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 7px;
+}
+.kog-guide-card li {
+  position: relative;
+  padding-left: 13px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ui-text2);
+}
+.kog-guide-card li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.58em;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--kog-accent);
+}
+.kog-guide-actions {
+  display: grid;
+  gap: 6px;
+}
+.kog-guide-primary,
+.kog-guide-secondary {
+  width: 100%;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.kog-guide-primary {
+  border: 1px solid var(--kog-accent);
+  background: var(--kog-accent);
+  color: #0D1014;
+}
+.kog-guide-primary:hover { background: var(--kog-accent-hover); border-color: var(--kog-accent-hover); }
+.kog-guide-secondary {
+  border: 1px solid var(--ui-border2);
+  background: var(--ui-elev);
+  color: var(--ui-muted);
+}
+.kog-guide-secondary:hover { background: var(--ui-hover-bg); color: var(--ui-text); }
+.kog-guide-primary:focus-visible,
+.kog-guide-secondary:focus-visible { outline: 2px solid var(--kog-accent); outline-offset: 1px; }
+
+.kog-sidebar-utility {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 8px;
+  border-top: 1px solid var(--ui-border);
+}
+.kog-sidebar-utility button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 38px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ui-faint);
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.kog-sidebar-utility button:hover { background: var(--ui-hover-bg); color: var(--ui-text2); }
+.kog-sidebar-utility button[data-active='1'] { background: var(--kog-accent-bg); color: var(--kog-accent-hover); }
+.kog-utility-count {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--ui-elev2);
+  border: 1px solid var(--ui-border2);
+  color: var(--ui-muted);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 11px;
+  text-align: center;
+  box-sizing: border-box;
+}
+.kog-sidebar-utility button[data-active='1'] .kog-utility-count {
+  background: rgba(255, 184, 0, 0.18);
+  border-color: rgba(255, 184, 0, 0.4);
+  color: var(--kog-accent-hover);
+}
+
+.kog-rail {
+  flex: 0 0 38px;
+  width: 38px;
+  height: 100%;
+  background: var(--ui-sidebar);
+  border: none;
+  border-right: 1px solid var(--ui-border);
+  color: var(--ui-faint);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 14px;
+  gap: 14px;
+}
+.kog-rail:hover { color: var(--kog-accent); }
+
+/* ---------------- Workspace ---------------- */
+.kog-workspace-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 18px 10px;
+  flex: 0 0 auto;
+}
+.kog-workspace-title {
+  margin: 0;
+  font-size: 23px;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--ui-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kog-workspace-sub {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ui-faint);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kog-workspace-sub b { color: var(--ui-muted); font-weight: 600; }
+
+.kog-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--ui-border2);
+  border-radius: 5px;
+  background: var(--ui-elev);
+}
+.kog-seg-btn {
+  min-width: 26px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ui-faint);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.kog-seg-btn:hover { color: var(--ui-text2); background: var(--ui-hover-bg); }
+.kog-seg-btn[data-active='1'] {
+  background: var(--kog-accent-bg);
+  border-color: rgba(255, 184, 0, 0.36);
+  color: var(--kog-accent-hover);
+}
+
+.kog-grid-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 18px 10px;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--ui-border);
+}
+.kog-grid-header .kog-grid-caption {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ui-faint);
+}
+.kog-grid-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 18px 18px; }
+.kog-slide-grid { display: grid; align-content: start; gap: 12px; }
+
+.kog-slide-tile {
+  position: relative;
+  min-width: 0;
+  border-radius: 8px;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+/* The tap gesture makes the tile focusable, so clicking one and then moving
+   with the arrow keys leaves Chrome's default white focus ring on the old
+   card. Selection and LIVE already have their own gold/green treatment —
+   the browser ring adds nothing, so drop it. */
+.kog-slide-tile:focus,
+.kog-slide-tile:focus-visible {
+  outline: none;
+}
+.kog-slide-tile .kog-slide-face > * {
+  border-color: var(--ui-border2) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28) !important;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.kog-slide-tile:hover .kog-slide-face > * { border-color: var(--ui-faint) !important; }
+.kog-slide-tile[data-selected='1'] .kog-slide-face > * {
+  border-color: var(--kog-accent) !important;
+  box-shadow: 0 0 0 1px var(--kog-accent), 0 4px 14px rgba(0, 0, 0, 0.34) !important;
+}
+.kog-slide-tile[data-live='1'] .kog-slide-face > * {
+  border-color: var(--kog-success) !important;
+  box-shadow: 0 0 0 1px var(--kog-success), 0 4px 16px rgba(0, 0, 0, 0.36) !important;
+}
+/* Selected AND live: the green ring keeps meaning "on air"; a gold inner
+   ring still marks where the operator is browsing. */
+.kog-slide-tile[data-selected='1'][data-live='1'] .kog-slide-face > * {
+  border-color: var(--kog-success) !important;
+  box-shadow: 0 0 0 1px var(--kog-success), inset 0 0 0 1px var(--kog-accent), 0 4px 16px rgba(0, 0, 0, 0.36) !important;
+}
+.kog-live-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--kog-success);
+  color: #07130D;
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+}
+
+/* ---------------- Numbered pagination ---------------- */
+.kog-pagination {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--ui-border);
+  background: var(--ui-panel);
+  min-height: 46px;
+  flex-wrap: wrap;
+}
+.kog-page-btn {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ui-border2);
+  border-radius: 4px;
+  background: var(--ui-elev);
+  color: var(--ui-muted);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.kog-page-btn:hover:not(:disabled) { background: var(--ui-hover-bg); color: var(--ui-text); }
+.kog-page-btn[data-active='1'] {
+  background: var(--kog-accent-bg);
+  border-color: var(--kog-accent);
+  color: var(--kog-accent-hover);
+}
+.kog-page-btn[data-nav='1'] { color: var(--ui-faint); }
+.kog-page-btn[data-live='1'] {
+  position: relative;
+  color: var(--kog-success);
+  border-color: rgba(54, 201, 130, 0.34);
+}
+.kog-page-btn[data-live='1']::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 3px;
+  height: 3px;
+  margin-left: -1.5px;
+  border-radius: 50%;
+  background: var(--kog-success);
+}
+.kog-page-btn[data-live='1'][data-active='1'] {
+  background: rgba(54, 201, 130, 0.10);
+  border-color: var(--kog-success);
+  color: var(--kog-success);
+}
+.kog-page-btn:disabled { opacity: 0.35; cursor: default; }
+.kog-page-ellipsis {
+  min-width: 18px;
+  text-align: center;
+  color: var(--ui-faint);
+  font-size: 11px;
+  user-select: none;
+}
+.kog-pagination-meta {
+  margin-left: 8px;
+  padding-left: 10px;
+  border-left: 1px solid var(--ui-border);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ui-faint);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------- Right live panel ---------------- */
+.kog-live-panel {
+  flex: 0 0 352px;
+  width: 352px;
+  min-width: 300px;
+  max-width: 38vw;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--ui-sidebar);
+  border-left: 1px solid var(--ui-border);
+}
+.kog-live-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--ui-border);
+  flex: 0 0 auto;
+}
+.kog-live-head h2 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ui-text2);
+}
+.kog-live-head .kog-spacer { flex: 1; }
+.kog-live-preview {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--ui-border2);
+  transition: border-color 220ms ease, box-shadow 220ms ease;
+}
+.kog-live-preview[data-live='1'] {
+  border-color: rgba(54, 201, 130, 0.75);
+  box-shadow: 0 0 0 1px rgba(54, 201, 130, 0.25);
+}
+.kog-clear-lyrics {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--ui-border2);
+  border-radius: 5px;
+  background: var(--ui-elev);
+  color: var(--ui-text2);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.kog-clear-lyrics:hover { background: var(--ui-hover-bg); color: var(--ui-text); }
+.kog-clear-all {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(255, 69, 69, 0.4);
+  border-radius: 5px;
+  background: rgba(255, 69, 69, 0.09);
+  color: #FF4545;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.kog-clear-all:hover { background: rgba(255, 69, 69, 0.16); color: #FF8A8A; }
+
+@media (max-width: 1500px) {
+  .kog-header-hide-md { display: none !important; }
+}
+@media (max-width: 1240px) {
+  .kog-header-hide-sm { display: none !important; }
+  .kog-app-header { gap: 8px; padding: 0 10px; }
+  .kog-workspace-toolbar { padding: 10px 14px 8px; gap: 10px; }
+  .kog-grid-header { padding: 0 14px 8px; }
+  .kog-grid-scroll { padding: 12px 14px 14px; }
+  .kog-workspace-title { font-size: 20px; }
+  .kog-live-panel { flex-basis: 318px; width: 318px; min-width: 286px; }
+}
+@media (max-width: 1080px) {
+  .kog-workspace-title { font-size: 18px; }
+  .kog-live-panel { flex-basis: 294px; width: 294px; min-width: 270px; }
+  .kog-pagination-meta { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kog-slide-tile,
+  .kog-icon-btn,
+  .kog-nav-btn,
+  .kog-page-btn,
+  .kog-seg-btn,
+  .kog-live-preview {
+    transition: none !important;
+  }
 }

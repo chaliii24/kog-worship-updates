@@ -99,9 +99,9 @@ export default function MobileApp() {
               position: 'sticky', top: 0, zIndex: 60, textAlign: 'center',
               padding: 'calc(7px + env(safe-area-inset-top)) 12px 7px',
               fontSize: 12, fontWeight: 800, letterSpacing: 0.4,
-              background: banner.tone === 'bad' ? 'rgba(239,68,68,0.18)' : 'rgba(34,197,94,0.14)',
-              borderBottom: `1px solid ${banner.tone === 'bad' ? 'rgba(239,68,68,0.4)' : 'rgba(34,197,94,0.3)'}`,
-              color: banner.tone === 'bad' ? '#f87171' : '#4ade80',
+              background: banner.tone === 'bad' ? 'rgba(255,69,69,0.18)' : 'rgba(54,201,130,0.14)',
+              borderBottom: `1px solid ${banner.tone === 'bad' ? 'rgba(255,69,69,0.4)' : 'rgba(54,201,130,0.3)'}`,
+              color: banner.tone === 'bad' ? '#FF4545' : '#36C982',
             }}
           >{banner.text}</motion.div>
         )}
@@ -128,7 +128,7 @@ function Connecting({ C }) {
       <motion.span
         animate={{ rotate: 360 }}
         transition={{ repeat: Infinity, ease: 'linear', duration: 1.1 }}
-        style={{ width: 34, height: 34, borderRadius: '50%', border: `3px solid ${C.border2}`, borderTopColor: '#8b5cf6' }}
+        style={{ width: 34, height: 34, borderRadius: '50%', border: `3px solid ${C.border2}`, borderTopColor: '#FFB800' }}
       />
       <div style={{ fontSize: 14, fontWeight: 700, color: C.muted }}>Looking for the computer…</div>
       <div style={{ fontSize: 12.5, color: C.faint, textAlign: 'center', maxWidth: 280, lineHeight: 1.5 }}>
@@ -148,7 +148,7 @@ function Denied({ C, reason, onRetry }) {
           ? 'The operator disconnected all phones. Ask for the new pairing code on the computer.'
           : 'This phone is not authorised to control the output.'}
       </div>
-      <motion.button {...stubTap} onClick={onRetry} style={{ background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 10, padding: '13px 26px', fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>
+      <motion.button {...stubTap} onClick={onRetry} style={{ background: '#E5A000', color: '#0D1014', border: 'none', borderRadius: 10, padding: '13px 26px', fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>
         Pair again
       </motion.button>
     </div>

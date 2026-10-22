@@ -90,7 +90,7 @@ export default function BottomDock({ C, PINK, ACCENT, dockItems, dockTab, onSele
         // the active tab still reads through the bold label. Mono keeps the
         // old muted/purple behavior.
         const prism = iconTheme === 'prism';
-        const iconColor = prism ? iconHue(DOCK_KIND[item.iconId], C) : (active ? '#C4B5FD' : C.muted);
+        const iconColor = prism ? iconHue(DOCK_KIND[item.iconId], C) : (active ? '#FFC72C' : C.muted);
         return (
           <DockTooltip key={item.id} label={item.label}>
             <button
@@ -109,7 +109,7 @@ export default function BottomDock({ C, PINK, ACCENT, dockItems, dockTab, onSele
                 cursor: 'pointer',
                 background: 'transparent',
                 border: '1px solid transparent',
-                color: prism ? C.text2 : (active ? '#C4B5FD' : C.muted),
+                color: prism ? C.text2 : (active ? '#FFC72C' : C.muted),
               }}
             >
               <Icon size={18} strokeWidth={active ? 2.4 : 1.8} color={iconColor} />

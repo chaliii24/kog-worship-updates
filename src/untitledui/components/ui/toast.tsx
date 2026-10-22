@@ -80,9 +80,9 @@ export const toast = {
 };
 
 const typeStyles: Record<ToastType, { icon: typeof Check; color: string }> = {
-    success: { icon: Check, color: "#4ade80" },
-    info: { icon: InfoCircle, color: "#a78bfa" },
-    error: { icon: X, color: "#f87171" },
+    success: { icon: Check, color: "#36C982" },
+    info: { icon: InfoCircle, color: "#FFC72C" },
+    error: { icon: X, color: "#FF4545" },
 };
 
 export const Toaster = () => {
@@ -177,7 +177,7 @@ export const Toaster = () => {
                                             fontSize: 12,
                                             fontWeight: 800,
                                             letterSpacing: 0.2,
-                                            color: "var(--color-fg-brand-secondary, #8b5cf6)",
+                                            color: "var(--color-fg-brand-secondary, #FFB800)",
                                         }}
                                     >
                                         {item.actionProps.children as ReactNode}

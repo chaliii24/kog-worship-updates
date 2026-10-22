@@ -1,17 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Clock, Edit3, GripVertical, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, Images, PanelLeftClose, PanelLeftOpen, Music, MonitorPlay, Pencil, FileUp, BookOpen, Link2, ListMusic } from 'lucide-react';
+import { Plus, Search, ChevronRight, ChevronDown, ChevronUp, Trash2, Star, Clock, Edit3, Image as ImageIcon, Video, Folder, FileText, Sparkles, Monitor, Download, Upload, Images, PanelLeftClose, PanelLeftOpen, Music, MonitorPlay, Pencil, BookOpen, Link2, ListMusic, Home, Presentation, Film, Timer, Settings, Clapperboard, Mic, Radio } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '../context/AppContext';
-import { slidesFromPptx } from '../lib/backgrounds';
 import { ROW_KIND, iconHue } from '../lib/icons';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import Dropdown from './Dropdown';
-import SettingsPanel from './SettingsPanel';
 import VideoLibrarySidebar from './VideoLibrarySidebar';
 // Untitled UI — migration phase 3 (tabs): RAC-backed Tabs for the Service
 // Order / Shows / Songs switcher (mirror layout documented in NewSongPrompt).
 import { Tabs, TabList, Tab } from '../untitledui/components/application/tabs/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import logoImage from '../assets/logo.png';
 
 /* Left-to-right order of the sub-tabs — used to give the panel swap a
    direction, so switching to a tab further right slides content in from the
@@ -28,6 +27,74 @@ const LIBRARY_CHIPS = [
   { id: 'Recent', label: 'Recent', Icon: Clock, title: 'The 10 songs you opened most recently' },
 ];
 
+/* Non-Home workspaces replace the Service Order in this column with a short
+   guide. The running order only belongs on Home; everywhere else the operator
+   needs to know what the workspace is for, not see a second copy of the plan. */
+const WORKSPACE_GUIDES = {
+  presentations: {
+    Icon: MonitorPlay,
+    title: 'Presentation playback',
+    blurb: 'Load a PowerPoint, WPS or LibreOffice file and reveal it behind the lyrics on the live output.',
+    tips: [
+      'Open a .pptx, .ppt, .ppsx, .odp, .otp or .dps file from the workspace.',
+      'F1 brings lyrics forward; F2 reveals the presentation again.',
+      'Create and import decks from the Slideshow tab.',
+    ],
+    action: { id: 'sermon', label: 'Open Slideshow' },
+  },
+  media: {
+    Icon: Film,
+    title: 'Media library',
+    blurb: 'Images and video for backgrounds, sermon slides and service-order cues.',
+    tips: [
+      'Add files in the workspace and they join the library immediately.',
+      'Drag a media item into the Home service order to schedule it.',
+      'Use Send Live when a clip should appear on the output now.',
+    ],
+  },
+  audio: {
+    Icon: Music,
+    title: 'Audio workspace',
+    blurb: 'Song audio, pads and background music stay ready without leaving the live console.',
+    tips: [
+      'Preview a track before sending it to the live output.',
+      'Loop pads for prayer or walk-in beds.',
+      'Build a BGM playlist for pre-service and transitions.',
+    ],
+  },
+  countdown: {
+    Icon: Timer,
+    title: 'Countdown',
+    blurb: 'Run a pre-service or worship countdown with its own background and live control.',
+    tips: [
+      'Set the duration, then start or hold it from the workspace.',
+      'The countdown is a live output item, so Clear All will remove it.',
+      'Use the right panel to keep an eye on what is currently live.',
+    ],
+  },
+  stage: {
+    Icon: Mic,
+    title: 'Stage monitor',
+    blurb: 'Configure what the band and speakers see on their confidence display.',
+    tips: [
+      'Choose the current lyric, next item and clock shown on stage.',
+      'Stage content updates from the live service automatically.',
+      'Open Countdown to edit the timer the stage screen displays.',
+    ],
+    action: { id: 'countdown', label: 'Open Countdown' },
+  },
+  scripture: {
+    Icon: BookOpen,
+    title: 'Scripture',
+    blurb: 'Search the Bible, build a passage and send it live with your normal slide styling.',
+    tips: [
+      'Pick a book, then a chapter, then click a verse to send it.',
+      'Ctrl+Click multi-selects; Shift+Click grabs a range.',
+      'Use Add to Playlist to keep a passage ready for later.',
+    ],
+  },
+};
+
 export default function LeftSidebar() {
   const app = useApp();
   const {
@@ -40,6 +107,8 @@ export default function LeftSidebar() {
     viewTab,
     setViewTab,
     dockTab,
+    dockItems,
+    handleDockSelect,
     services,
     showsQuery,
     setShowsQuery,
@@ -73,7 +142,6 @@ export default function LeftSidebar() {
     queueShowIntoService,
     deleteSavedService,
     serviceOrderCount,
-    serviceSlideCount,
     serviceItemIsLive,
     collapseAllServiceSections,
     expandAllServiceSections,
@@ -130,8 +198,6 @@ export default function LeftSidebar() {
     deletePresentationDeck,
     presentDeck,
     addPresentationToService,
-    importPowerPoint,
-    savePresentationDeck,
     bibleBooks,
     loadBibleBooks,
     bibleTrans,
@@ -188,10 +254,6 @@ export default function LeftSidebar() {
   const lastTabIdx = useRef(tabIdx);
   const tabDir = tabIdx >= lastTabIdx.current ? 1 : -1;
   useEffect(() => { lastTabIdx.current = tabIdx; }, [tabIdx]);
-  // Blocks a second click from stacking a second file dialog behind the first.
-  const pptxImportBusy = useRef(false);
-  // The import is not instant (PowerShell + unzip), so the button has to say so.
-  const [pptxImporting, setPptxImporting] = useState(false);
   const [sectionRenameTitle, setSectionRenameTitle] = useState('');
   // Drag-to-reorder on the service order. Only the ITEMS are draggable — a
   // section heading is a click target (collapse, rename, set ADD TO), so
@@ -351,39 +413,173 @@ export default function LeftSidebar() {
     } catch (_) { return s; }
   };
 
+  // Primary application navigation — the single home for every workspace.
+  // The old bottom dock is gone; these entries call the exact same
+  // handleDockSelect handler (and therefore the same state) it used.
+  const PRIMARY_NAV = [
+    { id: 'shows', label: 'Home', Icon: Home, title: 'Service order and libraries' },
+    { id: 'presentations', label: 'Presentations', Icon: Presentation, title: 'Presentation playback' },
+    { id: 'media', label: 'Media', Icon: Film, title: 'Images and video library' },
+    { id: 'audio', label: 'Audio', Icon: Music, title: 'Song audio, pads and playlists' },
+    { id: 'countdown', label: 'Countdown', Icon: Timer, title: 'Service countdown' },
+    { id: 'scripture', label: 'Scripture', Icon: BookOpen, title: 'Bible and scripture presentation' },
+    { id: 'settings', label: 'Settings', Icon: Settings, title: 'Application settings' },
+  ];
+  const UTILITY_NAV = [
+    { id: 'videos', label: 'Videos', Icon: Clapperboard, title: 'Video booth and playlist' },
+    { id: 'stage', label: 'Stage', Icon: Mic, title: 'Stage monitor configuration' },
+    { id: 'sermon', label: 'Slideshow', Icon: MonitorPlay, title: 'Create, import and present slide decks' },
+    { id: 'outputs', label: 'Outputs', Icon: Monitor, title: 'Manage live outputs and displays' },
+  ];
+  const goTo = (id) => {
+    setLeftOpen(true);
+    handleDockSelect({ id });
+  };
+
+  // A compact, useful description for every workspace that is not Home. This
+  // replaces the old mini running order: the Service Order belongs to Home,
+  // where the operator can actually edit it, not to every tool in the app.
+  const renderWorkspaceGuide = (id) => {
+    const guide = WORKSPACE_GUIDES[id];
+    if (!guide) return null;
+    const GuideIcon = guide.Icon;
+    return (
+      <div className="kog-sidebar-guide">
+        <div className="kog-guide-hero">
+          <span className="kog-guide-icon" aria-hidden="true"><GuideIcon size={19} strokeWidth={1.9} /></span>
+          <div style={{ minWidth: 0 }}>
+            <h3>{guide.title}</h3>
+            <p>{guide.blurb}</p>
+          </div>
+        </div>
+        <div className="kog-guide-card">
+          <div className="kog-guide-eyebrow">Good to know</div>
+          <ul>
+            {guide.tips.map((tip) => <li key={tip}>{tip}</li>)}
+          </ul>
+        </div>
+        <div className="kog-guide-actions">
+          {guide.action ? (
+            <button type="button" className="kog-guide-primary" onClick={() => goTo(guide.action.id)}>
+              {guide.action.label}
+              <ChevronRight size={13} />
+            </button>
+          ) : null}
+          <button type="button" className="kog-guide-secondary" onClick={() => goTo('shows')}>
+            <Home size={13} />
+            Back to Service Order
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const sectionTitle = dockTab === 'shows' ? 'Service Order'
+    : dockTab === 'presentations' ? 'Presentations'
+      : dockTab === 'settings' ? 'Settings'
+        : dockTab === 'videos' ? 'Videos'
+          : dockTab === 'sermon' ? 'Slideshow'
+            : (PRIMARY_NAV.find((i) => i.id === dockTab)?.label
+              || UTILITY_NAV.find((i) => i.id === dockTab)?.label
+              || 'Tools');
+
+
   return (
     <>
     <motion.div
-      animate={{ width: leftOpen ? 340 : 0, opacity: leftOpen ? 1 : 0 }}
-      transition={{ type: 'spring', stiffness: 320, damping: 34 }}
-      style={{ flexShrink: 0, overflow: 'hidden', height: '100%', maxWidth: '35vw' }}
+      animate={{ width: leftOpen ? 264 : 0, opacity: leftOpen ? 1 : 0 }}
+      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+      style={{ flexShrink: 0, overflow: 'hidden', height: '100%' }}
     >
-    <div style={{ width: '100%', minWidth: 280, height: '100%', background: 'var(--ui-panel)', borderRight: '1px solid var(--ui-border)', flexDirection: 'column', display: 'flex' }}>
-  {/* Sidebar header */}
-  <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--ui-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexShrink: 0 }}>
-    {dockTab === 'shows' ? (
-      <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Presentation</span>
-    ) : (
-      <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.5 }}>{dockTab} Tools</span>
-    )}
-    {dockTab === 'shows' && (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-        {/* Unsaved-plan warning: amber dot + label whenever the working order
-            differs from the last saved/loaded state. Going live never trips
-            it — only real edits do. */}
-        {serviceDirty && (
-          <span title="This service order has unsaved changes — press Save Plan before switching shows" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 800, color: '#fbbf24', whiteSpace: 'nowrap' }}>
-            <span style={{ width: 8, height: 8, borderRadius: 999, background: '#fbbf24', boxShadow: '0 0 8px rgba(251,191,36,0.9)' }} /> Unsaved
-          </span>
-        )}
-        <motion.button {...stubTap} onClick={saveCurrentService} style={{ background: serviceDirty ? '#8b5cf6' : 'transparent', border: '1px solid #8b5cf6', color: serviceDirty ? '#fff' : '#C4B5FD', padding: '5px 11px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>Save Plan</motion.button>
+    <div className="kog-sidebar" style={{ width: '100%' }}>
+      {/* BRANDING */}
+      <div className="kog-brand">
+        <img src={logoImage} alt="KOG Worship" />
+        <div style={{ minWidth: 0 }}>
+          <div className="kog-brand-name">KOG<em>Worship</em></div>
+          <span className="kog-brand-sub">Live Production</span>
+        </div>
+        <span style={{ flex: 1 }} />
+        <button
+          type="button"
+          className="kog-icon-btn"
+          onClick={() => setLeftOpen(false)}
+          title="Collapse navigation"
+          aria-label="Collapse navigation"
+          style={{ width: 26, height: 26, padding: 0, border: '1px solid transparent', background: 'transparent' }}
+        >
+          <PanelLeftClose size={15} />
+        </button>
       </div>
-    )}
-    <motion.button {...iconBtnTap} onClick={() => setLeftOpen(false)} title="Minimize command center" style={{ background: 'transparent', border: 'none', color: 'var(--ui-faint)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}><PanelLeftClose size={16} /></motion.button>
-  </div>
 
-  {/* PER-TOOL BODY */}
-  <div key={dockTab} className="sidebar-body">
+      {/* PRIMARY NAVIGATION */}
+      <nav className="kog-nav" aria-label="Application">
+        <div className="kog-nav-label">Workspace</div>
+        {PRIMARY_NAV.map(({ id, label, Icon, title }) => (
+          <button
+            key={id}
+            type="button"
+            className="kog-nav-btn"
+            data-active={dockTab === id ? '1' : '0'}
+            onClick={() => goTo(id)}
+            title={title}
+            aria-current={dockTab === id ? 'page' : undefined}
+          >
+            <Icon size={15} strokeWidth={1.9} />
+            <span>{label}</span>
+            {id === 'shows' && serviceOrderCount() > 0 ? (
+              <span className="kog-nav-count">{serviceOrderCount()}</span>
+            ) : null}
+
+          </button>
+        ))}
+      </nav>
+
+      {/* SECTION HEADING — service order by default, tool name for the rest. */}
+      <div className="kog-sidebar-section">
+        <h2>{sectionTitle}</h2>
+        {dockTab === 'shows' && serviceDirty ? (
+          <span title="Unsaved changes in this service order" style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--kog-warning)', flexShrink: 0 }} />
+        ) : null}
+        <span className="kog-spacer" />
+        {dockTab === 'shows' ? (
+          <>
+            <button
+              type="button"
+              onClick={collapseAllServiceSections}
+              title="Collapse all sections"
+              aria-label="Collapse all sections"
+            >
+              <ChevronUp size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={expandAllServiceSections}
+              title="Expand all sections"
+              aria-label="Expand all sections"
+            >
+              <ChevronDown size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={saveCurrentService}
+              title="Save this service plan"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4, height: 22, padding: '0 8px',
+                borderRadius: 4, border: '1px solid ' + (serviceDirty ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'),
+                background: serviceDirty ? 'var(--kog-accent-bg)' : 'transparent',
+                color: serviceDirty ? 'var(--kog-accent-hover)' : 'var(--ui-muted)',
+                fontSize: 10, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+              }}
+            >
+              Save plan
+            </button>
+          </>
+        ) : null}
+      </div>
+
+      {/* PER-TOOL BODY */}
+      <div key={dockTab} className="sidebar-body">
   {(() => {
     if (dockTab === 'shows') {
       return (
@@ -400,8 +596,8 @@ export default function LeftSidebar() {
                 count visible). The AnimatePresence panel swap below is
                 untouched — it keys off viewTab exactly as before. */}
             <Tabs selectedKey={viewTab} onSelectionChange={setViewTab}>
-              <TabList type="button-brand" size="sm">
-                <Tab id="order" label="Service Order" badge={String(serviceOrderCount())} title="The running order you are building" className="text-[10px] px-1.5" />
+              <TabList type="button-brand" size="sm" fullWidth>
+                <Tab id="order" label="Order" badge={String(serviceOrderCount())} title="The running order you are building" className="text-[10px] px-1.5" />
                 <Tab id="shows" label="Shows" badge={String((services || []).length)} title="Saved shows — click to load one, or use + Plan to queue it" className="text-[10px] px-1.5" />
                 <Tab id="songs" label="Songs" badge={String(songs.length)} title="Song library" className="text-[10px] px-1.5" />
               </TabList>
@@ -440,7 +636,7 @@ export default function LeftSidebar() {
                       its own tab now, so a show row and the drop target are
                       never on screen together — + Plan on hover does that job. */}
                   {[...(services || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).filter(s => !showsQuery.trim() || (s.name || '').toLowerCase().includes(showsQuery.trim().toLowerCase())).map(svc => (
-                    <div key={svc.id} className="row" onClick={() => { loadService(svc.id); setViewTab('order'); }} title="Load this show into the Service Order" style={{ background: activeService?.id === svc.id ? 'rgba(139,92,246,0.15)' : 'var(--ui-elev2)', border: activeService?.id === svc.id ? '1px solid rgba(139,92,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '8px 10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                    <div key={svc.id} className="row" onClick={() => { loadService(svc.id); setViewTab('order'); }} title="Load this show into the Service Order" style={{ background: activeService?.id === svc.id ? 'rgba(255,184,0,0.15)' : 'var(--ui-elev2)', border: activeService?.id === svc.id ? '1px solid rgba(255,184,0,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '8px 10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                       <div style={{ minWidth: 0 }}>
                         <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--ui-text)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{svc.name}</span>
                         <span style={{ fontSize: 10, fontWeight: 700, color: svc.date ? '#f59e0b' : 'var(--ui-faint)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fmtShowDate(svc.date) || 'No date'}</span>
@@ -449,8 +645,8 @@ export default function LeftSidebar() {
                       {/* Action cluster — hover-revealed so a list of shows
                           reads as titles and dates, not as a wall of chips. */}
                       <div className="row-act" style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                        <button onClick={(e) => { e.stopPropagation(); queueShowIntoService(svc.id); setViewTab('order'); }} title="Add to Service Plan — jumps to the order so you see it land" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: '#C4B5FD', padding: '3px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Plan</button>
-                        <button onClick={(e) => { e.stopPropagation(); deleteSavedService(svc.id); }} title="Delete show" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.28)', color: '#F87171', cursor: 'pointer', padding: '3px 6px', borderRadius: 6, display: 'flex', alignItems: 'center' }}><Trash2 size={11} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); queueShowIntoService(svc.id); setViewTab('order'); }} title="Add to Service Plan — jumps to the order so you see it land" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: '#FFC72C', padding: '3px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>+ Plan</button>
+                        <button onClick={(e) => { e.stopPropagation(); deleteSavedService(svc.id); }} title="Delete show" style={{ background: 'rgba(255,69,69,0.10)', border: '1px solid rgba(255,69,69,0.28)', color: '#FF4545', cursor: 'pointer', padding: '3px 6px', borderRadius: 6, display: 'flex', alignItems: 'center' }}><Trash2 size={11} /></button>
                       </div>
                     </div>
                   ))}
@@ -487,13 +683,11 @@ export default function LeftSidebar() {
                   options={[{ value: '', label: 'End of order' }, ...serviceSectionTitles().map(t => ({ value: t, label: t }))]}
                   placeholder="End of order"
                   title="Section that songs, media, scripture and presentations go into"
-                  style={{ flex: '0 1 150px', minWidth: 0 }}
+                  style={{ flex: '1 1 90px', minWidth: 0 }}
                 />
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, alignItems: 'center', flexShrink: 0 }}>
-                  <button onClick={collapseAllServiceSections} title="Collapse all sections" style={{ background: 'transparent', border: 'none', color: 'var(--ui-faint)', cursor: 'pointer', padding: '3px', display: 'flex' }}><ChevronUp size={13} /></button>
-                  <button onClick={expandAllServiceSections} title="Expand all sections" style={{ background: 'transparent', border: 'none', color: 'var(--ui-faint)', cursor: 'pointer', padding: '3px', display: 'flex' }}><ChevronDown size={13} /></button>
                   <button onClick={() => addHeaderToService('New Section')} title="+ New Section" style={{ background: 'rgba(255,255,255,0.04)', border: '1px dashed var(--ui-border)', color: 'var(--ui-text2)', padding: '3px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}><Plus size={11} /> Section</button>
-                  <button onClick={clearServiceOrder} title="Clear order" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.28)', color: '#F87171', cursor: 'pointer', padding: '3px 5px', borderRadius: 6, display: 'flex', alignItems: 'center' }}><Trash2 size={13} /></button>
+                  <button onClick={clearServiceOrder} title="Clear order" style={{ background: 'rgba(255,69,69,0.10)', border: '1px solid rgba(255,69,69,0.28)', color: '#FF4545', cursor: 'pointer', padding: '3px 5px', borderRadius: 6, display: 'flex', alignItems: 'center' }}><Trash2 size={13} /></button>
                 </div>
               </div>
               {/* Ghost buttons — no border box at rest, so four actions in a
@@ -535,9 +729,9 @@ export default function LeftSidebar() {
               {serviceAddMenu === 'media' && (
                 <div className="svc-menu" style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 4 }}>
                   <div style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 1 }}>Add Media</div>
-                  <button onClick={() => { const open = !serviceMediaPicker; setServiceMediaPicker(open); if (open) fetchMediaLibrary(); }} title="Choose an image or video that is already in the app — nothing is re-uploaded" style={{ textAlign: 'left', background: serviceMediaPicker ? 'rgba(139,92,246,0.14)' : 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button onClick={() => { const open = !serviceMediaPicker; setServiceMediaPicker(open); if (open) fetchMediaLibrary(); }} title="Choose an image or video that is already in the app — nothing is re-uploaded" style={{ textAlign: 'left', background: serviceMediaPicker ? 'rgba(255,184,0,0.14)' : 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontWeight: 700 }}><Images size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Existing Media</span>
-                    <span style={{ fontSize: 10, color: serviceMediaPicker ? '#C4B5FD' : 'var(--ui-faint)' }}>{serviceMediaPicker ? 'Hide' : `${mediaLibrary.filter(a => a.kind === 'image' || a.kind === 'video').length} in app`}</span>
+                    <span style={{ fontSize: 10, color: serviceMediaPicker ? '#FFC72C' : 'var(--ui-faint)' }}>{serviceMediaPicker ? 'Hide' : `${mediaLibrary.filter(a => a.kind === 'image' || a.kind === 'video').length} in app`}</span>
                   </button>
                   {serviceMediaPicker && (mediaLibrary.filter(a => a.kind === 'image' || a.kind === 'video').length === 0 ? (
                     <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', border: '1px dashed var(--ui-border)', borderRadius: 7, padding: '8px', textAlign: 'center', lineHeight: 1.5 }}>
@@ -576,7 +770,7 @@ export default function LeftSidebar() {
                 <div className="svc-menu" style={{ marginTop: 6, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: 6, display: 'grid', gap: 5 }}>
                   <div style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--ui-faint)', textTransform: 'uppercase', letterSpacing: 1 }}>Add Scripture · {bibleTrans.toUpperCase()}</div>
                   {!bibleBooks ? (
-                    <div style={{ fontSize: 10.5, color: scMsg?.err ? '#F87171' : 'var(--ui-faint)', padding: 4, lineHeight: 1.45 }}>{scMsg?.err || 'Loading books…'}</div>
+                    <div style={{ fontSize: 10.5, color: scMsg?.err ? '#FF4545' : 'var(--ui-faint)', padding: 4, lineHeight: 1.45 }}>{scMsg?.err || 'Loading books…'}</div>
                   ) : (
                     <>
                       <Dropdown
@@ -610,11 +804,11 @@ export default function LeftSidebar() {
                       })()}
                     </>
                   )}
-                  <button onClick={addScriptureNow} disabled={scBusy} title="Insert this passage into the section marked ADD TO" style={{ background: ACCENT, border: 'none', color: '#fff', padding: '7px 9px', borderRadius: 7, fontSize: 11, fontWeight: 800, cursor: scBusy ? 'default' : 'pointer', opacity: scBusy ? 0.7 : 1 }}>
+                  <button onClick={addScriptureNow} disabled={scBusy} title="Insert this passage into the section marked ADD TO" style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '7px 9px', borderRadius: 7, fontSize: 11, fontWeight: 800, cursor: scBusy ? 'default' : 'pointer', opacity: scBusy ? 0.7 : 1 }}>
                     {scBusy ? 'Adding…' : `Add to ${serviceTargetTitle || 'end of order'}`}
                   </button>
-                  {bibleBooks && scMsg?.err && <div style={{ fontSize: 10.5, color: '#F87171', lineHeight: 1.45 }}>{scMsg.err}</div>}
-                  {scMsg?.ok && <div style={{ fontSize: 10.5, color: '#4ADE80', lineHeight: 1.45 }}>{scMsg.ok}</div>}
+                  {bibleBooks && scMsg?.err && <div style={{ fontSize: 10.5, color: '#FF4545', lineHeight: 1.45 }}>{scMsg.err}</div>}
+                  {scMsg?.ok && <div style={{ fontSize: 10.5, color: '#36C982', lineHeight: 1.45 }}>{scMsg.ok}</div>}
                   <div style={{ fontSize: 9.5, color: 'var(--ui-faint)', lineHeight: 1.45 }}>Blank verses = whole chapter. Lands in the section marked ADD TO.</div>
                 </div>
               )}
@@ -651,7 +845,7 @@ export default function LeftSidebar() {
                 </div>
               )}
             </div>
-            <div onDragOver={(e) => { e.preventDefault(); if (internalDrag.current) { const t = scanDropTarget(e); setDrop(t.at, t.row); return; } e.dataTransfer.dropEffect = 'copy'; setServiceDragOver(true); }} onDragLeave={() => setServiceDragOver(false)} onDrop={dropOnOrder} style={{ flex: 1, overflowY: 'auto', padding: '4px 10px 10px 10px', display: 'grid', gap: 8, alignContent: 'start', border: serviceDragOver ? '1px dashed #8b5cf6' : '1px dashed transparent', borderRadius: 10, margin: '0 8px', background: serviceDragOver ? 'rgba(139,92,246,0.08)' : 'transparent' }}>
+            <div onDragOver={(e) => { e.preventDefault(); if (internalDrag.current) { const t = scanDropTarget(e); setDrop(t.at, t.row); return; } e.dataTransfer.dropEffect = 'copy'; setServiceDragOver(true); }} onDragLeave={() => setServiceDragOver(false)} onDrop={dropOnOrder} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '4px 6px 10px 4px', display: 'grid', gap: 3, alignContent: 'start', border: serviceDragOver ? '1px dashed #FFB800' : '1px dashed transparent', borderRadius: 10, margin: '0', background: serviceDragOver ? 'rgba(255,184,0,0.08)' : 'transparent' }}>
               {(activeService?.items || []).filter(i => i.item_type !== 'section_header').length === 0 && (
                 <div style={{ textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12, padding: 12 }}>Nothing in the order yet. Use Add Song / Scripture / Media / Presentation above, or open the Shows and Songs tabs and press + Plan on a row.</div>
               )}
@@ -675,8 +869,7 @@ export default function LeftSidebar() {
                       return out;
                     })();
                     return (
-                      <div key={`h-${ri}`} className="row" data-drop-idx={row.idx} data-drop-section="1" onClick={() => sectionHeaderClick(row.idx, row.item.title)} onDoubleClick={(e) => { e.stopPropagation(); beginRenameSection(row.idx, row.item.title); }} title="Click = target + collapse/expand · Double-click = rename section · Drop an item here to move it into this section" style={{ cursor: sectionRenameIdx === row.idx ? 'default' : 'pointer', userSelect: sectionRenameIdx === row.idx ? 'text' : 'none', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 800, fontSize: 10, color: serviceTargetTitle === row.item.title ? '#C4B5FD' : 'var(--ui-muted)', textTransform: 'uppercase', letterSpacing: 1.3, padding: '7px 6px 5px 6px', borderBottom: '1px solid var(--ui-border)', background: serviceTargetTitle === row.item.title ? 'rgba(139,92,246,0.08)' : 'transparent', boxShadow: dropRow === row.idx ? 'inset 0 -3px 0 #8b5cf6' : 'none' }}>
-                        {sectionRenameIdx === row.idx ? null : (collapsed ? <ChevronRight size={12} color="var(--ui-faint)" /> : <ChevronDown size={12} color="var(--ui-faint)" />)}
+                      <div key={`h-${ri}`} className="svc-section" data-drop-idx={row.idx} data-drop-section="1" data-target={serviceTargetTitle === row.item.title ? '1' : '0'} onClick={() => sectionHeaderClick(row.idx, row.item.title)} onDoubleClick={(e) => { e.stopPropagation(); beginRenameSection(row.idx, row.item.title); }} title={`${row.item.title} — click to target + collapse/expand · double-click to rename · drop an item here to move it into this section`} style={{ cursor: sectionRenameIdx === row.idx ? 'default' : 'pointer', userSelect: sectionRenameIdx === row.idx ? 'text' : 'none', boxShadow: dropRow === row.idx ? 'inset 0 -2px 0 var(--kog-accent)' : 'none' }}>
                         {sectionRenameIdx === row.idx ? (
                           <input
                             autoFocus
@@ -690,68 +883,64 @@ export default function LeftSidebar() {
                             }}
                             onBlur={commitRenameSection}
                             placeholder="Section name"
-                            style={{ flex: 1, minWidth: 0, background: 'rgba(139,92,246,0.12)', border: 'none', borderBottom: '1px dashed #8b5cf6', borderRadius: 0, color: 'var(--ui-text)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.3, outline: 'none', padding: '2px 0' }}
+                            style={{ flex: 1, minWidth: 0, background: 'rgba(255,184,0,0.12)', border: 'none', borderBottom: '1px dashed #FFB800', borderRadius: 0, color: 'var(--ui-text)', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.3, outline: 'none', padding: '2px 0' }}
                           />
                         ) : (
                           <>
-                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{row.item.title}</span>
-                            {serviceTargetTitle === row.item.title && <span style={{ flexShrink: 0, fontSize: 8, fontWeight: 800, color: '#C4B5FD', border: '1px solid rgba(139,92,246,0.5)', borderRadius: 4, padding: '0 4px', letterSpacing: 0 }}>ADD TO</span>}
+                            <span className="svc-section-chevron">{collapsed ? <ChevronRight size={11} color="var(--ui-faint)" /> : <ChevronDown size={11} color="var(--ui-faint)" />}</span>
+                            <span className="svc-section-title">{row.item.title}</span>
+                            <span className="svc-section-tail">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); beginRenameSection(row.idx, row.item.title); }}
+                                title="Rename section"
+                                style={{ background: 'transparent', border: 'none', color: 'var(--ui-faint)', cursor: 'pointer', padding: 1, display: 'flex', flexShrink: 0 }}
+                              >
+                                <Pencil size={10} />
+                              </button>
+                              <span>{groupItems.length} item{groupItems.length === 1 ? '' : 's'}</span>
+                            </span>
                           </>
                         )}
-                        {sectionRenameIdx !== row.idx && (
-                          <button
-                            className="row-act"
-                            onClick={(e) => { e.stopPropagation(); beginRenameSection(row.idx, row.item.title); }}
-                            title="Rename section"
-                            style={{ background: 'transparent', border: 'none', color: 'var(--ui-faint)', cursor: 'pointer', padding: 1, display: 'flex', flexShrink: 0 }}
-                          >
-                            <Pencil size={11} />
-                          </button>
-                        )}
-                        <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--ui-faint)', fontWeight: 700, letterSpacing: 0, whiteSpace: 'nowrap' }}>{groupItems.length} item{groupItems.length === 1 ? '' : 's'}</span>
                       </div>
                     );
                   }
                   if (activeCollapsed) return null;
                   itemNum++;
                   const isLive = serviceItemIsLive(row.item);
-                  const slideCount = serviceSlideCount(row.item);
                   const isScripture = !!(row.item.meta && row.item.meta.kind === 'bible');
-                  const icon = row.item.item_type === 'song' ? <Music size={11} /> : row.item.item_type === 'medley' ? <Link2 size={11} /> : isScripture ? <BookOpen size={11} /> : row.item.item_type === 'media' ? <ImageIcon size={11} /> : row.item.item_type === 'presentation' ? <MonitorPlay size={11} /> : <FileText size={11} />;
-                  const iconColor = row.item.item_type === 'song' ? '#8b5cf6' : row.item.item_type === 'medley' ? '#C4B5FD' : isScripture ? '#f59e0b' : 'var(--ui-muted)';
+                  const icon = row.item.item_type === 'song' ? <Music size={12} /> : row.item.item_type === 'medley' ? <Link2 size={12} /> : isScripture ? <BookOpen size={12} /> : row.item.item_type === 'media' ? <ImageIcon size={12} /> : row.item.item_type === 'presentation' ? <MonitorPlay size={12} /> : <FileText size={12} />;
+                  const iconColor = row.item.item_type === 'song' ? '#FFB800' : row.item.item_type === 'medley' ? '#FFC72C' : isScripture ? '#f59e0b' : 'var(--ui-muted)';
                   // Prism Slate: the row's function-kind owns its hue (song,
                   // medley, media, presentation, scripture) on every surface.
                   const rowKind = row.item.item_type === 'song' ? 'song' : row.item.item_type === 'medley' ? 'medley' : isScripture ? 'scripture' : (ROW_KIND[row.item.item_type] || null);
                   const rowIconColor = iconTheme === 'prism' && rowKind ? iconHue(rowKind, C) : iconColor;
+                  const selectedRow = (row.item.item_type === 'song' && sameSongId(row.item.content, activeSong?.id)) || (row.item.item_type === 'custom_slide' && activeCue?.id === row.item.id);
+                  const meta = row.item.subtitle || (row.item.item_type === 'song' ? 'Song' : row.item.item_type === 'media' ? 'Media' : row.item.item_type === 'presentation' ? 'Presentation' : 'Slide');
                   return (
-                    <div key={`i-${ri}`} className="row" data-drop-idx={row.idx} draggable onDragStart={(e) => { internalDrag.current = true; e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { internalDrag.current = false; setDrop(null, null); }} onClick={() => { if (row.item.item_type === 'song') selectSong(row.item.content); else if (isLive) return; else fireServiceItemLive(row.item); }} title="Drag to reorder · click to go live" style={{ position: 'relative', background: isLive ? 'rgba(34,197,94,0.10)' : (row.item.item_type === 'song' && sameSongId(row.item.content, activeSong?.id)) || (row.item.item_type === 'custom_slide' && activeCue?.id === row.item.id) ? 'rgba(139,92,246,0.12)' : 'var(--ui-elev2)', border: isLive ? '1px solid rgba(34,197,94,0.55)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '6px 8px', cursor: 'grab', display: 'grid', gridTemplateColumns: '14px 20px 18px 1fr auto', gap: 6, alignItems: 'center', boxShadow: dropRow === row.idx ? '0 0 0 2px rgba(139,92,246,0.6)' : 'none' }}>
-                      {isLive && <div style={{ position: 'absolute', left: 0, top: 4, bottom: 4, width: 3, borderRadius: 3, background: '#22c55e', boxShadow: '0 0 8px rgba(34,197,94,0.8)' }} />}
-                      <GripVertical size={12} color="var(--ui-faint)" />
-                      <span style={{ fontSize: 10, fontWeight: 800, color: isLive ? '#22c55e' : 'var(--ui-faint)', fontFamily: 'monospace' }}>{isLive ? '▶' : itemNum}</span>
-                      <span style={{ fontSize: 12, fontWeight: 800, color: rowIconColor, textAlign: 'center' }}>{icon}</span>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--ui-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.item.title}</span>
-                          {slideCount > 0 && <span style={{ fontSize: 8.5, background: 'rgba(148,163,184,0.15)', border: '1px solid rgba(148,163,184,0.3)', color: 'var(--ui-muted)', borderRadius: 5, padding: '0 5px', fontWeight: 800, whiteSpace: 'nowrap' }}>{slideCount} slide{slideCount === 1 ? '' : 's'}</span>}
-                        </div>
-                        <span style={{ fontSize: 10, color: 'var(--ui-faint)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.item.subtitle || (row.item.item_type === 'song' ? 'Song' : row.item.item_type === 'media' ? 'Media' : 'Slide')}</span>
+                    <div key={`i-${ri}`} className="row svc-item" data-drop-idx={row.idx} data-selected={selectedRow ? '1' : '0'} data-live={isLive ? '1' : '0'} draggable onDragStart={(e) => { internalDrag.current = true; e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { internalDrag.current = false; setDrop(null, null); }} onClick={() => { if (row.item.item_type === 'song') selectSong(row.item.content); else if (isLive) return; else fireServiceItemLive(row.item); }} title="Drag to reorder · click to go live" style={{ boxShadow: dropRow === row.idx ? '0 0 0 2px rgba(255,184,0,0.6)' : 'none' }}>
+                      {isLive && <div style={{ position: 'absolute', left: 0, top: 4, bottom: 4, width: 3, borderRadius: 3, background: 'var(--kog-success)' }} />}
+                      <span className="svc-index">{isLive ? '▶' : itemNum}</span>
+                      <span className="svc-kind" style={{ color: rowIconColor }}>{icon}</span>
+                      <div className="svc-body">
+                        <div className="svc-title" title={row.item.title}>{row.item.title}</div>
+                        <div className="svc-meta" title={meta}>{meta}</div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
-                        {(row.item.item_type === 'song' || row.item.item_type === 'medley') && (
-                          <button onClick={(e) => { e.stopPropagation(); openMedleyForRow(row.item, row.idx); }} title={row.item.item_type === 'medley' ? 'Edit medley links' : 'Link songs into a medley'} style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: row.item.item_type === 'medley' ? '#C4B5FD' : C.faint, padding: '3px 6px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Link2 size={12} /></button>
+                      <div className="svc-actions">
+                        {isLive ? (
+                          <button onClick={(e) => { e.stopPropagation(); stopServiceItemLive(row.item); }} title="Stop — take this item off air" style={{ background: 'rgba(255,69,69,0.16)', border: '1px solid rgba(255,69,69,0.55)', color: 'var(--kog-error)', borderRadius: 5, fontSize: 10, fontWeight: 700, padding: '2px 7px', cursor: 'pointer' }}>■ Stop</button>
+                        ) : (
+                          <button onClick={(e) => { e.stopPropagation(); fireServiceItemLive(row.item); }} title="Go live" style={{ background: 'var(--kog-accent)', border: '1px solid var(--kog-accent)', color: '#0D1014', borderRadius: 5, fontSize: 10, fontWeight: 800, padding: '2px 7px', cursor: 'pointer' }}>Go</button>
                         )}
                         {(row.item.item_type === 'song' || row.item.item_type === 'medley') && (
-                          <button onClick={(e) => { e.stopPropagation(); openArrangementForRow(row.item, row.idx); }} title={row.item.item_type === 'medley' ? 'Custom play order for the anchor song' : (row.item.meta?.arrangement?.order?.length ? 'Edit song arrangement' : 'Custom play order for this song')} style={{ background: row.item.meta?.arrangement?.order?.length ? 'rgba(139,92,246,0.16)' : 'transparent', border: '1px solid ' + (row.item.meta?.arrangement?.order?.length ? 'rgba(139,92,246,0.5)' : 'var(--ui-border)'), color: row.item.meta?.arrangement?.order?.length ? '#C4B5FD' : C.faint, padding: '3px 6px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><ListMusic size={12} /></button>
+                          <button onClick={(e) => { e.stopPropagation(); openMedleyForRow(row.item, row.idx); }} title={row.item.item_type === 'medley' ? 'Edit medley links' : 'Link songs into a medley'} style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: row.item.item_type === 'medley' ? '#FFC72C' : C.faint, padding: '2px 5px', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Link2 size={11} /></button>
+                        )}
+                        {(row.item.item_type === 'song' || row.item.item_type === 'medley') && (
+                          <button onClick={(e) => { e.stopPropagation(); openArrangementForRow(row.item, row.idx); }} title={row.item.item_type === 'medley' ? 'Custom play order for the anchor song' : (row.item.meta?.arrangement?.order?.length ? 'Edit song arrangement' : 'Custom play order for this song')} style={{ background: row.item.meta?.arrangement?.order?.length ? 'rgba(255,184,0,0.16)' : 'transparent', border: '1px solid ' + (row.item.meta?.arrangement?.order?.length ? 'rgba(255,184,0,0.5)' : 'var(--ui-border)'), color: row.item.meta?.arrangement?.order?.length ? '#FFC72C' : C.faint, padding: '2px 5px', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><ListMusic size={11} /></button>
                         )}
                         {row.item.item_type === 'custom_slide' && (
-                          <button onClick={(e) => { e.stopPropagation(); openCustomSlideEditor(row.idx); }} title="Edit slide — text, font, colour, background, transition" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: C.faint, padding: '3px 6px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Pencil size={12} /></button>
+                          <button onClick={(e) => { e.stopPropagation(); openCustomSlideEditor(row.idx); }} title="Edit slide — text, font, colour, background, transition" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: C.faint, padding: '2px 5px', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Pencil size={11} /></button>
                         )}
-                        {isLive ? (
-                          <button onClick={(e) => { e.stopPropagation(); stopServiceItemLive(row.item); }} title="Stop — take this item off air" style={{ background: 'rgba(239,68,68,0.18)', border: '1px solid rgba(239,68,68,0.55)', color: '#F87171', borderRadius: 6, fontSize: 9.5, fontWeight: 700, padding: '3px 8px', cursor: 'pointer' }}>■ Stop</button>
-                        ) : (
-                          <button onClick={(e) => { e.stopPropagation(); fireServiceItemLive(row.item); }} title="Go live" style={{ background: '#7c3aed', border: '1px solid #7c3aed', color: '#FFFFFF', borderRadius: 6, fontSize: 9.5, fontWeight: 700, padding: '3px 8px', cursor: 'pointer' }}>Go</button>
-                        )}
-                        <Trash2 className="row-act" size={12} color="var(--ui-faint)" onClick={(e) => { e.stopPropagation(); removeServiceItem(row.idx); }} style={{ cursor: 'pointer' }} />
+                        <Trash2 size={11} color="var(--ui-faint)" onClick={(e) => { e.stopPropagation(); removeServiceItem(row.idx); }} style={{ cursor: 'pointer' }} />
                       </div>
                     </div>
                   );
@@ -774,7 +963,7 @@ export default function LeftSidebar() {
                 <input id="song-search-input" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search songs…" style={{ width: '100%', boxSizing: 'border-box', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', borderRadius: 9, padding: '6px 8px 6px 27px', color: 'var(--ui-text)', fontSize: 12, outline: 'none' }} />
               </div>
               <button onClick={(e) => { e.stopPropagation(); handleNewSong(); }} title="New song" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '4px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}><Plus size={12} /> New</button>
-              <button onClick={(e) => { e.stopPropagation(); setExportMsg(null); if (exportMode) setExportSel([]); setExportMode(!exportMode); }} title={exportMode ? 'Done selecting' : 'Tick songs to back up for transfer'} style={{ background: exportMode ? 'rgba(139,92,246,0.16)' : 'rgba(255,255,255,0.04)', border: '1px solid ' + (exportMode ? 'rgba(139,92,246,0.5)' : 'var(--ui-border)'), color: exportMode ? '#C4B5FD' : 'var(--ui-text2)', padding: '4px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>Export</button>
+              <button onClick={(e) => { e.stopPropagation(); setExportMsg(null); if (exportMode) setExportSel([]); setExportMode(!exportMode); }} title={exportMode ? 'Done selecting' : 'Tick songs to back up for transfer'} style={{ background: exportMode ? 'rgba(255,184,0,0.16)' : 'rgba(255,255,255,0.04)', border: '1px solid ' + (exportMode ? 'rgba(255,184,0,0.5)' : 'var(--ui-border)'), color: exportMode ? '#FFC72C' : 'var(--ui-text2)', padding: '4px 10px', borderRadius: 8, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>Export</button>
             </div>
             {/* CATEGORY CHIPS — All / Favorites / Recent plus every category the
                 table actually holds. One horizontally scrollable row: a library
@@ -793,7 +982,7 @@ export default function LeftSidebar() {
                       key={chip.id}
                       onClick={() => setActiveCategory(chip.id)}
                       title={chip.title || `Show every song filed under ${chip.label}`}
-                      style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 999, fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', background: on ? ACCENT : 'rgba(255,255,255,0.04)', border: '1px solid ' + (on ? ACCENT : 'var(--ui-border)'), color: on ? '#fff' : 'var(--ui-text2)', transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease' }}
+                      style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 999, fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', background: on ? ACCENT : 'rgba(255,255,255,0.04)', border: '1px solid ' + (on ? ACCENT : 'var(--ui-border)'), color: on ? '#0D1014' : 'var(--ui-text2)', transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease' }}
                     >
                       {ChipIcon ? <ChipIcon size={11} fill={on && chip.id === 'Favorites' ? 'currentColor' : 'none'} /> : null}
                       {chip.label}
@@ -805,11 +994,11 @@ export default function LeftSidebar() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px 6px 10px', flexShrink: 0 }}>
                 <span style={{ fontSize: 10.5, color: C.faint || 'var(--ui-faint)', fontWeight: 700 }}>{exportSel.length} selected</span>
                 <span style={{ flex: 1 }} />
-                <button onClick={runExportSelected} disabled={!exportSel.length} title="Save the ticked songs to a backup file" style={{ background: exportSel.length ? ACCENT : 'rgba(255,255,255,0.04)', border: 'none', color: '#fff', padding: '5px 12px', borderRadius: 7, fontSize: 10.5, fontWeight: 800, cursor: exportSel.length ? 'pointer' : 'default', opacity: exportSel.length ? 1 : 0.5 }}>Back up selected</button>
+                <button onClick={runExportSelected} disabled={!exportSel.length} title="Save the ticked songs to a backup file" style={{ background: exportSel.length ? ACCENT : 'rgba(255,255,255,0.04)', border: 'none', color: exportSel.length ? '#0D1014' : 'var(--ui-text2)', padding: '5px 12px', borderRadius: 7, fontSize: 10.5, fontWeight: 800, cursor: exportSel.length ? 'pointer' : 'default', opacity: exportSel.length ? 1 : 0.5 }}>Back up selected</button>
               </div>
             )}
             {exportMsg && (
-              <div style={{ fontSize: 10.5, color: 'var(--ui-text2)', lineHeight: 1.5, background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.35)', borderRadius: 7, padding: '6px 8px', margin: '0 10px 6px 10px', flexShrink: 0 }}>{exportMsg}</div>
+              <div style={{ fontSize: 10.5, color: 'var(--ui-text2)', lineHeight: 1.5, background: 'rgba(255,184,0,0.10)', border: '1px solid rgba(255,184,0,0.35)', borderRadius: 7, padding: '6px 8px', margin: '0 10px 6px 10px', flexShrink: 0 }}>{exportMsg}</div>
             )}
             <>
             {/* shadcn ScrollArea: the native (system) scrollbar is hidden and
@@ -823,10 +1012,10 @@ export default function LeftSidebar() {
               {/* Same as the shows list: the order is on another tab, so a
                   row is a plain click-to-open, not a drag handle. */}
               {songs.map(song => (
-                <div key={song.id} className="row" onClick={() => (exportMode ? toggleExportSel(song.id) : selectSong(song.id))} title={exportMode ? 'Tick to include in backup' : 'Click to open this song · hover the row for + Plan'} style={{ background: exportMode && exportSel.includes(song.id) ? 'rgba(139,92,246,0.16)' : activeSong?.id === song.id ? 'rgba(139,92,246,0.15)' : 'var(--ui-elev2)', border: exportMode && exportSel.includes(song.id) ? '1px solid rgba(139,92,246,0.6)' : activeSong?.id === song.id ? '1px solid rgba(139,92,246,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '7px 11px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div key={song.id} className="row" onClick={() => (exportMode ? toggleExportSel(song.id) : selectSong(song.id))} title={exportMode ? 'Tick to include in backup' : 'Click to open this song · hover the row for + Plan'} style={{ background: exportMode && exportSel.includes(song.id) ? 'rgba(255,184,0,0.16)' : activeSong?.id === song.id ? 'rgba(255,184,0,0.15)' : 'var(--ui-elev2)', border: exportMode && exportSel.includes(song.id) ? '1px solid rgba(255,184,0,0.6)' : activeSong?.id === song.id ? '1px solid rgba(255,184,0,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '7px 11px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ minWidth: 0, flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 8 }}>
                     {exportMode && (
-                      <input type="checkbox" checked={exportSel.includes(song.id)} onChange={() => toggleExportSel(song.id)} onClick={(e) => e.stopPropagation()} style={{ width: 15, height: 15, accentColor: '#8b5cf6', cursor: 'pointer', flexShrink: 0 }} />
+                      <input type="checkbox" checked={exportSel.includes(song.id)} onChange={() => toggleExportSel(song.id)} onClick={(e) => e.stopPropagation()} style={{ width: 15, height: 15, accentColor: '#FFB800', cursor: 'pointer', flexShrink: 0 }} />
                     )}
                     <div style={{ minWidth: 0, overflow: 'hidden' }}>
                       <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--ui-text)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{song.title}</span>
@@ -837,10 +1026,10 @@ export default function LeftSidebar() {
                       list of songs reads as titles and artists rather than as
                       four icons per row fighting the text. */}
                   <div className="row-act" style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-                    <button onClick={(e) => { e.stopPropagation(); addSongToService(song); setViewTab('order'); }} title="Add to Service Plan — jumps to the order so you see it land" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: '#C4B5FD', padding: '3px 8px', borderRadius: 6, fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>+ Plan</button>
+                    <button onClick={(e) => { e.stopPropagation(); addSongToService(song); setViewTab('order'); }} title="Add to Service Plan — jumps to the order so you see it land" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: '#FFC72C', padding: '3px 8px', borderRadius: 6, fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>+ Plan</button>
                     <Star size={13} color={song.is_favorite ? '#f59e0b' : 'var(--ui-faint)'} fill={song.is_favorite ? '#f59e0b' : 'none'} onClick={(e) => handleToggleFavorite(song.id, e)} style={{ cursor: 'pointer' }} />
                     <Edit3 size={13} color="var(--ui-muted)" onClick={(e) => { e.stopPropagation(); editSong(song.id); }} style={{ cursor: 'pointer' }} />
-                    <button onClick={(e) => { e.stopPropagation(); handleDeleteSong(song.id); }} title="Delete song" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.28)', color: '#F87171', cursor: 'pointer', padding: '3px 6px', borderRadius: 6, display: 'flex', alignItems: 'center' }}><Trash2 size={13} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); handleDeleteSong(song.id); }} title="Delete song" style={{ background: 'rgba(255,69,69,0.10)', border: '1px solid rgba(255,69,69,0.28)', color: '#FF4545', cursor: 'pointer', padding: '3px 6px', borderRadius: 6, display: 'flex', alignItems: 'center' }}><Trash2 size={13} /></button>
                   </div>
                 </div>
               ))}
@@ -865,40 +1054,13 @@ export default function LeftSidebar() {
         </div>
       );
     }
-    if (dockTab === 'presentations') {
+    if (dockTab === 'sermon') {
       return (
         <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'grid', gap: 10, alignContent: 'start' }}>
-          <button onClick={() => openPresentationEditor(null)} style={{ background: ACCENT, border: 'none', color: '#fff', padding: '9px', borderRadius: 9, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><Plus size={14} /> New Presentation</button>
-          <button
-            onClick={async () => {
-              if (pptxImportBusy.current) return;
-              pptxImportBusy.current = true;
-              setPptxImporting(true);
-              try {
-                const res = await importPowerPoint();
-                if (res && !res.canceled && res.ok) {
-                  const slides = slidesFromPptx(res.slides);
-                  if (slides.length) {
-                    // Save straight away. An unsaved deck is invisible here —
-                    // the Presentations list reads from the database, so a
-                    // deck that only exists in editor state never shows up.
-                    const title = res.name || 'Imported Presentation';
-                    const savedId = await savePresentationDeck({ id: null, title, slides });
-                    const done = 'Imported ' + slides.length + ' slide' + (slides.length === 1 ? '' : 's') + ' and saved it to Presentations.';
-                    openPresentationEditor({ id: savedId || null, title, slides, notice: res.reason ? (res.reason + ' ' + done) : done });
-                  }
-                }
-              } finally {
-                pptxImportBusy.current = false;
-                setPptxImporting(false);
-              }
-            }}
-            disabled={pptxImporting}
-            title="Bring in an existing presentation (.pptx, .odp, .dps…) — as exact images or as editable text"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '9px', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: pptxImporting ? 'default' : 'pointer', opacity: pptxImporting ? 0.65 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-          ><FileUp size={14} /> {pptxImporting ? 'Reading slides…' : 'Import Slides'}</button>
-          <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', lineHeight: 1.5 }}>Build sermon slides with text, images, backgrounds and transitions — then export to PowerPoint or send straight to the projector.</div>
-          {(presentations || []).length === 0 && <div style={{ textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12, padding: 12, border: '1px dashed var(--ui-border)', borderRadius: 10 }}>No presentations yet. Press "New Presentation" to start.</div>}
+          <div className="kog-guide-eyebrow">Slideshow decks</div>
+          <button onClick={() => openPresentationEditor(null)} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '9px', borderRadius: 9, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><Plus size={14} /> New Presentation</button>
+          <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', lineHeight: 1.5 }}>Create a slideshow deck, present it live, or add it to the Home service order.</div>
+          {(presentations || []).length === 0 && <div style={{ textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12, padding: 12, border: '1px dashed var(--ui-border)', borderRadius: 10 }}>No slideshow decks yet. Start a new presentation to build one.</div>}
           {(presentations || []).map(p => (
             <div key={p.id} style={{ background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 10, padding: '9px 11px', display: 'grid', gap: 8 }}>
               <div style={{ minWidth: 0 }}>
@@ -906,26 +1068,29 @@ export default function LeftSidebar() {
                 <span style={{ fontSize: 10, color: 'var(--ui-faint)' }}>{p.slideCount || 0} slide{(p.slideCount || 0) === 1 ? '' : 's'} • {String(p.updated_at || '').slice(0, 10)}</span>
               </div>
               <div style={{ display: 'flex', gap: 5 }}>
-                <button onClick={async () => { const d = await (window.require ? window.require('electron').ipcRenderer.invoke('db-get-presentation', p.id) : null); if (d) addPresentationToService(d); }} title="Add to Service Plan — goes into the section you are working in" style={{ flexShrink: 0, background: 'transparent', border: '1px solid var(--ui-border)', color: '#C4B5FD', padding: '5px 8px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Plus size={11} /> Plan</button>
+                <button onClick={async () => { const d = await (window.require ? window.require('electron').ipcRenderer.invoke('db-get-presentation', p.id) : null); if (d) addPresentationToService(d); }} title="Add to Service Plan — goes into the section you are working in" style={{ flexShrink: 0, background: 'transparent', border: '1px solid var(--ui-border)', color: '#FFC72C', padding: '5px 8px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Plus size={11} /> Plan</button>
                 <button onClick={() => openPresentation(p.id)} title="Edit" style={{ flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '5px 8px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Edit3 size={11} /> Edit</button>
-                <button onClick={async () => { const d = await (window.require ? window.require('electron').ipcRenderer.invoke('db-get-presentation', p.id) : null); if (d) presentDeck(d); else openPresentation(p.id); }} title="Present live" style={{ background: ACCENT, border: 'none', color: '#fff', padding: '5px 10px', borderRadius: 7, fontSize: 10.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Monitor size={11} /> Present</button>
-                <button onClick={() => deletePresentationDeck(p.id)} title="Delete" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.28)', color: '#F87171', cursor: 'pointer', padding: '4px 7px', borderRadius: 7, display: 'flex', alignItems: 'center' }}><Trash2 size={11} /></button>
+                <button onClick={async () => { const d = await (window.require ? window.require('electron').ipcRenderer.invoke('db-get-presentation', p.id) : null); if (d) presentDeck(d); else openPresentation(p.id); }} title="Present live" style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '5px 10px', borderRadius: 7, fontSize: 10.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Monitor size={11} /> Present</button>
+                <button onClick={() => deletePresentationDeck(p.id)} title="Delete deck — asks for confirmation" style={{ background: 'rgba(255,69,69,0.10)', border: '1px solid rgba(255,69,69,0.28)', color: '#FF4545', cursor: 'pointer', padding: '4px 7px', borderRadius: 7, display: 'flex', alignItems: 'center' }}><Trash2 size={11} /></button>
               </div>
             </div>
           ))}
         </div>
       );
     }
+    if (dockTab === 'presentations') {
+      return renderWorkspaceGuide('presentations');
+    }
     if (dockTab === 'templates') {
       return (
         <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'grid', gap: 8, alignContent: 'start' }}>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={saveCurrentTemplate} style={{ flex: 1, background: ACCENT, border: 'none', color: C.text, padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Save Current as Template</button>
+            <button onClick={saveCurrentTemplate} style={{ flex: 1, background: ACCENT, border: 'none', color: '#0D1014', padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Save Current as Template</button>
           </div>
           {templates.map(t => (
             <div key={t.id} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '9px 11px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <button onClick={() => applyTemplate(t.id)} style={{ textAlign: 'left', color: C.text, background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>{t.name}</button>
-              <Trash2 size={13} color="#ef4444" onClick={() => removeTemplate(t.id)} style={{ cursor: 'pointer' }} />
+              <Trash2 size={13} color="#FF4545" onClick={() => removeTemplate(t.id)} style={{ cursor: 'pointer' }} />
             </div>
           ))}
           {templates.length === 0 && <div style={{ textAlign: 'center', color: C.faint2, fontSize: 12, padding: 12 }}>No templates yet.</div>}
@@ -935,14 +1100,14 @@ export default function LeftSidebar() {
 
 
 if (dockTab === 'media') {
-      // Media lives in the center workspace now (MediaBrowser) — the sidebar
-      // stays closed on that tab, so this renders nothing by design.
-      return null;
+      // Media lives in the centre workspace (MediaBrowser). The sidebar now
+      // explains the workspace instead of duplicating the running order.
+      return renderWorkspaceGuide('media');
     }
 if (dockTab === 'audio') {
-  // Audio owns the full center workspace (AudioPanel: Song Audio / Pads /
-  // BGM Playlist) — nothing lives in the sidebar on this tab by design.
-  return null;
+  // Audio owns the full centre workspace (AudioPanel: Song Audio / Pads /
+  // BGM Playlist); the sidebar carries a short guide, not the service order.
+  return renderWorkspaceGuide('audio');
 }
 if (dockTab === 'videos') {
   // Video library lives in the system sidebar on this tab (independent
@@ -951,9 +1116,14 @@ if (dockTab === 'videos') {
   return <VideoLibrarySidebar />;
 }
 
+    if (dockTab === 'countdown') {
+      return renderWorkspaceGuide('countdown');
+    }
+    if (dockTab === 'stage') {
+      return renderWorkspaceGuide('stage');
+    }
     if (dockTab === 'scripture') {
-      // Scripture owns the full width — no sidebar, no rail, nothing to reopen.
-      return null;
+      return renderWorkspaceGuide('scripture');
     }
 
     if (dockTab === 'calendar') {
@@ -974,7 +1144,7 @@ if (dockTab === 'videos') {
               </div>
               <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
                 <button onClick={() => loadService(svc.id)} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.text, borderRadius: 7, padding: '5px 11px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Load</button>
-                <button onClick={() => deleteSavedService(svc.id)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '3px 4px' }}><Trash2 size={12} /></button>
+                <button onClick={() => deleteSavedService(svc.id)} style={{ background: 'transparent', border: 'none', color: '#FF4545', cursor: 'pointer', padding: '3px 4px' }}><Trash2 size={12} /></button>
               </div>
             </div>
           ))}
@@ -983,27 +1153,47 @@ if (dockTab === 'videos') {
     }
 
     if (dockTab === 'settings' || dockTab === 'functions') {
-      return <SettingsPanel />;
+      // Settings opens as a workspace dialog (see App's handleDockSelect);
+      // the sidebar never renders it inline.
+      return null;
     }
     return null;
   })()}
   </div>
-  </div>
+
+      {/* UTILITY TOOLS — preserves every destination the old bottom dock had. */}
+      <div className="kog-sidebar-utility" aria-label="Production tools">
+        {UTILITY_NAV.map(({ id, label, Icon, title }) => (
+          <button
+            key={id}
+            type="button"
+            data-active={dockTab === id ? '1' : '0'}
+            onClick={() => goTo(id)}
+            title={title}
+          >
+            <Icon size={14} strokeWidth={1.9} />
+            <span>{label}</span>
+            {id === 'sermon' && (presentations || []).length > 0 ? (
+              <span className="kog-utility-count" title={`${presentations.length} saved slideshow decks`}>{presentations.length}</span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+    </div>
   </motion.div>
-  {/* Reopen rail: minimizing used to leave no way back except switching tabs.
-      This slim strip stays on the left edge while closed — only on tabs that
-      actually have sidebar content (sermon/countdown/stage/media/audio have
-      none by design, so no dead button there). */}
-  {!leftOpen && ['shows', 'presentations', 'templates', 'videos', 'calendar', 'settings', 'functions'].includes(dockTab) && (
+  {/* Reopen rail — navigation must always be one click away. */}
+  {!leftOpen && (
     <motion.button
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 0.2 }}
+      transition={{ duration: 0.16 }}
       onClick={() => setLeftOpen(true)}
-      title="Open command center"
-      style={{ flexShrink: 0, width: 30, height: '100%', background: 'var(--ui-panel)', border: 'none', borderRight: '1px solid var(--ui-border)', color: 'var(--ui-faint)', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 12 }}
+      title="Open navigation"
+      aria-label="Open navigation"
+      className="kog-rail"
     >
       <PanelLeftOpen size={16} />
+      <img src={logoImage} alt="" style={{ width: 22, height: 22, objectFit: 'contain', opacity: 0.85, borderRadius: 4 }} />
     </motion.button>
   )}
   </>

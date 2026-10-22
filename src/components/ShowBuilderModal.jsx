@@ -95,7 +95,7 @@ return (
   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} key="show-builder-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', display: 'flex', zIndex: 9999, flexDirection: 'column' }}>
     {/* TOP BAR */}
     <div style={{ height: 52, background: C.panel, borderBottom: '1px solid var(--ui-border)', display: 'flex', alignItems: 'center', padding: '0 16px', gap: 12, flexShrink: 0 }}>
-      <LayoutGrid size={18} color="#22c55e" />
+      <LayoutGrid size={18} color="#36C982" />
       <input type="text" value={showBuilder.name} onChange={(e) => setShowBuilder({ ...showBuilder, name: e.target.value })} placeholder="Show Name" style={{ flex: 1, maxWidth: 220, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: '7px 10px', color: C.text, fontSize: 13, fontWeight: 700, outline: 'none' }} />
       <input type="date" value={showBuilder.date} onChange={(e) => setShowBuilder({ ...showBuilder, date: e.target.value })} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: '7px 8px', color: C.text, fontSize: 12, outline: 'none' }} />
       <select value={showBuilder.category} onChange={(e) => setShowBuilder({ ...showBuilder, category: e.target.value })} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: '7px', color: C.text, fontSize: 12, outline: 'none' }}>
@@ -104,9 +104,9 @@ return (
       <select value={showBuilder.ratio} onChange={(e) => setShowBuilder({ ...showBuilder, ratio: e.target.value })} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: '7px', color: C.text, fontSize: 12, outline: 'none' }}>
         {['16:9', '16:10', '4:3', '9:16'].map(r => <option key={r} value={r}>{r}</option>)}
       </select>
-      <span style={{ marginLeft: 'auto', fontSize: 12, color: C.muted }}>Planned: <b style={{ color: showTotalSeconds > 0 ? '#4ade80' : C.muted, fontFamily: 'monospace' }}>{formatCountdown(showTotalSeconds)}</b></span>
+      <span style={{ marginLeft: 'auto', fontSize: 12, color: C.muted }}>Planned: <b style={{ color: showTotalSeconds > 0 ? '#36C982' : C.muted, fontFamily: 'monospace' }}>{formatCountdown(showTotalSeconds)}</b></span>
       <motion.button {...stubTap} onClick={closeShowModal} style={{ background: C.border, border: 'none', color: C.text, padding: '7px 14px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Cancel</motion.button>
-      <motion.button {...stubTap} onClick={createShow} style={{ background: '#22c55e', border: 'none', color: '#000', padding: '7px 16px', borderRadius: 7, fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>Create Show</motion.button>
+      <motion.button {...stubTap} onClick={createShow} style={{ background: '#36C982', border: 'none', color: '#000', padding: '7px 16px', borderRadius: 7, fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>Create Show</motion.button>
     </div>
 
     {/* 3-Pane Body */}
@@ -125,15 +125,15 @@ return (
             <select
               value={targetSecId}
               onChange={(e) => setBuilderTargetSecId(e.target.value)}
-              style={{ flex: 1, minWidth: 0, background: C.elevated2, border: '1px solid #5b21b6', borderRadius: 5, padding: '4px 6px', color: C.accLine, fontSize: 10.5, fontWeight: 700, outline: 'none', cursor: 'pointer' }}
+              style={{ flex: 1, minWidth: 0, background: C.elevated2, border: '1px solid rgba(255,184,0,0.5)', borderRadius: 5, padding: '4px 6px', color: C.accLine, fontSize: 10.5, fontWeight: 700, outline: 'none', cursor: 'pointer' }}
             >
               {sections.map(s => <option key={s.id} value={s.id}>{s.title || 'Untitled'} ({s.items.length})</option>)}
             </select>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            <button onClick={() => setServiceAddMenu(serviceAddMenu === 'builder-song' ? null : 'builder-song')} style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-song' ? '#1e1b4b' : C.elevated2, color: serviceAddMenu === 'builder-song' ? C.accLine : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-song' ? '#5b21b6' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Song</button>
+            <button onClick={() => setServiceAddMenu(serviceAddMenu === 'builder-song' ? null : 'builder-song')} style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-song' ? '#1e1b4b' : C.elevated2, color: serviceAddMenu === 'builder-song' ? C.accLine : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-song' ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Song</button>
             <button onClick={() => { if (targetSecId) addSlideToSection(targetSecId); }} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Slide</button>
-            <button onClick={() => { const open = serviceAddMenu !== 'builder-media'; setServiceAddMenu(open ? 'builder-media' : null); if (open) { setBuilderMediaPicker(true); fetchMediaLibrary(); } else { setBuilderMediaPicker(false); } }} title="Upload a file, or pick media that is already in the app" style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-media' ? 'rgba(139,92,246,0.18)' : C.elevated2, color: serviceAddMenu === 'builder-media' ? '#C4B5FD' : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-media' ? '#5b21b6' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Media</button>
+            <button onClick={() => { const open = serviceAddMenu !== 'builder-media'; setServiceAddMenu(open ? 'builder-media' : null); if (open) { setBuilderMediaPicker(true); fetchMediaLibrary(); } else { setBuilderMediaPicker(false); } }} title="Upload a file, or pick media that is already in the app" style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-media' ? 'rgba(255,184,0,0.18)' : C.elevated2, color: serviceAddMenu === 'builder-media' ? '#FFC72C' : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-media' ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Media</button>
             <input type="file" id="show-media-input-builder" accept="image/*,video/*" style={{ display: 'none' }} onChange={addShowBuilderMedia} />
             <button onClick={() => addShowBuilderPlaceholder('Announcement')} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Announcement</button>
           </div>
@@ -165,7 +165,7 @@ return (
         {serviceAddMenu === 'builder-media' && (
           <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--ui-border)', display: 'grid', gap: 5 }}>
             <div style={{ display: 'flex', gap: 4 }}>
-              <button onClick={() => { const open = !builderMediaPicker; setBuilderMediaPicker(open); if (open) fetchMediaLibrary(); }} title="Choose an image or video that is already in the app — nothing is re-uploaded" style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 700, background: builderMediaPicker ? 'rgba(139,92,246,0.18)' : C.elevated2, color: builderMediaPicker ? '#C4B5FD' : C.text2, border: '1px solid ' + (builderMediaPicker ? '#5b21b6' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Existing Media</button>
+              <button onClick={() => { const open = !builderMediaPicker; setBuilderMediaPicker(open); if (open) fetchMediaLibrary(); }} title="Choose an image or video that is already in the app — nothing is re-uploaded" style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 700, background: builderMediaPicker ? 'rgba(255,184,0,0.18)' : C.elevated2, color: builderMediaPicker ? '#FFC72C' : C.text2, border: '1px solid ' + (builderMediaPicker ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Existing Media</button>
               <button onClick={() => document.getElementById('show-media-input-builder')?.click()} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>+ Upload</button>
             </div>
             {builderMediaPicker && ((mediaLibrary || []).filter(a => a.kind === 'image' || a.kind === 'video').length === 0 ? (
@@ -203,11 +203,11 @@ return (
                     setBuilderCollapsed(prev => collapsed ? prev.filter(x => x !== sec.id) : [...prev, sec.id]);
                   }}
                   title={isTarget ? 'Target section for new items — click to collapse/expand' : 'Click to make this the target section and collapse/expand'}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', cursor: 'pointer', background: isTarget ? 'rgba(139,92,246,0.10)' : secSelected ? 'rgba(34,197,94,0.06)' : 'transparent', borderBottom: isTarget ? '1px solid rgba(139,92,246,0.35)' : 'none' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', cursor: 'pointer', background: isTarget ? 'rgba(255,184,0,0.10)' : secSelected ? 'rgba(54,201,130,0.06)' : 'transparent', borderBottom: isTarget ? '1px solid rgba(255,184,0,0.35)' : 'none' }}
                 >
-                  <span style={{ color: isTarget ? '#8b5cf6' : C.muted }}>{collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</span>
-                  <input type="text" value={sec.title} onChange={(e) => renameShowSection(sec.id, e.target.value)} onClick={(e) => e.stopPropagation()} style={{ flex: 1, background: 'transparent', border: 'none', borderBottom: '1px dashed var(--ui-border2)', color: isTarget ? '#C4B5FD' : C.heading, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, outline: 'none', padding: '2px 0' }} />
-                  {isTarget && <span style={{ fontSize: 8, fontWeight: 800, color: '#8b5cf6', border: '1px solid rgba(139,92,246,0.5)', borderRadius: 4, padding: '0 4px' }}>ADD TO</span>}
+                  <span style={{ color: isTarget ? '#FFB800' : C.muted }}>{collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</span>
+                  <input type="text" value={sec.title} onChange={(e) => renameShowSection(sec.id, e.target.value)} onClick={(e) => e.stopPropagation()} style={{ flex: 1, background: 'transparent', border: 'none', borderBottom: '1px dashed var(--ui-border2)', color: isTarget ? '#FFC72C' : C.heading, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1, outline: 'none', padding: '2px 0' }} />
+                  {isTarget && <span style={{ fontSize: 8, fontWeight: 800, color: '#FFB800', border: '1px solid rgba(255,184,0,0.5)', borderRadius: 4, padding: '0 4px' }}>ADD TO</span>}
                   <span style={{ fontSize: 9, color: C.muted, background: C.elevated2, borderRadius: 999, padding: '1px 5px' }}>{sec.items.length}</span>
                   <button onClick={(e) => { e.stopPropagation(); removeShowSection(sec.id); }} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', display: 'flex', padding: 1 }}><Trash2 size={11} /></button>
                 </div>
@@ -218,8 +218,8 @@ return (
                   globalNum += ii + 1;
                   const ItemIcon = it.songId ? Music : it.media_url ? ImageIcon : FileText;
                   return (
-                    <div key={ii} onClick={() => { selectBuilderItem(si, ii); setBuilderTargetSecId(sec.id); }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px 5px 28px', cursor: 'pointer', background: isSelected ? 'rgba(34,197,94,0.12)' : 'transparent', borderLeft: isSelected ? '3px solid #22c55e' : '3px solid transparent', fontSize: 11, transition: 'background 0.15s' }}>
-                      <span style={{ fontSize: 10, fontWeight: 800, color: isSelected ? '#22c55e' : C.faint, minWidth: 18 }}>{globalNum}</span>
+                    <div key={ii} onClick={() => { selectBuilderItem(si, ii); setBuilderTargetSecId(sec.id); }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px 5px 28px', cursor: 'pointer', background: isSelected ? 'rgba(54,201,130,0.12)' : 'transparent', borderLeft: isSelected ? '3px solid #36C982' : '3px solid transparent', fontSize: 11, transition: 'background 0.15s' }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: isSelected ? '#36C982' : C.faint, minWidth: 18 }}>{globalNum}</span>
                       <span style={{ fontSize: 10, color: C.muted, display: 'flex' }}><ItemIcon size={10} /></span>
                       <span style={{ flex: 1, fontWeight: isSelected ? 700 : 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.title}</span>
                       <span style={{ fontSize: 9, color: C.muted }}>{slideCount(it)}s</span>
@@ -239,7 +239,7 @@ return (
         <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--ui-border)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1 }}>Grid Density</span>
           {[1, 2, 3, 4].map(d => (
-            <button key={d} onClick={() => setBuilderDensity(d)} style={{ width: 26, height: 22, borderRadius: 4, background: builderDensity === d ? ACCENT : C.elevated2, color: builderDensity === d ? '#fff' : C.muted, border: '1px solid var(--ui-border2)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{d}</button>
+            <button key={d} onClick={() => setBuilderDensity(d)} style={{ width: 26, height: 22, borderRadius: 4, background: builderDensity === d ? ACCENT : C.elevated2, color: builderDensity === d ? '#0D1014' : C.muted, border: '1px solid var(--ui-border2)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{d}</button>
           ))}
           {cur && <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: C.text }}>{cur.sec.title} — {cur.item.title}</span>}
         </div>
@@ -265,10 +265,10 @@ return (
               {slides.map((sl, ti) => {
                 const isActive = tileIdx === ti && cur;
                 return (
-                  <div key={ti} onClick={() => { if (cur) builderGoLive(cur, ti); }} style={{ position: 'relative', height: density <= 2 ? 130 : density === 3 ? 110 : 90, borderRadius: 8, overflow: 'hidden', background: sl.type === 'media' ? '#111' : C.input, border: isActive ? '2px solid #22c55e' : '1px solid var(--ui-border2)', cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: 8, boxSizing: 'border-box', transition: 'border 0.15s', boxShadow: isActive ? '0 0 12px rgba(34,197,94,0.25)' : 'none' }}>
+                  <div key={ti} onClick={() => { if (cur) builderGoLive(cur, ti); }} style={{ position: 'relative', height: density <= 2 ? 130 : density === 3 ? 110 : 90, borderRadius: 8, overflow: 'hidden', background: sl.type === 'media' ? '#111' : C.input, border: isActive ? '2px solid #36C982' : '1px solid var(--ui-border2)', cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: 8, boxSizing: 'border-box', transition: 'border 0.15s', boxShadow: isActive ? '0 0 12px rgba(54,201,130,0.25)' : 'none' }}>
                     {sl.type === 'media' && sl.url && (sl.sub === 'video' ? <video src={sl.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.5 }} muted /> : <img src={sl.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.5 }} />)}
-                    <div style={{ position: 'absolute', top: 4, left: 6, fontSize: 9, fontWeight: 800, color: isActive ? '#22c55e' : C.faint, zIndex: 2 }}>#{ti + 1}</div>
-                    <div style={{ position: 'absolute', top: 4, right: 6, fontSize: 8, fontWeight: 800, background: isActive ? 'rgba(34,197,94,0.25)' : 'rgba(255,255,255,0.08)', color: isActive ? '#22c55e' : C.muted, borderRadius: 4, padding: '1px 5px', zIndex: 2 }}>{sl.type === 'title' ? 'TITLE' : sl.type === 'cue' ? (sl.cue?.label || 'LYRIC') : sl.type === 'media' ? 'MEDIA' : 'SLIDE'}</div>
+                    <div style={{ position: 'absolute', top: 4, left: 6, fontSize: 9, fontWeight: 800, color: isActive ? '#36C982' : C.faint, zIndex: 2 }}>#{ti + 1}</div>
+                    <div style={{ position: 'absolute', top: 4, right: 6, fontSize: 8, fontWeight: 800, background: isActive ? 'rgba(54,201,130,0.25)' : 'rgba(255,255,255,0.08)', color: isActive ? '#36C982' : C.muted, borderRadius: 4, padding: '1px 5px', zIndex: 2 }}>{sl.type === 'title' ? 'TITLE' : sl.type === 'cue' ? (sl.cue?.label || 'LYRIC') : sl.type === 'media' ? 'MEDIA' : 'SLIDE'}</div>
                     <p style={{ margin: 0, fontSize: density <= 2 ? 13 : 11, fontWeight: 700, color: C.text, textAlign: 'center', lineHeight: 1.3, whiteSpace: 'pre-line', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', zIndex: 2, textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>{sl.text || '—'}</p>
                   </div>
                 );
@@ -319,8 +319,8 @@ return (
               const isActive = cur && entry.si === cur.si && entry.ii === cur.ii;
               const ItemIcon = entry.item.songId ? Music : entry.item.media_url ? ImageIcon : FileText;
               return (
-                <div key={fi} onClick={() => selectBuilderItem(entry.si, entry.ii)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 4, background: isActive ? 'rgba(34,197,94,0.1)' : 'transparent', cursor: 'pointer' }}>
-                  <span style={{ fontSize: 9, fontWeight: 800, color: isActive ? '#22c55e' : C.faint, minWidth: 16 }}>{fi + 1}</span>
+                <div key={fi} onClick={() => selectBuilderItem(entry.si, entry.ii)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px', borderRadius: 4, background: isActive ? 'rgba(54,201,130,0.1)' : 'transparent', cursor: 'pointer' }}>
+                  <span style={{ fontSize: 9, fontWeight: 800, color: isActive ? '#36C982' : C.faint, minWidth: 16 }}>{fi + 1}</span>
                   <span style={{ fontSize: 9, color: C.muted, display: 'flex' }}><ItemIcon size={9} /></span>
                   <span style={{ flex: 1, fontSize: 10, fontWeight: isActive ? 700 : 500, color: isActive ? C.text : C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.item.title}</span>
                   <span style={{ fontSize: 9, color: C.faint }}>{entry.c}s</span>

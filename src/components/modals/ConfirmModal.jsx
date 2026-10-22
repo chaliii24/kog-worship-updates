@@ -71,7 +71,7 @@ export default function ConfirmModal({ C, ACCENT, mode = 'confirm', title, messa
             ref={confirmRef}
             onClick={onConfirm}
             style={{
-              background: isConfirm ? '#EF4444' : ACCENT,
+              background: isConfirm ? '#FF4545' : ACCENT,
               border: 'none',
               color: '#fff',
               padding: '10px 18px',
@@ -88,7 +88,7 @@ export default function ConfirmModal({ C, ACCENT, mode = 'confirm', title, messa
             <motion.button
               {...stubTap}
               onClick={onExtra}
-              style={{ background: ACCENT, border: 'none', color: '#fff', padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+              style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
             >
               {extraLabel}
             </motion.button>

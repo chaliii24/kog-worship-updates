@@ -26,7 +26,7 @@ let sysFontCache = null;
 // dialog) so mousedown can preventDefault: focus never leaves the canvas
 // textarea, the highlight stays painted, and the colour lands on the live
 // selection — no blur, no latch, no popup.
-const GLOW_PRESETS = ['#22d3ee', '#f472b6', '#facc15', '#4ade80', '#c084fc', '#ffffff', '#fb923c', '#f87171', '#60a5fa', '#e879f9'];
+const GLOW_PRESETS = ['#22d3ee', '#f472b6', '#facc15', '#36C982', '#c084fc', '#ffffff', '#fb923c', '#FF4545', '#60a5fa', '#e879f9'];
 
 const quoteFont = (family) => {
   const f = String(family || '').trim();
@@ -1310,7 +1310,7 @@ export default function SongEditorModal() {
     <AnimatePresence>
       {isParsing && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }} style={{ position: 'absolute', inset: 0, zIndex: 50, background: 'rgba(5,5,9,0.82)', backdropFilter: 'blur(6px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
-          <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.9, ease: 'linear' }} style={{ width: 52, height: 52, borderRadius: '50%', border: '3px solid rgba(139,92,246,0.22)', borderTopColor: ACCENT, boxSizing: 'border-box' }} />
+          <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 0.9, ease: 'linear' }} style={{ width: 52, height: 52, borderRadius: '50%', border: '3px solid rgba(255,184,0,0.22)', borderTopColor: ACCENT, boxSizing: 'border-box' }} />
           <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>Parsing lyrics & building blocks…</div>
           <div style={{ fontSize: 12, color: C.faint, maxWidth: 440, textAlign: 'center', lineHeight: 1.55 }}>
             Detecting sections and splitting your song into slides. This can take a few seconds.
@@ -1348,7 +1348,7 @@ export default function SongEditorModal() {
               {[1, 2, 3, 4, 6, 8].map((n) => {
                 const active = String(n) === String(splitN);
                 return (
-                  <button key={n} onClick={() => setSplitN(String(n))} style={{ minWidth: 38, padding: '6px 0', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer', background: active ? ACCENT : C.input, color: active ? '#fff' : C.text2, border: active ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)' }}>{n}</button>
+                  <button key={n} onClick={() => setSplitN(String(n))} style={{ minWidth: 38, padding: '6px 0', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer', background: active ? ACCENT : C.input, color: active ? '#0D1014' : C.text2, border: active ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)' }}>{n}</button>
                 );
               })}
               <span style={{ fontSize: 10.5, color: C.faint, marginLeft: 2, fontWeight: 700 }}>lines / slide</span>
@@ -1363,7 +1363,7 @@ export default function SongEditorModal() {
                 style={{ width: 76, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '9px 10px', fontSize: 15, fontWeight: 800, textAlign: 'center', outline: 'none' }}
               />
               <button onClick={() => setSplitPrompt(null)} style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid var(--ui-border2)', color: C.text2, padding: '9px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={runSplitPrompt} style={{ background: ACCENT, border: 'none', color: '#fff', padding: '9px 16px', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}><Wand2 size={14} /> {splitPrompt === 'fetch' ? 'Fetch & Parse' : 'Parse & Build'}</button>
+              <button onClick={runSplitPrompt} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '9px 16px', borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}><Wand2 size={14} /> {splitPrompt === 'fetch' ? 'Fetch & Parse' : 'Parse & Build'}</button>
             </div>
           </motion.div>
         </motion.div>
@@ -1379,20 +1379,20 @@ export default function SongEditorModal() {
             </label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {aiStatus && (
-                <span style={{ fontSize: 10, background: aiStatus.includes('Online') ? 'rgba(34,197,94,0.2)' : 'rgba(139,92,246,0.2)', color: aiStatus.includes('Online') ? '#4ade80' : '#a78bfa', padding: '4px 8px', borderRadius: 8, fontWeight: 700, border: aiStatus.includes('Online') ? '1px solid rgba(34,197,94,0.4)' : '1px solid rgba(139,92,246,0.4)' }}>{aiStatus}</span>
+                <span style={{ fontSize: 10, background: aiStatus.includes('Online') ? 'rgba(54,201,130,0.2)' : 'rgba(255,184,0,0.2)', color: aiStatus.includes('Online') ? '#36C982' : '#FFC72C', padding: '4px 8px', borderRadius: 8, fontWeight: 700, border: aiStatus.includes('Online') ? '1px solid rgba(54,201,130,0.4)' : '1px solid rgba(255,184,0,0.4)' }}>{aiStatus}</span>
               )}
             </div>
           </div>
-          <div style={{ background: C.input, border: `1px solid ${aiKey && aiKey.hasKey ? 'rgba(34,197,94,0.35)' : 'var(--ui-border2)'}`, borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
+          <div style={{ background: C.input, border: `1px solid ${aiKey && aiKey.hasKey ? 'rgba(54,201,130,0.35)' : 'var(--ui-border2)'}`, borderRadius: 8, padding: '10px 12px', marginBottom: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <KeyRound size={13} color={aiKey && aiKey.hasKey ? '#4ade80' : C.accLine} />
+                <KeyRound size={13} color={aiKey && aiKey.hasKey ? '#36C982' : C.accLine} />
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: C.text }}>
                   {aiKey === null ? 'Checking for a saved key…' : aiKey.hasKey ? `Gemini key saved · ${aiKey.masked}` : 'AI Auto-Fix needs your own Gemini key'}
                 </span>
                 {aiKey && aiKey.hasKey && (
                   <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
                     <button onClick={testAiKey} disabled={aiKeyBusy} style={aiKeyBtn(C)}>{aiKeyBusy ? '…' : 'Test'}</button>
-                    <button onClick={clearAiKey} disabled={aiKeyBusy} style={{ ...aiKeyBtn(C), color: '#f87171', borderColor: 'rgba(239,68,68,0.45)' }}>Remove</button>
+                    <button onClick={clearAiKey} disabled={aiKeyBusy} style={{ ...aiKeyBtn(C), color: '#FF4545', borderColor: 'rgba(255,69,69,0.45)' }}>Remove</button>
                   </span>
                 )}
               </div>
@@ -1408,7 +1408,7 @@ export default function SongEditorModal() {
                     autoComplete="off"
                     style={{ flex: 1, minWidth: 0, background: C.panel, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: '8px 10px', color: C.text, fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
                   />
-                  <button onClick={saveAiKey} disabled={aiKeyBusy || !aiKeyInput.trim()} style={{ ...aiKeyBtn(C), color: '#fff', background: (aiKeyBusy || !aiKeyInput.trim()) ? C.faint : ACCENT, borderColor: 'transparent' }}>Save</button>
+                  <button onClick={saveAiKey} disabled={aiKeyBusy || !aiKeyInput.trim()} style={{ ...aiKeyBtn(C), color: '#0D1014', background: (aiKeyBusy || !aiKeyInput.trim()) ? C.faint : ACCENT, borderColor: 'transparent' }}>Save</button>
                 </div>
               )}
               <div style={{ fontSize: 10.5, color: C.faint, marginTop: 8, lineHeight: 1.55 }}>
@@ -1416,24 +1416,24 @@ export default function SongEditorModal() {
                 <span onClick={openKeyPage} style={{ color: C.accLine, cursor: 'pointer', fontWeight: 700 }}>Get a free key →</span>
               </div>
               {aiKeyMsg && (
-                <div style={{ fontSize: 11, marginTop: 6, fontWeight: 700, color: aiKeyMsg.ok ? '#4ade80' : '#f87171' }}>{aiKeyMsg.text}</div>
+                <div style={{ fontSize: 11, marginTop: 6, fontWeight: 700, color: aiKeyMsg.ok ? '#36C982' : '#FF4545' }}>{aiKeyMsg.text}</div>
               )}
             </div>
           <p style={{ fontSize: 12, color: C.faint, margin: '0 0 12px 0' }}>Parsing is local and instant: the offline engine strips chords only when the text is a chart, cleans up Google Docs and web formatting, and maps sections into blocks (unlabeled lyrics split into Verse/Chorus automatically). If the blocks come out wrong, AI Auto-Fix re-parses with Gemini using your key above — nothing else ever leaves this computer for parsing.</p>
           <textarea rows={10} value={rawPasteText} onChange={(e) => setRawPasteText(e.target.value)} placeholder="[Verse 1] or plain lyrics&#10;Paste chords (auto-stripped) or copy/paste from a lyrics site — sections are detected for you." style={{ width: '100%', background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: 12, color: C.text, fontSize: 13, fontFamily: 'monospace', outline: 'none', resize: 'vertical' }} />
           <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-            <button onClick={() => openSplitPrompt('parse')} disabled={isParsing} style={{ background: ACCENT, border: 'none', color: C.text, padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: isParsing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: isParsing ? 0.6 : 1 }}><Wand2 size={14} /> {isParsing ? 'Parsing…' : 'Parse & Build Blocks'}</button>
+            <button onClick={() => openSplitPrompt('parse')} disabled={isParsing} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: isParsing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: isParsing ? 0.6 : 1 }}><Wand2 size={14} /> {isParsing ? 'Parsing…' : 'Parse & Build Blocks'}</button>
             {editingSong.cues && editingSong.cues.length > 0 && (
               <button onClick={() => processAiAutofix(undefined, { linesPerSlide: Number(linesPerSlide) || 4 })} disabled={isParsing} title="Blocks look wrong? Re-parse with Gemini using your saved key. Only runs when you click it." style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.text2, padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: isParsing ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: isParsing ? 0.6 : 1 }}><Sparkles size={14} /> {isParsing ? 'Working…' : 'AI Auto-Fix'}</button>
             )}
           </div>
           {editingSong.cues && editingSong.cues.length > 0 && (
             <div style={{ marginTop: 16, borderTop: '1px solid var(--ui-border2)', paddingTop: 16 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: '#4ade80', textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Generated Song Blocks ({editingSong.cues.length})</label>
+              <label style={{ fontSize: 11, fontWeight: 700, color: '#36C982', textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>Generated Song Blocks ({editingSong.cues.length})</label>
               <div style={{ display: 'grid', gap: 8, maxHeight: 260, overflowY: 'auto' }}>
                 {editingSong.cues.map((c, i) => (
                   <div key={i} style={{ background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <button onClick={() => { setEditingSong({ ...editingSong, cues: editingSong.cues.filter((_, x) => x !== i) }); }} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: 2 }}><Trash2 size={13} /></button>
+                    <button onClick={() => { setEditingSong({ ...editingSong, cues: editingSong.cues.filter((_, x) => x !== i) }); }} style={{ background: 'transparent', border: 'none', color: '#FF4545', cursor: 'pointer', padding: 2 }}><Trash2 size={13} /></button>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ fontSize: 10, color: C.accLine, fontWeight: 700, textTransform: 'uppercase' }}>{c.label}</span>
                       <p style={{ margin: '2px 0 0 0', fontSize: 12, color: C.text2, whiteSpace: 'pre-line' }}>{stripMarkup(c.text)}</p>
@@ -1455,12 +1455,12 @@ export default function SongEditorModal() {
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Alignment</div>
               <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
                 {[['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight], ['justify', AlignHorizontalJustifyCenter]].map(([a, Icon]) => (
-                  <button key={a} title={`Align ${a}`} onClick={() => patchText({ align: a })} style={{ flex: 1, background: (c?.align || 'center') === a ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.align || 'center') === a ? C.text : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
+                  <button key={a} title={`Align ${a}`} onClick={() => patchText({ align: a })} style={{ flex: 1, background: (c?.align || 'center') === a ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.align || 'center') === a ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
                 {[['top', AlignVerticalJustifyStart, 'Top'], ['middle', AlignVerticalJustifyCenter, 'Middle'], ['bottom', AlignVerticalJustifyEnd, 'Bottom']].map(([v, Icon, lbl]) => (
-                  <button key={v} title={`Vertical: ${lbl}`} onClick={() => patchText({ valign: v })} style={{ flex: 1, background: (c?.valign || 'middle') === v ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.valign || 'middle') === v ? C.text : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
+                  <button key={v} title={`Vertical: ${lbl}`} onClick={() => patchText({ valign: v })} style={{ flex: 1, background: (c?.valign || 'middle') === v ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.valign || 'middle') === v ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
                 ))}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -1476,7 +1476,7 @@ export default function SongEditorModal() {
               <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4 }}>Resize</div>
               <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
                 {[['fit', 'Fit'], ['fill', 'Fill'], ['scale', 'Scale']].map(([m, lbl]) => (
-                  <button key={m} onClick={() => patchText({ resizeMode: m })} style={{ flex: 1, background: (c?.resizeMode || 'fit') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.resizeMode || 'fit') === m ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                  <button key={m} onClick={() => patchText({ resizeMode: m })} style={{ flex: 1, background: (c?.resizeMode || 'fit') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.resizeMode || 'fit') === m ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
                 ))}
               </div>
               <div style={{ fontSize: 9.5, color: C.faint, lineHeight: 1.45, marginBottom: 8 }}>
@@ -1503,7 +1503,7 @@ export default function SongEditorModal() {
               <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4 }}>Display</div>
               <div style={{ display: 'flex', gap: 4 }}>
                 {[['static', 'Static'], ['ticker', 'Ticker']].map(([m, lbl]) => (
-                  <button key={m} onClick={() => patchText({ layoutMode: m })} style={{ flex: 1, background: (c?.layoutMode || 'static') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.layoutMode || 'static') === m ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                  <button key={m} onClick={() => patchText({ layoutMode: m })} style={{ flex: 1, background: (c?.layoutMode || 'static') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.layoutMode || 'static') === m ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
                 ))}
               </div>
               {(c?.layoutMode || 'static') === 'ticker' && (
@@ -1515,7 +1515,7 @@ export default function SongEditorModal() {
                   </div>
                   <div style={{ display: 'flex', gap: 4 }}>
                     {[['ltr', 'Scroll ←'], ['rtl', 'Scroll →']].map(([d, lbl]) => (
-                      <button key={d} onClick={() => patchText({ tickerDir: d })} style={{ flex: 1, background: (c?.tickerDir || 'ltr') === d ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.tickerDir || 'ltr') === d ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                      <button key={d} onClick={() => patchText({ tickerDir: d })} style={{ flex: 1, background: (c?.tickerDir || 'ltr') === d ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.tickerDir || 'ltr') === d ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
                     ))}
                   </div>
                 </div>
@@ -1553,12 +1553,12 @@ export default function SongEditorModal() {
                       title={selMode ? `${lbl} the selected text` : `${lbl} this slide`}
                       onMouseDown={(ev) => ev.preventDefault()}
                       onClick={toggle}
-                      style={{ flex: 1, background: active ? ACCENT : C.elevated2, border: '1px solid ' + (active ? ACCENT : 'var(--ui-border2)'), color: active ? C.text : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
+                      style={{ flex: 1, background: active ? ACCENT : C.elevated2, border: '1px solid ' + (active ? ACCENT : 'var(--ui-border2)'), color: active ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
                   );
                 })}
               </div>
               {selMode && (
-                <div style={{ fontSize: 9.5, fontWeight: 700, color: '#c4b5fd', marginTop: 5, letterSpacing: 0.2 }}>
+                <div style={{ fontSize: 9.5, fontWeight: 700, color: '#FFC72C', marginTop: 5, letterSpacing: 0.2 }}>
                   Highlighted text — B / I / U / S and Glow style only that. The canvas chips also size, colour, face and tracking it.
                 </div>
               )}
@@ -1587,7 +1587,7 @@ export default function SongEditorModal() {
               <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4, marginTop: 8 }}>Letter Case</label>
               <div style={{ display: 'flex', gap: 4 }}>
                 {[['none', 'Aa'], ['title', 'Aa'], ['upper', 'AA']].map(([m, lbl]) => (
-                  <button key={m} onClick={() => patchText({ case: m })} style={{ flex: 1, background: (c?.case || 'none') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.case || 'none') === m ? C.text : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{m === 'title' ? 'Tt' : lbl}</button>
+                  <button key={m} onClick={() => patchText({ case: m })} style={{ flex: 1, background: (c?.case || 'none') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.case || 'none') === m ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{m === 'title' ? 'Tt' : lbl}</button>
                 ))}
               </div>
             </div>
@@ -1624,7 +1624,7 @@ export default function SongEditorModal() {
                     }
                   }
                   patchText({ [k]: !c?.[k] });
-                }} style={{ width: '100%', background: (k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? 'rgba(34,197,94,0.15)' : C.elevated2, border: '1px solid ' + ((k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? 'rgba(34,197,94,0.5)' : 'var(--ui-border2)'), color: (k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? '#4ade80' : C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', marginBottom: 4 }}>{lbl}</button>
+                }} style={{ width: '100%', background: (k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? 'rgba(54,201,130,0.15)' : C.elevated2, border: '1px solid ' + ((k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? 'rgba(54,201,130,0.5)' : 'var(--ui-border2)'), color: (k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? '#36C982' : C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', marginBottom: 4 }}>{lbl}</button>
               ))}
               {c?.shadow && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 2 }}>
@@ -1652,7 +1652,7 @@ export default function SongEditorModal() {
               {(selMode || glowSelActive || c?.glow) && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 2 }}>
                   {selMode && (
-                    <div style={{ fontSize: 9.5, fontWeight: 700, color: '#c4b5fd', letterSpacing: 0.2 }}>
+                    <div style={{ fontSize: 9.5, fontWeight: 700, color: '#FFC72C', letterSpacing: 0.2 }}>
                       Highlighted text — tap a colour and only that glows; the highlight stays until it is painted
                     </div>
                   )}
@@ -1750,9 +1750,9 @@ export default function SongEditorModal() {
                   title="Hollow type: keep the stroke and drop the fill (the same look the ghost layer uses)"
                   style={{
                     width: '100%', marginTop: 6,
-                    background: c?.strokeOnly ? 'rgba(139,92,246,0.18)' : C.elevated2,
-                    border: `1px solid ${c?.strokeOnly ? 'rgba(139,92,246,0.55)' : 'var(--ui-border2)'}`,
-                    color: c?.strokeOnly ? '#c4b5fd' : C.muted,
+                    background: c?.strokeOnly ? 'rgba(255,184,0,0.18)' : C.elevated2,
+                    border: `1px solid ${c?.strokeOnly ? 'rgba(255,184,0,0.55)' : 'var(--ui-border2)'}`,
+                    color: c?.strokeOnly ? '#FFC72C' : C.muted,
                     borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer',
                   }}
                 >{c?.strokeOnly ? 'Hollow / stroke only ON' : 'Hollow / stroke only OFF'}</button>
@@ -1811,7 +1811,7 @@ export default function SongEditorModal() {
                 {SPEED_OPTIONS.map(s => {
                   const selected = (editorCue?.speed ?? 0.5) === s.v;
                   return (
-                    <button key={s.v} onClick={() => updateCue(editorCueIdx, { speed: s.v })} title={s.label} style={{ flex: 1, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? C.text : C.muted, borderRadius: 5, padding: '6px 0', fontSize: 9.5, fontWeight: 700, cursor: 'pointer' }}>{s.v}s</button>
+                    <button key={s.v} onClick={() => updateCue(editorCueIdx, { speed: s.v })} title={s.label} style={{ flex: 1, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? '#0D1014' : C.muted, borderRadius: 5, padding: '6px 0', fontSize: 9.5, fontWeight: 700, cursor: 'pointer' }}>{s.v}s</button>
                   );
                 })}
               </div>
@@ -1830,7 +1830,7 @@ export default function SongEditorModal() {
                 <button
                   onClick={() => updateCue(editorCueIdx, { transDuration: 0 })}
                   title="Clear the per-slide override and use the Speed preset"
-                  style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: (editorCue?.transDuration || 0) > 0 ? '#c4b5fd' : C.faint, borderRadius: 6, padding: '6px 8px', fontSize: 9.5, fontWeight: 800, cursor: 'pointer' }}
+                  style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: (editorCue?.transDuration || 0) > 0 ? '#FFC72C' : C.faint, borderRadius: 6, padding: '6px 8px', fontSize: 9.5, fontWeight: 800, cursor: 'pointer' }}
                 >Auto</button>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
@@ -1865,7 +1865,7 @@ export default function SongEditorModal() {
             {/* ONE apply-to-all. Sticky so it stays reachable however far the
                 sidebar has been scrolled. */}
             <div style={{ position: 'sticky', bottom: 0, zIndex: 3, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10, boxShadow: '0 -10px 22px rgba(0,0,0,0.35)' }}>
-              <button onClick={applyTypographyToAll} title="Copy this slide's font, size, alignment, colour, effects and transition onto every slide of the song, title slide included" style={{ width: '100%', background: ACCENT, border: 'none', color: C.text, borderRadius: 8, padding: '9px 8px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', lineHeight: 1.3 }}>Apply typography changes to all slides</button>
+              <button onClick={applyTypographyToAll} title="Copy this slide's font, size, alignment, colour, effects and transition onto every slide of the song, title slide included" style={{ width: '100%', background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 8, padding: '9px 8px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', lineHeight: 1.3 }}>Apply typography changes to all slides</button>
               <div style={{ fontSize: 9, color: C.faint, marginTop: 5, textAlign: 'center', lineHeight: 1.45 }}>Uses this slide as the source. Layout, padding, timing and notes stay as they are.</div>
             </div>
 
@@ -2002,7 +2002,7 @@ export default function SongEditorModal() {
                 <span style={{ fontSize: 10, color: C.faint }}>Title slide — one text box</span>
               )}
               <div style={{ flex: 1 }} />
-              <span style={{ fontSize: 10, fontWeight: 700, color: activeIdx > 0 ? '#c4b5fd' : C.faint2, background: activeIdx > 0 ? 'rgba(139,92,246,0.14)' : 'transparent', border: '1px solid ' + (activeIdx > 0 ? 'rgba(139,92,246,0.4)' : 'transparent'), borderRadius: 999, padding: '3px 8px', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: activeIdx > 0 ? '#FFC72C' : C.faint2, background: activeIdx > 0 ? 'rgba(255,184,0,0.14)' : 'transparent', border: '1px solid ' + (activeIdx > 0 ? 'rgba(255,184,0,0.4)' : 'transparent'), borderRadius: 999, padding: '3px 8px', whiteSpace: 'nowrap' }}>
                 {activeIdx > 0 ? 'Styling an extra box' : 'Styling the main lyric'}
               </span>
             </div>
@@ -2048,7 +2048,7 @@ export default function SongEditorModal() {
                   <button
                     onClick={() => (applySel.length ? setApplySel([]) : selectAllSlides())}
                     title={applySel.length ? 'Clear the ticks' : 'Tick every slide (title included) for bulk actions'}
-                    style={{ background: applySel.length ? 'rgba(139,92,246,0.2)' : C.elevated, border: '1px solid ' + (applySel.length ? 'rgba(139,92,246,0.55)' : 'var(--ui-border2)'), color: applySel.length ? '#c4b5fd' : C.muted, borderRadius: 6, padding: '4px 7px', fontSize: 10, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
+                    style={{ background: applySel.length ? 'rgba(255,184,0,0.2)' : C.elevated, border: '1px solid ' + (applySel.length ? 'rgba(255,184,0,0.55)' : 'var(--ui-border2)'), color: applySel.length ? '#FFC72C' : C.muted, borderRadius: 6, padding: '4px 7px', fontSize: 10, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
                   ><CheckSquare size={11} /> {applySel.length ? `${applySel.length} ticked` : 'Select'}</button>
                   {/* Live count: every change re-flows the blocks immediately —
                       the number is not a setting you confirm elsewhere. An empty
@@ -2059,17 +2059,17 @@ export default function SongEditorModal() {
                 </div>
               </div>
               {applySel.length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8, background: 'rgba(139,92,246,0.10)', border: '1px solid rgba(139,92,246,0.38)', borderRadius: 8, padding: '5px 7px' }}>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: '#c4b5fd', whiteSpace: 'nowrap' }}>{applySel.length} ticked</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8, background: 'rgba(255,184,0,0.10)', border: '1px solid rgba(255,184,0,0.38)', borderRadius: 8, padding: '5px 7px' }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: '#FFC72C', whiteSpace: 'nowrap' }}>{applySel.length} ticked</span>
                   <span style={{ flex: 1 }} />
                   <button onClick={duplicateSelected} title="Duplicate every ticked slide" style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 5, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}><Copy size={10} /> Copy</button>
-                  <button onClick={deleteSelectedSlides} title="Delete every ticked lyric slide (Ctrl+Z brings them back)" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', borderRadius: 5, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}><Trash2 size={10} /> Delete</button>
+                  <button onClick={deleteSelectedSlides} title="Delete every ticked lyric slide (Ctrl+Z brings them back)" style={{ background: 'rgba(255,69,69,0.12)', border: '1px solid rgba(255,69,69,0.4)', color: '#FF4545', borderRadius: 5, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}><Trash2 size={10} /> Delete</button>
                   <button onClick={() => setApplySel([])} title="Clear the ticks" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.faint, borderRadius: 5, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</button>
                 </div>
               )}
               <div style={{ display: 'grid', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
                 {/* Title Slide Thumbnail */}
-                <div onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); dropCue(dragFrom, 0, 'before', false); }} onClick={(e) => slideClick(e, -1)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: editorCueIdx === -1 ? 'rgba(139,92,246,0.16)' : C.elevated, border: dragFrom != null ? '1px dashed ' + ACCENT : (editorCueIdx === -1 ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(-1) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
+                <div onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); dropCue(dragFrom, 0, 'before', false); }} onClick={(e) => slideClick(e, -1)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: editorCueIdx === -1 ? 'rgba(255,184,0,0.16)' : C.elevated, border: dragFrom != null ? '1px dashed ' + ACCENT : (editorCueIdx === -1 ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(-1) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
                   <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 5, background: songHasBackground(editingSong) && (editingSong.bg_type === 'color' || editingSong.bg_type === 'gradient') ? editingSong.bg_value : (songHasBackground(editingSong) && editingSong.bg_type === 'animated' ? animatedPresetOf(editingSong.bg_value).base : '#0a0a0a'), position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {editingSong.bg_type === 'image' && editingSong.bg_value && (
                       <img draggable={false} src={editingSong.bg_value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -2082,7 +2082,7 @@ export default function SongEditorModal() {
                     )}
                     <div style={{ position: 'relative', zIndex: 2, color: '#f5f5f4', fontSize: 10, fontWeight: 800, textAlign: 'center', padding: '0 6px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{editingSong.title || 'Song Title'}</div>
                     {applySel.includes(-1) && (
-                      <span style={{ position: 'absolute', top: 4, right: 4, zIndex: 4, width: 14, height: 14, borderRadius: '50%', background: ACCENT, color: '#fff', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>✓</span>
+                      <span style={{ position: 'absolute', top: 4, right: 4, zIndex: 4, width: 14, height: 14, borderRadius: '50%', background: ACCENT, color: '#0D1014', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>✓</span>
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }}>
@@ -2105,7 +2105,7 @@ export default function SongEditorModal() {
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                         {g.items.map(({ c, i, li }) => (
-                          <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: i === editorCueIdx ? 'rgba(139,92,246,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
+                          <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: i === editorCueIdx ? 'rgba(255,184,0,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
                             {dropHint && dropHint.i === i && (
                               <span style={{ position: 'absolute', top: 0, bottom: 0, [dropHint.side === 'before' ? 'left' : 'right']: 0, width: 3, background: ACCENT, borderRadius: 3, zIndex: 6 }} />
                             )}
@@ -2149,7 +2149,7 @@ export default function SongEditorModal() {
                               })()}
                               <div style={{ position: 'absolute', top: 3, left: 4, zIndex: 5, fontSize: 8, fontWeight: 800, color: 'rgba(255,255,255,0.85)', background: 'rgba(0,0,0,0.45)', borderRadius: 3, padding: '0 4px' }}>{gi + 1}.{li}</div>
                               {applySel.includes(i) && (
-                                <span style={{ position: 'absolute', top: 3, right: 4, zIndex: 5, width: 14, height: 14, borderRadius: '50%', background: ACCENT, color: '#fff', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>✓</span>
+                                <span style={{ position: 'absolute', top: 3, right: 4, zIndex: 5, width: 14, height: 14, borderRadius: '50%', background: ACCENT, color: '#0D1014', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>✓</span>
                               )}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }}>
@@ -2159,7 +2159,7 @@ export default function SongEditorModal() {
                                 <span onDoubleClick={(e) => { e.stopPropagation(); startRename(i, c, 'strip'); }} title="Double-click to rename" style={{ fontSize: 9.5, fontWeight: 700, color: C.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 84, cursor: 'text' }}>{c.label}</span>
                               )}
                               <div style={{ display: 'flex', gap: 2 }}>
-                                <button onClick={(e) => { e.stopPropagation(); updateCue(i, { hidden: !c.hidden }); }} title={c.hidden ? 'Show' : 'Hide from projection'} style={{ background: 'transparent', border: 'none', color: c.hidden ? '#f87171' : C.faint, cursor: 'pointer', padding: 1 }}>{c.hidden ? <EyeOff size={11} /> : <Eye size={11} />}</button>
+                                <button onClick={(e) => { e.stopPropagation(); updateCue(i, { hidden: !c.hidden }); }} title={c.hidden ? 'Show' : 'Hide from projection'} style={{ background: 'transparent', border: 'none', color: c.hidden ? '#FF4545' : C.faint, cursor: 'pointer', padding: 1 }}>{c.hidden ? <EyeOff size={11} /> : <Eye size={11} />}</button>
                                 <button onClick={(e) => { e.stopPropagation(); updateCue(i, { locked: !c.locked }); }} title={c.locked ? 'Unlock' : 'Lock'} style={{ background: 'transparent', border: 'none', color: c.locked ? '#fbbf24' : C.faint, cursor: 'pointer', padding: 1 }}>{c.locked ? <Lock size={11} /> : <Unlock size={11} />}</button>
                               </div>
                             </div>
@@ -2177,7 +2177,7 @@ export default function SongEditorModal() {
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Custom Slide Order</div>
               <div style={{ display: 'grid', gap: 5 }}>
                 {(editingSong.cues || []).map((c, i) => (
-                  <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: i === editorCueIdx ? 'rgba(139,92,246,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, padding: '6px 8px', cursor: 'grab' }}>
+                  <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: i === editorCueIdx ? 'rgba(255,184,0,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, padding: '6px 8px', cursor: 'grab' }}>
                     {dropHint && dropHint.i === i && (
                       <span style={{ position: 'absolute', top: 0, bottom: 0, [dropHint.side === 'before' ? 'left' : 'right']: 0, width: 3, background: ACCENT, borderRadius: 3 }} />
                     )}
@@ -2213,7 +2213,7 @@ export default function SongEditorModal() {
                 <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>Gradients</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
                   {GRADIENT_PACK.map((g) => (
-                    <div key={g.id} onClick={() => setSongBackground('gradient', g.css)} title={g.name} style={{ aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: editingSong.bg_type === 'gradient' && editingSong.bg_value === g.css ? '2px solid #22c55e' : '1px solid var(--ui-border2)', background: g.css }} />
+                    <div key={g.id} onClick={() => setSongBackground('gradient', g.css)} title={g.name} style={{ aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: editingSong.bg_type === 'gradient' && editingSong.bg_value === g.css ? '2px solid #36C982' : '1px solid var(--ui-border2)', background: g.css }} />
                   ))}
                 </div>
               </div>
@@ -2221,7 +2221,7 @@ export default function SongEditorModal() {
                 <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>Animated</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
                   {ANIMATED_GRADIENTS.map((g) => (
-                    <div key={g.id} onClick={() => setSongBackground('animated', `anim:${g.id}`)} title={`${g.name} (animated loop)`} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: editingSong.bg_type === 'animated' && editingSong.bg_value === `anim:${g.id}` ? '2px solid #22c55e' : '1px solid var(--ui-border2)', background: g.base }}>
+                    <div key={g.id} onClick={() => setSongBackground('animated', `anim:${g.id}`)} title={`${g.name} (animated loop)`} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: editingSong.bg_type === 'animated' && editingSong.bg_value === `anim:${g.id}` ? '2px solid #36C982' : '1px solid var(--ui-border2)', background: g.base }}>
                       <span style={{ position: 'absolute', bottom: 2, left: 0, right: 0, textAlign: 'center', fontSize: 7, fontWeight: 800, color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{g.name}</span>
                     </div>
                   ))}
@@ -2234,7 +2234,7 @@ export default function SongEditorModal() {
                     {(mediaLibrary || []).filter(a => a.kind === 'image' || a.kind === 'video').map(a => {
                       const active = editingSong.bg_type === a.kind && editingSong.bg_value === a.url;
                       return (
-                        <div key={a.url} onClick={() => setSongBackground(a.kind, a.url)} title={a.url.split('/').pop() || a.url} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: active ? '2px solid #22c55e' : '1px solid var(--ui-border2)', background: '#000' }}>
+                        <div key={a.url} onClick={() => setSongBackground(a.kind, a.url)} title={a.url.split('/').pop() || a.url} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: active ? '2px solid #36C982' : '1px solid var(--ui-border2)', background: '#000' }}>
                           {a.kind === 'image'
                             ? <img src={a.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                             : <TileVideo src={a.url} animate={active} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
@@ -2266,7 +2266,7 @@ export default function SongEditorModal() {
                   <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>Gradients</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
                     {GRADIENT_PACK.map((g) => (
-                      <div key={g.id} onClick={() => setCueBackground(editorCueIdx, 'gradient', g.css)} title={g.name} style={{ aspectRatio: '16 / 9', borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: editorCue.bg_type === 'gradient' && editorCue.bg_value === g.css ? '2px solid #22c55e' : '1px solid var(--ui-border2)', background: g.css }} />
+                      <div key={g.id} onClick={() => setCueBackground(editorCueIdx, 'gradient', g.css)} title={g.name} style={{ aspectRatio: '16 / 9', borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: editorCue.bg_type === 'gradient' && editorCue.bg_value === g.css ? '2px solid #36C982' : '1px solid var(--ui-border2)', background: g.css }} />
                     ))}
                   </div>
                 </div>
@@ -2274,7 +2274,7 @@ export default function SongEditorModal() {
                   <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>Animated</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
                     {ANIMATED_GRADIENTS.map((g) => (
-                      <div key={g.id} onClick={() => setCueBackground(editorCueIdx, 'animated', `anim:${g.id}`)} title={`${g.name} (animated loop)`} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: editorCue.bg_type === 'animated' && editorCue.bg_value === `anim:${g.id}` ? '2px solid #22c55e' : '1px solid var(--ui-border2)', background: g.base }}>
+                      <div key={g.id} onClick={() => setCueBackground(editorCueIdx, 'animated', `anim:${g.id}`)} title={`${g.name} (animated loop)`} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: editorCue.bg_type === 'animated' && editorCue.bg_value === `anim:${g.id}` ? '2px solid #36C982' : '1px solid var(--ui-border2)', background: g.base }}>
                         <span style={{ position: 'absolute', bottom: 1, left: 0, right: 0, textAlign: 'center', fontSize: 7, fontWeight: 800, color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{g.name}</span>
                       </div>
                     ))}
@@ -2287,7 +2287,7 @@ export default function SongEditorModal() {
                       {(mediaLibrary || []).filter(a => a.kind === 'image' || a.kind === 'video').map(a => {
                         const active = editorCue.bg_type === a.kind && editorCue.bg_value === a.url;
                         return (
-                          <div key={a.url} onClick={() => setCueBackground(editorCueIdx, a.kind, a.url)} title={a.url.split('/').pop() || a.url} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: active ? '2px solid #22c55e' : '1px solid var(--ui-border2)', background: '#000' }}>
+                          <div key={a.url} onClick={() => setCueBackground(editorCueIdx, a.kind, a.url)} title={a.url.split('/').pop() || a.url} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: active ? '2px solid #36C982' : '1px solid var(--ui-border2)', background: '#000' }}>
                             {a.kind === 'image'
                               ? <img src={a.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                               : <TileVideo src={a.url} animate={active} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
@@ -2307,7 +2307,7 @@ export default function SongEditorModal() {
             <div style={{ display: 'flex', gap: 6, marginTop: 'auto', paddingTop: 6 }}>
               <button onClick={() => duplicateCue(editorCueIdx)} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 7, padding: '7px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Copy size={12} /> Duplicate</button>
               <button onClick={() => setShowSlideProps(v => !v)} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 7, padding: '7px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><PenLine size={12} /> Properties</button>
-              <button onClick={() => { if (editorCueIdx < 0) return; const cues = [...(editingSong.cues || [])]; if (!cues.length) return; cues.splice(editorCueIdx, 1); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(Math.min(editorCueIdx, Math.max(0, cues.length - 1))); }} style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.4)', color: '#f87171', borderRadius: 7, padding: '7px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> Delete</button>
+              <button onClick={() => { if (editorCueIdx < 0) return; const cues = [...(editingSong.cues || [])]; if (!cues.length) return; cues.splice(editorCueIdx, 1); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(Math.min(editorCueIdx, Math.max(0, cues.length - 1))); }} style={{ background: 'rgba(255,69,69,0.12)', border: '1px solid rgba(255,69,69,0.4)', color: '#FF4545', borderRadius: 7, padding: '7px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> Delete</button>
             </div>
           </div>
         </>
@@ -2409,7 +2409,7 @@ export default function SongEditorModal() {
       </div>
       )}
       <motion.button {...stubTap} onClick={attemptClose} style={{ background: C.border, border: 'none', color: C.text, padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</motion.button>
-      <motion.button {...stubTap} onClick={handleSaveSong} style={{ background: ACCENT, border: 'none', color: C.text, padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Save Song</motion.button>
+      <motion.button {...stubTap} onClick={handleSaveSong} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Save Song</motion.button>
     </div>
 
     {/* Apply confirmations go through the shared Untitled UI toast stack

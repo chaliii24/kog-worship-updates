@@ -34,16 +34,16 @@ export default function PinPad({ C, value, onChange, onSubmit, error, role, onSw
               transition={{ type: 'spring', stiffness: 520, damping: 26 }}
               style={{
                 width: 15, height: 15, borderRadius: '50%',
-                background: filled ? '#8b5cf6' : 'transparent',
-                border: `2px solid ${filled ? '#8b5cf6' : C.border2}`,
-                boxShadow: filled ? '0 0 12px rgba(139,92,246,0.55)' : 'none',
+                background: filled ? '#FFB800' : 'transparent',
+                border: `2px solid ${filled ? '#FFB800' : C.border2}`,
+                boxShadow: filled ? '0 0 12px rgba(255,184,0,0.55)' : 'none',
               }}
             />
           );
         })}
       </div>
 
-      <div style={{ minHeight: 20, fontSize: 13, fontWeight: 700, color: '#f87171', textAlign: 'center' }}>{error || ''}</div>
+      <div style={{ minHeight: 20, fontSize: 13, fontWeight: 700, color: '#FF4545', textAlign: 'center' }}>{error || ''}</div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 76px)', gap: 10 }}>
         {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (

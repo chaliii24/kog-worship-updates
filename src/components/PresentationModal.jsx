@@ -27,7 +27,7 @@ function useContainerScale() {
 
 function SlideThumb({ slide, w = 154, h = 87, active }) {
   return (
-    <div style={{ width: w, height: h, overflow: 'hidden', position: 'relative', background: '#000', borderRadius: 6, outline: active ? '2px solid #8b5cf6' : '1px solid var(--ui-border2)', outlineOffset: active ? 1 : 0 }}>
+    <div style={{ width: w, height: h, overflow: 'hidden', position: 'relative', background: '#000', borderRadius: 6, outline: active ? '2px solid #FFB800' : '1px solid var(--ui-border2)', outlineOffset: active ? 1 : 0 }}>
       <div style={{ width: 1280, height: 720, transform: 'scale(' + (w / 1280) + ')', transformOrigin: 'top left' }}>
         <PresentationSlide slide={slide} />
       </div>
@@ -215,20 +215,20 @@ export default function PresentationModal() {
           {headerBtn(doExport, Download, busy === 'export' ? 'Exporting\u2026' : 'Export .pptx', { busy: busy === 'export' })}
           {headerBtn(doSave, Save, busy === 'save' ? 'Saving\u2026' : 'Save', { busy: busy === 'save' })}
           {headerBtn(() => addPresentationToService(deck), ListPlus, 'To Service')}
-          {headerBtn(() => { presentDeck(deck); flash('Live on projector \u25B6'); }, MonitorPlay, 'Present', { bg: ACCENT, border: ACCENT, color: '#fff' })}
+          {headerBtn(() => { presentDeck(deck); flash('Live on projector \u25B6'); }, MonitorPlay, 'Present', { bg: ACCENT, border: ACCENT, color: '#0D1014' })}
           <button onClick={closePresentationEditor} style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', padding: 4 }}><X size={18} /></button>
         </div>
 
         {showOutline && (
           <div style={{ padding: 12, borderBottom: '1px solid var(--ui-border2)', background: 'var(--ui-input)', display: 'flex', gap: 10 }}>
             <textarea value={outline} onChange={(e) => setOutline(e.target.value)} rows={4} placeholder={'Paste your sermon outline or script.\n\nBlank line = new slide.\nFirst line = slide title, following lines = bullets.'} style={{ flex: 1, background: 'var(--ui-bg)', border: '1px solid var(--ui-border2)', borderRadius: 8, padding: 10, color: C.text, fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit' }} />
-            <button onClick={genFromOutline} style={{ background: ACCENT, border: 'none', color: '#fff', padding: '0 18px', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Generate Slides</button>
+            <button onClick={genFromOutline} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '0 18px', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Generate Slides</button>
           </div>
         )}
 
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
           <div style={{ flex: '0 0 200px', minWidth: 160, borderRight: '1px solid var(--ui-border2)', overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button onClick={addSlide} style={{ background: 'rgba(139,92,246,0.14)', border: '1px dashed ' + ACCENT, color: ACCENT, borderRadius: 8, padding: '8px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Plus size={13} /> New Slide</button>
+            <button onClick={addSlide} style={{ background: 'rgba(255,184,0,0.14)', border: '1px dashed ' + ACCENT, color: ACCENT, borderRadius: 8, padding: '8px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Plus size={13} /> New Slide</button>
             {deck.slides.map((s, i) => (
               <div key={s.id || i} onClick={() => setIdx(i)} style={{ cursor: 'pointer', display: 'grid', gap: 4 }}>
                 <SlideThumb slide={s} active={i === idx} />
@@ -238,7 +238,7 @@ export default function PresentationModal() {
                     <button onClick={(e) => { e.stopPropagation(); moveSlide(i, -1); }} title="Up" style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', padding: 2 }}><ChevronUp size={12} /></button>
                     <button onClick={(e) => { e.stopPropagation(); moveSlide(i, 1); }} title="Down" style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', padding: 2 }}><ChevronDown size={12} /></button>
                     <button onClick={(e) => { e.stopPropagation(); duplicateSlide(i); }} title="Duplicate" style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', padding: 2 }}><Copy size={12} /></button>
-                    <button onClick={(e) => { e.stopPropagation(); deleteSlide(i); }} title="Delete" style={{ background: 'transparent', border: 'none', color: '#F87171', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); deleteSlide(i); }} title="Delete" style={{ background: 'transparent', border: 'none', color: '#FF4545', cursor: 'pointer', padding: 2 }}><Trash2 size={12} /></button>
                   </span>
                 </div>
               </div>
@@ -259,7 +259,7 @@ export default function PresentationModal() {
               <button onClick={() => setIdx(i => Math.max(0, i - 1))} disabled={idx === 0} style={{ background: 'var(--ui-elev2)', border: '1px solid var(--ui-border2)', color: C.text, borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Prev</button>
               Slide {idx + 1} / {deck.slides.length}
               <button onClick={() => setIdx(i => Math.min(deck.slides.length - 1, i + 1))} disabled={idx === deck.slides.length - 1} style={{ background: 'var(--ui-elev2)', border: '1px solid var(--ui-border2)', color: C.text, borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Next</button>
-              <button onClick={resetPositions} title="Restore default text positions for this slide" style={{ background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.5)', color: '#C4B5FD', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Reset Positions</button>
+              <button onClick={resetPositions} title="Restore default text positions for this slide" style={{ background: 'rgba(255,184,0,0.12)', border: '1px solid rgba(255,184,0,0.5)', color: '#FFC72C', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>Reset Positions</button>
             </div>
           </div>
 
