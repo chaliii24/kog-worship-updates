@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plus, Search, Download, Upload, Edit3, Image as ImageIcon, Video, ChevronDown, ChevronLeft, ChevronRight, HelpCircle, CornerUpLeft, BookOpen, Music, Folder, Lightbulb, FolderOpen, Highlighter, LayoutGrid } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 import { mediaLabel } from '../lib/backgrounds';
@@ -13,6 +13,7 @@ import SermonPanel from './SermonPanel';
 import AudioPanel from './AudioPanel';
 import StagePanel from './StagePanel';
 import VideoPanel from './VideoPanel';
+import { LazyVideo } from '../lib/lazyVideo';
 
 export default function CenterWorkspace() {
   const app = useApp();
@@ -104,6 +105,11 @@ export default function CenterWorkspace() {
     setLeftOpen,
     setDockTab
   } = app;
+  // Latest-wins workspace switching: clicking three tabs in a row must paint
+  // the LAST one, not queue the two heavy panels in between. The nav highlight
+  // follows dockTab instantly; only this center stage is deferred, so a slow
+  // panel can never lock the railway while it mounts.
+  const workspaceTab = React.useDeferredValue(dockTab);
   // The picker only hands back a URL, so resolve the assigned default back to
   // its option for the thumbnail and the label.
   const defaultOpt = (scriptureDefaultOptions || []).find(o => o.value === (scriptureDefault && scriptureDefault.value)) || null;
@@ -211,10 +217,10 @@ export default function CenterWorkspace() {
   };
 
   return (
-<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
-  <AnimatePresence mode="wait" initial={false}>
-  {dockTab === 'scripture' ? (
-    <motion.div key="scripture" initial={{ opacity: 0, x: -26 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 26 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
+<div className="kog-workspace">
+  <div key={workspaceTab} className="kog-workspace-swap">
+  {workspaceTab === 'scripture' ? (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 16px', flexShrink: 0, borderBottom: '1px solid var(--ui-border)', background: 'var(--ui-elev)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
           <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -350,8 +356,8 @@ export default function CenterWorkspace() {
                     {defaultOpt && (
                       <div style={{ width: 58, height: 33, flexShrink: 0, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--ui-border)', background: '#000' }}>
                         {defaultOpt.type === 'video'
-                          ? <video src={defaultOpt.value} autoPlay loop muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                          : <img src={defaultOpt.value} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                          ? <LazyVideo src={defaultOpt.value} autoPlay loop muted playsInline preload="metadata" rootMargin="150px" style={{ width: '100%', height: '100%' }} />
+                          : <img src={defaultOpt.value} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
                       </div>
                     )}
                     <motion.button {...stubTap} onClick={() => { setScripturePicker('default'); setBibleMediaOpen(false); }} title="Background attached to every scripture you add to a section" style={{ flex: 1, minWidth: 0, textAlign: 'left', background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', color: 'var(--ui-text)', borderRadius: 8, padding: '7px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
@@ -543,23 +549,23 @@ export default function CenterWorkspace() {
           </div>
         )}
       </div>
-    </motion.div>
-  ) : (dockTab === 'sermon') ? (
+    </div>
+  ) : (workspaceTab === 'sermon') ? (
   <PresentationWorkspace />
-  ) : (dockTab === 'presentations') ? (
+  ) : (workspaceTab === 'presentations') ? (
   <SermonPanel />
-  ) : (dockTab === 'countdown') ? (
+  ) : (workspaceTab === 'countdown') ? (
   <CountdownPanel />
-  ) : (dockTab === 'stage') ? (
+  ) : (workspaceTab === 'stage') ? (
   <StagePanel />
-  ) : (dockTab === 'audio') ? (
+  ) : (workspaceTab === 'audio') ? (
   <AudioPanel />
-  ) : (dockTab === 'videos') ? (
+  ) : (workspaceTab === 'videos') ? (
   <VideoPanel />
-  ) : (dockTab === 'media') ? (
+  ) : (workspaceTab === 'media') ? (
   <MediaBrowser />
   ) : (
-  <motion.div key="other" initial={{ opacity: 0, x: 26 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -26 }} transition={{ type: 'spring', stiffness: 300, damping: 30 }} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
+  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--ui-stage)' }}>
   {/* WORKSPACE TOOLBAR — title, position, browsing and edit actions. Browsing
       here is selection only; the live output changes when a tile is clicked or
       the transport shortcuts are used, never from these controls. */}
@@ -696,16 +702,11 @@ export default function CenterWorkspace() {
                   <div style={{ flex: 1, height: 1, background: 'var(--ui-border2)' }} />
                 </div>
               )}
-              <motion.div
+              <div
                 data-grid-pos={i}
                 className="kog-slide-tile"
                 data-selected={selected ? '1' : '0'}
                 data-live={live ? '1' : '0'}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ type: 'spring', stiffness: 320, damping: 28, delay: Math.min(i * 0.02, 0.24) }}
-                whileHover={{ y: -2 }}
-                whileTap={{ scale: 0.99 }}
                 onClick={() => { selectSlide(i); if (tile.medIdx != null) fireMedleySlideAt(tile.medIdx); else if (tile.isTitle) fireTitleLive(); else fireCueLive(tile.cue); }}
                 title={`${kind}${tile.isTitle ? '' : ` · ${tile.cue?.label || 'Slide'}`} — click to send live`}
                 style={{ display: 'flex', flexDirection: 'column', gap: 6, cursor: 'pointer' }}
@@ -726,7 +727,7 @@ export default function CenterWorkspace() {
                 {tile.medSong ? (
                   <span style={{ fontSize: 9.5, color: 'var(--ui-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tile.medSong.title || 'Song'}</span>
                 ) : null}
-              </motion.div>
+              </div>
             </React.Fragment>
           );
         })}
@@ -823,9 +824,9 @@ export default function CenterWorkspace() {
       </span>
     ) : null}
   </nav>
-  </motion.div>
+  </div>
   )}
-  </AnimatePresence>
-</motion.div>
+  </div>
+</div>
   );
 }

@@ -6,6 +6,7 @@ import { ROW_KIND, iconHue } from '../lib/icons';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import Dropdown from './Dropdown';
 import VideoLibrarySidebar from './VideoLibrarySidebar';
+import { LazyVideo } from '../lib/lazyVideo';
 // Untitled UI — migration phase 3 (tabs): RAC-backed Tabs for the Service
 // Order / Shows / Songs switcher (mirror layout documented in NewSongPrompt).
 import { Tabs, TabList, Tab } from '../untitledui/components/application/tabs/tabs';
@@ -744,8 +745,8 @@ export default function LeftSidebar() {
                         return (
                           <button key={asset.url + i} onClick={() => addExistingMediaToService(asset)} title={`Add "${label}" to the service order — already in the app, no upload`} style={{ position: 'relative', padding: 0, height: 46, borderRadius: 7, overflow: 'hidden', border: '1px solid var(--ui-border)', background: '#000', cursor: 'pointer' }}>
                             {asset.kind === 'image'
-                              ? <img src={asset.url} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                              : <video src={asset.url} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                              ? <img src={asset.url} alt={label} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                              : <LazyVideo src={asset.url} muted playsInline preload="metadata" rootMargin="200px" style={{ width: '100%', height: '100%' }} />}
                             <span style={{ position: 'absolute', right: 3, bottom: 3, display: 'flex', alignItems: 'center', gap: 2, background: 'rgba(0,0,0,0.72)', borderRadius: 3, padding: '1px 3px', color: '#fff' }}>{asset.kind === 'video' ? <Video size={8} /> : <ImageIcon size={8} />}</span>
                           </button>
                         );

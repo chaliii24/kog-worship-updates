@@ -6,6 +6,7 @@ import { stubTap, iconBtnTap } from '../lib/anim';
 import { DRAW_W, DRAW_H, DRAW_COLORS, DRAW_WIDTHS, MAX_POINTS_PER_STROKE, strokeToPath, clientToDesign } from '../lib/draw';
 import { mediaLabel } from '../lib/backgrounds';
 import FontPicker from './FontPicker';
+import { LazyVideo } from '../lib/lazyVideo';
 import ProjectorDisplay from './ProjectorDisplay';
 import ScriptureTemplatePicker from './ScriptureTemplatePicker';
 import { DEFAULT_SCRIPTURE_TEMPLATE } from '../lib/scriptureTemplates';
@@ -693,8 +694,8 @@ export default function LiveOutputPanel({
                 {defaultOpt && (
                   <div style={{ width: 48, height: 27, flexShrink: 0, borderRadius: 5, overflow: 'hidden', border: '1px solid ' + C.border2, background: '#000' }}>
                     {defaultOpt.type === 'video'
-                      ? <video src={defaultOpt.value} autoPlay loop muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                      : <img src={defaultOpt.value} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                      ? <LazyVideo src={defaultOpt.value} autoPlay loop muted playsInline preload="metadata" rootMargin="150px" style={{ width: '100%', height: '100%' }} />
+                      : <img src={defaultOpt.value} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
                   </div>
                 )}
                 <motion.button {...stubTap} onClick={() => setScripturePicker('default')} title="Background attached to every scripture you add to a section" style={{ flex: 1, minWidth: 0, textAlign: 'left', background: C.elevated, border: '1px solid ' + C.border2, color: C.text, borderRadius: 6, padding: '6px 9px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>

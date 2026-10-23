@@ -5,6 +5,7 @@ import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 import { mediaLabel } from '../lib/backgrounds';
 import { BIBLE_MEDIA_EXT, SUPPORTED_LABEL, extOf } from '../../electron/mediaTypes.js';
+import { LazyVideo } from '../lib/lazyVideo';
 
 const FOLDER_KEY = 'bible_media_folder';
 
@@ -203,7 +204,7 @@ export default function ScriptureMediaPicker({ mode = 'session', onClose, onPick
                     }}
                   >
                     {o.type === 'video'
-                      ? <video src={o.value} preload="metadata" muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                      ? <LazyVideo src={o.value} preload="metadata" muted playsInline rootMargin="250px" style={{ width: '100%', height: '100%' }} />
                       : <img src={o.value} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
                     <span style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 6px 4px 6px', fontSize: 9.5, fontWeight: 700, color: '#fff', background: 'linear-gradient(transparent, rgba(0,0,0,0.85))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}>
                       {o.label}

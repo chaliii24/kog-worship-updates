@@ -5,6 +5,7 @@ import { formatCountdown } from '../lib/constants';
 import { stripMarkup } from '../lib/lyrics';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
+import { LazyVideo } from '../lib/lazyVideo';
 
 export default function ShowBuilderModal() {
   const app = useApp();
@@ -179,8 +180,8 @@ return (
                   return (
                     <button key={asset.url + i} onClick={() => addShowBuilderExistingMedia(asset)} title={`Add "${label}" to the show — already in the app, no upload`} style={{ position: 'relative', padding: 0, height: 46, borderRadius: 7, overflow: 'hidden', border: '1px solid var(--ui-border2)', background: '#000', cursor: 'pointer' }}>
                       {asset.kind === 'image'
-                        ? <img src={asset.url} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                        : <video src={asset.url} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                        ? <img src={asset.url} alt={label} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        : <LazyVideo src={asset.url} muted playsInline preload="metadata" rootMargin="200px" style={{ width: '100%', height: '100%' }} />}
                       <span style={{ position: 'absolute', right: 3, bottom: 3, display: 'flex', alignItems: 'center', gap: 2, background: 'rgba(0,0,0,0.72)', borderRadius: 3, padding: '1px 3px', color: '#fff' }}>{asset.kind === 'video' ? <Video size={8} /> : <ImageIcon size={8} />}</span>
                     </button>
                   );
@@ -266,7 +267,7 @@ return (
                 const isActive = tileIdx === ti && cur;
                 return (
                   <div key={ti} onClick={() => { if (cur) builderGoLive(cur, ti); }} style={{ position: 'relative', height: density <= 2 ? 130 : density === 3 ? 110 : 90, borderRadius: 8, overflow: 'hidden', background: sl.type === 'media' ? '#111' : C.input, border: isActive ? '2px solid #36C982' : '1px solid var(--ui-border2)', cursor: 'pointer', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: 8, boxSizing: 'border-box', transition: 'border 0.15s', boxShadow: isActive ? '0 0 12px rgba(54,201,130,0.25)' : 'none' }}>
-                    {sl.type === 'media' && sl.url && (sl.sub === 'video' ? <video src={sl.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.5 }} muted /> : <img src={sl.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.5 }} />)}
+                    {sl.type === 'media' && sl.url && (sl.sub === 'video' ? <LazyVideo src={sl.url} muted playsInline preload="metadata" rootMargin="200px" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.5 }} /> : <img src={sl.url} loading="lazy" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.5 }} />)}
                     <div style={{ position: 'absolute', top: 4, left: 6, fontSize: 9, fontWeight: 800, color: isActive ? '#36C982' : C.faint, zIndex: 2 }}>#{ti + 1}</div>
                     <div style={{ position: 'absolute', top: 4, right: 6, fontSize: 8, fontWeight: 800, background: isActive ? 'rgba(54,201,130,0.25)' : 'rgba(255,255,255,0.08)', color: isActive ? '#36C982' : C.muted, borderRadius: 4, padding: '1px 5px', zIndex: 2 }}>{sl.type === 'title' ? 'TITLE' : sl.type === 'cue' ? (sl.cue?.label || 'LYRIC') : sl.type === 'media' ? 'MEDIA' : 'SLIDE'}</div>
                     <p style={{ margin: 0, fontSize: density <= 2 ? 13 : 11, fontWeight: 700, color: C.text, textAlign: 'center', lineHeight: 1.3, whiteSpace: 'pre-line', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', zIndex: 2, textShadow: '0 2px 8px rgba(0,0,0,0.8)' }}>{sl.text || '—'}</p>

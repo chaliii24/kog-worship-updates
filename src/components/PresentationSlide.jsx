@@ -1,6 +1,7 @@
 import React from 'react';
 import { resolveRects, visibleElements } from '../lib/backgrounds';
 import { BackgroundVideo } from '../lib/perf';
+import { LazyVideo } from '../lib/lazyVideo';
 
 // Renders a single 16:9 presentation slide. Shared by the editor preview and the
 // live projector output (ProjectorDisplay), so what you build is what shows.
@@ -52,7 +53,7 @@ export default function PresentationSlide({ slide, width = 1280, height = 720, k
         {bgType === 'video' && bgValue && (
           keepAlive
             ? <BackgroundVideo src={bgValue} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <video src={bgValue} autoPlay loop muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <LazyVideo src={bgValue} autoPlay loop muted playsInline preload="metadata" rootMargin="200px" style={{ width: '100%', height: '100%' }} />
         )}
       </div>
 

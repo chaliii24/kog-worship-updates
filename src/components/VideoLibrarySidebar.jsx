@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Film, Plus, Search, Upload, LayoutGrid, List as ListIcon } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { LazyVideo } from '../lib/lazyVideo';
 
 // Video-domain shared bits: the system left sidebar (library browser) and
 // the Videos center workspace (player + Up Next) both run off the playlist
@@ -49,25 +50,20 @@ export function extOf(url) {
 // NOT a canvas grab — drawing a media:// frame to canvas taints it and
 // toDataURL throws, which is why rows used to fall back to the film icon.
 // Anything unloadable still falls back to the icon; a thumb never breaks.
+// Mounting is lazy and globally budgeted (lib/lazyVideo.jsx) — a list of
+// clips must never open every file at once.
 export function VideoThumb({ url, h = 64, rounded = 7 }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => { setFailed(false); }, [url]);
-  if (!url || failed) {
-    return (
-      <div style={{ width: '100%', height: h, borderRadius: rounded, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#52525b' }}>
-        <Film size={Math.max(14, Math.min(26, h * 0.4))} />
-      </div>
-    );
-  }
+  const box = { width: '100%', height: h, borderRadius: rounded, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#52525b' };
   return (
-    <video
+    <LazyVideo
       src={url}
       muted
       playsInline
       preload="metadata"
-      disablePictureInPicture
-      onError={() => setFailed(true)}
-      style={{ width: '100%', height: h, objectFit: 'cover', display: 'block', borderRadius: rounded, background: '#000', pointerEvents: 'none' }}
+      rootMargin="300px"
+      style={box}
+      videoStyle={{ borderRadius: rounded, pointerEvents: 'none' }}
+      fallback={<Film size={Math.max(14, Math.min(26, h * 0.4))} />}
     />
   );
 }

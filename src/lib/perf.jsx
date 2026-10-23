@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useIsPresent } from 'motion/react';
 import { formatCountdown } from './constants';
+import { LazyVideo } from './lazyVideo';
 
 // Ticks only inside the tiny components that actually show the clock.
 // Previously a 500ms interval lived in App state and re-rendered the whole
@@ -200,12 +201,24 @@ function seekToStill(v, target) {
 // resolution no matter how small the tile is (a 4K loop decodes 4K frames
 // per tile!), so a song with video backgrounds had a dozen full-res decodes
 // running at once — the single biggest CPU drain with a song loaded.
-export function TileVideo({ src, animate, ...rest }) {
-  const ref = useRef(null);
+//
+// Since v1.1.39 the element itself is lazy (see lib/lazyVideo.jsx): off-screen
+// tiles hold a placeholder, and the live tile jumps the queue for a slot. A
+// 70-slide song with a video background therefore mounts one video, not 70.
+export function TileVideo({ src, animate, style, ...rest }) {
+  const videoRef = useRef(null);
+  const [el, setEl] = useState(null);
+  // Callback ref so the seek/freeze effect starts when the lazy element
+  // actually appears, not when the placeholder was first rendered.
+  const attach = useCallback((node) => {
+    videoRef.current = node;
+    setEl(node);
+  }, []);
+
   useEffect(() => {
-    const v = ref.current;
-    if (!v) return;
-    if (animate) { v.play().catch(() => {}); return; }
+    const v = el;
+    if (!v) return undefined;
+    if (animate) { v.play().catch(() => {}); return undefined; }
 
     let cancelled = false;
     const freeze = () => {
@@ -228,8 +241,23 @@ export function TileVideo({ src, animate, ...rest }) {
       v.removeEventListener('loadedmetadata', freeze);
       // Any slot still held is released by the guarded seek above.
     };
-  }, [src, animate]);
-  return <video ref={ref} src={src} muted playsInline preload="metadata" autoPlay={animate} loop={animate} {...rest} />;
+  }, [el, src, animate]);
+
+  return (
+    <LazyVideo
+      src={src}
+      videoRef={attach}
+      style={style}
+      rootMargin="320px"
+      priority={animate}
+      muted
+      playsInline
+      preload="metadata"
+      autoPlay={animate}
+      loop={animate}
+      {...rest}
+    />
+  );
 }
 
 // Background loop for the projector and the monitor preview.

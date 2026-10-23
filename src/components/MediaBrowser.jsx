@@ -5,6 +5,7 @@ import { useApp } from '../context/AppContext';
 import { GRADIENT_PACK } from '../lib/backgrounds';
 import { ANIMATED_GRADIENTS } from './CountdownFace';
 import AnimatedBg from './AnimatedBg';
+import { LazyVideo } from '../lib/lazyVideo';
 
 // Center media browser (Media dock tab): filter chips with live counts,
 // Newest/Name sort, grid/list views, uploads, and the built-in loop +
@@ -99,9 +100,9 @@ export default function MediaBrowser() {
       return <div style={{ ...box, background: it.css }} />;
     }
     if (it.kind === 'video') {
-      return <video src={it.url} preload="metadata" playsInline muted style={{ ...box, objectFit: 'cover' }} />;
+      return <LazyVideo src={it.url} preload="metadata" playsInline muted style={box} />;
     }
-    return <img src={it.url} alt="" draggable={false} style={{ ...box, objectFit: 'cover' }} />;
+    return <img src={it.url} alt="" loading="lazy" draggable={false} style={{ ...box, objectFit: 'cover' }} />;
   };
 
   const actions = (it) => (

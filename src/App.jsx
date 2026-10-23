@@ -20,6 +20,7 @@ import TopHeader from './components/TopHeader';
 import LiveOutputPanel from './components/LiveOutputPanel';
 import LeftSidebar from './components/LeftSidebar';
 import CenterWorkspace from './components/CenterWorkspace';
+import WorkspaceBoundary from './components/WorkspaceBoundary';
 import SongEditorModal from './components/SongEditorModal';
 import { Toaster, toast } from './untitledui/components/ui/toast';
 import NewSongPrompt from './components/NewSongPrompt';
@@ -822,12 +823,29 @@ export default function App() {
     }
   };
 
+  // Media loads are shared by three workspaces (Media, Audio, Videos) and are
+  // kicked off again on every visit. A burst of tab clicks used to start a
+  // query per visit and apply them out of order; this keeps ONE request in
+  // flight and only lets the newest generation write state.
+  const mediaFetchRef = useRef({ inflight: null, seq: 0 });
+
   const fetchMediaLibrary = async () => {
-    if (window.require) {
-      const { ipcRenderer } = window.require('electron');
-      const result = await ipcRenderer.invoke('db-get-media');
-      setMediaLibrary(result || []);
-    }
+    if (!window.require) return;
+    if (mediaFetchRef.current.inflight) return mediaFetchRef.current.inflight;
+    const seq = ++mediaFetchRef.current.seq;
+    let promise;
+    promise = (async () => {
+      try {
+        const { ipcRenderer } = window.require('electron');
+        const result = await ipcRenderer.invoke('db-get-media');
+        if (seq === mediaFetchRef.current.seq) setMediaLibrary(result || []);
+      } catch {}
+      finally {
+        if (mediaFetchRef.current.inflight === promise) mediaFetchRef.current.inflight = null;
+      }
+    })();
+    mediaFetchRef.current.inflight = promise;
+    return promise;
   };
 
   const fetchLibraryStats = async () => {
@@ -6058,15 +6076,20 @@ export default function App() {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0, width: '100%' }}>
 
 {/* LEFT SIDEBAR */}
-        <LeftSidebar />
+        <WorkspaceBoundary area="navigation" resetKey={dockTab}>
+          <LeftSidebar />
+        </WorkspaceBoundary>
 
         {/* CENTER WORKSPACE: SCRIPTURE BROWSER / SLIDE GRID / LAUNCHPAD */}
-        <CenterWorkspace />
+        <WorkspaceBoundary area="workspace" resetKey={dockTab}>
+          <CenterWorkspace />
+        </WorkspaceBoundary>
 
         {/* RIGHT SIDEBAR: OUTPUT MONITOR + CONTROLS. On the Countdown tab
             it stays mounted but LOCKED (preview visible, firing controls
             disabled) — the countdown owns the wall there. */}
         {rightOpen && (
+        <WorkspaceBoundary area="outputs" resetKey={dockTab}>
         <LiveOutputPanel
           locked={dockTab === 'countdown'}
           C={C}
@@ -6122,6 +6145,7 @@ export default function App() {
           lyricLift={lyricLift}
           setLyricLift={setLyricLift}
         />
+        </WorkspaceBoundary>
         )}
       </div>
       </>
