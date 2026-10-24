@@ -84,7 +84,9 @@ for (const [label, w, h] of CASES) {
       scrollH: document.documentElement.scrollHeight,
       // The bottom-dock control only exists on the real console — guards the
       // check against silently measuring the splash or welcome card again.
-      consoleMounted: !!document.querySelector('[title="Projector outputs"]'),
+      // (The control was renamed from "Projector outputs" to "Manage live
+      // outputs and displays"; accept both so an older build still passes.)
+      consoleMounted: !!document.querySelector('[title="Projector outputs"], [title="Manage live outputs and displays"]'),
       hiddenByAncestor,
       clipped: clipped.slice(0, 12),
       clippedCount: clipped.length,

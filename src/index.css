@@ -220,6 +220,19 @@
    assets/fonts/anton/OFL.txt). One weight; the lyric bold toggle falls back
    to the browser's synthetic bold for this face. */
 @font-face { font-family: 'Anton'; src: url('./assets/fonts/anton/Anton-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+/* Cormorant Garamond - bundled serif display face (OFL license ships next to
+   the files: assets/fonts/cormorant/OFL.txt). Its real italic faces are
+   registered here, so the typography panel's Italic toggle draws the
+   punch-cut italic instead of a synthesised slant - a fake oblique on a serif
+   this fine reads as a bug. */
+@font-face { font-family: 'Cormorant Garamond'; src: url('./assets/fonts/cormorant/CormorantGaramond-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Cormorant Garamond'; src: url('./assets/fonts/cormorant/CormorantGaramond-Italic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'Cormorant Garamond'; src: url('./assets/fonts/cormorant/CormorantGaramond-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Cormorant Garamond'; src: url('./assets/fonts/cormorant/CormorantGaramond-BoldItalic.ttf') format('truetype'); font-weight: 700; font-style: italic; font-display: swap; }
+/* Reenie Beanie - bundled handwriting face, one weight (OFL license ships
+   next to it: assets/fonts/reenie/OFL.txt). The browser synthesises its bold
+   and italic, which is what a handwriting face should do. */
+@font-face { font-family: 'Reenie Beanie'; src: url('./assets/fonts/reenie/ReenieBeanie-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
 
 :root {
   color-scheme: dark;

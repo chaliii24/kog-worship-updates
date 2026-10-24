@@ -32,6 +32,37 @@ const rememberFont = (value) => {
   writeRecent(list);
 };
 
+// The dropdown rows live at module scope. Defined inside FontPicker they get a
+// fresh component identity on every render (hovering a row is a render), so
+// React unmounts and remounts the row under the pointer — the mousedown then
+// targets a detached node and the click is lost. Same trap NewSongPrompt
+// documents for its option cards.
+const SectionLabel = ({ children, C }) => (
+  <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, padding: '10px 10px 4px 10px', position: 'sticky', top: 0, background: C.panel === '#000' ? 'var(--ui-elev)' : (C.elevated || 'var(--ui-elev)'), zIndex: 1 }}>{children}</div>
+);
+
+const FontRow = ({ o, selected, hot, C, onPick, onHover }) => (
+  <div
+    data-selected={selected ? '1' : undefined}
+    onMouseDown={(e) => e.preventDefault()}
+    onMouseEnter={() => onHover(o.value)}
+    onMouseLeave={() => onHover((h) => (h === o.value ? null : h))}
+    onClick={() => onPick(o)}
+    style={{
+      display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', cursor: 'pointer',
+      background: selected ? 'rgba(255,184,0,0.18)' : (hot ? 'rgba(255,255,255,0.06)' : 'transparent'),
+      borderLeft: `2px solid ${selected ? (C.accLine || '#FFB800') : 'transparent'}`,
+    }}
+  >
+    {/* The NAME is always in the UI face, never in the font itself: a face
+        without Latin glyphs (Mongolian Baiti, Mangal, ...) would render
+        its own name as blank boxes, and the row would look like a gap in
+        the list. The sample on the right is where the font shows itself. */}
+    <span style={{ fontSize: 13.5, color: C.text, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.label}</span>
+    <span style={{ fontFamily: o.value, fontSize: 12, color: C.faint, flexShrink: 0, letterSpacing: 0.2 }}>AaGg 123</span>
+  </div>
+);
+
 // Custom font dropdown replacing the native <select>:
 //  • every row renders its label and an "AaGg 123" sample IN that row's own
 //    typeface, so the user sees each font's actual style in the list — no
@@ -103,36 +134,6 @@ export default function FontPicker({ value, choices, onChange, C }) {
   const presets = choices.filter(o => FONT_OPTIONS.some(p => p.value === o.value)).filter(keep);
   const system = choices.filter(o => !FONT_OPTIONS.some(p => p.value === o.value)).filter(keep);
 
-  const SectionLabel = ({ children }) => (
-    <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, padding: '10px 10px 4px 10px', position: 'sticky', top: 0, background: C.panel === '#000' ? 'var(--ui-elev)' : (C.elevated || 'var(--ui-elev)'), zIndex: 1 }}>{children}</div>
-  );
-
-  const Row = ({ o }) => {
-    const selected = o.value === value;
-    const hot = hovered === o.value;
-    return (
-      <div
-        data-selected={selected ? '1' : undefined}
-        onMouseDown={(e) => e.preventDefault()}
-        onMouseEnter={() => setHovered(o.value)}
-        onMouseLeave={() => setHovered((h) => (h === o.value ? null : h))}
-        onClick={() => pick(o)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', cursor: 'pointer',
-          background: selected ? 'rgba(255,184,0,0.18)' : (hot ? 'rgba(255,255,255,0.06)' : 'transparent'),
-          borderLeft: `2px solid ${selected ? (C.accLine || '#FFB800') : 'transparent'}`,
-        }}
-      >
-        {/* The NAME is always in the UI face, never in the font itself: a face
-            without Latin glyphs (Mongolian Baiti, Mangal, ...) would render
-            its own name as blank boxes, and the row would look like a gap in
-            the list. The sample on the right is where the font shows itself. */}
-        <span style={{ fontSize: 13.5, color: C.text, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.label}</span>
-        <span style={{ fontFamily: o.value, fontSize: 12, color: C.faint, flexShrink: 0, letterSpacing: 0.2 }}>AaGg 123</span>
-      </div>
-    );
-  };
-
   const empty = recentRows.length === 0 && presets.length === 0 && system.length === 0;
 
   const pick = (o) => {
@@ -175,12 +176,12 @@ export default function FontPicker({ value, choices, onChange, C }) {
             style={{ flexShrink: 0, margin: 8, padding: '7px 9px', background: C.input || 'var(--ui-input)', color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, fontSize: 12, outline: 'none' }}
           />
           <div ref={listRef} style={{ flex: 1, overflowY: 'auto', paddingBottom: 6 }} onMouseLeave={() => setHovered(null)}>
-            {recentRows.length > 0 && <SectionLabel>Recently Used</SectionLabel>}
-            {recentRows.map(o => <Row key={`recent-${o.value}`} o={o} />)}
-            {presets.length > 0 && <SectionLabel>Presets</SectionLabel>}
-            {presets.map(o => <Row key={o.value} o={o} />)}
-            {system.length > 0 && <SectionLabel>System Fonts ({system.length})</SectionLabel>}
-            {system.map(o => <Row key={o.value} o={o} />)}
+            {recentRows.length > 0 && <SectionLabel C={C}>Recently Used</SectionLabel>}
+            {recentRows.map(o => <FontRow key={`recent-${o.value}`} o={o} selected={o.value === value} hot={hovered === o.value} C={C} onPick={pick} onHover={setHovered} />)}
+            {presets.length > 0 && <SectionLabel C={C}>Presets</SectionLabel>}
+            {presets.map(o => <FontRow key={o.value} o={o} selected={o.value === value} hot={hovered === o.value} C={C} onPick={pick} onHover={setHovered} />)}
+            {system.length > 0 && <SectionLabel C={C}>System Fonts ({system.length})</SectionLabel>}
+            {system.map(o => <FontRow key={o.value} o={o} selected={o.value === value} hot={hovered === o.value} C={C} onPick={pick} onHover={setHovered} />)}
             {empty && <div style={{ padding: '14px 10px', fontSize: 12, color: C.faint }}>No fonts match “{query}”.</div>}
           </div>
         </div>,

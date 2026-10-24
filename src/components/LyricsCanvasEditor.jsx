@@ -4,6 +4,7 @@ import { renderLyricsLayout, cueLyricStyle, LyricsBlock, computeLyricsFontSize, 
 import { transitionAnimation, FONT_OPTIONS } from '../lib/constants';
 import AnimatedBg from './AnimatedBg';
 import { CinematicBackdrop, CinematicOverlay, CinematicText } from './CinematicLayer';
+import TitleCardChrome from './TitleCardChrome';
 import {
   SLIDE_WIDTH,
   SLIDE_HEIGHT,
@@ -356,6 +357,13 @@ export default function LyricsCanvasEditor({
   fx = null,
   bgFx = null,
   ghost = null,
+  // Title-card framing (rules + artist/event/venue lines) for the song's
+  // opening slide. Drawn under the words on the same 1280x720 canvas the wall
+  // uses, so the operator sees the finished card while editing it.
+  card = null,
+  cardArtist = '',
+  cardEvent = '',
+  cardVenue = '',
   onTextChange,
   onBoxChange,
   onSizeChange,
@@ -1127,6 +1135,10 @@ export default function LyricsCanvasEditor({
 
       {/* z1 — the real lyrics, same renderer as the projector */}
       <div style={{ position: 'absolute', left: 0, top: 0, width: CANVAS_W, height: CANVAS_H, zIndex: 1, pointerEvents: 'none', transformOrigin: 'top left', transform: `scale(${scale})` }}>
+        {/* The card's rules and small lines sit behind the title itself, and
+            OUTSIDE CinematicText: framing must not inherit the lyric's text
+            effects (a shaking rule on a glitch preset reads as a broken wall). */}
+        {card ? <TitleCardChrome card={card} artist={cardArtist} event={cardEvent} venue={cardVenue} /> : null}
         <CinematicText fx={fx}>
         {/* Ghost / watermark text sits BEHIND everything, through the same
             renderer as the projector. Read-only here — its box is edited from
