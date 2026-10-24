@@ -206,6 +206,10 @@ export default function LeftSidebar() {
     sameSongId
   } = app;
 
+  // Workspace nav can be folded away so the Service Order (or the active
+  // tool's body) takes the top of the column. Local, not in App: it is a
+  // sidebar presentation choice, nothing else in the app reads it.
+  const [navOpen, setNavOpen] = useState(true);
   const [sectionRenameIdx, setSectionRenameIdx] = useState(null);
   // Per-song backup for laptop-to-laptop transfer: tick songs, export to a
   // file, Import Library on the other machine takes it as-is.
@@ -513,27 +517,54 @@ export default function LeftSidebar() {
         </button>
       </div>
 
-      {/* PRIMARY NAVIGATION */}
+      {/* PRIMARY NAVIGATION — the Workspace label doubles as its own
+          collapse toggle, so the section below it slides up into the space. */}
       <nav className="kog-nav" aria-label="Application">
-        <div className="kog-nav-label">Workspace</div>
-        {PRIMARY_NAV.map(({ id, label, Icon, title }) => (
-          <button
-            key={id}
-            type="button"
-            className="kog-nav-btn"
-            data-active={dockTab === id ? '1' : '0'}
-            onClick={() => goTo(id)}
-            title={title}
-            aria-current={dockTab === id ? 'page' : undefined}
-          >
-            <Icon size={15} strokeWidth={1.9} />
-            <span>{label}</span>
-            {id === 'shows' && serviceOrderCount() > 0 ? (
-              <span className="kog-nav-count">{serviceOrderCount()}</span>
-            ) : null}
+        <button
+          type="button"
+          className="kog-nav-label"
+          onClick={() => setNavOpen((v) => !v)}
+          aria-expanded={navOpen}
+          aria-controls="kog-workspace-nav"
+          title={navOpen ? 'Hide workspace navigation' : 'Show workspace navigation'}
+        >
+          <span>Workspace</span>
+          <span className="kog-nav-chevron" data-open={navOpen ? '1' : '0'} aria-hidden="true">
+            <ChevronDown size={11} />
+          </span>
+        </button>
+        <AnimatePresence initial={false}>
+          {navOpen && (
+            <motion.div
+              key="kog-workspace-nav"
+              id="kog-workspace-nav"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: 1 }}
+            >
+              {PRIMARY_NAV.map(({ id, label, Icon, title }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className="kog-nav-btn"
+                  data-active={dockTab === id ? '1' : '0'}
+                  onClick={() => goTo(id)}
+                  title={title}
+                  aria-current={dockTab === id ? 'page' : undefined}
+                >
+                  <Icon size={15} strokeWidth={1.9} />
+                  <span>{label}</span>
+                  {id === 'shows' && serviceOrderCount() > 0 ? (
+                    <span className="kog-nav-count">{serviceOrderCount()}</span>
+                  ) : null}
 
-          </button>
-        ))}
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </nav>
 
       {/* SECTION HEADING — service order by default, tool name for the rest. */}
@@ -846,7 +877,10 @@ export default function LeftSidebar() {
                 </div>
               )}
             </div>
-            <div onDragOver={(e) => { e.preventDefault(); if (internalDrag.current) { const t = scanDropTarget(e); setDrop(t.at, t.row); return; } e.dataTransfer.dropEffect = 'copy'; setServiceDragOver(true); }} onDragLeave={() => setServiceDragOver(false)} onDrop={dropOnOrder} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '4px 6px 10px 4px', display: 'grid', gap: 3, alignContent: 'start', border: serviceDragOver ? '1px dashed #FFB800' : '1px dashed transparent', borderRadius: 10, margin: '0', background: serviceDragOver ? 'rgba(255,184,0,0.08)' : 'transparent' }}>
+            {/* minmax(0, 1fr): without it the grid's implicit column sizes to
+                the longest nowrap item title, so one long file name pushes the
+                row (and its floating Go/Stop cluster) past the sidebar edge. */}
+            <div onDragOver={(e) => { e.preventDefault(); if (internalDrag.current) { const t = scanDropTarget(e); setDrop(t.at, t.row); return; } e.dataTransfer.dropEffect = 'copy'; setServiceDragOver(true); }} onDragLeave={() => setServiceDragOver(false)} onDrop={dropOnOrder} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '4px 6px 10px 4px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 3, alignContent: 'start', border: serviceDragOver ? '1px dashed #FFB800' : '1px dashed transparent', borderRadius: 10, margin: '0', background: serviceDragOver ? 'rgba(255,184,0,0.08)' : 'transparent' }}>
               {(activeService?.items || []).filter(i => i.item_type !== 'section_header').length === 0 && (
                 <div style={{ textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12, padding: 12 }}>Nothing in the order yet. Use Add Song / Scripture / Media / Presentation above, or open the Shows and Songs tabs and press + Plan on a row.</div>
               )}

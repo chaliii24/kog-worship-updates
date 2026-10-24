@@ -15,7 +15,7 @@ const ROLE_OPTIONS = [
 ];
 
 const RESOLUTION_OPTIONS = [
-  { value: 'native', label: 'Native (fullscreen)' },
+  { value: 'native', label: 'Native (fill display)' },
   { group: '4K / UHD', options: [{ value: '3840x2160', label: '3840 × 2160 (4K UHD)' }] },
   { group: 'Common Resolutions', options: [
     { value: '2560x1440', label: '2560 × 1440 (QHD)' },
@@ -39,10 +39,10 @@ const RESOLUTION_OPTIONS = [
   { group: 'Preview', options: [{ value: '800x450', label: '800 × 450 (Preview)' }] },
 ];
 
-// A resolution's ratio IS the view shape: the output stays fullscreen and
-// only the composed frame changes, so picking a resolution also sets the
-// output's aspect to that ratio — the projector, the preview and the aspect
-// buttons then all agree on what the audience sees.
+// A resolution's ratio IS the view shape: picking one also sets the output's
+// aspect to that ratio so the projector, the preview and the aspect buttons
+// agree. The output window itself is built at the chosen pixel size (with a
+// black underlay covering the rest of the display); "Native" stays fullscreen.
 const RES_ASPECT = {
   '3840x2160': '16:9', '2560x1440': '16:9', '1920x1080': '16:9',
   '1600x900': '16:9', '1366x768': '16:9', '1280x720': '16:9', '800x450': '16:9',
@@ -52,7 +52,8 @@ const RES_ASPECT = {
   '2560x1080': '21:9', '3440x1440': '21:9'
 };
 
-const ASPECT_OPTIONS = ['16:9', '4:3', '16:10', '21:9', '32:9', 'Fill'];
+const ASPECT_OPTIONS = ['auto', '16:9', '4:3', '16:10', '21:9', '32:9', 'Fill'];
+const aspectLabel = (a) => (a === 'auto' ? 'Auto' : a);
 
 // Hardware controls talk to main directly (identify overlays, DeckLink SDI).
 const ipc = (typeof window !== 'undefined' && window.require) ? window.require('electron').ipcRenderer : null;
@@ -181,22 +182,14 @@ export default function OutputsMonitorModal({
   const mainOutput = outputs.find(o => o.id === 'projector') || outputs.find(o => o.role === 'lyrics') || outputs[0] || null;
   const matchMain = (out) => updateOutput(out.id, {
     resolution: mainOutput?.resolution || 'native',
-    aspect: mainOutput?.aspect || '16:9'
+    aspect: mainOutput?.aspect || 'auto'
   });
 
   const changeDisplay = (id, value) => {
     const displayId = value === '' ? null : (value === 'preview' ? 'preview' : Number(value));
+    // updateOutput owns the one-screen-one-output rule, so a direct assignment
+    // from the picker takes the display off every other output atomically.
     updateOutput(id, { displayId, enabled: displayId !== null });
-    // One physical screen, one fullscreen output. Assigning this display here
-    // takes it off any other output; otherwise both windows sit on top of each
-    // other and editing the covered one looks like a dead control.
-    if (displayId !== null && displayId !== 'preview') {
-      for (const other of outputs) {
-        if (other.id !== id && other.displayId === displayId) {
-          updateOutput(other.id, { displayId: null, enabled: false });
-        }
-      }
-    }
   };
 
   // ---- DeckLink / UltraStudio SDI bridge ---------------------------------
@@ -343,10 +336,12 @@ export default function OutputsMonitorModal({
                         onChange={(e) => {
                           const v = e.target.value;
                           const a = RES_ASPECT[v];
-                          // Resolution shapes the view, never the window: the
-                          // output stays fullscreen and composes at this
-                          // resolution's aspect ratio.
-                          updateOutput(out.id, a ? { resolution: v, aspect: a } : { resolution: v });
+                          // The window is rebuilt at this exact pixel
+                          // resolution; Native fills the bound display, so
+                          // it also switches the shape back to Auto.
+                          updateOutput(out.id, v === 'native'
+                            ? { resolution: v, aspect: 'auto' }
+                            : (a ? { resolution: v, aspect: a } : { resolution: v }));
                         }}
                         style={{ width: '100%', background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 8, color: C.text2, fontSize: 11, fontWeight: 600, padding: '5px 8px', cursor: 'pointer', outline: 'none' }}
                       >
@@ -356,15 +351,33 @@ export default function OutputsMonitorModal({
                           <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                       </select>
+                      {(out.displayId == null || out.displayId === 'preview') && (
+                        <div style={{ fontSize: 9, color: C.faint2, lineHeight: 1.45, marginTop: 3 }}>
+                          No display assigned — opens a desktop preview window, capped to this screen. Assign a display for the exact pixel size.
+                        </div>
+                      )}
+                      {out.viewport && out.viewport.enabled && (
+                        <div style={{ fontSize: 9, color: '#FFC72C', lineHeight: 1.45, marginTop: 3 }}>
+                          Custom pixel window overrides this resolution.
+                        </div>
+                      )}
                     </div>
 
                     <div>
                       <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>Aspect Ratio</div>
                       <div style={{ display: 'flex', gap: 3 }}>
-                        {ASPECT_OPTIONS.map(a => (
-                          <motion.button key={a} {...stubTap} onClick={() => updateOutput(out.id, { aspect: a })} style={{ flex: 1, background: (out.aspect || '16:9') === a ? 'rgba(54,201,130,0.14)' : C.elevated, border: (out.aspect || '16:9') === a ? `1px solid ${PINK}` : '1px solid var(--ui-border2)', color: (out.aspect || '16:9') === a ? PINK : C.muted, borderRadius: 6, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>{a}</motion.button>
-                        ))}
+                        {ASPECT_OPTIONS.map(a => {
+                          const current = (out.aspect || 'auto') === a;
+                          return (
+                            <motion.button key={a} {...stubTap} onClick={() => updateOutput(out.id, { aspect: a })} title={a === 'auto' ? 'Fill whatever display this output runs on (recommended)' : undefined} style={{ flex: 1, background: current ? 'rgba(54,201,130,0.14)' : C.elevated, border: current ? `1px solid ${PINK}` : '1px solid var(--ui-border2)', color: current ? PINK : C.muted, borderRadius: 6, padding: '4px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>{aspectLabel(a)}</motion.button>
+                          );
+                        })}
                       </div>
+                      {(out.aspect || 'auto') === 'auto' && (
+                        <div style={{ fontSize: 9, color: C.faint2, lineHeight: 1.45, marginTop: 3 }}>
+                          Auto fits the screen's real shape edge-to-edge — 4:3 projectors, 16:10 monitors, ultrawide / LED walls.
+                        </div>
+                      )}
                     </div>
 
                     <select
@@ -376,10 +389,10 @@ export default function OutputsMonitorModal({
                     >
                       <option value="">Off — no output window</option>
                       {(outputDisplays || []).map(d => {
-                        const owner = outputs.find(o => o.id !== out.id && o.displayId === d.id);
+                        const owner = outputs.find(o => o.id !== out.id && String(o.displayId) === String(d.id));
                         return (
                           <option key={d.id} value={d.id}>
-                            {d.label}{d.primary ? ' (Primary)' : ''} · {d.width}×{d.height}{owner ? ` · ${owner.name}` : ''}
+                            {d.label}{d.internal ? ' (Built-in)' : ''}{d.primary ? ' (Primary)' : ''} · {d.width}×{d.height}{owner ? ` · ${owner.name}` : ''}
                           </option>
                         );
                       })}
@@ -388,7 +401,9 @@ export default function OutputsMonitorModal({
 
                     <div style={{ fontSize: 11, color: C.muted, minHeight: 15 }}>
                       {isOpen
-                        ? (info?.displayLabel ? `${info.displayLabel}${info.width ? ` · ${info.width}×${info.height}` : ''}` : 'Dev preview window')
+                        ? (info?.displayLabel
+                          ? `${info.displayLabel} · output ${info.width}×${info.height}${info.displayWidth && (info.displayWidth !== info.width || info.displayHeight !== info.height) ? ` on ${info.displayWidth}×${info.displayHeight}` : ''}`
+                          : (info?.width ? `Preview window · ${info.width}×${info.height}` : 'Dev preview window'))
                         : (out.displayId != null && out.displayId !== '' ? 'Assigned — not started' : 'Not showing anywhere')}
                     </div>
 
@@ -427,8 +442,8 @@ export default function OutputsMonitorModal({
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
               {outputDisplays.map(d => {
-                const owner = outputs.find(o => o.displayId === d.id);
-                const live = status.find(s => s.displayId === d.id && s.open);
+                const owner = outputs.find(o => String(o.displayId) === String(d.id));
+                const live = status.find(s => String(s.displayId) === String(d.id) && s.open);
                 return (
                   <div key={d.id} style={{ background: C.elevated2, border: owner ? `1px solid ${PINK}` : '1px solid var(--ui-border2)', borderRadius: 10, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#36C982', boxShadow: '0 0 8px #36C982', flexShrink: 0 }} />
@@ -625,7 +640,7 @@ function NumField({ value, onCommit, min, max, style }) {
 }
 
 function ScreenSetupPanel({ out, updateOutput, displays, C, PINK }) {
-  const bound = (displays || []).find((d) => d.id === out.displayId);
+  const bound = (displays || []).find((d) => String(d.id) === String(out.displayId));
   const vp = {
     enabled: false, x: 0, y: 0,
     w: bound ? bound.width : 1920, h: bound ? bound.height : 1080,
@@ -698,9 +713,9 @@ function ScreenSetupPanel({ out, updateOutput, displays, C, PINK }) {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 7 }}>
               <div style={{ fontSize: 9.5, color: C.faint2, lineHeight: 1.45 }}>
-                Used when no display is bound (desktop preview window, centered; X/Y nudge it).
-                A bound display always composes its full screen at the selected ratio, so a
-                leftover size can never crop the picture or park it in a corner.
+                The output window becomes this exact pixel region (X/Y relative to a bound
+                display; a dev preview is centered and nudged by X/Y). A black underlay covers
+                the rest of the screen, so this can never expose the desktop.
               </div>
               <motion.button
                 {...stubTap}

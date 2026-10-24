@@ -196,6 +196,33 @@ function seekToStill(v, target) {
   });
 }
 
+// How wide a captured still may be. Tiles are a few hundred CSS px wide (the
+// Up Next card is the biggest at ~480), so ~2× of a dense grid stays crisp
+// while the blob stays well under 100KB per tile.
+const STILL_MAX_W = 960;
+
+// Draw the CURRENT frame of a decoded <video> into a small JPEG blob URL.
+// Calls back with null when the frame cannot be read (file not decoded yet,
+// or a canvas the browser considers tainted) — callers then keep the element
+// instead, which is exactly the behaviour the app had before captures existed.
+function grabStillFrame(v, done) {
+  try {
+    const w = v.videoWidth;
+    const h = v.videoHeight;
+    if (!w || !h || v.readyState < 2) { done(null); return; }
+    const k = Math.min(1, STILL_MAX_W / w);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * k));
+    c.height = Math.max(1, Math.round(h * k));
+    c.getContext('2d', { alpha: false }).drawImage(v, 0, 0, c.width, c.height);
+    c.toBlob((b) => {
+      // Free the backing store right away; the bytes now live in the blob.
+      c.width = c.height = 0;
+      done(b ? URL.createObjectURL(b) : null);
+    }, 'image/jpeg', 0.72);
+  } catch { done(null); }
+}
+
 // Slide-grid thumbnail video: only the LIVE tile keeps animating — every
 // other tile shows a still frame. A background loop decodes at its NATIVE
 // resolution no matter how small the tile is (a 4K loop decodes 4K frames
@@ -203,11 +230,29 @@ function seekToStill(v, target) {
 // running at once — the single biggest CPU drain with a song loaded.
 //
 // Since v1.1.39 the element itself is lazy (see lib/lazyVideo.jsx): off-screen
-// tiles hold a placeholder, and the live tile jumps the queue for a slot. A
-// 70-slide song with a video background therefore mounts one video, not 70.
+// tiles hold a placeholder, and the live tile jumps the queue for a slot.
+//
+// A frozen tile needs its <video> only long enough to DECODE one frame: the
+// frame is captured into an <img> and the element unmounts, which hands the
+// global slot straight back to the pool. That is what lets a 23-slide song
+// show 23 stills (and the Up Next card show its face) while only a handful of
+// decoders exist at once — the budget then covers what is still decoding
+// instead of permanently reserving one slot per visible card.
 export function TileVideo({ src, animate, style, ...rest }) {
   const videoRef = useRef(null);
   const [el, setEl] = useState(null);
+  // Captured still (blob URL) for the frozen state. While it exists the
+  // <video> is not needed and MUST unmount, or the slot stays checked out.
+  const [still, setStill] = useState(null);
+  const stillRef = useRef(null);
+  // media:// files are served by this app with an Access-Control-Allow-Origin
+  // header (electron/main.js) precisely so the canvas stays readable. If an
+  // older main process never added it, the load below fails CORS — retry once
+  // WITHOUT the attribute: the still cannot be captured then, but the frozen
+  // element still shows the frame instead of nothing.
+  const [corsBroken, setCorsBroken] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+
   // Callback ref so the seek/freeze effect starts when the lazy element
   // actually appears, not when the placeholder was first rendered.
   const attach = useCallback((node) => {
@@ -215,21 +260,59 @@ export function TileVideo({ src, animate, style, ...rest }) {
     setEl(node);
   }, []);
 
+  const keepStill = useCallback((url) => {
+    if (stillRef.current) { try { URL.revokeObjectURL(stillRef.current); } catch {} }
+    stillRef.current = url;
+    setStill(url);
+  }, []);
+
+  useEffect(() => () => {
+    if (stillRef.current) { try { URL.revokeObjectURL(stillRef.current); } catch {} stillRef.current = null; }
+  }, []);
+
+  // A new file is a new frame.
+  useEffect(() => {
+    setStill(null);
+    if (stillRef.current) { try { URL.revokeObjectURL(stillRef.current); } catch {} stillRef.current = null; }
+  }, [src]);
+
   useEffect(() => {
     const v = el;
     if (!v) return undefined;
     if (animate) { v.play().catch(() => {}); return undefined; }
 
     let cancelled = false;
+    const capture = () => {
+      if (cancelled || stillRef.current) return;
+      grabStillFrame(v, (url) => {
+        if (cancelled || stillRef.current) return;
+        // Unreadable frame: keep the element mounted and frozen instead — but
+        // try once more when the decoder actually has data. A tile must never
+        // sit black for the rest of the session over one timing miss.
+        if (!url) {
+          const retry = () => { v.removeEventListener('loadeddata', retry); capture(); };
+          v.addEventListener('loadeddata', retry, { once: true });
+          return;
+        }
+        keepStill(url);
+      });
+    };
     const freeze = () => {
       if (cancelled) return;
       const target = Math.min(1, Math.max(0.05, (v.duration || 2) * 0.15));
-      // Already parked on (or beside) the representative frame: nothing to decode.
-      if (Math.abs((v.currentTime || 0) - target) < 0.03) { try { v.pause(); } catch {} return; }
+      // Already parked on (or beside) the representative frame with a readable
+      // frame in hand: nothing to decode. readyState < 2 means there is
+      // nothing to DRAW yet, so fall through to the real seek instead of
+      // freezing on a black card.
+      if (v.readyState >= 2 && Math.abs((v.currentTime || 0) - target) < 0.03) {
+        try { v.pause(); } catch {}
+        capture();
+        return;
+      }
       (async () => {
         await takeStillSeekSlot();
         if (cancelled) { releaseStillSeekSlot(); return; }
-        try { await seekToStill(v, target); }
+        try { await seekToStill(v, target); capture(); }
         finally { releaseStillSeekSlot(); }
       })().catch(() => {});
     };
@@ -241,20 +324,29 @@ export function TileVideo({ src, animate, style, ...rest }) {
       v.removeEventListener('loadedmetadata', freeze);
       // Any slot still held is released by the guarded seek above.
     };
-  }, [el, src, animate]);
+  }, [el, src, animate, keepStill]);
+
+  // Until a still exists the element is the only way to show the frame; the
+  // moment it does, the element unmounts and its global slot is released.
+  const wantElement = animate || !still;
 
   return (
     <LazyVideo
+      key={`tv-${retryKey}`}
       src={src}
       videoRef={attach}
       style={style}
       rootMargin="320px"
       priority={animate}
+      enabled={wantElement}
       muted
       playsInline
       preload="metadata"
       autoPlay={animate}
       loop={animate}
+      crossOrigin={corsBroken || !/^media:/i.test(String(src || '')) ? undefined : 'anonymous'}
+      onError={() => { if (!corsBroken) { setCorsBroken(true); setRetryKey((k) => k + 1); } }}
+      fallback={still ? <img src={still} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /> : null}
       {...rest}
     />
   );

@@ -55,6 +55,36 @@ export const newTextObject = (main = {}, patch = {}) => {
   };
 };
 
+/**
+ * TRANSITIONS ARE PER TEXT BOX.
+ *
+ * The main box keeps its transition on the cue's own `anim` / `speed` /
+ * `transDuration` fields (every old song already stores them there). Each extra
+ * box may carry its own copy of those three keys; when it does not, it falls
+ * back to the slide's values so adding a box to a song can never change how
+ * that song already entered the wall.
+ *
+ * The editor reads EFFECTIVE values through this helper and writes an explicit
+ * value onto the selected box, which is what lets Box 2 fade while the main
+ * lyric whips in.
+ */
+export const textTransitionOf = (cue, idx = 0) => {
+  const i = Number(idx) || 0;
+  const own = i <= 0 ? (cue || {}) : (textObjectAt(cue, i) || {});
+  const fallback = cue || {};
+  const pick = (key, def) => {
+    const v = own[key];
+    if (v !== undefined && v !== null) return v;
+    const f = fallback[key];
+    return f !== undefined && f !== null ? f : def;
+  };
+  return {
+    anim: pick('anim', 'none') || 'none',
+    speed: pick('speed', 0.5),
+    transDuration: pick('transDuration', 0),
+  };
+};
+
 /** Route a patch to object `idx` (0 → the cue's own fields). */
 export const patchTextObject = (cue, idx, patch) => {
   if (!cue || !patch) return cue;
@@ -111,8 +141,17 @@ export const moveTextObject = (cue, idx, dir) => {
 
 /**
  * Payload shape for every LIVE surface (projector, stage feed, mobile):
- * `{ text, lyric }`, where `lyric` carries its own box — so a renderer only
- * needs `renderLyricsLayout(t.text, t.lyric, t.lyric.box)` / `<LyricsBlock>`.
+ * `{ text, lyric, transition }`, where `lyric` carries its own box — so a
+ * renderer only needs `renderLyricsLayout(t.text, t.lyric, t.lyric.box)` /
+ * `<LyricsBlock>` — and `transition` carries that box's own entrance so boxes
+ * on one slide can animate independently.
  */
 export const textObjectLayers = (cue) =>
-  textObjectsOf(cue).map((o) => ({ text: o.text || '', lyric: cueLyricStyle(o) }));
+  textObjectsOf(cue).map((o, i) => ({
+    text: o.text || '',
+    lyric: cueLyricStyle(o),
+    // Each layer carries its own entrance so the wall can animate boxes
+    // independently on the SAME slide. Older payloads have no `transition`;
+    // SlideTextLayers falls back to the slide's own values for those.
+    transition: textTransitionOf(cue, i + 1),
+  }));

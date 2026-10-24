@@ -129,12 +129,11 @@ export function flattenMedley(def, songsById, ordersBySong) {
     let cues = (song.cues || []).filter((c) => cueIncluded(c, includedParts));
     const ord = orderOf(songId);
     if (ord) {
-      // Row arrangement wins: custom cue order, then the part filter.
+      // Row arrangement wins: exact custom cue order, then the part filter.
+      // resolveArrangementFlow has already reconciled new/removed sections, so
+      // deliberately omitted slides must not be appended back here.
       const byId = new Map(cues.map((c) => [c.id, c]));
-      const arranged = ord.map((id) => byId.get(id)).filter(Boolean);
-      const seen = new Set(arranged.map((c) => c.id));
-      for (const c of cues) if (!seen.has(c.id)) arranged.push(c);
-      cues = arranged;
+      cues = ord.map((id) => byId.get(id)).filter(Boolean);
     } else if (Array.isArray(partOrder) && partOrder.length && !includedParts.includes('ALL')) {
       // Link part order: picked parts play in tick sequence, song order
       // inside each part. Renamed-since-linking slides still play (appended).

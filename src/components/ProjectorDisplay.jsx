@@ -104,16 +104,42 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
   useEffect(() => {
     if (!framed) {
       let raf = 0;
+      const read = () => {
+        const de = typeof document !== 'undefined' ? document.documentElement : null;
+        const iw = Math.round(Number(window.innerWidth) || 0);
+        const ih = Math.round(Number(window.innerHeight) || 0);
+        const cw = de ? Math.round(Number(de.clientWidth) || 0) : 0;
+        const ch = de ? Math.round(Number(de.clientHeight) || 0) : 0;
+        // innerWidth/Height are the real wall viewport; clientWidth/Height are
+        // only a boot-race fallback (a zero-size frame must never become NaN).
+        const w = iw > 0 ? iw : (cw > 0 ? cw : 1920);
+        const h = ih > 0 ? ih : (ch > 0 ? ch : 1080);
+        setWin(prev => (prev.w === w && prev.h === h ? prev : { w, h }));
+      };
       const onResize = () => {
         if (raf) return;
         raf = requestAnimationFrame(() => {
           raf = 0;
-          setWin({ w: window.innerWidth, h: window.innerHeight });
+          read();
         });
       };
       window.addEventListener('resize', onResize);
+      window.addEventListener('orientationchange', onResize);
+      const vv = window.visualViewport;
+      if (vv) vv.addEventListener('resize', onResize);
+      // First paint can happen BEFORE Chromium settles the fullscreen / DPI /
+      // taskbar geometry of the display it landed on. Sample a few times, then
+      // keep a cheap 1.5s watch so a monitor mode change that never fires
+      // `resize` still re-fits the wall instead of leaving black bars.
+      const timers = [0, 120, 400, 1000, 2500].map((ms) => setTimeout(read, ms));
+      const poll = setInterval(read, 1500);
+      read();
       return () => {
         window.removeEventListener('resize', onResize);
+        window.removeEventListener('orientationchange', onResize);
+        if (vv) vv.removeEventListener('resize', onResize);
+        timers.forEach((t) => clearTimeout(t));
+        clearInterval(poll);
         if (raf) cancelAnimationFrame(raf);
       };
     }
@@ -245,20 +271,27 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
   const vw = swap ? ph : pw;
   const vh = swap ? pw : ph;
 
-  // FRAME: the projection is the SELECTED RATIO, fitted to the physical screen
-  // and centered — nothing else shrinks it. A display-bound output always owns
-  // the whole screen (fullscreen black window), so an old custom-pixel size can
-  // never crop the picture or park it in a corner; that setting now only sizes
-  // the desktop preview window (electron/main.js). Fill = edge to edge on any
-  // screen; every named ratio is exact, whatever the screen shape is.
+  // FRAME: the projection is the SELECTED RATIO, fitted to the output window
+  // and centered — nothing else shrinks it. The window itself is either
+  // fullscreen (Native) or the exact pixel preset / LED region the operator
+  // picked; either way the frame follows the real surface. Fill = edge to
+  // edge on any surface; every named ratio is exact, whatever its shape is.
+  // (A sized window on a bigger display has a black underlay in main, so the
+  // desktop never shows around the picture.)
   const ratioOf = (v) => {
     // Accepts both shapes the app uses: "16:9" (an output aspect) and
     // "1900 / 1080" (a physical wall resolution, from wallAspect).
     const m = String(v || '').match(/^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/);
     return m && Number(m[2]) ? Number(m[1]) / Number(m[2]) : 0;
   };
+  const rawAspect = String(framed ? (frameAspect || '16:9') : (cfg.aspect || aspect) || '').toLowerCase();
+  // AUTO = fit whatever device this window landed on. "auto", "fill" and
+  // "native" all mean the design space takes the entire physical frame, so a
+  // 4:3 projector, a 16:10 secondary monitor, a 21:9 LED wall and a rotated
+  // portrait screen are all filled edge-to-edge with no bars and no stretch
+  // of the type itself (the boxes widen, glyphs keep their size).
+  const fill = !framed && (rawAspect === 'fill' || rawAspect === 'auto' || rawAspect === 'native' || rawAspect === '');
   const ar = ratioOf(framed ? (frameAspect || '16:9') : (cfg.aspect || aspect)) || 16 / 9;
-  const fill = !framed && String(cfg.aspect || aspect || '').toLowerCase() === 'fill';
   const fw = fill ? vw : Math.min(vw, vh * ar);
   const fh = fill ? vh : Math.min(vh, vw / ar);
   const fx = (vw - fw) / 2;
@@ -459,7 +492,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
               variants={{ out: (fadeOut) => ({ opacity: 0, transition: { duration: fadeOut ? 0.6 : 0 } }) }}
               style={{ position: 'absolute', inset: 0 }}
             >
-              <div style={{ width: '100%', height: '100%', position: 'relative', ...animStyle }}>
+              <div style={{ width: '100%', height: '100%', position: 'relative', ...(cs.presentation ? animStyle : null) }}>
                 {!cs.timer && cs.video && cs.video.url && cs.video.action !== 'stop' ? (
                   // Booth video live: same aspect-frame fill as the countdown
                   // (edge-to-edge on ultrawide, identity on 16:9), muted —
@@ -496,7 +529,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
                             extra text box on it — ONE renderer, shared with
                             the console's live-output preview, so the monitor
                             is a true picture of the wall. */}
-                        <SlideTextLayers style={slideStyle} text={body} st={st} lift={lift} stretch={kx} />
+                        <SlideTextLayers style={slideStyle} text={body} st={st} lift={lift} stretch={kx} animate animKey={cs.timestamp} />
                         {isBible && (
                           <ScriptureRef meta={cs.meta} title={cs.title} color={st.color} font={st.font} templateId={cs.meta && cs.meta.template} />
                         )}

@@ -321,9 +321,9 @@ export const CUE_LOOK_KEYS = [
 
 // A preset has TWO kinds of look, and they live on different objects:
 //   * type keys belong to a text box (the main cue or cue.texts[n])
-//   * transition keys belong to the SLIDE, never to an individual box
+//   * transition keys belong to the MAIN text box (the cue's own fields)
 // Keeping them separate is what lets "apply to Box 2" change its type without
-// silently changing the slide's transition (or the main lyric's type).
+// silently changing the main lyric's entrance (or its type).
 export const SLIDE_TRANSITION_KEYS = ['anim', 'speed', 'transDuration'];
 
 export const TEXT_LOOK_KEYS = CUE_LOOK_KEYS.filter((k) => !SLIDE_TRANSITION_KEYS.includes(k));

@@ -1,5 +1,5 @@
 import React from 'react';
-import { FONT_OPTIONS } from './constants';
+import { FONT_OPTIONS, transitionAnimation } from './constants';
 import { normalizeGhost, textFxStyle } from './cinematic';
 
 export const applyCaseTransform = (t, mode) => {
@@ -1494,8 +1494,15 @@ export const LyricsBlock = ({ text, st, box }) => {
 // `stretch` widens the design space sideways (the wall is wider than 16:9):
 // the boxes spread and their type keeps its size, so the picture fills the
 // screen without cropping a word and without distorting the letters.
+//
+// `animate` gives EVERY BOX ITS OWN ENTRANCE. The main box uses the slide's
+// transition (the cue's own anim/speed, i.e. the main text box), while each
+// extra box reads the transition stored on that object. `animKey` remounts the
+// inner wrappers when a new slide is fired so a CSS animation restarts instead
+// of sitting already-finished on the next cue. Static surfaces (tiles, editor
+// thumbs, "up next") leave animate off and never pay for keyframes.
 // ---------------------------------------------------------------------------
-export const SlideTextLayers = ({ style, text, st, lift = 0, stretch = 1 }) => {
+export const SlideTextLayers = ({ style, text, st, lift = 0, stretch = 1, animate = false, animKey = 'slide' }) => {
   const mainSt = st || (style && style.lyric) || null;
   if (!mainSt) return null;
   const k = Number(stretch) || 1;
@@ -1503,24 +1510,41 @@ export const SlideTextLayers = ({ style, text, st, lift = 0, stretch = 1 }) => {
   const mainBox = widen(liftBox(mainSt.box || { x: 80, y: 100, w: 1120, h: 480 }, lift));
   const ghost = style && style.ghost ? style.ghost : null;
   const gb = ghost && ghost.lyric ? widen(liftBox(ghost.lyric.box || { x: 64, y: 170, w: 1152, h: 380 }, lift)) : null;
+  const animCss = (tr) => {
+    if (!animate || !tr) return '';
+    return transitionAnimation(tr.anim, tr.transDuration || tr.speed);
+  };
+  const slideTr = {
+    anim: (style && (style.transition || style.anim)) || 'none',
+    speed: style && style.speed,
+    transDuration: 0,
+  };
+  const animated = (key, css, node) => (
+    animate ? (
+      <div key={key} style={{ width: '100%', height: '100%', animation: css || undefined }}>
+        {node}
+      </div>
+    ) : node
+  );
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', ...textFxStyle(style && style.fx) }}>
       {/* Watermark first: it is the BACKGROUND text layer, behind everything. */}
       {ghost && gb && (
         <div style={{ position: 'absolute', left: gb.x, top: gb.y, width: gb.w, height: gb.h, transform: gb.angle ? `rotate(${gb.angle}deg)` : undefined, transformOrigin: 'center center' }}>
-          <LyricsBlock text={ghost.text || ''} st={ghost.lyric} box={gb} />
+          {animated(`ghost-${animKey}`, animCss(slideTr), <LyricsBlock text={ghost.text || ''} st={ghost.lyric} box={gb} />)}
         </div>
       )}
       <div style={{ position: 'absolute', left: mainBox.x, top: mainBox.y, width: mainBox.w, height: mainBox.h, transform: mainBox.angle ? `rotate(${mainBox.angle}deg)` : undefined, transformOrigin: 'center center' }}>
-        <LyricsBlock text={text || ''} st={mainSt} box={mainBox} />
+        {animated(`main-${animKey}`, animCss(slideTr), <LyricsBlock text={text || ''} st={mainSt} box={mainBox} />)}
       </div>
       {((style && style.texts) || []).map((t, i) => {
         const tl = t && t.lyric ? t.lyric : null;
         if (!tl) return null;
         const tb = widen(liftBox(tl.box || { x: 80, y: 100, w: 1120, h: 480 }, lift));
+        const tr = (t && t.transition) || slideTr;
         return (
           <div key={`tx-${i}`} style={{ position: 'absolute', left: tb.x, top: tb.y, width: tb.w, height: tb.h, transform: tb.angle ? `rotate(${tb.angle}deg)` : undefined, transformOrigin: 'center center' }}>
-            <LyricsBlock text={t.text || ''} st={tl} box={tb} />
+            {animated(`tx-${i}-${animKey}`, animCss(tr), <LyricsBlock text={t.text || ''} st={tl} box={tb} />)}
           </div>
         );
       })}

@@ -1045,6 +1045,8 @@ textarea {
 .svc-item {
   position: relative;
   display: flex;
+  min-width: 0;
+  max-width: 100%;
   align-items: center;
   gap: 6px;
   padding: 6px 6px 6px 4px;
@@ -1506,7 +1508,37 @@ textarea {
 .kog-brand-sub { display: block; margin-top: 2px; font-size: 9px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ui-faint); }
 
 .kog-nav { padding: 2px 8px 8px; display: flex; flex-direction: column; gap: 1px; flex: 0 0 auto; }
-.kog-nav-label { padding: 8px 8px 5px; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ui-faint); }
+/* The label is the collapse toggle for the workspace list: a quiet row that
+   only warms up on hover, with the chevron turning to point down when open. */
+.kog-nav-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 8px 5px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ui-faint);
+  cursor: pointer;
+  border-radius: 5px;
+  transition: color 140ms ease, background-color 140ms ease;
+}
+.kog-nav-label:hover { color: var(--ui-text2); background: var(--ui-hover-bg); }
+.kog-nav-chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.kog-nav-chevron[data-open='0'] { transform: rotate(-90deg); }
+@media (prefers-reduced-motion: reduce) {
+  .kog-nav-chevron { transition: none; }
+}
 .kog-nav-btn {
   position: relative;
   display: flex;

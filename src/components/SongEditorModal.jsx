@@ -3,7 +3,7 @@ import { Plus, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignR
 import { motion, AnimatePresence } from 'motion/react';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, FALLBACK_SYSTEM_FONTS } from '../lib/constants';
 import { renderLyricsLayout, cueLyricStyle, stripMarkup, ghostLayerOf, FONT_SIZE_MIN, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, autoPadForSize, fitBoxToText, growBoxToText, restyleLineScales } from '../lib/lyrics';
-import { allTextObjects, newTextObject, textObjectLayers } from '../lib/songTextObjects';
+import { allTextObjects, newTextObject, textObjectLayers, textTransitionOf } from '../lib/songTextObjects';
 import { useApp } from '../context/AppContext';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import { GRADIENT_PACK } from '../lib/backgrounds';
@@ -19,6 +19,7 @@ import { allCinematicPresets, cinematicCuePatch, cinematicTextPatch, cinematicTr
 import { allSongThemes, songThemeCuePatch, themeStyleFromCue, saveCustomSongTheme, updateCustomSongTheme, deleteCustomSongTheme, lastSongThemeId, rememberSongTheme, DEFAULT_TITLE_BOX } from '../lib/songThemes';
 import ColorPicker from '../untitledui/components/application/color-picker/color-picker';
 import { TileVideo, TileCanvas } from '../lib/perf';
+import { useSongEditorStore } from '../store/useSongEditorStore';
 
 let sysFontCache = null;
 
@@ -255,18 +256,20 @@ export default function SongEditorModal() {
   // the same buttons, scoped to what the user actually selected.
   const canvasApiRef = useRef(null);
   const [canvasSel, setCanvasSel] = useState(null);
-  // --- which TEXT BOX on this slide the sidebar and canvas are styling -----
-  // 0 = the slide's main lyric (the cue's own fields — the default, and on the
-  // title slide the only box). 1..n = the boxes in cue.texts[]. Everything
-  // text-shaped reads and writes `c` (the ACTIVE box); slide-level controls —
-  // label, background, transition, duration, notes — keep reading `editorCue`,
-  // so selecting an extra box never makes them lie about the slide.
-  const [activeObj, setActiveObj] = useState(0);
-  useEffect(() => { setActiveObj(0); }, [editorCueIdx]);
+  // Which TEXT BOX on this slide the sidebar and canvas are styling. The
+  // selection is editor-only state and lives in the song editor store, so it
+  // can never leak into the saved document or the live presentation.
+  const activeObj = useSongEditorStore((s) => s.activeObjectIndex);
+  const setActiveObj = useSongEditorStore((s) => s.setActiveObjectIndex);
+  useEffect(() => { setActiveObj(0); }, [editorCueIdx, setActiveObj]);
   const textObjs = editorCue ? allTextObjects(editorCue) : [];
   const activeIdx = Math.max(0, Math.min(activeObj, Math.max(0, textObjs.length - 1)));
   const c = textObjs[activeIdx] || editorCue || {};
   const cBox = c.box || DEFAULT_BOX;
+  // Effective entrance settings for the box the sidebar is styling. Extra
+  // boxes inherit the slide's transition until the operator picks one, so
+  // existing songs keep animating exactly as they did.
+  const textTrans = textTransitionOf(editorCue, activeIdx);
   const patchText = (patch) => {
     if (!patch) return;
     if (activeIdx > 0) updateTextObject(editorCueIdx, activeIdx, patch);
@@ -599,70 +602,17 @@ export default function SongEditorModal() {
   });
 
   // --- undo / redo ----------------------------------------------------------
-  // The draft IS editingSong, so a snapshot is just the previous object and
-  // React's immutability means every snapshot SHARES the cues it did not
-  // touch — a whole song's history costs almost nothing. Changes are recorded
-  // as BURSTS, closed by 1.2s of silence: typing and dragging the box fire
-  // dozens of updates a second and one undo step per keystroke helps nobody.
+  // History now lives in useSongEditorStore, which groups edits into 1.2s
+  // bursts and uses beginGesture/endGesture so a whole drag or resize is ONE
+  // undo step. App's patch helpers all write through setDocument, so the title
+  // field, typography panel, slide list and canvas share a single history.
   // A bulk write (Apply) calls breakHist() first so it lands in a step of its
   // own and a single Ctrl+Z takes back exactly that and nothing else.
-  const HIST_GAP = 1200;
-  const HIST_MAX = 150;
-  const histRef = useRef({ past: [], future: [], last: null, at: 0, locked: false });
-  const [hist, setHist] = useState({ undo: false, redo: false });
-  const syncHist = () => {
-    const h = histRef.current;
-    const canUndo = h.past.length > 0;
-    const canRedo = h.future.length > 0;
-    setHist((p) => (p.undo === canUndo && p.redo === canRedo ? p : { undo: canUndo, redo: canRedo }));
-  };
-  const breakHist = () => { histRef.current.at = 0; };
-
-  useEffect(() => {
-    const h = histRef.current;
-    // An undo/redo step is not an edit — record nothing and leave the redo
-    // stack alone, or redo would clear itself the moment it is used.
-    if (h.locked) { h.locked = false; h.last = editingSong; return; }
-    if (h.last === editingSong) return;
-    const now = Date.now();
-    if (h.last && now - h.at > HIST_GAP) {
-      h.past.push(h.last);
-      if (h.past.length > HIST_MAX) h.past.shift();
-      h.at = now;
-    }
-    h.last = editingSong;
-    h.future = [];
-    syncHist();
-  }, [editingSong]);
-
-  const jumpTo = (next) => {
-    const h = histRef.current;
-    if (!h.last || !next) return;
-    h.locked = true;
-    h.at = 0;
-    setEditingSong(next);
-    // Undo can take away the very slide that is open.
-    setEditorCueIdx((i) => Math.max(-1, Math.min(i, (next.cues || []).length - 1)));
-    syncHist();
-  };
-
-  const undo = () => {
-    const h = histRef.current;
-    if (!h.past.length || !h.last) return;
-    const prev = h.past.pop();
-    if (!prev) return;
-    h.future.push(h.last);
-    jumpTo(prev);
-  };
-
-  const redo = () => {
-    const h = histRef.current;
-    if (!h.future.length || !h.last) return;
-    const next = h.future.pop();
-    if (!next) return;
-    h.past.push(h.last);
-    jumpTo(next);
-  };
+  const canUndo = useSongEditorStore((s) => s.history.length > 0);
+  const canRedo = useSongEditorStore((s) => s.future.length > 0);
+  const breakHist = useCallback(() => useSongEditorStore.getState().breakHistory(), []);
+  const undo = useCallback(() => useSongEditorStore.getState().undo(), []);
+  const redo = useCallback(() => useSongEditorStore.getState().redo(), []);
 
   // Ctrl+Z — plus the two redo spellings every other app accepts. Wired here
   // instead of left to the textarea, whose native undo only ever steps back
@@ -1759,20 +1709,28 @@ export default function SongEditorModal() {
               </div>
             </div>
 
-            {/* TRANSITIONS */}
+            {/* TRANSITIONS — scoped to the TEXT BOX the sidebar is styling,
+                never to the slide as a whole. The main lyric keeps its values
+                on the cue (so old songs behave unchanged); every extra box
+                writes its own anim/speed onto cue.texts[n]. */}
             <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Transition</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Transition</div>
+                <span title="This entrance animates only the selected text box" style={{ fontSize: 9.5, fontWeight: 800, color: ACCENT, background: 'rgba(255,184,0,0.12)', border: '1px solid rgba(255,184,0,0.35)', borderRadius: 999, padding: '2px 7px', whiteSpace: 'nowrap' }}>
+                  {activeIdx > 0 ? `Box ${activeIdx + 1}` : 'Main text'}
+                </span>
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 {TRANSITIONS.map(t => {
                   const key = TRANSITION_KEYS[t];
-                  const selected = (editorCue?.anim || 'none') === key;
+                  const selected = textTrans.anim === key;
                   const isHovered = hoverAnim === key;
                   return (
                     <button
                       key={t}
                       onClick={() => {
                         setHoverAnim(null);
-                        updateCue(editorCueIdx, { anim: key });
+                        patchText({ anim: key });
                       }}
                       onMouseEnter={() => {
                         if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
@@ -1800,37 +1758,37 @@ export default function SongEditorModal() {
                   );
                 })}
               </div>
-              {hoverAnim && hoverAnim !== (editorCue?.anim || 'none') && (
+              {hoverAnim && hoverAnim !== textTrans.anim && (
                 <div style={{ marginTop: 6, fontSize: 9, color: ACCENT, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: ACCENT, display: 'inline-block', animation: 'pulse 0.8s infinite' }} />
-                  Previewing: {TRANSITIONS.find(t => TRANSITION_KEYS[t] === hoverAnim) || hoverAnim}
+                  Previewing: {TRANSITIONS.find(t => TRANSITION_KEYS[t] === hoverAnim) || hoverAnim} on {activeIdx > 0 ? `Box ${activeIdx + 1}` : 'main text'}
                 </div>
               )}
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, margin: '10px 0 6px 0' }}>Speed</div>
               <div style={{ display: 'flex', gap: 3 }}>
                 {SPEED_OPTIONS.map(s => {
-                  const selected = (editorCue?.speed ?? 0.5) === s.v;
+                  const selected = textTrans.speed === s.v;
                   return (
-                    <button key={s.v} onClick={() => updateCue(editorCueIdx, { speed: s.v })} title={s.label} style={{ flex: 1, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? '#0D1014' : C.muted, borderRadius: 5, padding: '6px 0', fontSize: 9.5, fontWeight: 700, cursor: 'pointer' }}>{s.v}s</button>
+                    <button key={s.v} onClick={() => patchText({ speed: s.v })} title={s.label} style={{ flex: 1, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? '#0D1014' : C.muted, borderRadius: 5, padding: '6px 0', fontSize: 9.5, fontWeight: 700, cursor: 'pointer' }}>{s.v}s</button>
                   );
                 })}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }} title="Overrides the Speed buttons for this slide only">This slide (sec)</label>
+                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }} title="Overrides the Speed buttons for this text box only">This box (sec)</label>
                 <input
                   type="number"
                   min="0"
                   max="10"
                   step="0.05"
-                  value={editorCue?.transDuration ?? 0}
-                  onChange={(e) => updateCue(editorCueIdx, { transDuration: Math.max(0, Number(e.target.value) || 0) })}
-                  title="0 = use the Speed preset. Any other value is this slide's own transition duration."
+                  value={textTrans.transDuration ?? 0}
+                  onChange={(e) => patchText({ transDuration: Math.max(0, Number(e.target.value) || 0) })}
+                  title="0 = use the Speed preset. Any other value is this text box's own transition duration."
                   style={{ width: 68, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px', fontSize: 11, textAlign: 'center', outline: 'none' }}
                 />
                 <button
-                  onClick={() => updateCue(editorCueIdx, { transDuration: 0 })}
-                  title="Clear the per-slide override and use the Speed preset"
-                  style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: (editorCue?.transDuration || 0) > 0 ? '#FFC72C' : C.faint, borderRadius: 6, padding: '6px 8px', fontSize: 9.5, fontWeight: 800, cursor: 'pointer' }}
+                  onClick={() => patchText({ transDuration: 0 })}
+                  title="Clear this box's own duration and use the Speed preset"
+                  style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: (textTrans.transDuration || 0) > 0 ? '#FFC72C' : C.faint, borderRadius: 6, padding: '6px 8px', fontSize: 9.5, fontWeight: 800, cursor: 'pointer' }}
                 >Auto</button>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
@@ -1944,7 +1902,7 @@ export default function SongEditorModal() {
                   onObjBoxChange={(i, b) => updateTextObject(editorCueIdx, i, { box: b })}
                   previewAnim={hoverAnim}
                   previewTick={previewTick}
-                  previewSpeed={editorCue?.transDuration || editorCue?.speed || 0.5}
+                  previewSpeed={textTrans.transDuration || textTrans.speed || 0.5}
                   fx={editorCue?.fx || null}
                   bgFx={editorCue?.bg_fx || null}
                   ghost={ghostLayerOf(editorCue)}
@@ -2014,8 +1972,8 @@ export default function SongEditorModal() {
               <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || []), { label: 'Verse 1', text: '', box: DEFAULT_BOX }]; setEditingSong({ ...editingSong, cues }); setEditorCueIdx(cues.length - 1); startRename(cues.length - 1, cues[cues.length - 1], 'strip'); }} title="Add a new slide"><Plus size={14} /> <span>New Slide</span></ToolbarBtn>
               <ToolbarBtn onClick={() => setThemeOpen(true)} title="Song themes — apply a house look to this slide or the whole song"><PaletteIcon size={14} /> <span>Theme</span></ToolbarBtn>
               <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
-              <ToolbarBtn onClick={undo} disabled={!hist.undo} title="Undo — Ctrl+Z. Takes back the last change (typing, sizes, a deleted slide, an Apply)"><Undo2 size={14} /></ToolbarBtn>
-              <ToolbarBtn onClick={redo} disabled={!hist.redo} title="Redo — Ctrl+Shift+Z or Ctrl+Y"><Redo2 size={14} /></ToolbarBtn>
+              <ToolbarBtn onClick={undo} disabled={!canUndo} title="Undo - Ctrl+Z. Takes back the last change (typing, sizes, a deleted slide, an Apply)"><Undo2 size={14} /></ToolbarBtn>
+              <ToolbarBtn onClick={redo} disabled={!canRedo} title="Redo - Ctrl+Shift+Z or Ctrl+Y"><Redo2 size={14} /></ToolbarBtn>
               <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
               <ToolbarBtn onClick={() => duplicateCue(editorCueIdx)} title="Duplicate slide"><Copy size={14} /></ToolbarBtn>
               <ToolbarBtn danger onClick={() => { if (editorCueIdx < 0) return; const cues = [...(editingSong.cues || [])]; if (!cues.length) return; cues.splice(editorCueIdx, 1); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(Math.min(editorCueIdx, Math.max(0, cues.length - 1))); }} title="Delete slide"><Trash2 size={14} /></ToolbarBtn>
@@ -2032,8 +1990,8 @@ export default function SongEditorModal() {
               <ToolbarBtn onClick={() => moveTextObjectInCue(editorCueIdx, activeIdx, 'back')} disabled={activeIdx <= 1} title="Draw the selected box behind the others"><SendToBack size={14} /></ToolbarBtn>
               <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
               <div style={{ flex: 1 }} />
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: C.faint2, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '3px 9px' }}>
-                <Clock3 size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />{TRANSITIONS.find(t => TRANSITION_KEYS[t] === (editorCue?.anim || 'none')) || 'None'} · {(editorCue?.speed ?? 0.5)}s
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: C.faint2, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '3px 9px' }} title={`Entrance for ${activeIdx > 0 ? `Box ${activeIdx + 1}` : 'the main text'}`}>
+                <Clock3 size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />{TRANSITIONS.find(t => TRANSITION_KEYS[t] === textTrans.anim) || 'None'} · {textTrans.transDuration || textTrans.speed}s
               </span>
             </div>
           </div>
