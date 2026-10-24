@@ -7,7 +7,9 @@ import AnimatedBg from './AnimatedBg';
 import { BackgroundVideo, LiveVideo, OverlayFace, overlayOnAir } from '../lib/perf';
 import { DrawOverlay } from './DrawOverlay.jsx';
 import ScriptureRef from './ScriptureRef.jsx';
+import TitleCardChrome from './TitleCardChrome.jsx';
 import { stripScriptureRef, scriptureRefPos } from '../lib/scriptureTemplates';
+import { titleCardIsClassic } from '../lib/titleCardTemplates';
 import { CinematicBackdrop, CinematicOverlay } from './CinematicLayer';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -533,10 +535,19 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
                         {isBible && (
                           <ScriptureRef meta={cs.meta} title={cs.title} color={st.color} font={st.font} templateId={cs.meta && cs.meta.template} />
                         )}
-                        {isTitleSlide && artist && (
-                          <div style={{ position: 'absolute', bottom: 20, right: 24, fontFamily: st.font, fontSize: 24, fontWeight: 600, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.03em', textShadow: '0 2px 8px rgba(0,0,0,0.8)', whiteSpace: 'nowrap' }}>
-                            Song By: {artist}
-                          </div>
+                        {/* TITLE CARD: the chosen card draws its own rules and
+                            artist/event/venue lines. Classic has no chrome, so
+                            it keeps the legacy "Song By" corner line exactly
+                            as it always looked. */}
+                        {isTitleSlide && (
+                          <>
+                            <TitleCardChrome card={st.card} artist={artist} event={st.cardEvent} venue={st.cardVenue} />
+                            {titleCardIsClassic(st.card) && artist && (
+                              <div style={{ position: 'absolute', bottom: 20, right: 24, fontFamily: st.font, fontSize: 24, fontWeight: 600, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.03em', textShadow: '0 2px 8px rgba(0,0,0,0.8)', whiteSpace: 'nowrap' }}>
+                                Song By: {artist}
+                              </div>
+                            )}
+                          </>
                         )}
                       </>
                     );

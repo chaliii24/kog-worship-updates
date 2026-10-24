@@ -48,6 +48,7 @@ import { sanitizeDrawStroke, pushDrawStroke } from './lib/draw.js';
 import { DrawOverlay } from './components/DrawOverlay.jsx';
 import AnimatedBg from './components/AnimatedBg';
 import ScriptureRef from './components/ScriptureRef.jsx';
+import TitleCardChrome from './components/TitleCardChrome.jsx';
 import { DEFAULT_SCRIPTURE_TEMPLATE, scriptureTemplateOf, scriptureLyricFor, stripScriptureRef, scriptureRefPos } from './lib/scriptureTemplates';
 import { AppProvider } from './context/AppContext';
 import { useSongEditorStore } from './store/useSongEditorStore';
@@ -5086,7 +5087,7 @@ export default function App() {
     // Animated faces never cache (every cache hit would freeze the motion);
     // gradient faces join the key by value so per-cue colors never collide.
     const cacheable = !isLive && !bg && !media && !isAnimatedFace;
-    const faceKey = `${aspect || ''}|${song?.id ?? ''}|${isTitle ? 'title' : (cue?.id || ('n' + tile.num))}|${bgInfo ? `${bgInfo.type}:${bgInfo.type === 'animated' ? '' : (bgInfo.value || '')}` : ''}|${JSON.stringify(isTitle ? [] : (cue?.texts || []))}`;
+    const faceKey = `${aspect || ''}|${song?.id ?? ''}|${isTitle ? 'title' : (cue?.id || ('n' + tile.num))}|${bgInfo ? `${bgInfo.type}:${bgInfo.type === 'animated' ? '' : (bgInfo.value || '')}` : ''}|${JSON.stringify(isTitle ? [titleCue?.card || '', titleCue?.cardEvent || '', titleCue?.cardVenue || ''] : (cue?.texts || []))}`;
     if (cacheable) {
       const hit = faceCache.get(faceKey);
       if (hit) return hit;
@@ -5109,6 +5110,12 @@ export default function App() {
             1280×720 canvas, contain-fit to the tile. No darkening overlay or
             bottom gradient — the output has neither. */}
         <TileCanvas>
+          {/* Title card framing (rules + artist/event/venue lines) behind the
+              title's words — the same component and numbers the wall uses, so
+              a console tile is a picture of what will be projected. */}
+          {isTitle && st.card ? (
+            <TitleCardChrome card={st.card} artist={song?.artist || ''} event={st.cardEvent} venue={st.cardVenue} />
+          ) : null}
           {/* Ghost / watermark layer first: part of the slide's composition,
               drawn through the same shared renderer as the main lyric. */}
           {(() => {

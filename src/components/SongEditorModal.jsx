@@ -14,6 +14,8 @@ import { toast } from '../untitledui/components/ui/toast';
 import LyricsCanvasEditor from './LyricsCanvasEditor';
 import FontPicker from './FontPicker';
 import SongThemePicker from './SongThemePicker';
+import TitleCardTemplatePicker from './TitleCardTemplatePicker';
+import { titleCardCue, titleCardOf } from '../lib/titleCardTemplates';
 import CinematicPanel from './CinematicPanel';
 import { allCinematicPresets, cinematicCuePatch, cinematicTextPatch, cinematicTransitionPatch, presetFromCue, saveCustomCinematicPreset, deleteCustomCinematicPreset, normalizeGhost, TEXT_LOOK_KEYS } from '../lib/cinematic';
 import { allSongThemes, songThemeCuePatch, themeStyleFromCue, saveCustomSongTheme, updateCustomSongTheme, deleteCustomSongTheme, lastSongThemeId, rememberSongTheme, DEFAULT_TITLE_BOX } from '../lib/songThemes';
@@ -897,6 +899,22 @@ export default function SongEditorModal() {
   // and "dress the whole song" are different jobs. The background is song-wide
   // by default (that is what a theme is for), but the checkbox lets an operator
   // keep the video/image already under the words.
+  // --- title cards ----------------------------------------------------------
+  // A card is a LOOK for the song's opening slide: the template's type and
+  // geometry land on title_cue, its id rides along so the wall knows which
+  // framing to draw, and the words (title, event, venue) are never rewritten.
+  // One history step, so Ctrl+Z takes the whole card back.
+  const applyTitleCard = (id) => {
+    const tpl = titleCardOf(id);
+    breakHist();
+    setEditingSong((prev) => {
+      const base = prev.title_cue || { ...titleCueFallback(), text: prev.title || '' };
+      return { ...prev, title_cue: titleCardCue(base, id) };
+    });
+    setActiveObj(0);
+    confirmApplied(`${tpl.label} title card`, { undoable: true });
+  };
+
   const titleCueFallback = () => editingSong.title_cue || {
     id: 'title-card',
     label: 'Song Title',
@@ -1477,6 +1495,34 @@ export default function SongEditorModal() {
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Typography</div>
               <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Font Family</label>
               <FontPicker value={c?.font || FONT_OPTIONS[0].value} choices={fontChoices} onChange={(v) => patchText({ font: v })} C={C} />
+              {/* FONT STYLE — Regular / Italic as named buttons, because the
+                  slanted "I" icon further down is easy to miss and reading
+                  "is this face italic?" off an icon is guesswork. Same field
+                  as the I toggle (cue.italic), so the two can never disagree. */}
+              <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+                {[false, true].map((it) => {
+                  const active = selMode ? !!canvasSel.attrs.italic === it : !!c?.italic === it;
+                  return (
+                    <button
+                      key={String(it)}
+                      title={selMode ? `${it ? 'Italicise' : 'Straighten'} the selected text` : `${it ? 'Italicise' : 'Straighten'} this text box`}
+                      onMouseDown={(ev) => ev.preventDefault()}
+                      onClick={() => {
+                        if (selMode) { canvasApiRef.current?.applyStyle({ italic: it }); return; }
+                        patchText({ italic: it });
+                      }}
+                      style={{
+                        flex: 1,
+                        background: active ? ACCENT : C.elevated2,
+                        border: '1px solid ' + (active ? ACCENT : 'var(--ui-border2)'),
+                        color: active ? '#0D1014' : C.muted,
+                        borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700,
+                        fontStyle: it ? 'italic' : 'normal', cursor: 'pointer',
+                      }}
+                    >{it ? 'Italic' : 'Regular'}</button>
+                  );
+                })}
+              </div>
               <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
                 {[
                   ['bold', Bold, 'Bold', true],
@@ -1906,6 +1952,10 @@ export default function SongEditorModal() {
                   fx={editorCue?.fx || null}
                   bgFx={editorCue?.bg_fx || null}
                   ghost={ghostLayerOf(editorCue)}
+                  card={editorCueIdx === -1 ? c?.card || null : null}
+                  cardArtist={editingSong.artist || ''}
+                  cardEvent={c?.cardEvent || ''}
+                  cardVenue={c?.cardVenue || ''}
                   onTextChange={(t) => {
                     // Grow-only refit: text typed in the manual builder can
                     // grow its box so every line stays visible at the full
@@ -1998,6 +2048,44 @@ export default function SongEditorModal() {
 
           {/* ================== RIGHT SIDEBAR ================== */}
           <div style={{ flex: '0 0 300px', minWidth: 240, borderLeft: '1px solid var(--ui-border2)', overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* TITLE CARD — only while the title slide is the one being
+                edited: a card belongs to the song's opening moment, and the
+                picker would be noise next to a verse's typography. */}
+            {editorCueIdx === -1 && (
+              <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Title Card</span>
+                  <span title="Applies to the title slide of this song — pick Classic to go back to the plain centred look" style={{ fontSize: 9.5, fontWeight: 800, color: ACCENT, background: 'rgba(255,184,0,0.12)', border: '1px solid rgba(255,184,0,0.35)', borderRadius: 999, padding: '2px 7px', whiteSpace: 'nowrap' }}>
+                    {titleCardOf(c).label}
+                  </span>
+                </div>
+                <TitleCardTemplatePicker value={c?.card || 'classic'} onChange={applyTitleCard} C={C} ACCENT={ACCENT} />
+                {titleCardOf(c).chrome ? (
+                  <div style={{ display: 'grid', gap: 6, marginTop: 10 }}>
+                    <label style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>Event line</label>
+                    <input
+                      type="text"
+                      value={c?.cardEvent || ''}
+                      onChange={(e) => updateCue(-1, { cardEvent: e.target.value })}
+                      placeholder="e.g. PASSION 2025"
+                      title="The small line the card prints near the top right. Editorial adds the LIVE FROM caption itself — typing it here too would repeat it (the card hides the duplicate). Leave the line empty and nothing is drawn."
+                      style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px 8px', fontSize: 11.5, outline: 'none', boxSizing: 'border-box' }}
+                    />
+                    <label style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>Venue line</label>
+                    <input
+                      type="text"
+                      value={c?.cardVenue || ''}
+                      onChange={(e) => updateCue(-1, { cardVenue: e.target.value })}
+                      placeholder="e.g. Atlanta, Georgia, USA"
+                      title="The small line the card prints near the bottom right. Leave it empty and nothing is drawn."
+                      style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px 8px', fontSize: 11.5, outline: 'none', boxSizing: 'border-box' }}
+                    />
+                    <div style={{ fontSize: 9, color: C.faint, lineHeight: 1.45 }}>The singer line comes from the song's artist. Empty lines are simply not drawn.</div>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
             {/* SLIDES */}
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>

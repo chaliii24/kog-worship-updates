@@ -155,4 +155,13 @@ export const FONT_OPTIONS = [
   // it). Bundled so it is in the dropdown on every machine, not only where
   // the font happens to be installed.
   { label: 'Anton', value: '"Anton", Impact, sans-serif' },
+  // Cormorant Garamond - serif display face (assets/fonts/cormorant, OFL.txt
+  // ships with it). Real 400/700 faces AND real italics, so the typography
+  // panel's Italic toggle draws the punch-cut italic rather than a
+  // synthesised slant.
+  { label: 'Cormorant Garamond', value: '"Cormorant Garamond", Cormorant, Georgia, serif' },
+  // Reenie Beanie - handwriting face (assets/fonts/reenie, OFL.txt ships with
+  // it). One weight: the bold/italic toggles use the browser's synthetic
+  // versions, which is what a marker face wants anyway.
+  { label: 'Reenie Beanie', value: '"Reenie Beanie", "Segoe Script", cursive' },
 ];

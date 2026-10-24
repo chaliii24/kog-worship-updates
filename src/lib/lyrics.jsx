@@ -1227,6 +1227,12 @@ export const cueLyricStyle = (cue) => ({
   tickerSpeed: cue?.tickerSpeed != null ? Number(cue.tickerSpeed) : 18,
   tickerDir: cue?.tickerDir === 'rtl' ? 'rtl' : 'ltr',
   box: cue?.box || { x: 80, y: 100, w: 1120, h: 480 },
+  // TITLE CARD: the card id and its two lines travel WITH the lyric style, so
+  // every surface that already receives style.lyric (projector, live previews)
+  // can draw the framing without a second payload field to keep in sync.
+  card: cue?.card || null,
+  cardEvent: cue?.cardEvent || '',
+  cardVenue: cue?.cardVenue || '',
 });
 
 /**
