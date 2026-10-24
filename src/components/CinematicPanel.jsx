@@ -75,10 +75,10 @@ function TextBoxTarget({ C, ACCENT, boxes = [], value = 'all', onChange }) {
       </div>
       <div style={{ fontSize: 8, color: C.faint, lineHeight: 1.4, marginTop: 4 }}>
         {all
-          ? 'Type goes to every box. Effects, grade, transition and ghost stay slide-wide.'
+          ? 'Type goes to every box. Effects, grade, the main text\u2019s transition and ghost stay as they are.'
           : picked.length
-            ? `Type goes to ${picked.length} selected box${picked.length === 1 ? '' : 'es'}. Effects, grade, transition and ghost stay slide-wide.`
-            : 'No box selected - applying will change only the slide effects, grade, transition and ghost.'}
+            ? `Type goes to ${picked.length} selected box${picked.length === 1 ? '' : 'es'}. Effects, grade, the main text\u2019s transition and ghost stay as they are.`
+            : 'No box selected - applying will change only the slide effects, grade, main text transition and ghost.'}
       </div>
     </div>
   );
@@ -263,7 +263,7 @@ export default function CinematicPanel({
                     aria-pressed={applyType === usePreset}
                     title={usePreset
                       ? 'Also apply the preset’s font, size, spacing, colour and outline to the selected text boxes'
-                      : 'Apply only the preset’s effects, background grade, transition and ghost — keep the lyric’s current font and size'}
+                      : 'Apply only the preset’s effects, background grade, main text transition and ghost — keep the lyric’s current font and size'}
                     style={{
                       flex: 1, background: applyType === usePreset ? 'rgba(0,170,255,0.18)' : C.elevated2,
                       border: `1px solid ${applyType === usePreset ? ACCENT : 'var(--ui-border2)'}`,

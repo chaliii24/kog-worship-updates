@@ -189,8 +189,13 @@ if (!process.env.GEMINI_API_KEY) {
 
 const MEDIA_DIR = path.join(app.getPath('userData'), 'media');
 
+// `corsEnabled` matters for thumbnails: a frozen tile captures its still by
+// drawing the decoded frame to a canvas, and Chromium taints that canvas for
+// any cross-origin media. Enabling CORS on the scheme + the header below (and
+// a crossorigin="anonymous" load in TileVideo) keeps the canvas readable, so
+// a card can freeze to an <img> and give its global video slot back.
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }
+  { scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }
 ]);
 
 function mediaMime(fileName) {
@@ -252,7 +257,11 @@ function serveFileBody(filePath, request) {
           'Content-Type': mime,
           'Content-Length': String(n),
           'Content-Range': `bytes ${start}-${total - 1}/${total}`,
-          'Accept-Ranges': 'bytes'
+          'Accept-Ranges': 'bytes',
+          // CORS-clean on purpose: a frozen thumbnail captures its frame to a
+          // canvas, and Chromium only leaves that canvas readable for
+          // CORS-enabled media (see registerSchemesAsPrivileged above).
+          'Access-Control-Allow-Origin': '*'
         }
       });
     }
@@ -271,13 +280,19 @@ function serveFileBody(filePath, request) {
         'Content-Type': mime,
         'Content-Length': String(end - start + 1),
         'Content-Range': `bytes ${start}-${end}/${total}`,
-        'Accept-Ranges': 'bytes'
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*'
       }
     });
   }
   return new Response(Readable.toWeb(fs.createReadStream(filePath)), {
     status: 200,
-    headers: { 'Content-Type': mime, 'Content-Length': String(total), 'Accept-Ranges': 'bytes' }
+    headers: {
+      'Content-Type': mime,
+      'Content-Length': String(total),
+      'Accept-Ranges': 'bytes',
+      'Access-Control-Allow-Origin': '*'
+    }
   });
 }
 
@@ -418,6 +433,12 @@ let operatorWindow;
 // listeners die with the window they were attached to).
 let operatorScaleArmed = false;
 const outputWindows = new Map(); // id -> { win, role, displayId, name }
+// A black full-screen underlay for an output whose composed window is smaller
+// than its display (a pixel preset or a custom LED-wall viewport). It keeps the
+// desktop from showing around the picture without forcing the output window
+// back to the display's native size — the output window itself carries the
+// requested resolution, which is what capture cards and window capture see.
+const outputBackdrops = new Map(); // output id -> BrowserWindow
 // True once quit begins: crash-recovery must NEVER resurrect an output while
 // the app is tearing down — a rebuilt black fullscreen window outlives the
 // quit, sits on the secondary display instead of the desktop, and migrates to
@@ -668,29 +689,63 @@ app.whenReady().then(() => {
     } catch (e) { /* diagnostics only — never block startup */ }
   }, 5000);
 
-  screen.on('display-added', notifyDisplaysChanged);
-  screen.on('display-removed', notifyDisplaysChanged);
-  screen.on('display-metrics-changed', notifyDisplaysChanged);
+  screen.on('display-added', onDisplayTopologyChanged);
+  screen.on('display-removed', onDisplayTopologyChanged);
+  screen.on('display-metrics-changed', onDisplayTopologyChanged);
   setTimeout(() => autoUpdater.checkForUpdatesAndNotify(), 3000);
 });
 
 // --- OUTPUT DISPLAYS: list available physical displays/projectors ---
+// EVERY attached screen is listed, external first. On Windows `internal` is
+// usually undefined, so external count is "not explicitly built-in". The
+// built-in panel stays in the list (last) as a failsafe: a single-laptop
+// rig must still be able to put an output somewhere instead of falling back
+// to a tiny preview window. The UI labels it, so an operator never mistakes
+// it for the projector.
 function getDisplayList() {
   const primaryId = screen.getPrimaryDisplay().id;
   return screen.getAllDisplays()
-    .filter((display) => display.internal !== true)
-    .map((display, index) => ({
-      id: display.id,
-      // Hardware port handle on Windows (\\.\DISPLAY1, \\.\DISPLAY2, ...):
-      // outputs bind to this, not to loose window coordinates.
-      label: display.label || `Display ${index + 1}`,
-      width: display.bounds.width,
-      height: display.bounds.height,
-      bounds: { x: display.bounds.x, y: display.bounds.y, width: display.bounds.width, height: display.bounds.height },
-      primary: display.id === primaryId,
-      internal: false,
-      scaleFactor: display.scaleFactor
-    }));
+    .slice()
+    .sort((a, b) => {
+      const ai = a.internal === true ? 1 : 0;
+      const bi = b.internal === true ? 1 : 0;
+      if (ai !== bi) return ai - bi;
+      const ap = a.id === primaryId ? 1 : 0;
+      const bp = b.id === primaryId ? 1 : 0;
+      if (ap !== bp) return ap - bp;
+      return (a.bounds.x - b.bounds.x) || (a.bounds.y - b.bounds.y);
+    })
+    .map((display, index) => {
+      const internal = display.internal === true;
+      return {
+        id: display.id,
+        // Hardware port handle on Windows (\\.\DISPLAY1, \\.\DISPLAY2, ...):
+        // outputs bind to this, not to loose window coordinates.
+        label: display.label || `${internal ? 'Built-in display' : 'Display'} ${index + 1}`,
+        width: display.bounds.width,
+        height: display.bounds.height,
+        bounds: { x: display.bounds.x, y: display.bounds.y, width: display.bounds.width, height: display.bounds.height },
+        primary: display.id === primaryId,
+        internal,
+        scaleFactor: display.scaleFactor
+      };
+    });
+}
+
+// A display that has just been unplugged must never leave a stale window
+// floating on the operator's desktop. Pick a replacement: another free
+// EXTERNAL screen first, then (when allowed) the primary screen. Returns null
+// when nothing is available, so the caller can close instead of stacking two
+// walls on one screen.
+function pickFreeDisplay(reserved, { allowPrimary = true } = {}) {
+  const primaryId = screen.getPrimaryDisplay().id;
+  const displays = screen.getAllDisplays().slice();
+  const free = displays.filter((d) => !reserved || !reserved.has(String(d.id)));
+  const external = free.find((d) => d.internal !== true && d.id !== primaryId)
+    || free.find((d) => d.internal !== true);
+  if (external) return external;
+  if (!allowPrimary) return null;
+  return free.find((d) => d.id === primaryId) || free[0] || null;
 }
 
 ipcMain.handle('list-displays', () => getDisplayList());
@@ -698,6 +753,134 @@ ipcMain.handle('list-displays', () => getDisplayList());
 function notifyDisplaysChanged() {
   if (operatorWindow && !operatorWindow.isDestroyed()) {
     operatorWindow.webContents.send('displays-changed', getDisplayList());
+  }
+}
+
+// --- DISPLAY TOPOLOGY: keep every wall fitted, whatever happens ---
+// Windows fires several events in a burst while a projector handshakes or a
+// DPI change lands. Debounce, then (a) refresh the console's display list and
+// (b) re-fit every running output to the screen it belongs to.
+let displayTopologyTimer = null;
+function onDisplayTopologyChanged() {
+  if (displayTopologyTimer) clearTimeout(displayTopologyTimer);
+  displayTopologyTimer = setTimeout(() => {
+    displayTopologyTimer = null;
+    notifyDisplaysChanged();
+    try { reconcileOutputDisplays(); } catch (e) {
+      electronLog.error('[output] display reconcile failed:', (e && e.message) || e);
+    }
+  }, 300);
+}
+
+// Snap ONE output window back onto its display's real bounds. Native outputs
+// take the whole screen; windowed outputs (pixel preset / LED region) keep
+// their exact size but re-center within that screen. Never resizes a preview
+// window the operator has placed on the desktop.
+function refitOutputWindow(id, entry) {
+  const win = entry && entry.win;
+  if (!win || win.isDestroyed()) return;
+  const def = entry.def || {};
+  const target = (def.displayId == null || def.displayId === '' || def.displayId === 'preview')
+    ? null
+    : screen.getAllDisplays().find((d) => String(d.id) === String(def.displayId));
+  const base = target ? target.bounds : screen.getPrimaryDisplay().bounds;
+
+  if (!entry.windowed) {
+    try { win.setBounds({ x: base.x, y: base.y, width: base.width, height: base.height }, false); } catch {}
+    try { win.setAlwaysOnTop(true, 'screen-saver'); } catch {}
+    try { win.moveTop(); } catch {}
+    return;
+  }
+
+  // No bound display: a dev preview is an ordinary window, leave it where the
+  // operator put it.
+  if (!target) return;
+
+  const preset = resolutionPreset(def.resolution);
+  const vp = def.viewport && def.viewport.enabled ? def.viewport : null;
+  let w; let h; let x; let y;
+  if (vp) {
+    w = Math.max(64, Math.round(Number(vp.w) || base.width));
+    h = Math.max(64, Math.round(Number(vp.h) || base.height));
+    x = base.x + Math.round(Number(vp.x) || 0);
+    y = base.y + Math.round(Number(vp.y) || 0);
+  } else if (preset) {
+    w = preset[0];
+    h = preset[1];
+    x = base.x + Math.round((base.width - w) / 2);
+    y = base.y + Math.round((base.height - h) / 2);
+  } else {
+    return;
+  }
+  try { win.setBounds({ x, y, width: w, height: h }, false); } catch {}
+  try { win.setAlwaysOnTop(true, 'screen-saver'); } catch {}
+
+  // The black underlay has to grow/shrink with the display too, otherwise a
+  // resolution change would expose the desktop around the picture.
+  const b = outputBackdrops.get(id);
+  if (b && !b.isDestroyed()) {
+    try { b.setBounds({ x: base.x, y: base.y, width: base.width, height: base.height }, false); } catch {}
+  }
+}
+
+// Reconcile every running output with the displays that exist RIGHT NOW.
+// - still attached: re-fit (resolution / DPI / rotation changed)
+// - unplugged: move to a free external screen automatically; if there is
+//   none, close the window and tell the console (no black slab left on the
+//   operator's desktop, no stale "live" state)
+function reconcileOutputDisplays() {
+  if (isQuitting) return;
+  const displays = screen.getAllDisplays();
+  const isAttached = (id) => displays.some((d) => String(d.id) === String(id));
+
+  for (const [id, entry] of [...outputWindows.entries()]) {
+    if (!entry || !entry.win || entry.win.isDestroyed()) continue;
+    const def = entry.def || {};
+    if (def.displayId == null || def.displayId === '' || def.displayId === 'preview') {
+      refitOutputWindow(id, entry);
+      continue;
+    }
+    if (isAttached(def.displayId)) {
+      refitOutputWindow(id, entry);
+      continue;
+    }
+
+    // The assigned screen is gone. Reserve what other outputs still own so
+    // two walls never land on the same screen.
+    const reserved = new Set();
+    for (const [otherId, other] of outputWindows) {
+      if (otherId === id) continue;
+      const od = other && other.def && other.def.displayId;
+      if (od != null && od !== '' && od !== 'preview') reserved.add(String(od));
+    }
+    const replacement = pickFreeDisplay(reserved, { allowPrimary: false });
+    if (replacement) {
+      const actual = replacement.id;
+      entry.def = { ...def, displayId: actual };
+      entry.displayId = actual;
+      entry.cfg = JSON.stringify(entry.def);
+      // Keep the cached sync definition + the console's layout in agreement,
+      // otherwise the next outputs-sync would try the dead id again.
+      const cached = lastSyncedOutputs.find((o) => o && o.id === id);
+      if (cached) cached.displayId = actual;
+      if (operatorWindow && !operatorWindow.isDestroyed()) {
+        try {
+          operatorWindow.webContents.send('output-display-reassigned', {
+            id,
+            displayId: actual,
+            label: replacement.label || `Display ${actual}`
+          });
+        } catch {}
+      }
+      electronLog.warn(`[output] ${id} re-bound to ${replacement.label || actual} (display ${def.displayId} removed)`);
+      refitOutputWindow(id, entry);
+    } else {
+      electronLog.warn(`[output] ${id} closed - display ${def.displayId} removed and no free screen is left`);
+      closeOutputWindow(id);
+      if (operatorWindow && !operatorWindow.isDestroyed()) {
+        try { operatorWindow.webContents.send('output-closed', id); } catch {}
+      }
+    }
   }
 }
 
@@ -726,19 +909,87 @@ function resolutionPreset(res) {
     '1280x768': [1280, 768],
     '1280x720': [1280, 720],
     '1024x768': [1024, 768],
-    '800x450': [800, 450]
+    '800x450': [800, 450],
+    '3840x1080': [3840, 1080],
+    '2560x1080': [2560, 1080],
+    '2560x720': [2560, 720],
+    '3440x1440': [3440, 1440]
   };
   return (res && map[res]) ? map[res] : null;
 }
 
-// "Fill" on the outputs panel means: cover the WHOLE physical screen, edge to
-// edge, no bars. A custom pixel window (LED processor / video-wall sub-region)
-// is a deliberately smaller rectangle, so the two commands contradict each
-// other — and a stale one (stored when the display reported different bounds,
-// e.g. 1792x828 on a bigger panel) silently leaves desktop showing around the
-// projection. Fill is the explicit, newer command: it wins, and the window is
-// built fullscreen on the bound display again.
-const isFillOutput = (output) => String((output && output.aspect) || '').toLowerCase() === 'fill';
+// A black full-screen underlay for an output whose window is smaller than its
+// display (pixel preset or custom LED-wall region). Without it, sizing the
+// output to the requested resolution would expose the Windows desktop around
+// the projection — the exact problem fullscreen-only outputs were avoiding.
+// With it, the output window really is 1280x720 / 1920x1080 / whatever was
+// picked (so window capture and capture cards see that resolution), while the
+// audience still sees an edge-to-edge black wall.
+function closeOutputBackdrop(id) {
+  const b = outputBackdrops.get(id);
+  outputBackdrops.delete(id);
+  if (b && !b.isDestroyed()) {
+    try { b.destroy(); } catch { /* already gone */ }
+  }
+}
+
+function createOutputBackdrop(id, target) {
+  closeOutputBackdrop(id);
+  if (!target) return null;
+  let b;
+  try {
+    b = new BrowserWindow({
+      x: target.bounds.x,
+      y: target.bounds.y,
+      width: target.bounds.width,
+      height: target.bounds.height,
+      frame: false,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      fullscreen: false,
+      skipTaskbar: true,
+      focusable: false,
+      show: false,
+      hasShadow: false,
+      alwaysOnTop: true,
+      backgroundColor: '#000000',
+      title: `KOG BACKDROP ${id}`,
+      webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false }
+    });
+    // Constructors are clamped to the work area (the taskbar strip is left
+    // out), so set the exact display rectangle afterwards. This keeps the
+    // underlay edge-to-edge, including behind the taskbar.
+    try {
+      b.setBounds({ x: target.bounds.x, y: target.bounds.y, width: target.bounds.width, height: target.bounds.height }, false);
+    } catch { /* noop */ }
+    b.setAlwaysOnTop(true, 'floating');
+    b.loadURL('data:text/html;charset=utf-8,<html><head><style>html,body{margin:0;height:100%;background:%23000;overflow:hidden}</style></head><body></body></html>');
+    b.once('ready-to-show', () => {
+      if (b.isDestroyed()) return;
+      try { b.showInactive(); } catch {}
+      try { b.setAlwaysOnTop(true, 'floating'); } catch {}
+    });
+    b.on('closed', () => {
+      if (outputBackdrops.get(id) === b) outputBackdrops.delete(id);
+    });
+    outputBackdrops.set(id, b);
+  } catch {
+    return null;
+  }
+  return b;
+}
+
+function setOutputBackdropOpacity(id, opacity) {
+  const b = outputBackdrops.get(id);
+  if (!b || b.isDestroyed()) return;
+  try { b.setOpacity(opacity); } catch { /* noop */ }
+  // Opaque underlay: swallow clicks so the operator cannot hit console
+  // controls hidden behind the black. Passthrough: let the slideshow beneath
+  // receive them.
+  try { b.setIgnoreMouseEvents(opacity < 0.5); } catch { /* noop */ }
+}
 
 function outputTitle(output) {
   // Stable, exact window title: gdigrab (`title=`) grabs the live window for
@@ -747,24 +998,53 @@ function outputTitle(output) {
 }
 
 function createOutputWindow(output) {
-  const displayId = output.displayId;
-  const target = displayId === 'preview' ? null : screen.getAllDisplays().find((d) => d.id === displayId);
+  const requestedId = output.displayId;
+  // Display ids round-trip through JSON/select values; compare as strings so a
+  // layout saved with "123" still finds the physical display 123.
+  const previewRequested = requestedId === 'preview' || requestedId == null || requestedId === '';
+  let target = previewRequested
+    ? null
+    : screen.getAllDisplays().find((d) => String(d.id) === String(requestedId));
+  // FAILSAFE: the assigned display is not attached (unplugged before start,
+  // layout restored on another machine, dock not ready yet). Snap to a real
+  // screen instead of leaving the window at a dead coordinate, and tell the
+  // console so its layout reflects reality.
+  if (!previewRequested && !target) {
+    const reserved = new Set(
+      [...outputWindows.entries()]
+        .filter(([id]) => id !== output.id)
+        .map(([, entry]) => entry && entry.def && entry.def.displayId)
+        .filter((d) => d != null && d !== '' && d !== 'preview')
+        .map(String)
+    );
+    target = pickFreeDisplay(reserved);
+    if (target) {
+      output = { ...output, displayId: target.id };
+      const cached = lastSyncedOutputs.find((o) => o && o.id === output.id);
+      if (cached) cached.displayId = target.id;
+      electronLog.warn(`[output] ${output.id} display ${requestedId} is unavailable - using ${target.label || target.id}`);
+      if (operatorWindow && !operatorWindow.isDestroyed()) {
+        try {
+          operatorWindow.webContents.send('output-display-reassigned', {
+            id: output.id,
+            displayId: target.id,
+            label: target.label || `Display ${target.id}`
+          });
+        } catch {}
+      }
+    }
+  }
   const startUrl = getAppStartUrl();
   const preset = resolutionPreset(output.resolution);
-  const vp = output.viewport && output.viewport.enabled && !isFillOutput(output) ? output.viewport : null;
-  // A display-bound output is ALWAYS a fullscreen window covering that
-  // display, no matter which resolution / aspect / custom pixel window is
-  // selected — those only shape what is composed INSIDE the black surface
-  // (the renderer draws the region and the letterbox bars). Shrinking the OS
-  // window to a preset or to a custom pixel region is exactly what left the
-  // Windows desktop visible around the projection whenever size or ratio
-  // changed. Windowed mode survives only for the dev preview (no bound
-  // display) and a display that has gone missing.
-  const isWindowed = !target && preset !== null;
-  // Is the WINDOW itself the composed surface (dev preview) rather than a
-  // fullscreen screen that composes a region inside it? Then the custom pixel
-  // window is already the window bounds and must not be applied twice.
-  const windowedSurface = isWindowed || (!!vp && !target);
+  const vp = output.viewport && output.viewport.enabled ? output.viewport : null;
+  // An explicit "Preview window (dev)" is always a real OS window, even on
+  // Native — the label would be a lie otherwise. A bound display is the only
+  // case where Native means a fullscreen surface.
+  const previewOnly = output.displayId === 'preview';
+  // The WINDOW itself carries the requested pixel size whenever the operator
+  // picked a preset, a custom LED-wall region, or the dev preview. 'Native' on
+  // a bound display stays edge-to-edge.
+  const windowedSurface = !!(vp || preset || previewOnly);
   // Focus rule: an output covering the operator's own screen must hold the
   // keyboard (Esc exit). An output on its own display must NEVER take focus
   // or the mouse cursor away from the console mid-service — focusable:false
@@ -772,20 +1052,25 @@ function createOutputWindow(output) {
   const onPrimary = !target || target.id === screen.getPrimaryDisplay().id;
   const base = target ? target.bounds : screen.getPrimaryDisplay().bounds;
 
+  // A sized window gets a black underlay so the desktop never shows around it.
+  // Created BEFORE the output window so the output is above it in z-order.
+  if (target && windowedSurface) createOutputBackdrop(output.id, target);
+  else closeOutputBackdrop(output.id);
+
   let win;
-  if (vp && !target) {
-    // DEV PREVIEW ONLY (no display bound): a real OS window at the custom
-    // pixel bounds. A bound display keeps its fullscreen window instead —
-    // see isWindowed above.
+  if (vp) {
     const vx = Math.round(Number(vp.x) || 0);
     const vy = Math.round(Number(vp.y) || 0);
     const vw = Math.max(64, Math.round(Number(vp.w) || base.width));
     const vh = Math.max(64, Math.round(Number(vp.h) || base.height));
+    // Bound display: X/Y are relative to the display's origin, exactly like
+    // an LED processor's pixel region. Dev preview: centered on the screen;
+    // X/Y nudge it from that center (0,0 = centered).
+    const wx = target ? base.x + vx : base.x + Math.round((base.width - vw) / 2) + vx;
+    const wy = target ? base.y + vy : base.y + Math.round((base.height - vh) / 2) + vy;
     win = new BrowserWindow({
-      // Centered on the screen; X/Y nudge it from that center (0,0 = centered),
-      // exactly like the region ProjectorDisplay composes for a bound output.
-      x: base.x + Math.round((base.width - vw) / 2) + vx,
-      y: base.y + Math.round((base.height - vh) / 2) + vy,
+      x: wx,
+      y: wy,
       width: vw,
       height: vh,
       frame: false,
@@ -802,15 +1087,69 @@ function createOutputWindow(output) {
       focusable: onPrimary,
       webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
     });
-  } else if (!isWindowed) {
-    const primary = target || screen.getPrimaryDisplay();
+    // The constructor clamps to the work area; a pixel region may deliberately
+    // sit outside it (LED wall spanning displays) and must keep its exact size.
+    try { win.setBounds({ x: wx, y: wy, width: vw, height: vh }, false); } catch {}
+  } else if (preset || previewOnly) {
+    // Exact pixel resolution for a preset; a no-preset dev preview fills the
+    // work area (a real window, not a fullscreen surface). A dev preview is
+    // capped to the screen it opens on (a 4K preset on a laptop must stay
+    // reachable), but a display-bound output gets the true requested size even
+    // when that display is smaller — a capture card / LED processor is the
+    // target there, not the desktop.
+    const room = target ? null : screen.getPrimaryDisplay().workArea;
+    const wantW = preset ? preset[0] : (room ? room.width : base.width);
+    const wantH = preset ? preset[1] : (room ? room.height : base.height);
+    const w = room ? Math.max(320, Math.min(wantW, room.width)) : wantW;
+    const h = room ? Math.max(180, Math.min(wantH, room.height)) : wantH;
+    const wx = target ? base.x + Math.round((base.width - w) / 2) : (room ? room.x + Math.round((room.width - w) / 2) : base.x);
+    const wy = target ? base.y + Math.round((base.height - h) / 2) : (room ? room.y + Math.round((room.height - h) / 2) : base.y);
     win = new BrowserWindow({
-      x: primary.bounds.x,
-      y: primary.bounds.y,
-      width: primary.bounds.width,
-      height: primary.bounds.height,
-      fullscreen: true,
+      width: w,
+      height: h,
+      x: wx,
+      y: wy,
       frame: false,
+      resizable: false,
+      movable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      minimizable: false,
+      autoHideMenuBar: true,
+      fullscreen: false,
+      backgroundColor: '#000000',
+      title: outputTitle(output),
+      focusable: onPrimary,
+      webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
+    });
+    // The constructor clamps to the work area (and a 4K preset is larger than
+    // a 1080p panel); set the exact requested resolution afterwards so the
+    // actual output window — and any window capture — is what was selected.
+    try { win.setBounds({ x: wx, y: wy, width: w, height: h }, false); } catch {}
+  } else {
+    // Native / Fill on a bound display: an edge-to-edge surface covering the
+    // display's ENTIRE bounds. This is a frameless, always-on-top window
+    // rather than OS fullscreen: it lands on exactly the display we measured
+    // (no fullscreen-on-the-wrong-monitor bugs, no taskbar strip), and it can
+    // be re-fitted instantly when Windows changes resolution / DPI / rotation
+    // or a monitor is hot-plugged — without a fullscreen transition flicker.
+    // Without a bound display (a desktop preview) it opens inside the work
+    // area as a normal, reachable window.
+    const primary = target || screen.getPrimaryDisplay();
+    const room = target ? null : screen.getPrimaryDisplay().workArea;
+    const wantW = room ? room.width : primary.bounds.width;
+    const wantH = room ? room.height : primary.bounds.height;
+    const wx = target ? primary.bounds.x : room.x;
+    const wy = target ? primary.bounds.y : room.y;
+    win = new BrowserWindow({
+      x: wx,
+      y: wy,
+      width: wantW,
+      height: wantH,
+      fullscreen: false,
+      fullscreenable: false,
+      frame: false,
+      resizable: false,
       skipTaskbar: true,
       alwaysOnTop: true,
       minimizable: false,
@@ -823,38 +1162,24 @@ function createOutputWindow(output) {
       focusable: onPrimary,
       webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
     });
-  } else {
-    // Desktop preview window (no display bound, e.g. the TV is unplugged).
-    // Never bigger than the screen it opens on — a 1920x1080 preset on a
-    // 1366x768 laptop used to spill off the edges and show a cropped output.
-    const room = target ? target.workArea : screen.getPrimaryDisplay().workArea;
-    const w = Math.max(320, Math.min(preset[0], room ? room.width : preset[0]));
-    const h = Math.max(180, Math.min(preset[1], room ? room.height : preset[1]));
-    win = new BrowserWindow({
-      width: w,
-      height: h,
-      x: target ? (target.bounds.x + 60) : (room ? room.x + Math.round((room.width - w) / 2) : 60),
-      y: target ? (target.bounds.y + 60) : (room ? room.y + Math.round((room.height - h) / 2) : 60),
-      title: outputTitle(output),
-      autoHideMenuBar: true,
-      alwaysOnTop: true,
-      minimizable: false,
-      fullscreen: false,
-      // Black native surface: on restore/minimize the compositor can show a
-      // frame before the renderer paints — default white would flash.
-      backgroundColor: '#000000',
-      webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
-    });
+    // Constructor clamps to the work area; force the exact rectangle (the
+    // taskbar area is part of a projector / LED wall too).
+    try { win.setBounds({ x: wx, y: wy, width: wantW, height: wantH }, false); } catch {}
   }
+
+  // Sized outputs are created on top of their black underlay; the higher
+  // level also keeps a smaller picture above the taskbar/desktop.
+  try { win.setAlwaysOnTop(true, 'screen-saver'); } catch {}
+  try { win.moveTop(); } catch {}
 
   outputWindows.set(output.id, {
     win,
     role: output.role || 'lyrics',
-    displayId: displayId ?? null,
+    displayId: target ? target.id : (output.displayId ?? null),
     name: output.name || 'Output',
-    resolution: isWindowed ? (output.resolution || 'native') : 'native',
-    // How the window was built: only a WINDOWED output may be rebuilt by a
-    // resolution / viewport change — a fullscreen one keeps its bounds and
+    resolution: windowedSurface ? (output.resolution || 'native') : 'native',
+    // How the window was built: a WINDOWED output is rebuilt when its
+    // resolution / viewport changes; a fullscreen one keeps its bounds and
     // just re-composes the view (live cfg push below).
     windowed: windowedSurface,
     title: outputTitle(output),
@@ -905,15 +1230,15 @@ function createOutputWindow(output) {
     // not count toward a future crash loop.
     outputCrashCount.delete(output.id);
     win.setTitle(outputTitle(liveDef));
-    win.webContents.send('update-output-aspect', liveDef.aspect || '16:9');
+    win.webContents.send('update-output-aspect', /^\d+(?:\.\d+)?\s*:\s*\d+(?:\.\d+)?$/.test(String(liveDef.aspect || '')) ? liveDef.aspect : '16:9');
     // Rotation / custom viewport / edge-blend settings for THIS window.
     // A windowed surface IS the composed area: send it without the viewport
     // so the region is not applied a second time inside the small window.
     win.webContents.send('output-config', liveWindowed ? { ...liveDef, viewport: null } : liveDef);
-    // A frameless fullscreen window sitting over the console has to hold
-    // the keyboard, otherwise Esc arrives at the operator window underneath
-    // and the exit below never fires.
-    if (onPrimary && !isWindowed) win.focus();
+    // A frameless output sitting over the console (fullscreen OR a sized
+    // window with its black underlay) has to hold the keyboard, otherwise Esc
+    // arrives at the operator window underneath and the exit below never fires.
+    if (onPrimary) win.focus();
   });
   if (onPrimary) {
     win.webContents.on('before-input-event', (event, input) => {
@@ -978,6 +1303,7 @@ function closeOutputWindow(id) {
   const entry = outputWindows.get(id);
   if (entry) entry.expectClose = true;
   if (entry?.win && !entry.win.isDestroyed()) entry.win.close();
+  closeOutputBackdrop(id);
   outputWindows.delete(id);
   // The owner may have been this window: hand the sound to the next wall in
   // line by re-stamping the live countdown payloads. Plain slides are left
@@ -995,6 +1321,7 @@ function recoverOutputWindow(id, def, reason) {
   // Quit in progress (or already done): teardown must be total — no windows,
   // no caches, no resurrected projections. Just drop the entry and go away.
   if (isQuitting) {
+    closeOutputBackdrop(id);
     outputWindows.delete(id);
     return;
   }
@@ -1007,6 +1334,9 @@ function recoverOutputWindow(id, def, reason) {
   if (n > 3) {
     electronLog.error(`[output] KOG OUT ${id} crashed ${n}x in 30s — NOT rebuilding (needs operator eyes)`);
     outputCrashCount.delete(id);
+    // No output will come back, so do not leave the black underlay covering
+    // the desktop/LED processor.
+    closeOutputBackdrop(id);
     if (operatorWindow && !operatorWindow.isDestroyed()) {
       try { operatorWindow.webContents.send('output-failed', { id, reason }); } catch {}
     }
@@ -1017,6 +1347,8 @@ function recoverOutputWindow(id, def, reason) {
     createOutputWindow({ ...def, enabled: true });
   } catch (err) {
     electronLog.error(`[output] rebuild of KOG OUT ${id} failed:`, err && err.message);
+    // Nothing will paint, so do not leave a black underlay covering the wall.
+    closeOutputBackdrop(id);
     return;
   }
   if (operatorWindow && !operatorWindow.isDestroyed()) {
@@ -1026,6 +1358,8 @@ function recoverOutputWindow(id, def, reason) {
 
 function closeAllOutputs() {
   for (const id of [...outputWindows.keys()]) closeOutputWindow(id);
+  // Safety: a crash path may have left an underlay with no registered window.
+  for (const id of [...outputBackdrops.keys()]) closeOutputBackdrop(id);
 }
 
 // --- PROJECTION LAYERS (Plan 1: no ALT+TAB) ---
@@ -1082,12 +1416,16 @@ function setOutputLayer(id, layer, silent, instant) {
   // focusing, so typing in the console is never interrupted by a layer flip).
   let onPrimary = true;
   try {
-    const target = (screen.getAllDisplays() || []).find((d) => d.id === entry.displayId);
+    const target = (screen.getAllDisplays() || []).find((d) => String(d.id) === String(entry.displayId));
     onPrimary = !target || target.id === screen.getPrimaryDisplay().id;
   } catch {}
   try {
     if (!win || win.isDestroyed()) return { ok: false, error: 'Output window is gone.' };
     if (next === 'passthrough') {
+      // The output window fades to transparent; the black underlay must go
+      // too, otherwise it hides the PowerPoint slideshow the layer exists to
+      // reveal.
+      setOutputBackdropOpacity(id, 0);
       const release = () => {
         const cur = outputWindows.get(id);
         if (!cur || cur.win !== win || win.isDestroyed()) return;
@@ -1110,6 +1448,7 @@ function setOutputLayer(id, layer, silent, instant) {
     } else {
       // Mute first (idempotent if already opaque), order above the slideshow
       // without stealing focus, clicks back on, then fade in.
+      setOutputBackdropOpacity(id, 1);
       try { win.setBackgroundColor('#000000'); } catch {}
       if (!instant) { try { win.setOpacity(0); } catch {} }
       try { win.moveTop(); } catch {}
@@ -1153,7 +1492,7 @@ function sermonTargetBounds() {
   const displays = screen.getAllDisplays();
   for (const entry of outputWindows.values()) {
     if (entry.role !== 'lyrics' || !entry.win || entry.win.isDestroyed()) continue;
-    const d = displays.find((x) => x.id === entry.displayId);
+    const d = displays.find((x) => String(x.id) === String(entry.displayId));
     const b = d ? d.bounds : screen.getPrimaryDisplay().bounds;
     return { x: b.x, y: b.y, w: b.width, h: b.height, label: d ? (d.label || `${b.width}×${b.height}`) : 'Primary' };
   }
@@ -1276,11 +1615,35 @@ ipcMain.handle('ppt-shot', async (event, index) => {
 
 function syncOutputs(outputs) {
   lastSyncedOutputs = Array.isArray(outputs) ? outputs : [];
+  // Display ids survive JSON as numbers or strings depending on the build that
+  // saved them; compare normalized so a string id cannot cause a rebuild on
+  // every sync (an endless window flicker).
+  const sameDisplayId = (a, b) => {
+    const an = a === undefined || a === null || a === '' ? '' : String(a);
+    const bn = b === undefined || b === null || b === '' ? '' : String(b);
+    return an === bn;
+  };
   // Only outputs the operator has explicitly started are opened. Assignments
   // are restored on launch, but `enabled` is never persisted, so nothing is
   // projected until the operator starts an output.
+  // One physical display can only show one output. The UI enforces this when
+  // assigning, but a saved layout from an older build (or a race between two
+  // starts) can still carry duplicates — both windows then sit fullscreen on
+  // top of each other, and editing the covered one looks like a dead control.
+  // Keep the first assignment in array order and close the stale one.
+  const seenDisplays = new Set();
   const desired = (Array.isArray(outputs) ? outputs : [])
-    .filter((o) => o && o.id && o.enabled === true && o.displayId !== null && o.displayId !== undefined && o.displayId !== '');
+    .filter((o) => o && o.id && o.enabled === true && o.displayId !== null && o.displayId !== undefined && o.displayId !== '')
+    .filter((o) => {
+      if (o.displayId === 'preview') return true;
+      const key = String(o.displayId);
+      if (seenDisplays.has(key)) {
+        electronLog.warn(`[output] ${o.id} shares display ${key} with an earlier output — not opening it`);
+        return false;
+      }
+      seenDisplays.add(key);
+      return true;
+    });
 
   const desiredIds = new Set(desired.map((o) => o.id));
   for (const id of [...outputWindows.keys()]) {
@@ -1290,20 +1653,16 @@ function syncOutputs(outputs) {
   for (const output of desired) {
     const existing = outputWindows.get(output.id);
     const vpJson = JSON.stringify(output.viewport || null);
-    // Would this output be WINDOWED right now? Only the dev preview (no
-    // display bound) windows itself; a display-bound output is always
-    // fullscreen, so a resolution change there must NOT rebuild the window.
-    const vpOn = !!(output.viewport && output.viewport.enabled && !isFillOutput(output));
-    const bound = output.displayId != null && output.displayId !== '' && output.displayId !== 'preview'
-      && screen.getAllDisplays().some((d) => d.id === output.displayId);
-    // Bound display → fullscreen, always (resolution/aspect/viewport compose
-    // inside it; see createOutputWindow). Only the dev preview is an OS window.
-    const willWindowed = !bound && (vpOn || resolutionPreset(output.resolution) !== null);
+    // A pixel preset or a custom LED-wall region is the ACTUAL window bounds,
+    // on a bound display too. That is what makes the resolution dropdown and
+    // window capture agree; a black backdrop covers the rest of the display.
+    const vpOn = !!(output.viewport && output.viewport.enabled);
+    const willWindowed = vpOn || resolutionPreset(output.resolution) !== null || output.displayId === 'preview';
     if (!existing) {
       createOutputWindow(output);
     } else if (
-      existing.displayId !== output.displayId ||
-      existing.role !== output.role ||
+      !sameDisplayId(existing.displayId, output.displayId) ||
+      existing.role !== (output.role || 'lyrics') ||
       (willWindowed && vpJson !== existing.viewport) ||
       existing.windowed !== willWindowed ||
       (willWindowed && existing.resolution !== (output.resolution || 'native'))
@@ -1356,7 +1715,7 @@ ipcMain.on('outputs-save', (event, outputs) => {
       role: o.role,
       displayId: o.displayId,
       resolution: o.resolution || 'native',
-      aspect: o.aspect || '16:9',
+      aspect: o.aspect || 'auto',
       // Screen hardware: custom pixel viewport, rotation, edge blending.
       viewport: o.viewport || undefined,
       rotation: o.rotation || undefined,
@@ -1536,7 +1895,11 @@ ipcMain.on('output-content', (event, payload) => {
 
 // Legacy single-window toggles kept for compatibility.
 function externalDisplayId() {
-  const d = screen.getAllDisplays().find((display) => display.bounds.x !== 0 || display.bounds.y !== 0);
+  const primary = screen.getPrimaryDisplay();
+  const displays = screen.getAllDisplays();
+  const d = displays.find((display) => display.id !== primary.id && display.internal !== true)
+    || displays.find((display) => display.id !== primary.id)
+    || displays.find((display) => display.bounds.x !== 0 || display.bounds.y !== 0);
   return d ? d.id : 'preview';
 }
 
@@ -1545,7 +1908,7 @@ let lastSyncedOutputs = [];
 function openDefaultOutput(id, name, role) {
   closeOutputWindow(id);
   const existing = lastSyncedOutputs.find(o => o.id === id);
-  createOutputWindow({ id, name, role, displayId: externalDisplayId(), resolution: existing?.resolution });
+  createOutputWindow({ id, name, role, displayId: externalDisplayId(), resolution: existing?.resolution || 'native', aspect: existing?.aspect || 'auto' });
 }
 
 ipcMain.on('toggle-dev-projector', () => {
@@ -1565,8 +1928,10 @@ ipcMain.on('close-all-outputs', () => closeAllOutputs());
 ipcMain.handle('get-output-status', () => {
   const displays = screen.getAllDisplays();
   return [...outputWindows.entries()].map(([id, entry]) => {
-    const disp = entry.displayId === 'preview' ? null : displays.find((d) => d.id === entry.displayId) || null;
+    const disp = entry.displayId === 'preview' ? null : displays.find((d) => String(d.id) === String(entry.displayId)) || null;
     const live = entry.win && !entry.win.isDestroyed();
+    let content = null;
+    if (live) { try { content = entry.win.getContentBounds(); } catch { content = null; } }
     return {
       id,
       name: entry.name,
@@ -1575,8 +1940,14 @@ ipcMain.handle('get-output-status', () => {
       layer: entry.layer || 'kog',
       displayId: disp ? entry.displayId : null,
       displayLabel: disp ? (disp.label || `${disp.bounds.width}×${disp.bounds.height}`) : null,
-      width: disp ? disp.bounds.width : null,
-      height: disp ? disp.bounds.height : null,
+      // The ACTUAL composited window size, not the display's hardware size:
+      // after picking 1280x720 (or a custom pixel region) the console must
+      // report 1280x720 even though it sits on a 1920x1080 screen.
+      width: content ? content.width : (disp ? disp.bounds.width : null),
+      height: content ? content.height : (disp ? disp.bounds.height : null),
+      displayWidth: disp ? disp.bounds.width : null,
+      displayHeight: disp ? disp.bounds.height : null,
+      resolution: entry.resolution || 'native',
       // Capture identity for the DeckLink SDI bridge: exact window title
       // (gdigrab `title=`) and current bounds (desktop-region fallback).
       title: entry.title || null,
@@ -1592,8 +1963,9 @@ ipcMain.handle('output-config-request', (event, id) => {
   const synced = lastSyncedOutputs.find((o) => o && o.id === id);
   const entry = outputWindows.get(id);
   const cfg = synced || (entry ? { id, name: entry.name, role: entry.role } : null);
-  // A windowed (dev preview) output already IS the composed surface, so its
-  // custom pixel region is not re-applied inside the window.
+  // A windowed output — dev preview, pixel preset, or LED-region window — IS
+  // the composed surface, so its custom pixel region is not re-applied inside
+  // the window.
   if (cfg && entry && entry.windowed) return { ...cfg, viewport: null };
   return cfg;
 });

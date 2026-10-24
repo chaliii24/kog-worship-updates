@@ -1,51 +1,109 @@
 // Song Arrangements — per-service custom play order for ONE song.
 //
 // A song's library order is fixed, but Sunday's flow rarely is (V1 C V2 C B
-// C C). An arrangement is just an ordered list of cue ids, stored on the
+// C C). An arrangement is an ordered list of SECTION RUNS stored on the
 // SERVICE ROW (item.meta.arrangement) so the library song is never touched
 // and two rows can play the same song differently. Repeats are the point —
-// the same cue id may appear several times. Pure functions only.
+// the same run may appear several times. Pure functions only.
 
-import { basePartLabel } from './medley';
+import { basePartLabel } from './medley.js';
 
 // Library order: every cue once, top to bottom.
 export function defaultArrangement(song) {
   return (song?.cues || []).map((c) => c.id).filter((id) => id != null);
 }
 
-// Reconcile a saved order with the song as it exists NOW: keep stored ids
-// that still exist (in stored order), drop deleted slides, and append brand
-// new slides at the end (so a verse added in the editor still plays instead
-// of vanishing from the flow without a word).
-export function normalizeArrangement(order, song) {
-  const cues = song?.cues || [];
-  const have = new Set(cues.map((c) => c.id));
-  const kept = (Array.isArray(order) ? order : []).filter((id) => have.has(id));
-  const seen = new Set(kept);
-  for (const c of cues) {
-    if (!seen.has(c.id)) {
-      kept.push(c.id);
-      seen.add(c.id);
-    }
+const normPart = (part) => String(part || '').trim().toLowerCase();
+
+// A song can contain the SAME section more than once (Chorus before and
+// after Verse 2, a repeated Bridge, …). Matching blocks by section name alone
+// made each "Chorus" block expand to EVERY chorus slide, which duplicated
+// slides and moved them out of song order. A "run" is one contiguous
+// occurrence of a section — the unit an arrangement actually reorders.
+//
+// Each run carries a stable occurrence number per part ("Chorus #2") so a
+// saved flow can point at that exact occurrence without storing fragile cue
+// ids (saveSong re-inserts cues and gives them new ids).
+export function songSectionRuns(song) {
+  const runs = [];
+  for (const cue of song?.cues || []) {
+    const part = basePartLabel(cue?.label) || 'Slide';
+    const last = runs[runs.length - 1];
+    if (last && normPart(last.part) === normPart(part)) last.cues.push(cue);
+    else runs.push({ part, cues: [cue] });
   }
-  return kept;
+  const totals = new Map();
+  for (const run of runs) {
+    const k = normPart(run.part);
+    totals.set(k, (totals.get(k) || 0) + 1);
+  }
+  const seen = new Map();
+  for (const run of runs) {
+    const k = normPart(run.part);
+    const n = (seen.get(k) || 0) + 1;
+    seen.set(k, n);
+    run.occurrence = n;
+    run.total = totals.get(k);
+    run.key = `run:${k}:${n}`;
+    run.cueIds = run.cues.map((c) => c.id).filter((id) => id != null);
+  }
+  return runs;
+}
+
+// Reconcile a saved per-slide order with the song as it exists NOW: keep
+// stored ids that still exist, in stored order. Omitted and deleted slides
+// stay omitted — an arrangement is exact, not a suggestion.
+export function normalizeArrangement(order, song) {
+  const have = new Set((song?.cues || []).map((c) => c.id).filter((id) => id != null));
+  return (Array.isArray(order) ? order : []).filter((id) => have.has(id));
 }
 
 // Resolve ANY saved arrangement shape to a cue-id play order:
-//   * { flow: [{part}] } (v2, section blocks) → each section's cues in song
-//     order, concatenated — repeats are just repeated entries;
-//   * { order: [ids] } (v1, per-slide rows) → normalized legacy;
+//   * { flow: [{part, occurrence}] } (v3, exact section occurrences);
+//   * { flow: [{part}] } (v2, section blocks) → entries are matched to the
+//     next occurrence of that part, so V1 · C · V2 · C resolves to the four
+//     real runs instead of both choruses twice;
+//   * { order: [ids] } (v1, per-slide rows) → exact legacy order;
 //   * raw [ids] array → legacy (defensive).
-// Empty/missing falls back to library order. New slides always append.
+// Empty/missing falls back to library order. Nothing omitted is re-appended:
+// what the arrangement previews is exactly what plays.
 export function resolveArrangementFlow(song, arr) {
   const cues = song?.cues || [];
   const ids = cues.map((c) => c.id).filter((id) => id != null);
   if (arr && Array.isArray(arr.flow)) {
+    const runs = songSectionRuns(song);
     const out = [];
+    const counters = new Map();
     for (const e of arr.flow) {
-      const base = String(e?.part || '').toLowerCase();
-      for (const c of cues) {
-        if (basePartLabel(c.label).toLowerCase() === base) out.push(c.id);
+      const k = normPart(e?.part);
+      const list = runs.filter((r) => normPart(r.part) === k);
+      if (!list.length) continue;
+      let idx;
+      if (Number.isInteger(e?.occurrence) && e.occurrence > 0) {
+        idx = e.occurrence - 1;
+      } else {
+        idx = counters.get(k) || 0;
+        counters.set(k, idx + 1);
+      }
+      // If the song lost occurrences since saving, repeat the last remaining
+      // one instead of dropping the block. If a part is new, it passes.
+      const run = list[Math.min(idx, list.length - 1)];
+      out.push(...run.cueIds);
+    }
+    // A section added to the song AFTER this arrangement was saved should
+    // still play. Runs the arranger deliberately omitted are already covered
+    // by `known` and stay omitted.
+    if (Array.isArray(arr.known) && arr.known.length) {
+      const knownMax = new Map();
+      for (const k of arr.known) {
+        const p = normPart(k?.part);
+        if (!p) continue;
+        knownMax.set(p, Math.max(knownMax.get(p) || 0, Number(k?.occurrence) || 0));
+      }
+      const used = new Set(out);
+      for (const run of runs) {
+        if (run.cueIds.some((id) => used.has(id))) continue;
+        if (run.occurrence > (knownMax.get(normPart(run.part)) || 0)) out.push(...run.cueIds);
       }
     }
     return out.length ? out : ids;
@@ -55,20 +113,23 @@ export function resolveArrangementFlow(song, arr) {
   return ids;
 }
 
-// Convert a legacy cue-id order into section flow entries (for the v2
-// editor): consecutive slides of one section become ONE block. A lone slide
-// widens to its whole section on save — the editor preview shows the honest
-// result before anything is stored.
+// Convert a legacy cue-id order into exact section-run entries: consecutive
+// slides of one run become ONE block, while a genuine repeat (Verse 1 after
+// the chorus) stays a separate block pointing at its own occurrence.
 export function orderToFlow(order, song) {
-  const byId = new Map((song?.cues || []).map((c) => [c.id, c]));
+  const runs = songSectionRuns(song);
+  const byCueId = new Map();
+  for (const run of runs) {
+    for (const cue of run.cues) if (cue.id != null) byCueId.set(cue.id, run);
+  }
   const flow = [];
+  let lastKey = null;
   for (const id of Array.isArray(order) ? order : []) {
-    const cue = byId.get(id);
-    if (!cue) continue;
-    const part = basePartLabel(cue.label);
-    const last = flow[flow.length - 1];
-    if (last && last.part.toLowerCase() === part.toLowerCase()) continue;
-    flow.push({ part });
+    const run = byCueId.get(id);
+    if (!run) continue;
+    if (run.key === lastKey) continue; // still inside the same section run
+    flow.push({ part: run.part, occurrence: run.occurrence });
+    lastKey = run.key;
   }
   return flow;
 }
@@ -140,7 +201,8 @@ export function abbrevSection(label) {
 // Row subtitle: "V1 · C · V2 · C · B · C +2" — capped so a 40-slide flow
 // doesn't blow out the service row.
 export function summarizeArrangement(order, song, max = 7) {
-  const cues = arrangementCues(order, song);
+  const byId = new Map((song?.cues || []).map((c) => [c.id, c]));
+  const cues = normalizeArrangement(order, song).map((id) => byId.get(id)).filter(Boolean);
   if (!cues.length) return '';
   const bits = cues.map((c) => abbrevSection(c.label));
   if (bits.length <= max) return bits.join(' · ');

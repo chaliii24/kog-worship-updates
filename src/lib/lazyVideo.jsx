@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { acquireSlot, MAX_VIDEO_SLOTS } from './videoSlots';
+
+export { MAX_VIDEO_SLOTS };
 
 // ---------------------------------------------------------------------------
 // ONE BUDGET FOR EVERY THUMBNAIL VIDEO
@@ -15,67 +18,84 @@ import { useEffect, useRef, useState } from 'react';
 //   2. at most MAX_VIDEO_SLOTS video elements may exist at the same time.
 // Anything over the budget renders its placeholder instead and swaps in when
 // a slot frees up. No panel can ever stampede the media pipeline again.
+//
+// The accounting itself lives in lib/videoSlots.js so it can never be skewed
+// by React internals — see the note there about StrictMode's double-invoked
+// effects, which used to burn one slot per mount and starve every thumbnail.
 // ---------------------------------------------------------------------------
-
-export const MAX_VIDEO_SLOTS = 16;
-
-let activeSlots = 0;
-const waiters = [];
-
-function releaseSlot() {
-  const next = waiters.shift();
-  if (!next) {
-    activeSlots = Math.max(0, activeSlots - 1);
-    return;
-  }
-  if (next.cancelled) { releaseSlot(); return; }
-  // Transfer the slot: the count stays where it is.
-  next.grant();
-}
 
 // Hook: reserve one of the global video slots. `priority` jumps the queue —
 // the live slide of the grid asks first, so the tile that is actually moving
 // never waits behind a row of static thumbnails.
 export function useVideoSlot(enabled, priority = false) {
   const [granted, setGranted] = useState(false);
+  // Our pool handle (held slot or queued entry) while we still want one. Its
+  // release is idempotent, so every exit path can call it blindly.
+  const slotRef = useRef(null);
+  // Cancels a release that cleanup scheduled when the effect re-enters in the
+  // same tick (StrictMode's mount → cleanup → mount): the slot we already own
+  // simply stays ours instead of being handed away and re-fought for.
+  const cancelReleaseRef = useRef(null);
+  const priorityRef = useRef(priority);
+  priorityRef.current = priority;
+
+  // A tile that goes live while STILL waiting moves to the front of the queue.
+  // Only the queue position moves — a slot already owned is never re-taken.
+  useEffect(() => {
+    if (slotRef.current) slotRef.current.requeue(priority);
+  }, [priority]);
 
   useEffect(() => {
     if (!enabled) return undefined;
-    let cancelled = false;
-    const entry = { cancelled: false, grant: null };
+    // A release scheduled by the previous run (StrictMode's mount → cleanup →
+    // mount, or `enabled` flicking off and straight back on) is cancelled: the
+    // slot we already own simply stays ours instead of being handed away and
+    // re-fought for.
+    const cancel = cancelReleaseRef.current;
+    if (cancel) { cancel(); cancelReleaseRef.current = null; }
 
-    const take = () => {
-      if (cancelled) { releaseSlot(); return; }
-      setGranted(true);
-    };
-
-    if (activeSlots < MAX_VIDEO_SLOTS) {
-      activeSlots += 1;
-      take();
-    } else {
-      entry.grant = take;
-      if (priority) waiters.unshift(entry);
-      else waiters.push(entry);
-    }
+    // Keep a slot this hook already owns rather than taking a second one —
+    // but ALWAYS return the cleanup below, even on that path. React only ever
+    // runs the cleanup the LAST effect run returned: returning early here
+    // left a held slot with nothing to release it on unmount, so every mount
+    // that went through this branch leaked one slot. After enough song
+    // switches the 16-slot budget was gone and every card past the cap
+    // rendered a black placeholder for the rest of the session.
+    const slot = slotRef.current || acquireSlot(() => setGranted(true), priorityRef.current);
+    slotRef.current = slot;
+    // Re-assert the grant on the kept-slot path (StrictMode remount, or
+    // `enabled` flicking back on) where `granted` may have been reset by the
+    // effect below. ONLY when the slot is actually HELD — a queued entry must
+    // never render its element, or the budget would gate nothing at all.
+    if (slot.isHeld()) setGranted(true);
 
     return () => {
-      cancelled = true;
-      entry.cancelled = true;
-      const i = waiters.indexOf(entry);
-      if (i >= 0) waiters.splice(i, 1);
+      // Still queued: the entry owns no slot, so just drop it.
+      if (!slot.isHeld()) {
+        slot.release();
+        if (slotRef.current === slot) slotRef.current = null;
+        return;
+      }
+      // Held: defer the release one tick so an immediate re-entry (StrictMode
+      // remount, or enabled flipping straight back on) can cancel it. React
+      // runs that re-entry synchronously, so the microtask can never beat it.
+      let alive = true;
+      const cancel = () => { alive = false; };
+      cancelReleaseRef.current = cancel;
+      Promise.resolve().then(() => {
+        if (cancelReleaseRef.current === cancel) cancelReleaseRef.current = null;
+        if (!alive) return;
+        if (slotRef.current === slot) slotRef.current = null;
+        slot.release();
+      });
     };
-  }, [enabled, priority]);
+  }, [enabled]);
 
   // Leaving the viewport (or the panel unmounting under us) must give the
   // slot back and tear the video down again.
   useEffect(() => {
     if (!enabled && granted) setGranted(false);
   }, [enabled, granted]);
-
-  useEffect(() => {
-    if (!granted) return undefined;
-    return () => releaseSlot();
-  }, [granted]);
 
   return enabled && granted;
 }
@@ -107,6 +127,10 @@ export function useInView(ref, rootMargin = '250px') {
 // after the real element appears. `fallback` is rendered while the card is off
 // screen, over budget, or when the file cannot be opened — a broken reference
 // can never leave a black decoder spinning.
+//
+// `enabled` lets a caller that can draw the frame another way (TileVideo
+// captures its frozen still into an <img>) hand its slot back instead of
+// keeping a paused decoder checked out.
 // ---------------------------------------------------------------------------
 export function LazyVideo({
   src,
@@ -117,16 +141,21 @@ export function LazyVideo({
   priority = false,
   videoRef,
   onError,
+  enabled: wantsElement = true,
   ...rest
 }) {
   const holderRef = useRef(null);
   const inView = useInView(holderRef, rootMargin);
-  const granted = useVideoSlot(inView && !!src, priority);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => { setFailed(false); }, [src]);
 
-  const show = inView && granted && !!src && !failed;
+  // A file that cannot open must not keep holding a global slot either: the
+  // fallback renders and the budget goes back to healthy clips.
+  const wantElement = wantsElement && inView && !!src && !failed;
+  const granted = useVideoSlot(wantElement, priority);
+
+  const show = wantElement && granted;
 
   return (
     <div

@@ -50,11 +50,46 @@ import AnimatedBg from './components/AnimatedBg';
 import ScriptureRef from './components/ScriptureRef.jsx';
 import { DEFAULT_SCRIPTURE_TEMPLATE, scriptureTemplateOf, scriptureLyricFor, stripScriptureRef, scriptureRefPos } from './lib/scriptureTemplates';
 import { AppProvider } from './context/AppContext';
+import { useSongEditorStore } from './store/useSongEditorStore';
+import { usePresentationStore } from './store/usePresentationStore';
+import { useServiceStore } from './store/useServiceStore';
+import { useUIStore } from './store/useUIStore';
+import { normalizeSongGeometry, needsLegacyGeometryMigration } from './lib/slideGeometry';
 
 const DEFAULT_OUTPUTS = [
-  { id: 'projector', name: 'Lyrics Projector', role: 'lyrics', displayId: null, enabled: false, resolution: 'native', aspect: '16:9' },
-  { id: 'stage', name: 'Stage Monitor', role: 'stage', displayId: null, enabled: false, resolution: 'native', aspect: '16:9' }
+  { id: 'projector', name: 'Lyrics Projector', role: 'lyrics', displayId: null, enabled: false, resolution: 'native', aspect: 'auto' },
+  { id: 'stage', name: 'Stage Monitor', role: 'stage', displayId: null, enabled: false, resolution: 'native', aspect: 'auto' }
 ];
+
+// One physical display may own at most one output. Old saved layouts can carry
+// two entries assigned to the same screen (the UI enforces this going forward,
+// but a layout written by an older build must not resurrect two fullscreen
+// windows stacked on top of each other). Keep the first, clear the rest.
+const dedupeOutputDisplays = (list) => {
+  const used = new Set();
+  return (Array.isArray(list) ? list : []).map((o) => {
+    if (!o) return o;
+    const d = o.displayId;
+    if (d == null || d === '' || d === 'preview') return o;
+    const key = String(d);
+    if (used.has(key)) return { ...o, displayId: null, enabled: false };
+    used.add(key);
+    return o;
+  });
+};
+
+// One-time auto-fit migration. Older builds wrote `aspect: "16:9"` on every
+// output, so a 4:3 projector or an ultrawide LED wall got pillarboxed bars
+// even though the window itself filled the screen. Native-resolution outputs
+// from those builds are switched to `auto` (fill the physical display) once;
+// after this flag is set, a deliberate 16:9 / 4:3 choice is never touched.
+const AUTO_FIT_MIGRATION_KEY = 'kog_output_autofit_v1';
+const migrateOutputAutoFit = (list) => (Array.isArray(list) ? list : []).map((o) => {
+  if (!o) return o;
+  const nativeRes = (o.resolution || 'native') === 'native';
+  const namedRatio = /^\d+(?:\.\d+)?\s*:\s*\d+(?:\.\d+)?$/.test(String(o.aspect || ''));
+  return nativeRes && namedRatio ? { ...o, aspect: 'auto' } : o;
+});
 
 // Single-slot crash recovery for the Song Editor. Most recent draft wins, so a
 // leftover entry means exactly one thing: the last session died with unsaved
@@ -188,19 +223,27 @@ export default function App() {
   const [activeSong, setActiveSong] = useState(null);
   const [activeCue, setActiveCue] = useState(null);
 
-  // Panel Collapse State
-  const [leftOpen, setLeftOpen] = useState(true);
-  const [rightOpen, setRightOpen] = useState(true);
-  const [showHotkeys, setShowHotkeys] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
+  // Panel visibility lives in the UI store: it is interaction state, never part
+  // of a song/service document, and separate subscriptions keep a panel toggle
+  // from re-rendering canvas consumers.
+  const leftOpen = useUIStore((s) => s.leftOpen);
+  const setLeftOpen = useUIStore((s) => s.setLeftOpen);
+  const rightOpen = useUIStore((s) => s.rightOpen);
+  const setRightOpen = useUIStore((s) => s.setRightOpen);
+  const showHotkeys = useUIStore((s) => s.showHotkeys);
+  const setShowHotkeys = useUIStore((s) => s.setShowHotkeys);
+  const showSettings = useUIStore((s) => s.showSettings);
+  const setShowSettings = useUIStore((s) => s.setShowSettings);
   const [aboutStatus, setAboutStatus] = useState('');
   const [updateReady, setUpdateReady] = useState(null);
   const [updateProgress, setUpdateProgress] = useState(null);
   // Which release the updater is working with (set on available/downloaded,
   // reused for the installing flag + the complete banner after relaunch).
   const [updateVersion, setUpdateVersion] = useState(null);
-  const [showOutputMonitor, setShowOutputMonitor] = useState(false);
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const showOutputMonitor = useUIStore((s) => s.showOutputMonitor);
+  const setShowOutputMonitor = useUIStore((s) => s.setShowOutputMonitor);
+  const showMoreMenu = useUIStore((s) => s.showMoreMenu);
+  const setShowMoreMenu = useUIStore((s) => s.setShowMoreMenu);
   // Audience message overlay (ProPresenter-Messages style): declared up here
   // with the other UI state because the global keydown effect below reads it
   // in its deps — anything it references must already be initialized when
@@ -393,7 +436,8 @@ export default function App() {
   const [builderRehearse, setBuilderRehearse] = useState(false);
   const [builderActiveSong, setBuilderActiveSong] = useState(null);
   const [builderSongDetails, setBuilderSongDetails] = useState({});
-  const [selectedServiceId, setSelectedServiceId] = useState('');
+  const selectedServiceId = useServiceStore((s) => s.selectedServiceId);
+  const setSelectedServiceId = useServiceStore((s) => s.setSelectedServiceId);
   const [slideTimer, setSlideTimer] = useState({ start: null, elapsed: 0, duration: 0 });
 
   // Countdown timer (bottom-dock tab). Config persists in localStorage; the
@@ -425,14 +469,18 @@ export default function App() {
     try { localStorage.setItem('kog_countdown_templates', JSON.stringify(cdTemplates || [])); } catch {}
   }, [cdTemplates]);
 
-  // Service Plan State
-  const [services, setServices] = useState([]);
+  // Service Plan State comes from the service store. The list, the open plan
+  // and the saved-service id are one authoritative set; every existing setter
+  // call in App keeps working through the stable store actions.
+  const services = useServiceStore((s) => s.services);
+  const setServices = useServiceStore((s) => s.setServices);
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [dragIndex, setDragIndex] = useState(null);
   const [showTemplateNameModal, setShowTemplateNameModal] = useState(false);
   const [templateNameValue, setTemplateNameValue] = useState('');
-  const [activeService, setActiveService] = useState(blankServicePlan);
+  const activeService = useServiceStore((s) => s.activeService);
+  const setActiveService = useServiceStore((s) => s.setActiveService);
   const [customSlideModal, setCustomSlideModal] = useState(false);
   // Which service row is being edited (null = adding a new slide). Keeping the
   // index here means the modal's state lives only in the modal's form, and the
@@ -444,7 +492,10 @@ export default function App() {
   const [presentations, setPresentations] = useState([]);
   const [isPresentationOpen, setIsPresentationOpen] = useState(false);
   const [editingDeck, setEditingDeck] = useState(null);
-  const [activePresentation, setActivePresentation] = useState(null); // { deck, index }
+  // Live presentation (deck + slide index) is playback state, kept isolated
+  // from the editor so canvas selection/zoom can never alter the wall.
+  const activePresentation = usePresentationStore((s) => s.activePresentation);
+  const setActivePresentation = usePresentationStore((s) => s.setActivePresentation);
   const presentationNextRef = useRef(null);
 
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -456,7 +507,11 @@ export default function App() {
   const [newSongPromptOpen, setNewSongPromptOpen] = useState(false);
   const [rawPasteText, setRawPasteText] = useState('');
   const [isParsing, setIsParsing] = useState(false);
-  const [editingSong, setEditingSong] = useState({ id: null, title: '', artist: '', category: 'Worship', cues: [] });
+  // The editing document, selection index and history are owned by the song
+  // editor store. `setEditingSong` keeps the exact React-setState contract
+  // (value or functional updater) so every existing patch helper is unchanged.
+  const editingSong = useSongEditorStore((s) => s.document);
+  const setEditingSong = useSongEditorStore((s) => s.setDocument);
   const [linesPerSlide, setLinesPerSlide] = useState(4);
 
   // Video booth playlist, shared by the center player and the system
@@ -465,7 +520,8 @@ export default function App() {
   const [videoIdx, setVideoIdx] = useState(0);
 
   // G-Presenter style editor state
-  const [editorCueIdx, setEditorCueIdx] = useState(0);
+  const editorCueIdx = useSongEditorStore((s) => s.editorCueIdx);
+  const setEditorCueIdx = useSongEditorStore((s) => s.setEditorCueIdx);
   const [canvasEdit, setCanvasEdit] = useState(false);
   const [boxDrag, setBoxDrag] = useState(null);
   const [canvasScale, setCanvasScale] = useState(1);
@@ -593,10 +649,20 @@ export default function App() {
     ipcRenderer.invoke('outputs-load')
       .then((saved) => {
         if (!Array.isArray(saved) || !saved.length) return;
+        // Run the one-time auto-fit migration OUTSIDE the state updater (the
+        // updater must stay pure — React may invoke it twice in dev).
+        let rows = saved;
+        try {
+          if (localStorage.getItem(AUTO_FIT_MIGRATION_KEY) !== '1') {
+            rows = migrateOutputAutoFit(saved);
+            localStorage.setItem(AUTO_FIT_MIGRATION_KEY, '1');
+          }
+        } catch { /* storage unavailable: keep the saved rows as-is */ }
+        const normalized = rows.map(o => ({ ...o, resolution: o.resolution || 'native', aspect: o.aspect || 'auto', enabled: false }));
         setOutputs((prev) => {
           const touched = prev.some(o => o.enabled || (o.displayId !== null && o.displayId !== undefined && o.displayId !== ''));
           if (touched) return prev;
-          return saved.map(o => ({ ...o, resolution: o.resolution || 'native', aspect: o.aspect || '16:9', enabled: false }));
+          return dedupeOutputDisplays(normalized);
         });
       })
       .catch(() => {})
@@ -636,6 +702,22 @@ export default function App() {
     return () => ipcRenderer.removeListener('output-closed', onClosed);
   }, []);
 
+  // A display can vanish mid-service (projector unplugged, dock removed).
+  // main re-binds the running output to a free screen and reports the actual
+  // id here, so the console's picker and the saved layout tell the truth.
+  useEffect(() => {
+    if (isOutputWindow || !window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    const onReassigned = (_e, payload) => {
+      if (!payload || payload.id == null || payload.displayId == null) return;
+      setOutputs(prev => prev.map(o => (
+        o.id === payload.id ? { ...o, displayId: payload.displayId } : o
+      )));
+    };
+    ipcRenderer.on('output-display-reassigned', onReassigned);
+    return () => ipcRenderer.removeListener('output-display-reassigned', onReassigned);
+  }, []);
+
   // Layer echo from main (own toggles + global F1/F2): mirror per-output so
   // the sermon tab always reports who is actually visible.
   useEffect(() => {
@@ -661,7 +743,10 @@ export default function App() {
   useEffect(() => {
     if (isOutputWindow || !window.require) return;
     const projector = outputs.find(o => o.id === 'projector');
-    if (projector && projector.aspect && projector.aspect !== outputAspect) {
+    // Auto / Fill is resolved per-display by the output window itself; only a
+    // named ratio belongs in the global composition state.
+    const named = /^\d+(?:\.\d+)?\s*:\s*\d+(?:\.\d+)?$/.test(String(projector?.aspect || ''));
+    if (named && projector.aspect !== outputAspect) {
       setOutputAspect(projector.aspect);
     }
   }, [outputs]);
@@ -679,7 +764,10 @@ export default function App() {
   const repairSongBoxes = (song) => {
     if (!song || !Array.isArray(song.cues)) return song;
     const fixCue = (c) => {
-      if (!c || c.locked || c.resizeMode === 'fill') return c;
+      // Versioned cues have already been migrated. Re-fitting them on every
+      // open was silently changing saved h (and then re-saving it), which is
+      // exactly the cumulative geometry drift this refactor removes.
+      if (!needsLegacyGeometryMigration(c)) return c;
       const box = growBoxToText(c.text || '', cueLyricStyle(c), c.box);
       return box === c.box ? c : { ...c, box };
     };
@@ -779,7 +867,12 @@ export default function App() {
     } catch { draft = null; }
     const recovered = !!(draft && typeof draft === 'object' && draft.song && (draft.id ?? null) === (song?.id ?? null));
     const pristine = repairSongBoxes({ ...song, cues: song.cues || [] });
-    setEditingSong(recovered ? draft.song : pristine);
+    // A fresh open starts a fresh undo history. The baseline stays the PRISTINE
+    // song even when a recovery draft is loaded, so recovered work reads dirty.
+    useSongEditorStore.getState().loadDocument(recovered ? draft.song : pristine, {
+      baseline: pristine,
+      editorCueIdx: 0,
+    });
     setEditorMode(recovered && draft.mode === 'auto' ? 'auto' : mode);
     setRawPasteText(recovered && typeof draft.raw === 'string' ? draft.raw : '');
     // Baseline is ALWAYS the pristine song, never the recovered copy — so a
@@ -1449,8 +1542,8 @@ export default function App() {
   const loadMedleyFlow = async (item, def) => {
     const songs = await loadMedleySongs(medleySongIds(def));
     applyMedleyAnchorBg(songs, def);
-    // Anchor arrangement (v2 flow or legacy order) resolves against the
-    // LOADED anchor song, then rides in as a plain id list.
+    // Anchor arrangement (v3 exact runs, v2 flows, or legacy order) resolves
+    // against the LOADED anchor song, then rides in as a plain id list.
     let orders = null;
     const arr = item?.meta?.arrangement;
     if (arr && ((Array.isArray(arr.flow) && arr.flow.length) || (Array.isArray(arr.order) && arr.order.length))) {
@@ -1520,6 +1613,7 @@ export default function App() {
   const fireGridTile = (tile) => {
     if (!tile) return;
     if (tile.medIdx != null) fireMedleySlideAt(tile.medIdx);
+    else if (tile.arrIdx != null) fireArrangementAt(tile.arrIdx);
     else if (tile.isTitle) fireTitleLive();
     else if (tile.cue) fireCueLive(tile.cue);
   };
@@ -1533,8 +1627,8 @@ export default function App() {
   const arrangeRef = useRef(null); // { itemId, songId, order } or null
 
   // Cue objects in arrangement order for THIS song, or null when no session
-  // (or a different song) is on air. Shape-agnostic: v2 section flows and
-  // legacy cue-id orders both resolve here. Normalizes live: slides deleted
+  // (or a different song) is on air. Shape-agnostic: v3 exact section runs,
+  // v2 name-only section flows and legacy cue-id orders all resolve here. Normalizes live: slides deleted
   // from the library since linking are skipped, never fatal.
   const resolvedArrangementCues = (song, arr) => {
     const byId = new Map((song?.cues || []).map((c) => [c.id, c]));
@@ -1545,6 +1639,29 @@ export default function App() {
     if (!a || !song || !sameSongId(a.songId, song.id)) return null;
     const ordered = resolvedArrangementCues(song, a.arr);
     return ordered.length ? ordered : null;
+  };
+
+  // Fire one exact step of the live arrangement. Repeats share a cue id, so
+  // the session carries the POSITION as well — otherwise Next/Previous and
+  // the live grid would always restart from the first occurrence.
+  const fireArrangementAt = (index) => {
+    const a = arrangeRef.current;
+    if (!a) return false;
+    const ordered = resolvedArrangementCues(activeSong, a.arr);
+    const cue = ordered[index];
+    if (!cue) return false;
+    arrangeRef.current = { ...a, index, cueId: cue.id };
+    fireCueLive(cue, null, index);
+    return true;
+  };
+
+  // Position of the live cue in the custom order. The session index wins for
+  // repeated sections; a foreign/direct fire falls back to id matching.
+  const arrangementIndexOf = (ordered) => {
+    if (!ordered) return -1;
+    const a = arrangeRef.current;
+    if (a && Number.isInteger(a.index) && ordered[a.index]?.id === a.cueId) return a.index;
+    return ordered.findIndex((c) => c.id === activeCue?.id);
   };
 
   const [arrangementModal, setArrangementModal] = useState(null); // { songId, title, itemIdx, existing }
@@ -1582,8 +1699,9 @@ export default function App() {
     });
   };
 
-  // arr: v2 { flow:[{part}], slideCount } | legacy { order:[ids] } | null.
-  // The modal always saves v2; legacy rows keep working untouched.
+  // arr: v3 { flow:[{part, occurrence}], known, slideCount } | v2 flow |
+  // legacy { order:[ids] } | null. The modal always saves v3; old rows keep
+  // working untouched.
   const saveArrangement = ({ arr, summary }) => {
     const m = arrangementModal;
     if (!m) return;
@@ -1675,12 +1793,12 @@ export default function App() {
     // air ends the session. Standby/clear fall through to the normal path.
     const arrNext = arrangementForSong(activeSong);
     if (arrNext) {
-      const at = arrNext.findIndex(c => c.id === activeCue?.id);
+      const at = arrangementIndexOf(arrNext);
       if (at > -1) {
-        if (at < arrNext.length - 1) fireCueLive(arrNext[at + 1]);
+        if (at < arrNext.length - 1) fireArrangementAt(at + 1);
         return; // arrangement end: hold the last slide
       }
-      if (activeCue?.id === 'title-card') { fireCueLive(arrNext[0]); return; }
+      if (activeCue?.id === 'title-card') { fireArrangementAt(0); return; }
       if (activeCue && activeCue.id !== 'standby' && activeCue.id !== 'clear') arrangeRef.current = null;
     }
     if (!activeSong?.cues) return;
@@ -1710,8 +1828,8 @@ export default function App() {
     // the start. Title-card keeps its normal re-fire below.
     const arrPrev = arrangementForSong(activeSong);
     if (arrPrev) {
-      const at = arrPrev.findIndex(c => c.id === activeCue?.id);
-      if (at > 0) { fireCueLive(arrPrev[at - 1]); return; }
+      const at = arrangementIndexOf(arrPrev);
+      if (at > 0) { fireArrangementAt(at - 1); return; }
       if (at === 0) return; // arrangement start: hold the first slide
       if (activeCue && activeCue.id !== 'title-card' && activeCue.id !== 'standby' && activeCue.id !== 'clear') arrangeRef.current = null;
     }
@@ -1754,10 +1872,17 @@ export default function App() {
       return;
     }
     if (!activeSong?.cues) return;
-    const list = arrangementForSong(activeSong) || activeSong.cues;
-    const ci = activeCue ? list.findIndex(c => c.id === activeCue.id) : -1;
+    const arrList = arrangementForSong(activeSong);
+    const list = arrList || activeSong.cues;
+    const ci = arrList
+      ? arrangementIndexOf(arrList)
+      : (activeCue ? list.findIndex(c => c.id === activeCue.id) : -1);
     const nxt = list.findIndex((c, i) => i > ci && match(c.label));
-    if (nxt > -1) { fireCueLive(list[nxt]); return; }
+    if (nxt > -1) {
+      if (arrList) fireArrangementAt(nxt);
+      else fireCueLive(list[nxt]);
+      return;
+    }
     noMore(activeSong.title);
   }, [activeSong, activeCue, activePresentation]);
 
@@ -2301,10 +2426,19 @@ export default function App() {
   // The clock now ticks inside the tiny display components (LiveBadge /
   // TimerReadout in src/lib/perf.jsx) so only a <span> updates per tick.
 
-  const fireCueLive = (cue, songOverride) => {
+  const fireCueLive = (cue, songOverride, arrIndex) => {
     // songOverride lets medley slides fire with their OWN song's title, art,
     // audio and background instead of whatever the grid has selected.
     const song = songOverride || activeSong;
+    // Keep the arrangement session's exact step. A direct fire (no index)
+    // deliberately drops it back to id matching.
+    if (arrangeRef.current && sameSongId(arrangeRef.current.songId, song?.id)) {
+      arrangeRef.current = {
+        ...arrangeRef.current,
+        index: Number.isInteger(arrIndex) ? arrIndex : null,
+        cueId: cue?.id ?? null,
+      };
+    }
     liveBibleRef.current = null;
     liveBibleSrcRef.current = null;
     setActiveCue(cue);
@@ -2341,8 +2475,12 @@ export default function App() {
     // (and the output preload below follows it too). Medley sessions win
     // outright — the two flows never mix.
     const medLive = medleyRef.current && medleyRef.current.slides.length;
-    const cueList = (!medLive && arrangementForSong(song)) || song?.cues || [];
-    const idx = cue?.id ? cueList.findIndex(c => c.id === cue.id) : -1;
+    const arrLive = !medLive ? arrangementForSong(song) : null;
+    const cueList = arrLive || song?.cues || [];
+    // Repeated sections share one cue id: use the exact arrangement step when
+    // this fire came from one, otherwise fall back to id matching.
+    const arrAt = arrLive && Number.isInteger(arrIndex) && arrLive[arrIndex]?.id === cue?.id ? arrIndex : -1;
+    const idx = arrAt > -1 ? arrAt : (cue?.id ? cueList.findIndex(c => c.id === cue.id) : -1);
     const nextCue = idx > -1 ? cueList[idx + 1] : (cueList.length > 0 ? cueList[0] : null);
     sendStageData(
       { title: slidePayload.title, label: cue?.label || 'Song Title', text: cue?.id === 'clear' ? '' : slidePayload.text, timestamp: slidePayload.timestamp },
@@ -2525,9 +2663,12 @@ export default function App() {
 
   const clearLyrics = () => {
     const live = liveOutputPayload();
-    const cueList = activeSong?.cues || [];
-    const idx = activeCue?.id ? cueList.findIndex(c => c.id === activeCue.id) : -1;
-    const nextCue = idx > -1 ? cueList[idx + 1] : (cueList.length > 0 ? cueList[0] : null);
+    const cueList = arrangementForSong(activeSong) || activeSong?.cues || [];
+    const a = arrangeRef.current;
+    const at = a && Number.isInteger(a.index) && cueList[a.index]?.id === a.cueId
+      ? a.index
+      : (activeCue?.id ? cueList.findIndex(c => c.id === activeCue.id) : -1);
+    const nextCue = at > -1 ? cueList[at + 1] : (cueList.length > 0 ? cueList[0] : null);
     const slidePayload = {
       title: activeSong?.title || live?.title || '',
       artist: activeSong?.artist || '',
@@ -2640,6 +2781,9 @@ export default function App() {
     // cueOverride lets medley titles carry their synthetic tracking id
     // (medley-title-<songId>) instead of the shared 'title-card'.
     const titleCue = cueOverride || song.title_cue || { id: 'title-card', label: 'Song Title', text: song.title, box: { x: 80, y: 140, w: 1120, h: 440 }, size: DEFAULT_LYRIC_SIZE, align: 'center', color: '#ffffff' };
+    if (arrangeRef.current && sameSongId(arrangeRef.current.songId, song?.id)) {
+      arrangeRef.current = { ...arrangeRef.current, index: null, cueId: null };
+    }
     setActiveCue(titleCue);
     setSlideTimer({ start: Date.now(), elapsed: 0, duration: 0 });
     const effectiveStyle = resolutionStyle(titleCue, song);
@@ -2810,7 +2954,7 @@ export default function App() {
         anchor: { songId: def.anchor.songId, title: titleOf(def.anchor.songId, item.title), parts: def.anchor.includedParts },
         itemIdx: idx,
         existing: def.links.map(l => ({ songId: l.songId, title: titleOf(l.songId), parts: l.includedParts, skip: l.skipTitleSlide })),
-        anchorArranged: Array.isArray(item.meta?.arrangement?.order) && item.meta.arrangement.order.length > 0,
+        anchorArranged: !!(item.meta?.arrangement && ((Array.isArray(item.meta.arrangement.flow) && item.meta.arrangement.flow.length) || (Array.isArray(item.meta.arrangement.order) && item.meta.arrangement.order.length))),
       });
       return;
     }
@@ -3003,7 +3147,17 @@ export default function App() {
   };
 
   const updateOutput = (id, patch) => {
-    setOutputs(prev => prev.map(o => (o.id === id ? { ...o, ...patch } : o)));
+    setOutputs(prev => {
+      const next = prev.map(o => (o.id === id ? { ...o, ...patch } : o));
+      // Assigning a physical display moves it: never leave two outputs on the
+      // same screen, where the covered one's controls look broken.
+      const d = patch && patch.displayId;
+      if (d == null || d === '' || d === 'preview') return next;
+      const key = String(d);
+      return next.map(o => (
+        o.id !== id && String(o.displayId) === key ? { ...o, displayId: null, enabled: false } : o
+      ));
+    });
   };
 
   const addOutput = () => {
@@ -3021,7 +3175,7 @@ export default function App() {
         displayId: null,
         enabled: false,
         resolution: main.resolution || 'native',
-        aspect: main.aspect || '16:9'
+        aspect: main.aspect || 'auto'
       }];
     });
   };
@@ -3039,12 +3193,15 @@ export default function App() {
       // A display can only show one fullscreen output. If another output owns
       // the display this one is about to use, hand the display over instead of
       // stacking two windows (the covered one then looks like its settings do
-      // nothing). Starting an unassigned output picks the first FREE display,
-      // never the wall the main output is already using.
+      // nothing). Starting an unassigned output picks the first display that
+      // is not CURRENTLY showing an output — a stopped output's stale
+      // assignment must not push the new picture into a tiny dev-preview
+      // window (that is how a real projector ended up on the primary screen
+      // at the wrong resolution).
       const used = new Set(prev
-        .filter(o => o.id !== id && o.displayId != null && o.displayId !== 'preview')
-        .map(o => o.displayId));
-      const free = (outputDisplays || []).find(d => !used.has(d.id));
+        .filter(o => o.id !== id && o.enabled && o.displayId != null && o.displayId !== 'preview')
+        .map(o => String(o.displayId)));
+      const free = (outputDisplays || []).find(d => !used.has(String(d.id)));
       const displayId = running && !target.displayId
         ? (free ? free.id : 'preview')
         : target.displayId;
@@ -3052,7 +3209,7 @@ export default function App() {
         if (o.id === id) {
           return { ...o, enabled: !!running, displayId: running ? displayId : o.displayId };
         }
-        if (running && displayId != null && displayId !== 'preview' && o.displayId === displayId) {
+        if (running && displayId != null && displayId !== 'preview' && String(o.displayId) === String(displayId)) {
           return { ...o, displayId: null, enabled: false };
         }
         return o;
@@ -4260,9 +4417,19 @@ export default function App() {
       // throttle — merge it into the snapshot or the DB keeps the pre-drag one.
       const pending = flushCueThrottle();
       const wasNew = editingSong.id == null;
-      const snap = pending ? applyPatchToSnapshot(editingSong, pending.idx, pending.patch, pending.objIdx) : editingSong;
+      const snap = normalizeSongGeometry(pending ? applyPatchToSnapshot(editingSong, pending.idx, pending.patch, pending.objIdx) : editingSong);
       if (pending) runThrottledPatch(pending.idx, pending.objIdx, pending.patch);
-      const savedId = await ipcRenderer.invoke('db-save-song', snap);
+      const editor = useSongEditorStore.getState();
+      editor.markSaving();
+      let savedId;
+      try {
+        savedId = await ipcRenderer.invoke('db-save-song', snap);
+      } catch (err) {
+        editor.markSaveError();
+        toast.add({ type: 'error', title: 'Save failed', description: err?.message || 'The song could not be saved.' });
+        return;
+      }
+      editor.markSaved(snap);
       fetchSongs();
       // The work is safe now — drop the recovery copy so the next open of this
       // song starts clean instead of offering back what was just written.
@@ -4274,13 +4441,13 @@ export default function App() {
         const details = await ipcRenderer.invoke('db-get-song-details', savedId);
         if (details) {
           const rep = repairSongBoxes(details);
-          setEditingSong(rep);
+          // New id = new document: history restarts, baseline is the saved copy.
+          editor.loadDocument(rep, { baseline: rep, editorCueIdx: -1 });
           // The save landed and the editor STAYS open: this reloaded copy is
           // the new clean baseline, so everything typed from here counts as
           // new work rather than unsaved work.
           songSnapRef.current = songSnapOf(rep);
           setEditorMode('manual');
-          setEditorCueIdx(-1);
           return;
         }
       }
@@ -4475,7 +4642,8 @@ export default function App() {
       clearLyrics: () => clearLyrics(),
       clearAll: () => fireCueLive({ id: 'clear', label: 'Clear', text: '' }),
       // "It went black, put it back" — re-fires whatever is already on air.
-      reassert: () => { if (activeCue && activeCue.id !== 'clear') fireCueLive(activeCue); },
+      // Keep the exact arrangement step so a repeated section stays put.
+      reassert: () => { if (activeCue && activeCue.id !== 'clear') fireCueLive(activeCue, null, arrangeRef.current?.index ?? undefined); },
       cue: ({ id }) => {
         const cue = (activeSong?.cues || []).find(x => x.id === id);
         if (!cue) return false;
@@ -4676,7 +4844,7 @@ export default function App() {
           id: o.id,
           name: o.name || '',
           role: o.role || 'lyrics',
-          aspect: o.aspect || '16:9',
+          aspect: o.aspect || 'auto',
           resolution: o.resolution || 'native',
           enabled: !!o.enabled,
           bound: o.displayId != null && o.displayId !== '',
@@ -4740,7 +4908,7 @@ export default function App() {
     // medleys; the Arr. pill is the precise readout).
     const arrCues = arrangementForSong(activeSong);
     if (arrCues) {
-      const ai = arrCues.findIndex(c => c.id === activeCue.id);
+      const ai = arrangementIndexOf(arrCues);
       return ai >= 0 ? ai + 1 : -1;
     }
     const idx = (activeSong?.cues || []).findIndex(c => c.id === activeCue.id);
@@ -4760,13 +4928,15 @@ export default function App() {
   const stageFlow = (() => {
     const med = medleyRef.current;
     let entries = null;
+    let arrList = null;
     if (med && med.slides.length) {
       entries = med.slides.map((s) => ({
         label: s.kind === 'title' ? 'Song Title' : (s.cue?.label || 'Slide'),
         id: s.cue ? s.cue.id : medleyTitleId(s.songId),
       }));
     } else if (activeSong && (activeSong.cues || []).length) {
-      const list = arrangementForSong(activeSong) || activeSong.cues;
+      arrList = arrangementForSong(activeSong);
+      const list = arrList || activeSong.cues;
       entries = list.map((c) => ({ label: c.label || 'Slide', id: c.id }));
     }
     if (!entries || !entries.length) return null;
@@ -4778,7 +4948,11 @@ export default function App() {
     let index = -1;
     const curId = activeCue && activeCue.id !== 'clear' ? activeCue.id : null;
     if (curId) {
-      const pos = entries.findIndex((e) => e.id === curId);
+      const a = arrangeRef.current;
+      let pos = arrList && a && Number.isInteger(a.index) && arrList[a.index]?.id === a.cueId
+        ? a.index
+        : -1;
+      if (pos < 0) pos = entries.findIndex((e) => e.id === curId);
       if (pos >= 0) index = runs.findIndex((r) => pos >= r.from && pos <= r.to);
     }
     return { labels: runs.map((r) => r.label), index };
@@ -4842,7 +5016,7 @@ export default function App() {
     if (!a || !activeSong || !sameSongId(a.songId, activeSong.id)) return null;
     const ordered = resolvedArrangementCues(activeSong, a.arr);
     if (!ordered.length) return null;
-    const at = activeCue ? ordered.findIndex(c => c.id === activeCue.id) : -1;
+    const at = activeCue ? arrangementIndexOf(ordered) : -1;
     return { pos: at > -1 ? at + 1 : null, total: ordered.length, onTitle: activeCue?.id === 'title-card' };
   })();
 
@@ -4887,7 +5061,18 @@ export default function App() {
     const faceBg = bg || (bgInfo && (bgInfo.type === 'color' || bgInfo.type === 'gradient') ? bgInfo.value : (bgInfo && bgInfo.type === 'animated' ? animatedPresetOf(bgInfo.value).base : '#000'));
     const mediaLayer = media || (bgInfo && (bgInfo.type === 'image' || bgInfo.type === 'video') ? { type: bgInfo.type, url: bgInfo.value } : null);
     const isAnimatedFace = !!(!media && bgInfo && bgInfo.type === 'animated');
-    const isLive = activeCue != null && activeCue.id !== 'clear' && ((isTitle && (activeCue.id === 'title-card' || activeCue.id === medleyTitleId(song.id))) || (!isTitle && cue && activeCue.id === cue.id));
+    // Repeated sections share cue ids. When the tile knows its exact flow
+    // position (medley/arrangement), only that step lights up — otherwise a
+    // repeated chorus would mark every occurrence as live.
+    const posLive = tile.medIdx != null
+      ? (medleyRef.current ? medleyRef.current.index === tile.medIdx : null)
+      : tile.arrIdx != null
+        ? (arrangeRef.current ? arrangeRef.current.index === tile.arrIdx : null)
+        : null;
+    const cueLive = isTitle
+      ? (activeCue?.id === 'title-card' || activeCue?.id === medleyTitleId(song.id))
+      : !!(cue && activeCue?.id === cue.id);
+    const isLive = activeCue != null && activeCue.id !== 'clear' && (posLive == null ? cueLive : (posLive && cueLive));
     const hasMedia = !!mediaLayer;
     // Live tiles always rebuild (LIVE pill timer + pink ring must be fresh).
     // Anything else cached: song/theme/nebula identity invalidates, aspect
@@ -5004,7 +5189,9 @@ export default function App() {
         )}
         {style.backgroundType === 'video' && (
           <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
-            <TileVideo src={style.backgroundValue} animate={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            {/* priority: this is the operator's look-ahead — when slots are
+                tight it asks before the grid's static thumbnails do. */}
+            <TileVideo src={style.backgroundValue} animate={false} priority style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
           </div>
         )}
         {style.backgroundType === 'animated' && (
@@ -5805,7 +5992,28 @@ export default function App() {
   // view); only timer content uses this.
   const wallAspect = useMemo(() => {
     try {
-      const pid = outputs.find(o => o.id === 'projector')?.displayId;
+      const proj = outputs.find(o => o.id === 'projector') || outputs.find(o => o.role === 'lyrics') || null;
+      // A pixel-preset or custom LED region IS the output window, so its shape
+      // is the wall shape even when the bound display has a different native
+      // ratio. Using the display here made a Fill preview disagree with the
+      // actual (now correctly sized) output window.
+      const vp = proj && proj.viewport && proj.viewport.enabled ? proj.viewport : null;
+      if (vp) {
+        const vw = Number(vp.w);
+        const vh = Number(vp.h);
+        if (vw > 0 && vh > 0) return `${vw} / ${vh}`;
+      }
+      const rm = String((proj && proj.resolution) || '').match(/^(\d+)x(\d+)$/);
+      if (rm && Number(rm[1]) > 0 && Number(rm[2]) > 0) return `${rm[1]} / ${rm[2]}`;
+      const pid = proj && proj.displayId;
+      // A Native dev preview is an OS window inside the primary work area
+      // (taskbar excluded), not the full display. Use that shape so a Fill
+      // preview card matches the real preview window instead of a 16:9 screen.
+      if (pid === 'preview' && typeof window !== 'undefined' && window.screen) {
+        const aw = Number(window.screen.availWidth);
+        const ah = Number(window.screen.availHeight);
+        if (aw > 0 && ah > 0) return `${aw} / ${ah}`;
+      }
       const hit = pid != null && pid !== '' && pid !== 'preview'
         ? (outputDisplays || []).find(d => String(d.id) === String(pid))
         : null;

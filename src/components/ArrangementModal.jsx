@@ -3,10 +3,9 @@ import { ListMusic, X, ChevronUp, ChevronDown, Trash2, RotateCcw, GripVertical, 
 import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { toast } from '../untitledui/components/ui/toast';
-import { songSections } from '../lib/medley';
 import {
   orderToFlow, summarizeFlow, splitCuesToLineChunks,
-  abbrevSection,
+  abbrevSection, songSectionRuns,
 } from '../lib/arrangement';
 
 // Song Arrangement modal v2 — MENU on the left, FLOW on the right.
@@ -24,14 +23,16 @@ import {
 // confirmation): it re-chunks long sections into N-line slides so the
 // congregation gets singable 2–4-line projection.
 let flowKey = 1;
+const samePart = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 
 export default function ArrangementModal({ songId, title, existing, onSave, onClose, forAnchor }) {
   const { C, ACCENT, appConfirm } = useApp();
   const [details, setDetails] = useState(null);
-  const [flow, setFlow] = useState(null); // [{ key, part }]
+  const [flow, setFlow] = useState(null); // [{ key, part, occurrence }]
   const [linesPer, setLinesPer] = useState(4);
   const [tidying, setTidying] = useState(false);
   const [dropAt, setDropAt] = useState(null); // index | 'end' | null
+  const lastDragAtRef = useRef(0);
 
   // Service rows round-trip song ids through a TEXT column ("42.0" for 42) —
   // coerce numeric-likes back to integers for the details lookup.
@@ -41,16 +42,41 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
   })();
 
   const initFlow = (arr, song) => {
-    if (arr && Array.isArray(arr.flow)) return arr.flow.map((e) => ({ key: flowKey++, part: e.part }));
-    if (arr && Array.isArray(arr.order) && arr.order.length) {
-      const conv = orderToFlow(arr.order, song);
-      if (conv.length) return conv.map((e) => ({ key: flowKey++, part: e.part }));
+    const runs = songSectionRuns(song);
+    if (!runs.length) return [];
+    const pick = (part, occurrence) => {
+      const list = runs.filter((r) => samePart(r.part, part));
+      if (!list.length) return null;
+      const n = Number.isInteger(occurrence) && occurrence > 0 ? occurrence : 1;
+      return list[Math.min(n - 1, list.length - 1)];
+    };
+    // v3/v2 section flows: occurrence wins; older flows use the next
+    // occurrence of the named part, so repeated sections stop doubling.
+    if (arr && Array.isArray(arr.flow) && arr.flow.length) {
+      const counters = new Map();
+      const out = [];
+      for (const entry of arr.flow) {
+        const key = String(entry?.part || '').trim().toLowerCase();
+        if (!key) continue;
+        let occurrence = Number.isInteger(entry?.occurrence) && entry.occurrence > 0 ? entry.occurrence : null;
+        if (!occurrence) {
+          occurrence = (counters.get(key) || 0) + 1;
+          counters.set(key, occurrence);
+        }
+        const run = pick(entry.part, occurrence);
+        if (run) out.push({ key: flowKey++, part: run.part, occurrence: run.occurrence });
+      }
+      if (out.length) return out;
     }
-    if (Array.isArray(arr)) {
-      const conv = orderToFlow(arr, song);
-      if (conv.length) return conv.map((e) => ({ key: flowKey++, part: e.part }));
+    // Legacy per-slide order: exact cue ids → their section runs.
+    const legacy = arr && Array.isArray(arr.order) && arr.order.length ? arr.order
+      : Array.isArray(arr) ? arr : null;
+    if (legacy) {
+      const conv = orderToFlow(legacy, song);
+      if (conv.length) return conv.map((entry) => ({ key: flowKey++, ...entry }));
     }
-    return songSections(song).map((part) => ({ key: flowKey++, part }));
+    // No arrangement: mirror the song's real sequence, every run once.
+    return runs.map((run) => ({ key: flowKey++, part: run.part, occurrence: run.occurrence }));
   };
 
   useEffect(() => {
@@ -67,17 +93,27 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const cues = details?.cues || [];
-  const sections = songSections(details);
-  const cuesOf = (part) => cues.filter((c) => String(c?.label || '').replace(/\s*\(Part\s+\d+\)\s*$/i, '').trim().toLowerCase() === String(part || '').toLowerCase());
-  const expandedCount = (flow || []).reduce((n, e) => n + cuesOf(e.part).length, 0);
+  const runs = songSectionRuns(details);
+  const runOf = (entry) => {
+    const list = runs.filter((r) => samePart(r.part, entry?.part));
+    if (!list.length) return null;
+    const n = Number.isInteger(entry?.occurrence) && entry.occurrence > 0 ? entry.occurrence : 1;
+    return list[Math.min(n - 1, list.length - 1)];
+  };
+  const cuesOf = (entry) => runOf(entry)?.cues || [];
+  const expandedCount = (flow || []).reduce((n, entry) => n + cuesOf(entry).length, 0);
+  const partOccurrences = (part) => runs.filter((r) => samePart(r.part, part)).length;
+  const entryLabel = (entry) => {
+    const occ = partOccurrences(entry.part) > 1 ? ` #${entry.occurrence}` : '';
+    return `${abbrevSection(entry.part)}${occ} · ${entry.part}`;
+  };
 
   // Dirty guard: X, backdrop-click and Cancel funnel through here.
   const openedSnapRef = useRef(null);
   if (openedSnapRef.current === null && flow !== null) {
-    openedSnapRef.current = JSON.stringify((flow || []).map((e) => e.part));
+    openedSnapRef.current = JSON.stringify((flow || []).map((e) => `${e.part}|${e.occurrence}`));
   }
-  const isDirty = () => openedSnapRef.current !== null && JSON.stringify((flow || []).map((e) => e.part)) !== openedSnapRef.current;
+  const isDirty = () => openedSnapRef.current !== null && JSON.stringify((flow || []).map((e) => `${e.part}|${e.occurrence}`)) !== openedSnapRef.current;
   const maybeClose = async () => {
     if (!isDirty()) { onClose(); return; }
     const ok = appConfirm
@@ -87,7 +123,8 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
   };
 
   // --- Flow edits -------------------------------------------------------
-  const appendPart = (part) => setFlow((prev) => [...(prev || []), { key: flowKey++, part }]);
+  const appendPart = (part, occurrence) => setFlow((prev) => [...(prev || []), { key: flowKey++, part, occurrence }]);
+  const appendRun = (run) => { if (run) appendPart(run.part, run.occurrence); };
   const move = (idx, dir) => {
     setFlow((prev) => {
       if (!prev) return prev;
@@ -99,10 +136,10 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
     });
   };
   const removeAt = (idx) => setFlow((prev) => (prev ? prev.filter((_, i) => i !== idx) : prev));
-  const insertAt = (idx, part) => {
+  const insertAt = (idx, part, occurrence) => {
     setFlow((prev) => {
       const next = [...(prev || [])];
-      next.splice(Math.max(0, Math.min(idx, next.length)), 0, { key: flowKey++, part });
+      next.splice(Math.max(0, Math.min(idx, next.length)), 0, { key: flowKey++, part, occurrence });
       return next;
     });
   };
@@ -116,7 +153,7 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
     });
   };
   const reset = () => {
-    if (details) setFlow(songSections(details).map((part) => ({ key: flowKey++, part })));
+    if (details) setFlow(songSectionRuns(details).map((run) => ({ key: flowKey++, part: run.part, occurrence: run.occurrence })));
   };
 
   // --- HTML5 drag and drop (no new deps): left blocks COPY in, right
@@ -128,12 +165,14 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
     } catch {}
     return null;
   };
-  const startAdd = (e, part) => {
-    e.dataTransfer.setData('application/x-kog-arr', JSON.stringify({ mode: 'add', part }));
-    e.dataTransfer.setData('text/plain', part);
+  const startAdd = (e, run) => {
+    lastDragAtRef.current = Date.now();
+    e.dataTransfer.setData('application/x-kog-arr', JSON.stringify({ mode: 'add', part: run.part, occurrence: run.occurrence }));
+    e.dataTransfer.setData('text/plain', run.part);
     e.dataTransfer.effectAllowed = 'copy';
   };
   const startMove = (e, index) => {
+    lastDragAtRef.current = Date.now();
     e.dataTransfer.setData('application/x-kog-arr', JSON.stringify({ mode: 'move', index }));
     e.dataTransfer.setData('text/plain', String(index));
     e.dataTransfer.effectAllowed = 'move';
@@ -145,7 +184,7 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
     setDropAt(null);
     if (!d) return;
     if (d.mode === 'move') relocate(d.index, index);
-    else if (d.mode === 'add' && d.part) insertAt(index, d.part);
+    else if (d.mode === 'add' && d.part) insertAt(index, d.part, d.occurrence);
   };
   const dropAtEnd = (e) => {
     e.preventDefault();
@@ -153,7 +192,7 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
     setDropAt(null);
     if (!d) return;
     if (d.mode === 'move') relocate(d.index, (flow || []).length);
-    else if (d.mode === 'add' && d.part) appendPart(d.part);
+    else if (d.mode === 'add' && d.part) appendPart(d.part, d.occurrence);
   };
 
   // --- Tidy slides: re-chunk the LIBRARY song into N-line slides ---------
@@ -186,9 +225,12 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
   const save = (clear = false) => {
     if (clear) { onSave({ arr: null }); return; }
     if (!flow || !flow.length) return;
-    const parts = flow.map((e) => ({ part: e.part }));
+    const parts = flow.map((e) => ({ part: e.part, occurrence: e.occurrence }));
+    // `known` records every run the song had at save time: an omitted run
+    // stays omitted, while a section added later still appends on playback.
+    const known = runs.map((run) => ({ part: run.part, occurrence: run.occurrence }));
     onSave({
-      arr: { version: 2, flow: parts, slideCount: expandedCount },
+      arr: { version: 3, flow: parts, known, slideCount: expandedCount },
       summary: summarizeFlow(parts),
     });
   };
@@ -210,7 +252,7 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
           <button onClick={maybeClose} style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', display: 'flex', padding: 4 }}><X size={16} /></button>
         </div>
         <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.55, marginBottom: 12 }}>
-          Build <b style={{ color: C.text }}>{title || details?.title || 'this song'}</b> from sections — drag a part in (or click it), drag again to repeat. Each block brings all its slides, always in order. The library song stays untouched.
+          Build <b style={{ color: C.text }}>{title || details?.title || 'this song'}</b> from sections — drag a part in (or click it), drag again to repeat. Each block is one exact section occurrence, so repeated choruses stay in the right place. The library song stays untouched.
         </div>
 
         {flow === null ? (
@@ -222,30 +264,31 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
               <div style={{ flex: '0 0 38%', minWidth: 0 }}>
                 <div style={{ fontSize: 10, color: C.faint, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>Master parts — click or drag in</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {sections.map((part) => {
-                    const list = cuesOf(part);
+                  {runs.map((run) => {
+                    const list = run.cues;
                     const firstLine = String(list[0]?.text || '').split('\n').find((l) => l.trim()) || '';
+                    const occ = run.total > 1 ? ` #${run.occurrence}` : '';
                     return (
                       <div
-                        key={part}
+                        key={run.key}
                         draggable
-                        onDragStart={(e) => startAdd(e, part)}
+                        onDragStart={(e) => startAdd(e, run)}
                         onDragEnd={() => setDropAt(null)}
-                        onClick={() => appendPart(part)}
+                        onClick={() => { if (Date.now() - lastDragAtRef.current > 350) appendRun(run); }}
                         title="Click to append · drag into the flow"
                         style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 9, padding: '8px 10px', cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8 }}
                       >
                         <GripVertical size={13} color={C.faint} style={{ flexShrink: 0 }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 12.5, fontWeight: 800, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            <span style={{ color: ACCENT }}>{abbrevSection(part)}</span> · {part}
+                            <span style={{ color: ACCENT }}>{abbrevSection(run.part)}{occ}</span> · {run.part}
                           </div>
                           <div style={{ fontSize: 10.5, color: C.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{list.length} slide{list.length === 1 ? '' : 's'} · {firstLine}</div>
                         </div>
                       </div>
                     );
                   })}
-                  {!sections.length && <div style={{ fontSize: 11.5, color: C.faint2 }}>No sections found.</div>}
+                  {!runs.length && <div style={{ fontSize: 11.5, color: C.faint2 }}>No sections found.</div>}
                 </div>
               </div>
 
@@ -261,7 +304,7 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
                   style={{ flex: 1, minHeight: 180, background: dropAt === 'end' ? 'rgba(255,184,0,0.10)' : C.elevated, border: '1px dashed ' + (dropAt === 'end' ? ACCENT : 'var(--ui-border2)'), borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', maxHeight: 340 }}
                 >
                   {flow.map((entry, i) => {
-                    const list = cuesOf(entry.part);
+                    const list = cuesOf(entry);
                     return (
                       <div key={entry.key}>
                         {dropAt === i && <div style={{ height: 3, borderRadius: 3, background: ACCENT, margin: '1px 2px' }} />}
@@ -277,7 +320,7 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span style={{ fontSize: 11, fontWeight: 800, color: ACCENT, width: 18, textAlign: 'right', flexShrink: 0 }}>{i + 1}.</span>
                             <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 800, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {abbrevSection(entry.part)} · {entry.part}
+                              {entryLabel(entry)}
                             </div>
                             <button onClick={() => move(i, -1)} title="Move up" style={btn}><ChevronUp size={13} /></button>
                             <button onClick={() => move(i, 1)} title="Move down" style={btn}><ChevronDown size={13} /></button>

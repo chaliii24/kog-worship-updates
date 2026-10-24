@@ -4,17 +4,31 @@ import { renderLyricsLayout, cueLyricStyle, LyricsBlock, computeLyricsFontSize, 
 import { transitionAnimation, FONT_OPTIONS } from '../lib/constants';
 import AnimatedBg from './AnimatedBg';
 import { CinematicBackdrop, CinematicOverlay, CinematicText } from './CinematicLayer';
+import {
+  SLIDE_WIDTH,
+  SLIDE_HEIGHT,
+  DEFAULT_BOX as CANONICAL_DEFAULT_BOX,
+  normalizeBox,
+  boxToCss,
+  clampCenterToCanvas,
+  clampBoxCenter,
+  boundBoxToCanvas,
+  boxFromKonvaNode,
+  applyBoxToKonvaNode,
+  clientToSlide,
+  topBoxAt as topBoxIndexAt,
+  containScale,
+} from '../lib/slideGeometry';
+import { useSongEditorStore } from '../store/useSongEditorStore';
 
-const CANVAS_W = 1280;
-const CANVAS_H = 720;
+const CANVAS_W = SLIDE_WIDTH;
+const CANVAS_H = SLIDE_HEIGHT;
 const ACCENT = '#00aaff';
-const MIN_W = 80;
-const MIN_H = 48;
 // A text box always stays WHOLE on the design canvas: a box hanging over the
 // edge cuts its words in half on the wall, and the operator only finds that
 // out when the slide is live. (Enforced by dragBound / boundBox below.)
 
-const DEFAULT_BOX = { x: 80, y: 100, w: 1120, h: 480 };
+const DEFAULT_BOX = CANONICAL_DEFAULT_BOX;
 
 // The inline-style half of the chip row: [key, label, tooltip label].
 const STYLE_TOGGLES = [
@@ -402,6 +416,23 @@ export default function LyricsCanvasEditor({
   const [scale, setScale] = useState(1);
   const [editing, setEditing] = useState(false);
   const [trNode, setTrNode] = useState(null);
+
+  // Canvas text metrics are measured with the real face. If a face finishes
+  // loading after the first paint, the cached widths and the textarea's own
+  // wrap would otherwise stay on the fallback font until some unrelated
+  // render. This bump gives the whole editor one deterministic re-measure.
+  const [, setFontEpoch] = useState(0);
+  useEffect(() => {
+    if (typeof document === 'undefined' || !document.fonts) return undefined;
+    let alive = true;
+    const bump = () => { if (alive) setFontEpoch((n) => n + 1); };
+    document.fonts.addEventListener?.('loadingdone', bump);
+    document.fonts.ready?.then(bump).catch(() => {});
+    return () => {
+      alive = false;
+      document.fonts.removeEventListener?.('loadingdone', bump);
+    };
+  }, []);
 
   // Typing commits to App state on a 150ms trailing edge. Every keystroke used
   // to round-trip setEditingSong → full-app re-render (plain-object context),
@@ -808,11 +839,10 @@ export default function LyricsCanvasEditor({
       const availW = parent.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
       const availH = parent.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
       if (!(availW > 0) || !(availH > 0)) return;
-      const w = Math.min(availW, availH * (CANVAS_W / CANVAS_H));
-      if (!(w > 0)) return;
-      el.style.width = `${w}px`;
-      el.style.height = `${w * (CANVAS_H / CANVAS_W)}px`;
-      const s = w / CANVAS_W;
+      const s = containScale(availW, availH, CANVAS_W, CANVAS_H);
+      if (!(s > 0)) return;
+      el.style.width = `${CANVAS_W * s}px`;
+      el.style.height = `${CANVAS_H * s}px`;
       setScale((prev) => (Math.abs(prev - s) < 0.0002 ? prev : s));
     };
     apply();
@@ -823,23 +853,21 @@ export default function LyricsCanvasEditor({
   }, []);
 
   // ---- geometry: React is the source of truth ----------------------------
+  // `boxToCss` is the ONE logical -> DOM conversion; the DOM layer itself is
+  // scaled by CSS, never the stored coordinates.
   const applyBoxToDom = useCallback((b) => {
-    const next = {
-      left: `${b.x}px`,
-      top: `${b.y}px`,
-      width: `${b.w}px`,
-      height: `${b.h}px`,
-      transform: b.angle ? `rotate(${b.angle}deg)` : 'none',
-    };
+    const next = boxToCss(b);
     if (displayBoxRef.current) Object.assign(displayBoxRef.current.style, next);
     if (editBoxRef.current) Object.assign(editBoxRef.current.style, next);
   }, []);
 
   // Runs after every commit so imperative gesture writes can never go stale
-  // against the props (React skips a style write when its own diff sees no
-  // change, which would otherwise leave the DOM parked at a dropped position).
+  // against the props. It also collapses any leftover Konva scale into the
+  // logical box, so save/reload and React re-renders describe the same rect.
   useLayoutEffect(() => {
-    if (!gestureRef.current) applyBoxToDom(box);
+    if (gestureRef.current) return;
+    applyBoxToDom(box);
+    if (groupRef.current) applyBoxToKonvaNode(groupRef.current, box);
   });
 
   const trNodes = useMemo(() => (trNode ? [trNode] : []), [trNode]);
@@ -856,54 +884,25 @@ export default function LyricsCanvasEditor({
   const anchorSize = Math.max(6, Math.round(11 / uiScale));
   const borderWidth = Math.max(1, 2 / uiScale);
 
-  const boundBox = useCallback((oldBox, newBox) => {
-    if (newBox.width < MIN_W || newBox.height < MIN_H) return oldBox;
-    if (newBox.x + newBox.width < MIN_W) return oldBox;
-    if (newBox.y + newBox.height < MIN_H) return oldBox;
-    if (newBox.x > CANVAS_W - MIN_W) return oldBox;
-    if (newBox.y > CANVAS_H - MIN_H) return oldBox;
-    // A resized text box stays WHOLE on the canvas, same rule as the drag.
-    if (newBox.x < 0 || newBox.y < 0) return oldBox;
-    if (newBox.x + newBox.width > CANVAS_W || newBox.y + newBox.height > CANVAS_H) return oldBox;
-    return newBox;
-  }, []);
+  const boundBox = useCallback((oldBox, newBox) => (
+    boundBoxToCanvas(oldBox, newBox, CANVAS_W, CANVAS_H)
+  ), []);
 
   // A text box stays WHOLE on the canvas. A box hanging over the edge cuts
   // its words in half on the wall — and the operator only finds out when the
-  // slide is live. A box too big for the canvas keeps its centre inside.
-  const dragBound = useCallback((pos) => {
-    const s = startBoxRef.current;
-    const halfW = s.w / 2;
-    const halfH = s.h / 2;
-    const minX = Math.min(halfW, CANVAS_W / 2);
-    const maxX = Math.max(CANVAS_W - halfW, CANVAS_W / 2);
-    const minY = Math.min(halfH, CANVAS_H / 2);
-    const maxY = Math.max(CANVAS_H - halfH, CANVAS_H / 2);
-    return {
-      x: Math.min(maxX, Math.max(minX, pos.x)),
-      y: Math.min(maxY, Math.max(minY, pos.y)),
-    };
-  }, []);
+  // slide is live. Rotation-aware: the clamp uses the box's rotated footprint.
+  const dragBound = useCallback((pos) => (
+    clampCenterToCanvas(startBoxRef.current, pos, CANVAS_W, CANVAS_H)
+  ), []);
 
   // Reconstructs the logical box from the node's current transform. Used live
   // during a gesture (to move the DOM lyrics under the cursor) and on end (to
   // commit). Does NOT mutate the node — scaling stays intact until commit.
-  const boxFromNode = useCallback(() => {
-    const g = groupRef.current;
-    const s = startBoxRef.current;
-    if (!g) return s;
-    const w = Math.max(MIN_W, Math.round(s.w * g.scaleX()));
-    const h = Math.max(MIN_H, Math.round(s.h * g.scaleY()));
-    const cx = g.x();
-    const cy = g.y();
-    return {
-      x: Math.round(cx - w / 2),
-      y: Math.round(cy - h / 2),
-      w,
-      h,
-      angle: Math.round((g.rotation() || 0) * 10) / 10,
-    };
-  }, []);
+  // The helper works purely in logical units: node scale is canvas zoom's
+  // business, never part of the saved coordinates.
+  const boxFromNode = useCallback(() => (
+    boxFromKonvaNode(groupRef.current, startBoxRef.current)
+  ), []);
 
   const emitBox = useCallback((b) => {
     applyBoxToDom(b);
@@ -983,55 +982,47 @@ export default function LyricsCanvasEditor({
     const el = wrapRef.current;
     const content = el && el.querySelector('.konvajs-content');
     if (!content) return -1;
-    const r = content.getBoundingClientRect();
-    const k = r.width / CANVAS_W;
-    if (!k) return -1;
-    const x = (clientX - r.left) / k;
-    const y = (clientY - r.top) / k;
-    for (let i = objList.length - 1; i >= 0; i--) {
-      const o = objList[i];
-      if (!o) continue;
-      const b = o.box || DEFAULT_BOX;
-      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return i;
-    }
-    return -1;
+    // Real bounding rect, not the React scale value: after a window resize the
+    // observer can lag one frame, and using stale scale made clicks land off.
+    const p = clientToSlide(clientX, clientY, content.getBoundingClientRect(), CANVAS_W, CANVAS_H);
+    const boxes = objList.map((o) => (o ? (o.box || DEFAULT_BOX) : null));
+    return topBoxIndexAt(boxes, p.x, p.y);
   };
+
+  // Every drag/resize is wrapped in one editor-store gesture. The live node and
+  // DOM move imperatively for responsiveness; the store receives only the
+  // final logical box on mouse-up, so SQLite writes and React never chase the
+  // pointer and one Ctrl+Z takes back the whole gesture.
+  const beginEditorGesture = () => useSongEditorStore.getState().beginGesture();
+  const endEditorGesture = () => useSongEditorStore.getState().endGesture();
 
   const handleDragStart = () => {
     startBoxRef.current = committedRef.current;
     gestureRef.current = true;
+    beginEditorGesture();
   };
 
   const handleDragMove = () => {
-    const g = groupRef.current;
-    const s = startBoxRef.current;
-    if (!g) return;
-    applyBoxToDom({
-      x: Math.round(g.x() - s.w / 2),
-      y: Math.round(g.y() - s.h / 2),
-      w: s.w,
-      h: s.h,
-      angle: Math.round((g.rotation() || 0) * 10) / 10,
-    });
+    if (!groupRef.current) return;
+    applyBoxToDom(boxFromNode());
   };
 
   const handleDragEnd = () => {
-    gestureRef.current = false;
     const g = groupRef.current;
-    const s = startBoxRef.current;
-    if (!g) return;
-    emitBox({
-      x: Math.round(g.x() - s.w / 2),
-      y: Math.round(g.y() - s.h / 2),
-      w: s.w,
-      h: s.h,
-      angle: Math.round((g.rotation() || 0) * 10) / 10,
-    });
+    if (!g) { gestureRef.current = false; endEditorGesture(); return; }
+    const next = boxFromNode();
+    gestureRef.current = false;
+    // Collapse any node transform into the committed geometry BEFORE React
+    // repaints, so the node and the incoming props describe one rectangle.
+    applyBoxToKonvaNode(g, next);
+    emitBox(next);
+    endEditorGesture();
   };
 
   const handleTransformStart = () => {
     startBoxRef.current = committedRef.current;
     gestureRef.current = true;
+    beginEditorGesture();
   };
 
   const handleTransform = () => {
@@ -1039,27 +1030,27 @@ export default function LyricsCanvasEditor({
   };
 
   const handleTransformEnd = () => {
-    gestureRef.current = false;
     const g = groupRef.current;
-    if (!g) return;
+    if (!g) { gestureRef.current = false; endEditorGesture(); return; }
     const next = boxFromNode();
+    // "Scale text" mode reads the vertical scale BEFORE it is collapsed.
     const sy = g.scaleY();
+    gestureRef.current = false;
 
-    // Collapse the scale back into the box/font before React re-renders, so
-    // the node and the incoming props describe the same geometry (no jump).
-    g.scaleX(1);
-    g.scaleY(1);
-    g.offset({ x: next.w / 2, y: next.h / 2 });
-    g.position({ x: next.x + next.w / 2, y: next.y + next.h / 2 });
-
-    emitBox(next);
+    // Text boxes resize their BOX; the font is not implicitly scaled in
+    // fit/fill modes. Scale mode explicitly writes a new font size below.
+    applyBoxToKonvaNode(g, next);
+    emitBox({ ...next, angle: next.angle });
 
     // "Scale text" mode: dragging a handle writes the font size directly.
     // Fit/Fill leave the size alone — the shared auto-fit recomputes it.
+    // Kept INSIDE the gesture so box + font size are one undo step.
     if (resizeMode === 'scale') {
       const nextSize = Math.round(Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, fontSize * sy)));
       if (nextSize !== fontSize) onSizeChange?.(nextSize);
     }
+
+    endEditorGesture();
   };
 
   // ---- text editing -------------------------------------------------------
@@ -1145,38 +1136,43 @@ export default function LyricsCanvasEditor({
             <LyricsBlock text={ghost.text || ''} st={ghost.lyric} box={ghost.lyric.box || { x: 64, y: 170, w: 1152, h: 380 }} />
           </div>
         )}
-        <div key={previewing ? `${previewAnim}-${previewTick}` : 'lyrics'} style={{ width: '100%', height: '100%', position: 'relative', animation: previewing ? animCSS : undefined }}>
+        <div style={{ width: '100%', height: '100%', position: 'relative' }}>
           <div
             ref={displayBoxRef}
             style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: boxTransform, transformOrigin: 'center center', overflow: 'hidden', zIndex: actIdx }}
           >
-            {editing ? (
-              overlayOn ? (
-                // WYSIWYG: the canvas renders the LIVE text through the same
-                // function the projector uses, so typing and output are one
-                // picture. caseMode is passed as CSS instead of the renderer's
-                // JS fold so the characters in the DOM stay 1:1 with the
-                // textarea offsets the caret maps in (both transform the same
-                // way on screen — this is exactly what the textarea did).
-                <div ref={layoutRef} style={{ width: '100%', height: '100%', textTransform: caseTransform }}>
-                  {renderLyricsLayout(emitSpans(taText, taSpans), { ...lyricSt, caseMode: 'none' }, box)}
-                  {/* Sibling of the renderer, never inside it: the caret bridge
-                      indexes `firstElementChild`'s children as lines, so this
-                      must stay out of that tree — and it gives the empty box
-                      the same centred hint the textarea used to paint. */}
-                  {!taText && (
-                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily, fontSize: Math.min(taSize, 56), fontWeight: bold !== false ? 700 : 400, color: 'rgba(245,245,244,0.34)', pointerEvents: 'none' }}>
-                      Type your lyrics…
-                    </div>
-                  )}
-                </div>
-              ) : null
-            ) : (
-              // The SAME component the wall draws with (measured fit), so the
-              // editor canvas and the output are one picture — not two
-              // different fits of the same words.
-              <LyricsBlock text={text} st={lyricSt} box={box} />
-            )}
+            {/* Preview the entrance on the box being styled ONLY — the other
+                boxes on the slide stay still, so hovering a transition shows
+                exactly what that text box will do. */}
+            <div key={previewing ? `${previewAnim}-${previewTick}` : 'lyrics'} style={{ width: '100%', height: '100%', animation: previewing ? animCSS : undefined }}>
+              {editing ? (
+                overlayOn ? (
+                  // WYSIWYG: the canvas renders the LIVE text through the same
+                  // function the projector uses, so typing and output are one
+                  // picture. caseMode is passed as CSS instead of the renderer's
+                  // JS fold so the characters in the DOM stay 1:1 with the
+                  // textarea offsets the caret maps in (both transform the same
+                  // way on screen — this is exactly what the textarea did).
+                  <div ref={layoutRef} style={{ width: '100%', height: '100%', textTransform: caseTransform }}>
+                    {renderLyricsLayout(emitSpans(taText, taSpans), { ...lyricSt, caseMode: 'none' }, box)}
+                    {/* Sibling of the renderer, never inside it: the caret bridge
+                        indexes `firstElementChild`'s children as lines, so this
+                        must stay out of that tree — and it gives the empty box
+                        the same centred hint the textarea used to paint. */}
+                    {!taText && (
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily, fontSize: Math.min(taSize, 56), fontWeight: bold !== false ? 700 : 400, color: 'rgba(245,245,244,0.34)', pointerEvents: 'none' }}>
+                        Type your lyrics…
+                      </div>
+                    )}
+                  </div>
+                ) : null
+              ) : (
+                // The SAME component the wall draws with (measured fit), so the
+                // editor canvas and the output are one picture — not two
+                // different fits of the same words.
+                <LyricsBlock text={text} st={lyricSt} box={box} />
+              )}
+            </div>
           </div>
           {/* The OTHER text boxes on this slide: the same renderer the
               projector uses, drawn read-only — Konva gives each one a hit box
@@ -1243,49 +1239,42 @@ export default function LyricsCanvasEditor({
               click always lands on the box that is drawn on top. */}
           {objList.map((o, i) => {
             if (!o || i === actIdx) return null;
-            const ob = o.box || DEFAULT_BOX;
-            const w = Math.max(1, Number(ob.w) || 640);
-            const h = Math.max(1, Number(ob.h) || 120);
+            const ob = normalizeBox(o.box || DEFAULT_BOX);
             return (
               <Group
                 key={o.id || `tx-${i}`}
-                x={(Number(ob.x) || 0) + w / 2}
-                y={(Number(ob.y) || 0) + h / 2}
-                offsetX={w / 2}
-                offsetY={h / 2}
-                rotation={Number(ob.angle) || 0}
+                x={ob.x + ob.w / 2}
+                y={ob.y + ob.h / 2}
+                offsetX={ob.w / 2}
+                offsetY={ob.h / 2}
+                rotation={ob.angle}
                 zIndex={i}
                 draggable={!cueLocked}
-                // Same canvas bounds as the main box: a text box can never
-                // hang over the edge (half a word off the wall is half a word
-                // off the wall).
-                dragBoundFunc={(pos) => ({
-                  x: Math.min(Math.max(CANVAS_W - w / 2, CANVAS_W / 2), Math.max(Math.min(w / 2, CANVAS_W / 2), pos.x)),
-                  y: Math.min(Math.max(CANVAS_H - h / 2, CANVAS_H / 2), Math.max(Math.min(h / 2, CANVAS_H / 2), pos.y)),
-                })}
+                // Same rotation-aware canvas bounds as the main box: a text
+                // box can never hang over the edge, even rotated.
+                dragBoundFunc={(pos) => clampCenterToCanvas(ob, pos, CANVAS_W, CANVAS_H)}
                 onClick={() => selectObj(i)}
                 onTap={() => selectObj(i)}
                 onDblClick={() => { selectObj(i); startEdit(); }}
                 onDblTap={() => { selectObj(i); startEdit(); }}
+                onDragStart={beginEditorGesture}
                 onDragMove={(e) => {
-                  const g = e.target;
-                  moveExtraDom(i, { ...ob, x: Math.round(g.x() - w / 2), y: Math.round(g.y() - h / 2) });
+                  const nb = boxFromKonvaNode(e.target, ob);
+                  moveExtraDom(i, nb);
                 }}
                 onDragEnd={(e) => {
                   const g = e.target;
-                  const nb = {
-                    ...ob,
-                    x: Math.round(Math.max(0, Math.min(CANVAS_W - w, g.x() - w / 2))),
-                    y: Math.round(Math.max(0, Math.min(CANVAS_H - h, g.y() - h / 2))),
-                    angle: Math.round((Number(g.rotation()) || 0) * 10) / 10,
-                  };
-                  g.position({ x: nb.x + w / 2, y: nb.y + h / 2 });
+                  // Clamp once, in logical units, then collapse the node back
+                  // onto the committed box so no transient transform survives.
+                  const nb = clampBoxCenter(boxFromKonvaNode(g, ob), CANVAS_W, CANVAS_H);
+                  applyBoxToKonvaNode(g, nb);
                   moveExtraDom(i, nb);
                   sendTa();
                   onObjBoxChange?.(i, nb);
+                  endEditorGesture();
                 }}
               >
-                <Rect width={w} height={h} fill="rgba(0,0,0,0.001)" />
+                <Rect width={ob.w} height={ob.h} fill="rgba(0,0,0,0.001)" />
               </Group>
             );
           })}

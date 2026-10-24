@@ -44,19 +44,39 @@ export default function StageDisplay({ currentSlide, C = {}, cfg = null, flow = 
     // rAF-collapsed like the projector: a windowed stage output dragged
     // across screens fires resize ~60x/s, and every one re-rendered the wall.
     let raf = 0;
+    const read = () => {
+      const de = typeof document !== 'undefined' ? document.documentElement : null;
+      const iw = Math.round(Number(window.innerWidth) || 0);
+      const ih = Math.round(Number(window.innerHeight) || 0);
+      const cw = de ? Math.round(Number(de.clientWidth) || 0) : 0;
+      const ch = de ? Math.round(Number(de.clientHeight) || 0) : 0;
+      const w = iw > 0 ? iw : (cw > 0 ? cw : 1920);
+      const h = ih > 0 ? ih : (ch > 0 ? ch : 1080);
+      setView((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    };
     const onResize = () => {
       if (raf) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
-        setView((prev) => {
-          const w = window.innerWidth;
-          const h = window.innerHeight;
-          return prev.w === w && prev.h === h ? prev : { w, h };
-        });
+        read();
       });
     };
     window.addEventListener('resize', onResize);
-    return () => { window.removeEventListener('resize', onResize); if (raf) cancelAnimationFrame(raf); };
+    window.addEventListener('orientationchange', onResize);
+    const vv = window.visualViewport;
+    if (vv) vv.addEventListener('resize', onResize);
+    // Display handshake / DPI / taskbar can settle after the first paint.
+    const timers = [0, 150, 600].map((ms) => setTimeout(read, ms));
+    const poll = setInterval(read, 2500);
+    read();
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+      if (vv) vv.removeEventListener('resize', onResize);
+      timers.forEach((t) => clearTimeout(t));
+      clearInterval(poll);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [!!frame]);
 
   const w = Math.max(1, (frame && frame.w) || view.w || 1920);
