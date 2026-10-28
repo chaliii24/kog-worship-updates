@@ -30,7 +30,7 @@ function Segmented({ C, ACCENT, options, value, onPick }) {
           <button
             key={v}
             onClick={() => onPick(v)}
-            style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? '#0D1014' : C.muted, borderRadius: 8, padding: '8px 6px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+            style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? '#1C1C1E' : C.muted, borderRadius: 8, padding: '8px 6px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
           >
             {Icon ? <Icon size={13} /> : null}{lbl}
           </button>
@@ -247,7 +247,7 @@ export default function CountdownPanel() {
                 </div>
                 <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
                   {durationPresets.map(([v, lbl]) => (
-                    <button key={v} onClick={() => set({ durationSec: v })} style={{ flex: 1, background: cfg.durationSec === v ? ACCENT : C.elevated2, border: '1px solid ' + (cfg.durationSec === v ? ACCENT : 'var(--ui-border2)'), color: cfg.durationSec === v ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: isVideoMode ? 10.5 : 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                    <button key={v} onClick={() => set({ durationSec: v })} style={{ flex: 1, background: cfg.durationSec === v ? ACCENT : C.elevated2, border: '1px solid ' + (cfg.durationSec === v ? ACCENT : 'var(--ui-border2)'), color: cfg.durationSec === v ? '#1C1C1E' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: isVideoMode ? 10.5 : 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
                   ))}
                 </div>
                 {isVideoMode && (
@@ -287,12 +287,12 @@ export default function CountdownPanel() {
               <label style={fieldLabel(C)}>Background</label>
               <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
                 {[['color', 'Color'], ['gradient', 'Gradient'], ['animated', 'Animated'], ['media', 'Media']].map(([v, lbl]) => (
-                  <button key={v} onClick={() => v === 'media' ? setMedia({}) : set({ bgType: v, bgValue: v === 'color' ? '#052e16' : v === 'animated' ? 'anim:aurora' : GRADIENT_PACK[4].css })} style={{ flex: 1, background: cfg.bgType === v ? ACCENT : C.elevated2, border: '1px solid ' + (cfg.bgType === v ? ACCENT : 'var(--ui-border2)'), color: cfg.bgType === v ? '#0D1014' : C.muted, borderRadius: 6, padding: '7px 0', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                  <button key={v} onClick={() => v === 'media' ? setMedia({}) : set({ bgType: v, bgValue: v === 'color' ? '#1C1C1E' : v === 'animated' ? 'anim:aurora' : GRADIENT_PACK[4].css })} style={{ flex: 1, background: cfg.bgType === v ? ACCENT : C.elevated2, border: '1px solid ' + (cfg.bgType === v ? ACCENT : 'var(--ui-border2)'), color: cfg.bgType === v ? '#1C1C1E' : C.muted, borderRadius: 6, padding: '7px 0', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
                 ))}
               </div>
               {cfg.bgType === 'color' ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(cfg.bgValue) ? cfg.bgValue : '#052e16'} onChange={(e) => set({ bgValue: e.target.value })} style={{ width: 44, height: 30, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 6, cursor: 'pointer', padding: 2 }} />
+                  <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(cfg.bgValue) ? cfg.bgValue : '#1C1C1E'} onChange={(e) => set({ bgValue: e.target.value })} style={{ width: 44, height: 30, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 6, cursor: 'pointer', padding: 2 }} />
                   <span style={{ fontSize: 11, color: C.muted }}>Solid background colour</span>
                 </div>
               ) : cfg.bgType === 'animated' ? (
@@ -336,7 +336,7 @@ export default function CountdownPanel() {
                       </div>
                       <div style={{ display: 'flex', gap: 4 }}>
                         {[5, 10, 15].map((s) => (
-                          <button key={s} onClick={() => setMedia({ slideSec: s })} style={{ flex: 1, background: media.slideSec === s ? ACCENT : C.elevated2, border: '1px solid ' + (media.slideSec === s ? ACCENT : 'var(--ui-border2)'), color: media.slideSec === s ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{s}s</button>
+                          <button key={s} onClick={() => setMedia({ slideSec: s })} style={{ flex: 1, background: media.slideSec === s ? ACCENT : C.elevated2, border: '1px solid ' + (media.slideSec === s ? ACCENT : 'var(--ui-border2)'), color: media.slideSec === s ? '#1C1C1E' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{s}s</button>
                         ))}
                       </div>
                       {/* Watermark badge (slideshow only): logo pinned to a
@@ -350,7 +350,7 @@ export default function CountdownPanel() {
                               <button onClick={() => setWatermarkOpts({ url: null })} title="Remove watermark" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: '#FF4545', borderRadius: 6, padding: '4px 10px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>Remove</button>
                             </span>
                           ) : (
-                            <button onClick={() => wmPickRef.current?.click()} disabled={mediaBusy} title="Pick a logo image" style={{ background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: mediaBusy ? 'default' : 'pointer', opacity: mediaBusy ? 0.6 : 1 }}>{mediaBusy ? 'Copying…' : 'Pick logo'}</button>
+                            <button onClick={() => wmPickRef.current?.click()} disabled={mediaBusy} title="Pick a logo image" style={{ background: ACCENT, border: 'none', color: '#1C1C1E', borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: mediaBusy ? 'default' : 'pointer', opacity: mediaBusy ? 0.6 : 1 }}>{mediaBusy ? 'Copying…' : 'Pick logo'}</button>
                           )}
                         </div>
                         <input ref={wmPickRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { setWatermark(e.target.files?.[0]); e.target.value = ''; }} />
@@ -360,7 +360,7 @@ export default function CountdownPanel() {
                               {[['tl', 'Top Left'], ['tr', 'Top Right'], ['bl', 'Bottom Left'], ['br', 'Bottom Right']].map(([v, lbl]) => {
                                 const cur = media.watermark?.pos || 'tl';
                                 return (
-                                  <button key={v} onClick={() => setWatermarkOpts({ pos: v })} style={{ flex: 1, background: cur === v ? ACCENT : C.elevated2, border: '1px solid ' + (cur === v ? ACCENT : 'var(--ui-border2)'), color: cur === v ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                                  <button key={v} onClick={() => setWatermarkOpts({ pos: v })} style={{ flex: 1, background: cur === v ? ACCENT : C.elevated2, border: '1px solid ' + (cur === v ? ACCENT : 'var(--ui-border2)'), color: cur === v ? '#1C1C1E' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
                                 );
                               })}
                             </div>
@@ -425,7 +425,7 @@ export default function CountdownPanel() {
                             </div>
                           ))}
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <button onClick={toggleAudioTest} disabled={live || !media.video} title={live ? 'Stop the countdown first — the live output owns the sound' : "Play this video's audio for 5 seconds"} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: audioTesting ? 'rgba(255,69,69,0.18)' : ACCENT, border: '1px solid ' + (audioTesting ? '#FF4545' : 'transparent'), color: audioTesting ? '#FF4545' : '#0D1014', borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: live || !media.video ? 'default' : 'pointer', opacity: live ? 0.55 : 1 }}>
+                            <button onClick={toggleAudioTest} disabled={live || !media.video} title={live ? 'Stop the countdown first — the live output owns the sound' : "Play this video's audio for 5 seconds"} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: audioTesting ? 'rgba(255,69,69,0.18)' : ACCENT, border: '1px solid ' + (audioTesting ? '#FF4545' : 'transparent'), color: audioTesting ? '#FF4545' : '#1C1C1E', borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 800, cursor: live || !media.video ? 'default' : 'pointer', opacity: live ? 0.55 : 1 }}>
                               {audioTesting ? <><Square size={12} /> Stop test</> : <><Volume2 size={12} /> Test audio</>}
                             </button>
                             <span style={{ fontSize: 10.5, color: media.videoAudio?.unsupported ? '#FF4545' : media.videoAudio?.hasTrack === false ? '#fbbf24' : C.faint2, lineHeight: 1.4 }}>
@@ -542,7 +542,7 @@ export default function CountdownPanel() {
                     placeholder="Name this setup…"
                     style={{ flex: 1, minWidth: 0, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: '7px 10px', fontSize: 12, outline: 'none' }}
                   />
-                  <button onClick={saveCdTemplate} disabled={!tplName.trim()} title="Save the current media setup" style={{ background: tplName.trim() ? ACCENT : C.elevated2, border: 'none', color: tplName.trim() ? '#0D1014' : C.muted, borderRadius: 7, padding: '7px 14px', fontSize: 11.5, fontWeight: 800, cursor: tplName.trim() ? 'pointer' : 'default', opacity: tplName.trim() ? 1 : 0.5 }}>Save</button>
+                  <button onClick={saveCdTemplate} disabled={!tplName.trim()} title="Save the current media setup" style={{ background: tplName.trim() ? ACCENT : C.elevated2, border: 'none', color: tplName.trim() ? '#1C1C1E' : C.muted, borderRadius: 7, padding: '7px 14px', fontSize: 11.5, fontWeight: 800, cursor: tplName.trim() ? 'pointer' : 'default', opacity: tplName.trim() ? 1 : 0.5 }}>Save</button>
                 </div>
                 {(cdTemplates || []).length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

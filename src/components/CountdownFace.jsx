@@ -23,7 +23,7 @@ export const DEFAULT_COUNTDOWN = {
   timeSize: 120,
   subtextSize: 40,
   bgType: 'gradient', // color | gradient | animated | media
-  bgValue: 'linear-gradient(135deg, #052e16 0%, #166534 55%, #031a0d 100%)',
+  bgValue: 'linear-gradient(135deg, #1C1C1E 0%, #166534 55%, #031a0d 100%)',
   // Custom Media mode (bgType 'media'): slideshow carousel and/or loop video.
   // URLs are media:// (persisted to userData, survive restarts) — never bytes.
   // videoAudio (video kind only): { enabled, volume, muted, fadeSec, hasTrack, unsupported }.
@@ -38,7 +38,7 @@ export const DEFAULT_COUNTDOWN = {
 export const ANIMATED_GRADIENTS = [
   {
     id: 'aurora', name: 'Aurora',
-    base: 'linear-gradient(135deg, #031a0d 0%, #052e16 60%, #02120a 100%)',
+    base: 'linear-gradient(135deg, #031a0d 0%, #1C1C1E 60%, #02120a 100%)',
     blobs: [
       { css: 'radial-gradient(circle, rgba(54,201,130,0.50) 0%, transparent 70%)', w: 900, h: 900, x: 8, y: 4, dx: 120, dy: 60, d: '11s' },
       { css: 'radial-gradient(circle, rgba(45,212,191,0.38) 0%, transparent 70%)', w: 760, h: 760, x: 58, y: 42, dx: -140, dy: -70, d: '14s' },
@@ -54,7 +54,7 @@ export const ANIMATED_GRADIENTS = [
   },
   {
     id: 'royal', name: 'Royal',
-    base: 'linear-gradient(135deg, #160b2e 0%, #1e1b4b 60%, #0b0718 100%)',
+    base: 'linear-gradient(135deg, #160b2e 0%, #2C2C2E 60%, #0b0718 100%)',
     blobs: [
       { css: 'radial-gradient(circle, rgba(255,184,0,0.50) 0%, transparent 70%)', w: 900, h: 900, x: 6, y: 8, dx: 140, dy: 60, d: '13s' },
       { css: 'radial-gradient(circle, rgba(59,130,246,0.36) 0%, transparent 70%)', w: 740, h: 740, x: 60, y: 44, dx: -130, dy: -80, d: '10s' },

@@ -6,8 +6,7 @@ import { renderLyricsLayout, cueLyricStyle, stripMarkup, ghostLayerOf, FONT_SIZE
 import { allTextObjects, newTextObject, textObjectLayers, textTransitionOf } from '../lib/songTextObjects';
 import { useApp } from '../context/AppContext';
 import { stubTap, iconBtnTap } from '../lib/anim';
-import { GRADIENT_PACK } from '../lib/backgrounds';
-import { animatedPresetOf, ANIMATED_GRADIENTS } from './CountdownFace';
+import { animatedPresetOf } from './CountdownFace';
 import AnimatedBg from './AnimatedBg';
 import { Tabs, TabList, Tab, TabPanel } from '../untitledui/components/application/tabs/tabs';
 import { toast } from '../untitledui/components/ui/toast';
@@ -17,6 +16,7 @@ import SongThemePicker from './SongThemePicker';
 import TitleCardTemplatePicker from './TitleCardTemplatePicker';
 import { titleCardCue, titleCardOf } from '../lib/titleCardTemplates';
 import CinematicPanel from './CinematicPanel';
+import BackgroundPicker from './BackgroundPicker';
 import { allCinematicPresets, cinematicCuePatch, cinematicTextPatch, cinematicTransitionPatch, presetFromCue, saveCustomCinematicPreset, deleteCustomCinematicPreset, normalizeGhost, TEXT_LOOK_KEYS } from '../lib/cinematic';
 import { allSongThemes, songThemeCuePatch, themeStyleFromCue, saveCustomSongTheme, updateCustomSongTheme, deleteCustomSongTheme, lastSongThemeId, rememberSongTheme, DEFAULT_TITLE_BOX } from '../lib/songThemes';
 import ColorPicker from '../untitledui/components/application/color-picker/color-picker';
@@ -161,6 +161,17 @@ const APPLY_SCOPES = [
   { k: 'all', label: 'All Slides', tip: 'Target every slide of the song, title slide included' },
 ];
 
+/* Sidebar section entrance — react-aria renders only the open TabPanel, so
+   every tab switch mounts a fresh pane and this plays each time. Short and
+   shallow on purpose: the rail slides its content up 8px and fades it in, so
+   the eye follows the change without the panel feeling like a new page. */
+const PANE_MOTION = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.18, ease: [0.22, 1, 0.36, 1] },
+};
+const PANE_STYLE = { display: 'flex', flexDirection: 'column', gap: 12, flex: 1 };
+
 export default function SongEditorModal() {
   const app = useApp();
   const {
@@ -251,6 +262,10 @@ export default function SongEditorModal() {
   }, [appConfirm, clearSongDraft, isSongDraftDirty, setIsEditorOpen]);
 
   const [hoverAnim, setHoverAnim] = useState(null);
+  // Sidebar sections — the stacked panels are split across tabs so the left
+  // and right rails never grow a page-long scroll of their own.
+  const [leftTab, setLeftTab] = useState('style');
+  const [rightTab, setRightTab] = useState('slides');
   const [previewTick, setPreviewTick] = useState(0);
   const hoverTimeoutRef = useRef(null);
   // Live view of what the canvas textarea has highlighted. With a highlight,
@@ -1416,473 +1431,500 @@ export default function SongEditorModal() {
       <TabPanel id="manual" className="box-border flex flex-1 min-h-0 overflow-hidden">
         <>
           {/* ================== LEFT SIDEBAR ================== */}
-          <div style={{ flex: '0 0 240px', minWidth: 200, borderRight: '1px solid var(--ui-border2)', overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ flex: '0 0 240px', minWidth: 200, minHeight: 0, borderRight: '1px solid var(--ui-border2)', overflow: 'hidden', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+            {/* LEFT RAIL SECTIONS — three tabs instead of one long stacked
+                scroll, so the rail itself never moves: Style (alignment, layout,
+                typography), Motion (transition + cinematic) and Notes. */}
+            <Tabs selectedKey={leftTab} onSelectionChange={setLeftTab} className="min-h-0 flex-1">
+              <TabList type="underline" size="sm" className="shrink-0 gap-1 px-3">
+                <Tab id="style" style={{ outline: 'none', padding: '7px 6px' }}>
+                  {(state) => <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.2, color: state.isSelected ? 'var(--kog-accent)' : 'var(--ui-muted)' }}>Style</span>}
+                </Tab>
+                <Tab id="motion" style={{ outline: 'none', padding: '7px 6px' }}>
+                  {(state) => <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.2, color: state.isSelected ? 'var(--kog-accent)' : 'var(--ui-muted)' }}>Motion</span>}
+                </Tab>
+                <Tab id="notes" style={{ outline: 'none', padding: '7px 6px' }}>
+                  {(state) => <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.2, color: state.isSelected ? 'var(--kog-accent)' : 'var(--ui-muted)' }}>Notes</span>}
+                </Tab>
+              </TabList>
+              <TabPanel id="style" className="box-border flex min-h-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto p-3">
+                <motion.div {...PANE_MOTION} style={PANE_STYLE}>
 
-            {/* ALIGNMENT */}
-            <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Alignment</div>
-              <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-                {[['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight], ['justify', AlignHorizontalJustifyCenter]].map(([a, Icon]) => (
-                  <button key={a} title={`Align ${a}`} onClick={() => patchText({ align: a })} style={{ flex: 1, background: (c?.align || 'center') === a ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.align || 'center') === a ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
-                {[['top', AlignVerticalJustifyStart, 'Top'], ['middle', AlignVerticalJustifyCenter, 'Middle'], ['bottom', AlignVerticalJustifyEnd, 'Bottom']].map(([v, Icon, lbl]) => (
-                  <button key={v} title={`Vertical: ${lbl}`} onClick={() => patchText({ valign: v })} style={{ flex: 1, background: (c?.valign || 'middle') === v ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.valign || 'middle') === v ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
-                ))}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }} title={c?.pad != null ? 'Padding' : `Auto — ${autoPadForSize(c?.size)}px at this font size`}>Padding{c?.pad == null && <span style={{ color: C.muted, fontWeight: 600 }}> · auto</span>}</label>
-                <input type="range" min="0" max="80" step="2" value={c?.pad ?? autoPadForSize(c?.size)} onChange={(e) => patchTextT({ pad: Number(e.target.value) })} style={{ flex: 1 }} />
-                <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.pad ?? autoPadForSize(c?.size)}</span>
-              </div>
-            </div>
-
-            {/* LAYOUT */}
-            <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Layout</div>
-              <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4 }}>Resize</div>
-              <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-                {[['fit', 'Fit'], ['fill', 'Fill'], ['scale', 'Scale']].map(([m, lbl]) => (
-                  <button key={m} onClick={() => patchText({ resizeMode: m })} style={{ flex: 1, background: (c?.resizeMode || 'fit') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.resizeMode || 'fit') === m ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
-                ))}
-              </div>
-              <div style={{ fontSize: 9.5, color: C.faint, lineHeight: 1.45, marginBottom: 8 }}>
-                {(c?.resizeMode || 'fit') === 'scale'
-                  ? 'Drag the handles to grow or shrink the text itself.'
-                  : (c?.resizeMode || 'fit') === 'fill'
-                    ? 'Text auto-scales to fill the box height.'
-                    : 'Box resizes freely; text reflows to fit.'}
-              </div>
-              {(c?.resizeMode || 'fit') === 'fill' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginBottom: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Min</label>
-                    <input type="range" min="14" max="100" step="1" value={c?.fillMin ?? 18} onChange={(e) => patchTextT({ fillMin: Number(e.target.value) })} style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.fillMin ?? 18}</span>
+                {/* ALIGNMENT */}
+                <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Alignment</div>
+                  <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                    {[['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight], ['justify', AlignHorizontalJustifyCenter]].map(([a, Icon]) => (
+                      <button key={a} title={`Align ${a}`} onClick={() => patchText({ align: a })} style={{ flex: 1, background: (c?.align || 'center') === a ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.align || 'center') === a ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
+                    ))}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Max</label>
-                    <input type="range" min="40" max={FONT_SIZE_MAX} step="5" value={c?.fillMax ?? 165} onChange={(e) => patchTextT({ fillMax: Number(e.target.value) })} style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.fillMax ?? 165}</span>
+                  <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+                    {[['top', AlignVerticalJustifyStart, 'Top'], ['middle', AlignVerticalJustifyCenter, 'Middle'], ['bottom', AlignVerticalJustifyEnd, 'Bottom']].map(([v, Icon, lbl]) => (
+                      <button key={v} title={`Vertical: ${lbl}`} onClick={() => patchText({ valign: v })} style={{ flex: 1, background: (c?.valign || 'middle') === v ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.valign || 'middle') === v ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }} title={c?.pad != null ? 'Padding' : `Auto — ${autoPadForSize(c?.size)}px at this font size`}>Padding{c?.pad == null && <span style={{ color: C.muted, fontWeight: 600 }}> · auto</span>}</label>
+                    <input type="range" min="0" max="80" step="2" value={c?.pad ?? autoPadForSize(c?.size)} onChange={(e) => patchTextT({ pad: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.pad ?? autoPadForSize(c?.size)}</span>
                   </div>
                 </div>
-              )}
-              <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4 }}>Display</div>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {[['static', 'Static'], ['ticker', 'Ticker']].map(([m, lbl]) => (
-                  <button key={m} onClick={() => patchText({ layoutMode: m })} style={{ flex: 1, background: (c?.layoutMode || 'static') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.layoutMode || 'static') === m ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
-                ))}
-              </div>
-              {(c?.layoutMode || 'static') === 'ticker' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1, whiteSpace: 'nowrap' }}>Speed (sec)</label>
-                    <input type="range" min="4" max="90" step="1" value={c?.tickerSpeed ?? 18} onChange={(e) => patchTextT({ tickerSpeed: Number(e.target.value) })} style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.tickerSpeed ?? 18}</span>
+
+                {/* LAYOUT */}
+                <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Layout</div>
+                  <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4 }}>Resize</div>
+                  <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                    {[['fit', 'Fit'], ['fill', 'Fill'], ['scale', 'Scale']].map(([m, lbl]) => (
+                      <button key={m} onClick={() => patchText({ resizeMode: m })} style={{ flex: 1, background: (c?.resizeMode || 'fit') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.resizeMode || 'fit') === m ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                    ))}
                   </div>
+                  <div style={{ fontSize: 9.5, color: C.faint, lineHeight: 1.45, marginBottom: 8 }}>
+                    {(c?.resizeMode || 'fit') === 'scale'
+                      ? 'Drag the handles to grow or shrink the text itself.'
+                      : (c?.resizeMode || 'fit') === 'fill'
+                        ? 'Text auto-scales to fill the box height.'
+                        : 'Box resizes freely; text reflows to fit.'}
+                  </div>
+                  {(c?.resizeMode || 'fit') === 'fill' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginBottom: 8 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Min</label>
+                        <input type="range" min="14" max="100" step="1" value={c?.fillMin ?? 18} onChange={(e) => patchTextT({ fillMin: Number(e.target.value) })} style={{ flex: 1 }} />
+                        <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.fillMin ?? 18}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Max</label>
+                        <input type="range" min="40" max={FONT_SIZE_MAX} step="5" value={c?.fillMax ?? 165} onChange={(e) => patchTextT({ fillMax: Number(e.target.value) })} style={{ flex: 1 }} />
+                        <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.fillMax ?? 165}</span>
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4 }}>Display</div>
                   <div style={{ display: 'flex', gap: 4 }}>
-                    {[['ltr', 'Scroll ←'], ['rtl', 'Scroll →']].map(([d, lbl]) => (
-                      <button key={d} onClick={() => patchText({ tickerDir: d })} style={{ flex: 1, background: (c?.tickerDir || 'ltr') === d ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.tickerDir || 'ltr') === d ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                    {[['static', 'Static'], ['ticker', 'Ticker']].map(([m, lbl]) => (
+                      <button key={m} onClick={() => patchText({ layoutMode: m })} style={{ flex: 1, background: (c?.layoutMode || 'static') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.layoutMode || 'static') === m ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                    ))}
+                  </div>
+                  {(c?.layoutMode || 'static') === 'ticker' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1, whiteSpace: 'nowrap' }}>Speed (sec)</label>
+                        <input type="range" min="4" max="90" step="1" value={c?.tickerSpeed ?? 18} onChange={(e) => patchTextT({ tickerSpeed: Number(e.target.value) })} style={{ flex: 1 }} />
+                        <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.tickerSpeed ?? 18}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {[['ltr', 'Scroll ←'], ['rtl', 'Scroll →']].map(([d, lbl]) => (
+                          <button key={d} onClick={() => patchText({ tickerDir: d })} style={{ flex: 1, background: (c?.tickerDir || 'ltr') === d ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.tickerDir || 'ltr') === d ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{lbl}</button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* TYPOGRAPHY */}
+                <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Typography</div>
+                  <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Font Family</label>
+                  <FontPicker value={c?.font || FONT_OPTIONS[0].value} choices={fontChoices} onChange={(v) => patchText({ font: v })} C={C} />
+                  {/* FONT STYLE — Regular / Italic as named buttons, because the
+                      slanted "I" icon further down is easy to miss and reading
+                      "is this face italic?" off an icon is guesswork. Same field
+                      as the I toggle (cue.italic), so the two can never disagree. */}
+                  <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+                    {[false, true].map((it) => {
+                      const active = selMode ? !!canvasSel.attrs.italic === it : !!c?.italic === it;
+                      return (
+                        <button
+                          key={String(it)}
+                          title={selMode ? `${it ? 'Italicise' : 'Straighten'} the selected text` : `${it ? 'Italicise' : 'Straighten'} this text box`}
+                          onMouseDown={(ev) => ev.preventDefault()}
+                          onClick={() => {
+                            if (selMode) { canvasApiRef.current?.applyStyle({ italic: it }); return; }
+                            patchText({ italic: it });
+                          }}
+                          style={{
+                            flex: 1,
+                            background: active ? ACCENT : C.elevated2,
+                            border: '1px solid ' + (active ? ACCENT : 'var(--ui-border2)'),
+                            color: active ? '#0D1014' : C.muted,
+                            borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700,
+                            fontStyle: it ? 'italic' : 'normal', cursor: 'pointer',
+                          }}
+                        >{it ? 'Italic' : 'Regular'}</button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+                    {[
+                      ['bold', Bold, 'Bold', true],
+                      ['italic', Italic, 'Italic', false],
+                      ['underline', Underline, 'Underline', false],
+                      ['strike', Strikethrough, 'Strikethrough', false],
+                    ].map(([k, Icon, lbl, def]) => {
+                      // With text highlighted in the canvas these style exactly
+                      // that highlight; with nothing selected they style the whole
+                      // slide, exactly as they always have.
+                      const active = selMode
+                        ? !!canvasSel.attrs[k]
+                        : (k === 'bold' ? (c?.bold !== false) : !!(c?.[k]));
+                      const toggle = () => {
+                        if (selMode) { canvasApiRef.current?.applyStyle({ [k]: !active }); return; }
+                        patchText({ [k]: !active });
+                      };
+                      return (
+                        // preventDefault on mousedown: the highlight only exists
+                        // while the textarea holds focus, and a button taking that
+                        // focus would end edit mode before the click lands.
+                        <button
+                          key={k}
+                          title={selMode ? `${lbl} the selected text` : `${lbl} this slide`}
+                          onMouseDown={(ev) => ev.preventDefault()}
+                          onClick={toggle}
+                          style={{ flex: 1, background: active ? ACCENT : C.elevated2, border: '1px solid ' + (active ? ACCENT : 'var(--ui-border2)'), color: active ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
+                      );
+                    })}
+                  </div>
+                  {selMode && (
+                    <div style={{ fontSize: 9.5, fontWeight: 700, color: '#FFC72C', marginTop: 5, letterSpacing: 0.2 }}>
+                      Highlighted text — B / I / U / S and Glow style only that. The canvas chips also size, colour, face and tracking it.
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Size</label>
+                      <NumField key={`size-${editorCueIdx}-${activeObj}`} value={c?.size || DEFAULT_LYRIC_SIZE} min={FONT_SIZE_MIN} max={FONT_SIZE_MAX} onCommit={(size) => {
+                        // The box follows the font: a bigger size grows the box so
+                        // the text draws at full size, a smaller one tightens it —
+                        // either way every line stays visible, never clipped.
+                        // Fill mode exempt (box drives size there, not vice versa).
+                        const st = fitStFor(c || {}, size);
+                        patchText({ size, box: fitBoxToText(c?.text || '', st, cBox) });
+                      }} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Line Ht</label>
+                      <NumField key={`lh-${editorCueIdx}-${activeObj}`} value={c?.lineHeight || 1.05} min={0.3} max={5} decimal onCommit={(lineHeight) => patchText({ lineHeight })} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1, whiteSpace: 'nowrap' }}>Tracking</label>
+                    <input type="range" min="-2" max="20" step="0.5" value={c?.letterSpacing || 0} onChange={(e) => patchTextT({ letterSpacing: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <span style={{ fontSize: 11, color: C.muted, width: 32, textAlign: 'right' }}>{c?.letterSpacing || 0}</span>
+                  </div>
+                  <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4, marginTop: 8 }}>Letter Case</label>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {[['none', 'Aa'], ['title', 'Aa'], ['upper', 'AA']].map(([m, lbl]) => (
+                      <button key={m} onClick={() => patchText({ case: m })} style={{ flex: 1, background: (c?.case || 'none') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.case || 'none') === m ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{m === 'title' ? 'Tt' : lbl}</button>
                     ))}
                   </div>
                 </div>
-              )}
-            </div>
 
-            {/* TYPOGRAPHY */}
-            <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Typography</div>
-              <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Font Family</label>
-              <FontPicker value={c?.font || FONT_OPTIONS[0].value} choices={fontChoices} onChange={(v) => patchText({ font: v })} C={C} />
-              {/* FONT STYLE — Regular / Italic as named buttons, because the
-                  slanted "I" icon further down is easy to miss and reading
-                  "is this face italic?" off an icon is guesswork. Same field
-                  as the I toggle (cue.italic), so the two can never disagree. */}
-              <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
-                {[false, true].map((it) => {
-                  const active = selMode ? !!canvasSel.attrs.italic === it : !!c?.italic === it;
-                  return (
-                    <button
-                      key={String(it)}
-                      title={selMode ? `${it ? 'Italicise' : 'Straighten'} the selected text` : `${it ? 'Italicise' : 'Straighten'} this text box`}
-                      onMouseDown={(ev) => ev.preventDefault()}
-                      onClick={() => {
-                        if (selMode) { canvasApiRef.current?.applyStyle({ italic: it }); return; }
-                        patchText({ italic: it });
-                      }}
-                      style={{
-                        flex: 1,
-                        background: active ? ACCENT : C.elevated2,
-                        border: '1px solid ' + (active ? ACCENT : 'var(--ui-border2)'),
-                        color: active ? '#0D1014' : C.muted,
-                        borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700,
-                        fontStyle: it ? 'italic' : 'normal', cursor: 'pointer',
-                      }}
-                    >{it ? 'Italic' : 'Regular'}</button>
-                  );
-                })}
-              </div>
-              <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
-                {[
-                  ['bold', Bold, 'Bold', true],
-                  ['italic', Italic, 'Italic', false],
-                  ['underline', Underline, 'Underline', false],
-                  ['strike', Strikethrough, 'Strikethrough', false],
-                ].map(([k, Icon, lbl, def]) => {
-                  // With text highlighted in the canvas these style exactly
-                  // that highlight; with nothing selected they style the whole
-                  // slide, exactly as they always have.
-                  const active = selMode
-                    ? !!canvasSel.attrs[k]
-                    : (k === 'bold' ? (c?.bold !== false) : !!(c?.[k]));
-                  const toggle = () => {
-                    if (selMode) { canvasApiRef.current?.applyStyle({ [k]: !active }); return; }
-                    patchText({ [k]: !active });
-                  };
-                  return (
-                    // preventDefault on mousedown: the highlight only exists
-                    // while the textarea holds focus, and a button taking that
-                    // focus would end edit mode before the click lands.
-                    <button
-                      key={k}
-                      title={selMode ? `${lbl} the selected text` : `${lbl} this slide`}
-                      onMouseDown={(ev) => ev.preventDefault()}
-                      onClick={toggle}
-                      style={{ flex: 1, background: active ? ACCENT : C.elevated2, border: '1px solid ' + (active ? ACCENT : 'var(--ui-border2)'), color: active ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
-                  );
-                })}
-              </div>
-              {selMode && (
-                <div style={{ fontSize: 9.5, fontWeight: 700, color: '#FFC72C', marginTop: 5, letterSpacing: 0.2 }}>
-                  Highlighted text — B / I / U / S and Glow style only that. The canvas chips also size, colour, face and tracking it.
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Size</label>
-                  <NumField key={`size-${editorCueIdx}-${activeObj}`} value={c?.size || DEFAULT_LYRIC_SIZE} min={FONT_SIZE_MIN} max={FONT_SIZE_MAX} onCommit={(size) => {
-                    // The box follows the font: a bigger size grows the box so
-                    // the text draws at full size, a smaller one tightens it —
-                    // either way every line stays visible, never clipped.
-                    // Fill mode exempt (box drives size there, not vice versa).
-                    const st = fitStFor(c || {}, size);
-                    patchText({ size, box: fitBoxToText(c?.text || '', st, cBox) });
-                  }} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Line Ht</label>
-                  <NumField key={`lh-${editorCueIdx}-${activeObj}`} value={c?.lineHeight || 1.05} min={0.3} max={5} decimal onCommit={(lineHeight) => patchText({ lineHeight })} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1, whiteSpace: 'nowrap' }}>Tracking</label>
-                <input type="range" min="-2" max="20" step="0.5" value={c?.letterSpacing || 0} onChange={(e) => patchTextT({ letterSpacing: Number(e.target.value) })} style={{ flex: 1 }} />
-                <span style={{ fontSize: 11, color: C.muted, width: 32, textAlign: 'right' }}>{c?.letterSpacing || 0}</span>
-              </div>
-              <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4, marginTop: 8 }}>Letter Case</label>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {[['none', 'Aa'], ['title', 'Aa'], ['upper', 'AA']].map(([m, lbl]) => (
-                  <button key={m} onClick={() => patchText({ case: m })} style={{ flex: 1, background: (c?.case || 'none') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.case || 'none') === m ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{m === 'title' ? 'Tt' : lbl}</button>
-                ))}
-              </div>
-            </div>
-
-            {/* TEXT STYLE */}
-            <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Text Style</div>
-              {/* UUI color picker — Solid | Gradient merged into one control */}
-              <div style={{ marginBottom: 8 }}>
-                <ColorPicker
-                  C={C}
-                  ACCENT={ACCENT}
-                  value={c?.color || '#ffffff'}
-                  gradient={!!c?.gradient}
-                  color1={c?.gradientColor1 || '#f5f5f4'}
-                  color2={c?.gradientColor2 || '#93c5fd'}
-                  angle={c?.gradientAngle ?? 180}
-                  onChange={(p) => patchText(p)}
-                  onLiveChange={(p) => patchTextT(p)}
-                />
-              </div>
-              {[['shadow', `Shadow ${c?.shadow ? 'ON' : 'OFF'}`], ['glow', `Glow ${(glowSelActive ? glowSel.attrs.glow : c?.glow) ? 'ON' : 'OFF'}`], ['outline', `Outline ${c?.outline ? 'ON' : 'OFF'}`], ['highlight', `Highlight ${c?.highlight ? 'ON' : 'OFF'}`]].map(([k, lbl]) => (
-                <button key={k} onMouseDown={(ev) => { if (k === 'glow' && (selMode || glowPicking)) ev.preventDefault(); }} onClick={() => {
-                  // With text highlighted, Glow styles exactly that
-                  // highlight; otherwise it styles the whole slide.
-                  if (k === 'glow' && (selMode || glowPicking)) {
-                    // Live highlight only — the button advertises slide state
-                    // whenever nothing is highlighted, so it must never act on
-                    // a word from an earlier pick.
-                    const r = canvasSel?.active ? canvasSel : null;
-                    if (r && r.to > r.from) {
-                      canvasApiRef.current?.applyStyleToRange?.({ glow: !r.attrs?.glow }, r.from, r.to);
-                      return;
-                    }
-                  }
-                  patchText({ [k]: !c?.[k] });
-                }} style={{ width: '100%', background: (k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? 'rgba(54,201,130,0.15)' : C.elevated2, border: '1px solid ' + ((k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? 'rgba(54,201,130,0.5)' : 'var(--ui-border2)'), color: (k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? '#36C982' : C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', marginBottom: 4 }}>{lbl}</button>
-              ))}
-              {c?.shadow && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 2 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Color</label>
-                    <input type="color" value={c?.shadowColor || '#000000'} onChange={(e) => patchText({ shadowColor: e.target.value })} style={{ width: 30, height: 24, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
+                {/* TEXT STYLE */}
+                <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Text Style</div>
+                  {/* UUI color picker — Solid | Gradient merged into one control */}
+                  <div style={{ marginBottom: 8 }}>
+                    <ColorPicker
+                      C={C}
+                      ACCENT={ACCENT}
+                      value={c?.color || '#ffffff'}
+                      gradient={!!c?.gradient}
+                      color1={c?.gradientColor1 || '#f5f5f4'}
+                      color2={c?.gradientColor2 || '#93c5fd'}
+                      angle={c?.gradientAngle ?? 180}
+                      onChange={(p) => patchText(p)}
+                      onLiveChange={(p) => patchTextT(p)}
+                    />
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Blur</label>
-                    <input type="range" min="0" max="40" step="1" value={c?.shadowBlur ?? 14} onChange={(e) => patchTextT({ shadowBlur: Number(e.target.value) })} style={{ flex: 1, minWidth: 0 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right', flexShrink: 0 }}>{c?.shadowBlur ?? 14}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, width: 12, flexShrink: 0 }}>X</label>
-                    <input type="range" min="-30" max="30" step="1" value={c?.shadowOffsetX ?? 0} onChange={(e) => patchTextT({ shadowOffsetX: Number(e.target.value) })} style={{ flex: 1, minWidth: 0 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 24, textAlign: 'right', flexShrink: 0 }}>{c?.shadowOffsetX ?? 0}</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, width: 12, flexShrink: 0 }}>Y</label>
-                    <input type="range" min="-30" max="30" step="1" value={c?.shadowOffsetY ?? 4} onChange={(e) => patchTextT({ shadowOffsetY: Number(e.target.value) })} style={{ flex: 1, minWidth: 0 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 24, textAlign: 'right', flexShrink: 0 }}>{c?.shadowOffsetY ?? 4}</span>
-                  </div>
-                </div>
-              )}
-              {(selMode || glowSelActive || c?.glow) && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 2 }}>
-                  {selMode && (
-                    <div style={{ fontSize: 9.5, fontWeight: 700, color: '#FFC72C', letterSpacing: 0.2 }}>
-                      Highlighted text — tap a colour and only that glows; the highlight stays until it is painted
+                  {[['shadow', `Shadow ${c?.shadow ? 'ON' : 'OFF'}`], ['glow', `Glow ${(glowSelActive ? glowSel.attrs.glow : c?.glow) ? 'ON' : 'OFF'}`], ['outline', `Outline ${c?.outline ? 'ON' : 'OFF'}`], ['highlight', `Highlight ${c?.highlight ? 'ON' : 'OFF'}`]].map(([k, lbl]) => (
+                    <button key={k} onMouseDown={(ev) => { if (k === 'glow' && (selMode || glowPicking)) ev.preventDefault(); }} onClick={() => {
+                      // With text highlighted, Glow styles exactly that
+                      // highlight; otherwise it styles the whole slide.
+                      if (k === 'glow' && (selMode || glowPicking)) {
+                        // Live highlight only — the button advertises slide state
+                        // whenever nothing is highlighted, so it must never act on
+                        // a word from an earlier pick.
+                        const r = canvasSel?.active ? canvasSel : null;
+                        if (r && r.to > r.from) {
+                          canvasApiRef.current?.applyStyleToRange?.({ glow: !r.attrs?.glow }, r.from, r.to);
+                          return;
+                        }
+                      }
+                      patchText({ [k]: !c?.[k] });
+                    }} style={{ width: '100%', background: (k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? 'rgba(54,201,130,0.15)' : C.elevated2, border: '1px solid ' + ((k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? 'rgba(54,201,130,0.5)' : 'var(--ui-border2)'), color: (k === 'glow' && glowSelActive ? glowSel.attrs.glow : c?.[k]) ? '#36C982' : C.muted, borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', marginBottom: 4 }}>{lbl}</button>
+                  ))}
+                  {c?.shadow && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 2 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Color</label>
+                        <input type="color" value={c?.shadowColor || '#000000'} onChange={(e) => patchText({ shadowColor: e.target.value })} style={{ width: 30, height: 24, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Blur</label>
+                        <input type="range" min="0" max="40" step="1" value={c?.shadowBlur ?? 14} onChange={(e) => patchTextT({ shadowBlur: Number(e.target.value) })} style={{ flex: 1, minWidth: 0 }} />
+                        <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right', flexShrink: 0 }}>{c?.shadowBlur ?? 14}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, width: 12, flexShrink: 0 }}>X</label>
+                        <input type="range" min="-30" max="30" step="1" value={c?.shadowOffsetX ?? 0} onChange={(e) => patchTextT({ shadowOffsetX: Number(e.target.value) })} style={{ flex: 1, minWidth: 0 }} />
+                        <span style={{ fontSize: 11, color: C.muted, width: 24, textAlign: 'right', flexShrink: 0 }}>{c?.shadowOffsetX ?? 0}</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, width: 12, flexShrink: 0 }}>Y</label>
+                        <input type="range" min="-30" max="30" step="1" value={c?.shadowOffsetY ?? 4} onChange={(e) => patchTextT({ shadowOffsetY: Number(e.target.value) })} style={{ flex: 1, minWidth: 0 }} />
+                        <span style={{ fontSize: 11, color: C.muted, width: 24, textAlign: 'right', flexShrink: 0 }}>{c?.shadowOffsetY ?? 4}</span>
+                      </div>
                     </div>
                   )}
-                  {selMode && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {GLOW_PRESETS.map((gc) => {
-                        const selColor = typeof canvasSel?.attrs?.glowColor === 'string' ? canvasSel.attrs.glowColor : (canvasSel?.attrs?.glow ? (c?.glowColor || '#22d3ee') : null);
-                        const on = selColor && selColor.toLowerCase() === gc.toLowerCase();
-                        return (
-                          <button
-                            key={gc}
-                            title={`Glow the highlighted text ${gc}`}
-                            onMouseDown={(ev) => ev.preventDefault()}
-                            onClick={() => canvasApiRef.current?.applyStyle({ glow: gc })}
-                            style={{ width: 26, height: 26, borderRadius: 7, background: gc, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), boxShadow: on ? `0 0 0 2px ${ACCENT}` : 'none', cursor: 'pointer', padding: 0 }}
-                          />
-                        );
-                      })}
+                  {(selMode || glowSelActive || c?.glow) && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 2 }}>
+                      {selMode && (
+                        <div style={{ fontSize: 9.5, fontWeight: 700, color: '#FFC72C', letterSpacing: 0.2 }}>
+                          Highlighted text — tap a colour and only that glows; the highlight stays until it is painted
+                        </div>
+                      )}
+                      {selMode && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {GLOW_PRESETS.map((gc) => {
+                            const selColor = typeof canvasSel?.attrs?.glowColor === 'string' ? canvasSel.attrs.glowColor : (canvasSel?.attrs?.glow ? (c?.glowColor || '#22d3ee') : null);
+                            const on = selColor && selColor.toLowerCase() === gc.toLowerCase();
+                            return (
+                              <button
+                                key={gc}
+                                title={`Glow the highlighted text ${gc}`}
+                                onMouseDown={(ev) => ev.preventDefault()}
+                                onClick={() => canvasApiRef.current?.applyStyle({ glow: gc })}
+                                style={{ width: 26, height: 26, borderRadius: 7, background: gc, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), boxShadow: on ? `0 0 0 2px ${ACCENT}` : 'none', cursor: 'pointer', padding: 0 }}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
+                      {!selMode && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Glow color</label>
+                        <input ref={glowColorRef} key={`glowc-${editorCueIdx}-${activeObj}`} type="color" defaultValue={c?.glowColor || '#22d3ee'} onMouseDown={() => {
+                          setGlowPicking(true);
+                          // Fresh intent: with no live highlight the latch (if any)
+                          // is a word from an earlier pick, not this visit.
+                          if (!canvasSel?.active) selLatchRef.current = null;
+                        }} onInput={(e) => {
+                          if (!paintGlowSelection(e.target.value)) canvasApiRef.current?.previewGlow?.(e.target.value);
+                        }} onChange={(e) => {
+                          if (!paintGlowSelection(e.target.value)) patchText({ glowColor: e.target.value });
+                          canvasApiRef.current?.clearGlowPreview?.();
+                          finishGlowPick();
+                        }} onBlur={() => {
+                          // Dialog cancelled (Esc): no onChange arrives, so drop a
+                          // stale drag-preview a beat after focus settles. After a
+                          // real pick this is a no-op (preview already cleared).
+                          setTimeout(() => canvasApiRef.current?.clearGlowPreview?.(), 300);
+                        }} style={{ width: 30, height: 24, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
+                      </div>
+                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Strength</label>
+                        <input type="range" min="0" max="60" step="1" value={c?.glowBlur ?? 18} onChange={(e) => patchTextT({ glowBlur: Number(e.target.value) })} style={{ flex: 1 }} />
+                        <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.glowBlur ?? 18}</span>
+                      </div>
                     </div>
                   )}
-                  {!selMode && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Glow color</label>
-                    <input ref={glowColorRef} key={`glowc-${editorCueIdx}-${activeObj}`} type="color" defaultValue={c?.glowColor || '#22d3ee'} onMouseDown={() => {
-                      setGlowPicking(true);
-                      // Fresh intent: with no live highlight the latch (if any)
-                      // is a word from an earlier pick, not this visit.
-                      if (!canvasSel?.active) selLatchRef.current = null;
-                    }} onInput={(e) => {
-                      if (!paintGlowSelection(e.target.value)) canvasApiRef.current?.previewGlow?.(e.target.value);
-                    }} onChange={(e) => {
-                      if (!paintGlowSelection(e.target.value)) patchText({ glowColor: e.target.value });
-                      canvasApiRef.current?.clearGlowPreview?.();
-                      finishGlowPick();
-                    }} onBlur={() => {
-                      // Dialog cancelled (Esc): no onChange arrives, so drop a
-                      // stale drag-preview a beat after focus settles. After a
-                      // real pick this is a no-op (preview already cleared).
-                      setTimeout(() => canvasApiRef.current?.clearGlowPreview?.(), 300);
-                    }} style={{ width: 30, height: 24, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
-                  </div>
+                  {c?.outline && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 2 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Stroke</label>
+                        <input type="color" value={c?.strokeColor || '#000000'} onChange={(e) => patchText({ strokeColor: e.target.value })} style={{ width: 30, height: 24, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Width</label>
+                        <input type="range" min="0" max="8" step="0.5" value={c?.strokeWidth ?? 1.5} onChange={(e) => patchTextT({ strokeWidth: Number(e.target.value) })} style={{ flex: 1 }} />
+                        <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.strokeWidth ?? 1.5}</span>
+                      </div>
+                    </div>
                   )}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Strength</label>
-                    <input type="range" min="0" max="60" step="1" value={c?.glowBlur ?? 18} onChange={(e) => patchTextT({ glowBlur: Number(e.target.value) })} style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.glowBlur ?? 18}</span>
-                  </div>
-                </div>
-              )}
-              {c?.outline && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: 8, marginTop: 2 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Stroke</label>
-                    <input type="color" value={c?.strokeColor || '#000000'} onChange={(e) => patchText({ strokeColor: e.target.value })} style={{ width: 30, height: 24, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Width</label>
-                    <input type="range" min="0" max="8" step="0.5" value={c?.strokeWidth ?? 1.5} onChange={(e) => patchTextT({ strokeWidth: Number(e.target.value) })} style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.strokeWidth ?? 1.5}</span>
-                  </div>
-                </div>
-              )}
-              {/* Gradient moved into the color picker: the Solid | Gradient
-                  segmented control in the popover owns gradient on/off, both
-                  stops and the angle. */}
-              {c?.highlight && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Opacity</label>
-                  <input type="range" min="10" max="90" value={c?.hlOpacity ?? 40} onChange={(e) => patchTextT({ hlOpacity: Number(e.target.value) })} style={{ flex: 1 }} />
-                  <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.hlOpacity ?? 40}%</span>
-                </div>
-              )}
-              {/* LAYER FILL — whole-text opacity, blend, and hollow/stroke-only
-                  type. Outline width is shared with the Outline toggle above, so
-                  turning stroke-only on never silently renders nothing. */}
-              <div style={{ borderTop: '1px solid var(--ui-border2)', marginTop: 8, paddingTop: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Text opacity</label>
-                  <input type="range" min="0" max="100" step="1" value={c?.opacity ?? 100} onChange={(e) => patchTextT({ opacity: Number(e.target.value) })} style={{ flex: 1 }} />
-                  <span style={{ fontSize: 11, color: C.muted, width: 30, textAlign: 'right' }}>{c?.opacity ?? 100}%</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                  <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, whiteSpace: 'nowrap' }}>Blend</label>
-                  <select
-                    value={c?.blendMode || 'normal'}
-                    onChange={(e) => patchText({ blendMode: e.target.value })}
-                    title="How this text layer mixes with the background and the ghost layer"
-                    style={{ flex: 1, minWidth: 0, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '5px 6px', fontSize: 10.5, outline: 'none' }}
-                  >
-                    {['normal', 'overlay', 'screen', 'soft-light', 'multiply', 'lighten', 'darken', 'color-dodge'].map((b) => <option key={b} value={b}>{b}</option>)}
-                  </select>
-                </div>
-                <button
-                  onClick={() => patchText({ strokeOnly: !c?.strokeOnly, outline: c?.strokeOnly ? c?.outline : true })}
-                  title="Hollow type: keep the stroke and drop the fill (the same look the ghost layer uses)"
-                  style={{
-                    width: '100%', marginTop: 6,
-                    background: c?.strokeOnly ? 'rgba(255,184,0,0.18)' : C.elevated2,
-                    border: `1px solid ${c?.strokeOnly ? 'rgba(255,184,0,0.55)' : 'var(--ui-border2)'}`,
-                    color: c?.strokeOnly ? '#FFC72C' : C.muted,
-                    borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer',
-                  }}
-                >{c?.strokeOnly ? 'Hollow / stroke only ON' : 'Hollow / stroke only OFF'}</button>
-              </div>
-            </div>
-
-            {/* TRANSITIONS — scoped to the TEXT BOX the sidebar is styling,
-                never to the slide as a whole. The main lyric keeps its values
-                on the cue (so old songs behave unchanged); every extra box
-                writes its own anim/speed onto cue.texts[n]. */}
-            <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-                <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Transition</div>
-                <span title="This entrance animates only the selected text box" style={{ fontSize: 9.5, fontWeight: 800, color: ACCENT, background: 'rgba(255,184,0,0.12)', border: '1px solid rgba(255,184,0,0.35)', borderRadius: 999, padding: '2px 7px', whiteSpace: 'nowrap' }}>
-                  {activeIdx > 0 ? `Box ${activeIdx + 1}` : 'Main text'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {TRANSITIONS.map(t => {
-                  const key = TRANSITION_KEYS[t];
-                  const selected = textTrans.anim === key;
-                  const isHovered = hoverAnim === key;
-                  return (
+                  {/* Gradient moved into the color picker: the Solid | Gradient
+                      segmented control in the popover owns gradient on/off, both
+                      stops and the angle. */}
+                  {c?.highlight && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Opacity</label>
+                      <input type="range" min="10" max="90" value={c?.hlOpacity ?? 40} onChange={(e) => patchTextT({ hlOpacity: Number(e.target.value) })} style={{ flex: 1 }} />
+                      <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.hlOpacity ?? 40}%</span>
+                    </div>
+                  )}
+                  {/* LAYER FILL — whole-text opacity, blend, and hollow/stroke-only
+                      type. Outline width is shared with the Outline toggle above, so
+                      turning stroke-only on never silently renders nothing. */}
+                  <div style={{ borderTop: '1px solid var(--ui-border2)', marginTop: 8, paddingTop: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }}>Text opacity</label>
+                      <input type="range" min="0" max="100" step="1" value={c?.opacity ?? 100} onChange={(e) => patchTextT({ opacity: Number(e.target.value) })} style={{ flex: 1 }} />
+                      <span style={{ fontSize: 11, color: C.muted, width: 30, textAlign: 'right' }}>{c?.opacity ?? 100}%</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                      <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, whiteSpace: 'nowrap' }}>Blend</label>
+                      <select
+                        value={c?.blendMode || 'normal'}
+                        onChange={(e) => patchText({ blendMode: e.target.value })}
+                        title="How this text layer mixes with the background and the ghost layer"
+                        style={{ flex: 1, minWidth: 0, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '5px 6px', fontSize: 10.5, outline: 'none' }}
+                      >
+                        {['normal', 'overlay', 'screen', 'soft-light', 'multiply', 'lighten', 'darken', 'color-dodge'].map((b) => <option key={b} value={b}>{b}</option>)}
+                      </select>
+                    </div>
                     <button
-                      key={t}
-                      onClick={() => {
-                        setHoverAnim(null);
-                        patchText({ anim: key });
-                      }}
-                      onMouseEnter={() => {
-                        if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-                        setHoverAnim(key);
-                        setPreviewTick(t => t + 1);
-                      }}
-                      onMouseLeave={() => {
-                        hoverTimeoutRef.current = setTimeout(() => {
-                          setHoverAnim(null);
-                        }, 80);
-                      }}
+                      onClick={() => patchText({ strokeOnly: !c?.strokeOnly, outline: c?.strokeOnly ? c?.outline : true })}
+                      title="Hollow type: keep the stroke and drop the fill (the same look the ghost layer uses)"
                       style={{
-                        background: selected ? ACCENT : isHovered ? 'rgba(0,170,255,0.2)' : C.elevated2,
-                        border: '1px solid ' + (selected ? ACCENT : isHovered ? 'rgba(0,170,255,0.5)' : 'var(--ui-border2)'),
-                        color: selected ? C.text : isHovered ? 'var(--ui-text)' : C.muted,
-                        borderRadius: 999,
-                        padding: '4px 9px',
-                        fontSize: 10,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        transition: 'all 0.12s ease',
-                        transform: isHovered && !selected ? 'scale(1.04)' : 'none',
+                        width: '100%', marginTop: 6,
+                        background: c?.strokeOnly ? 'rgba(255,184,0,0.18)' : C.elevated2,
+                        border: `1px solid ${c?.strokeOnly ? 'rgba(255,184,0,0.55)' : 'var(--ui-border2)'}`,
+                        color: c?.strokeOnly ? '#FFC72C' : C.muted,
+                        borderRadius: 6, padding: '6px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer',
                       }}
-                    >{t}</button>
-                  );
-                })}
-              </div>
-              {hoverAnim && hoverAnim !== textTrans.anim && (
-                <div style={{ marginTop: 6, fontSize: 9, color: ACCENT, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: ACCENT, display: 'inline-block', animation: 'pulse 0.8s infinite' }} />
-                  Previewing: {TRANSITIONS.find(t => TRANSITION_KEYS[t] === hoverAnim) || hoverAnim} on {activeIdx > 0 ? `Box ${activeIdx + 1}` : 'main text'}
+                    >{c?.strokeOnly ? 'Hollow / stroke only ON' : 'Hollow / stroke only OFF'}</button>
+                  </div>
                 </div>
-              )}
-              <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, margin: '10px 0 6px 0' }}>Speed</div>
-              <div style={{ display: 'flex', gap: 3 }}>
-                {SPEED_OPTIONS.map(s => {
-                  const selected = textTrans.speed === s.v;
-                  return (
-                    <button key={s.v} onClick={() => patchText({ speed: s.v })} title={s.label} style={{ flex: 1, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? '#0D1014' : C.muted, borderRadius: 5, padding: '6px 0', fontSize: 9.5, fontWeight: 700, cursor: 'pointer' }}>{s.v}s</button>
-                  );
-                })}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }} title="Overrides the Speed buttons for this text box only">This box (sec)</label>
-                <input
-                  type="number"
-                  min="0"
-                  max="10"
-                  step="0.05"
-                  value={textTrans.transDuration ?? 0}
-                  onChange={(e) => patchText({ transDuration: Math.max(0, Number(e.target.value) || 0) })}
-                  title="0 = use the Speed preset. Any other value is this text box's own transition duration."
-                  style={{ width: 68, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px', fontSize: 11, textAlign: 'center', outline: 'none' }}
-                />
-                <button
-                  onClick={() => patchText({ transDuration: 0 })}
-                  title="Clear this box's own duration and use the Speed preset"
-                  style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: (textTrans.transDuration || 0) > 0 ? '#FFC72C' : C.faint, borderRadius: 6, padding: '6px 8px', fontSize: 9.5, fontWeight: 800, cursor: 'pointer' }}
-                >Auto</button>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
-                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, whiteSpace: 'nowrap' }}>Auto Next (sec)</label>
-                <input type="number" min="0" value={editorCue?.autoNext ?? 0} onChange={(e) => updateCue(editorCueIdx, { autoNext: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} style={{ width: 60, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
-              </div>
-            </div>
 
-            {editorCue && (
-              <CinematicPanel
-                C={C}
-                ACCENT={ACCENT}
-                cue={editorCue}
-                presets={cinePresets}
-                scope={cineScope}
-                onScopeChange={setCineScope}
-                onPatch={(patch) => updateCue(editorCueIdx, patch)}
-                onPatchLive={(patch) => updateCueThrottled(editorCueIdx, patch)}
-                onApplyPreset={applyCinematicPreset}
-                onSavePreset={saveCinematicPreset}
-                onDeletePreset={removeCinematicPreset}
-                onGhostSource={setGhostSource}
-                onGhostLastLine={moveLastLineToGhost}
-                ghostContext={ghostContext}
-                textBoxes={textObjs}
-                boxTarget={cineBoxTarget}
-                onBoxTargetChange={setCineBoxTarget}
-                sourceLabel={activeIdx > 0 ? `Box ${activeIdx + 1}` : 'Main text'}
-              />
-            )}
+                {/* ONE apply-to-all. Sticky so it stays reachable however far the
+                    sidebar has been scrolled. */}
+                <div style={{ position: 'sticky', bottom: 0, zIndex: 3, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10, boxShadow: '0 -10px 22px rgba(0,0,0,0.35)' }}>
+                  <button onClick={applyTypographyToAll} title="Copy this slide's font, size, alignment, colour, effects and transition onto every slide of the song, title slide included" style={{ width: '100%', background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 8, padding: '9px 8px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', lineHeight: 1.3 }}>Apply typography changes to all slides</button>
+                  <div style={{ fontSize: 9, color: C.faint, marginTop: 5, textAlign: 'center', lineHeight: 1.45 }}>Uses this slide as the source. Layout, padding, timing and notes stay as they are.</div>
+                </div>
+                </motion.div>
+              </TabPanel>
+              <TabPanel id="motion" className="box-border flex min-h-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto p-3">
+                <motion.div {...PANE_MOTION} style={PANE_STYLE}>
+                {/* TRANSITIONS — scoped to the TEXT BOX the sidebar is styling,
+                    never to the slide as a whole. The main lyric keeps its values
+                    on the cue (so old songs behave unchanged); every extra box
+                    writes its own anim/speed onto cue.texts[n]. */}
+                <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Transition</div>
+                    <span title="This entrance animates only the selected text box" style={{ fontSize: 9.5, fontWeight: 800, color: ACCENT, background: 'rgba(255,184,0,0.12)', border: '1px solid rgba(255,184,0,0.35)', borderRadius: 999, padding: '2px 7px', whiteSpace: 'nowrap' }}>
+                      {activeIdx > 0 ? `Box ${activeIdx + 1}` : 'Main text'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {TRANSITIONS.map(t => {
+                      const key = TRANSITION_KEYS[t];
+                      const selected = textTrans.anim === key;
+                      const isHovered = hoverAnim === key;
+                      return (
+                        <button
+                          key={t}
+                          onClick={() => {
+                            setHoverAnim(null);
+                            patchText({ anim: key });
+                          }}
+                          onMouseEnter={() => {
+                            if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+                            setHoverAnim(key);
+                            setPreviewTick(t => t + 1);
+                          }}
+                          onMouseLeave={() => {
+                            hoverTimeoutRef.current = setTimeout(() => {
+                              setHoverAnim(null);
+                            }, 80);
+                          }}
+                          style={{
+                            background: selected ? ACCENT : isHovered ? 'rgba(0,170,255,0.2)' : C.elevated2,
+                            border: '1px solid ' + (selected ? ACCENT : isHovered ? 'rgba(0,170,255,0.5)' : 'var(--ui-border2)'),
+                            color: selected ? C.text : isHovered ? 'var(--ui-text)' : C.muted,
+                            borderRadius: 999,
+                            padding: '4px 9px',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            transition: 'all 0.12s ease',
+                            transform: isHovered && !selected ? 'scale(1.04)' : 'none',
+                          }}
+                        >{t}</button>
+                      );
+                    })}
+                  </div>
+                  {hoverAnim && hoverAnim !== textTrans.anim && (
+                    <div style={{ marginTop: 6, fontSize: 9, color: ACCENT, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: ACCENT, display: 'inline-block', animation: 'pulse 0.8s infinite' }} />
+                      Previewing: {TRANSITIONS.find(t => TRANSITION_KEYS[t] === hoverAnim) || hoverAnim} on {activeIdx > 0 ? `Box ${activeIdx + 1}` : 'main text'}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, margin: '10px 0 6px 0' }}>Speed</div>
+                  <div style={{ display: 'flex', gap: 3 }}>
+                    {SPEED_OPTIONS.map(s => {
+                      const selected = textTrans.speed === s.v;
+                      return (
+                        <button key={s.v} onClick={() => patchText({ speed: s.v })} title={s.label} style={{ flex: 1, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? '#0D1014' : C.muted, borderRadius: 5, padding: '6px 0', fontSize: 9.5, fontWeight: 700, cursor: 'pointer' }}>{s.v}s</button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }} title="Overrides the Speed buttons for this text box only">This box (sec)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="10"
+                      step="0.05"
+                      value={textTrans.transDuration ?? 0}
+                      onChange={(e) => patchText({ transDuration: Math.max(0, Number(e.target.value) || 0) })}
+                      title="0 = use the Speed preset. Any other value is this text box's own transition duration."
+                      style={{ width: 68, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px', fontSize: 11, textAlign: 'center', outline: 'none' }}
+                    />
+                    <button
+                      onClick={() => patchText({ transDuration: 0 })}
+                      title="Clear this box's own duration and use the Speed preset"
+                      style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: (textTrans.transDuration || 0) > 0 ? '#FFC72C' : C.faint, borderRadius: 6, padding: '6px 8px', fontSize: 9.5, fontWeight: 800, cursor: 'pointer' }}
+                    >Auto</button>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, whiteSpace: 'nowrap' }}>Auto Next (sec)</label>
+                    <input type="number" min="0" value={editorCue?.autoNext ?? 0} onChange={(e) => updateCue(editorCueIdx, { autoNext: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} style={{ width: 60, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
+                  </div>
+                </div>
 
-            {/* ONE apply-to-all. Sticky so it stays reachable however far the
-                sidebar has been scrolled. */}
-            <div style={{ position: 'sticky', bottom: 0, zIndex: 3, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10, boxShadow: '0 -10px 22px rgba(0,0,0,0.35)' }}>
-              <button onClick={applyTypographyToAll} title="Copy this slide's font, size, alignment, colour, effects and transition onto every slide of the song, title slide included" style={{ width: '100%', background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 8, padding: '9px 8px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', lineHeight: 1.3 }}>Apply typography changes to all slides</button>
-              <div style={{ fontSize: 9, color: C.faint, marginTop: 5, textAlign: 'center', lineHeight: 1.45 }}>Uses this slide as the source. Layout, padding, timing and notes stay as they are.</div>
-            </div>
+                {editorCue && (
+                  <CinematicPanel
+                    C={C}
+                    ACCENT={ACCENT}
+                    cue={editorCue}
+                    presets={cinePresets}
+                    scope={cineScope}
+                    onScopeChange={setCineScope}
+                    onPatch={(patch) => updateCue(editorCueIdx, patch)}
+                    onPatchLive={(patch) => updateCueThrottled(editorCueIdx, patch)}
+                    onApplyPreset={applyCinematicPreset}
+                    onSavePreset={saveCinematicPreset}
+                    onDeletePreset={removeCinematicPreset}
+                    onGhostSource={setGhostSource}
+                    onGhostLastLine={moveLastLineToGhost}
+                    ghostContext={ghostContext}
+                    textBoxes={textObjs}
+                    boxTarget={cineBoxTarget}
+                    onBoxTargetChange={setCineBoxTarget}
+                    sourceLabel={activeIdx > 0 ? `Box ${activeIdx + 1}` : 'Main text'}
+                  />
+                )}
 
-            {/* PRESENTER NOTES */}
-            <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10, flex: 1, minHeight: 120, display: 'flex', flexDirection: 'column' }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Presenter Notes</div>
-              <textarea
-                value={editorCue?.notes || ''}
-                onChange={(e) => updateCue(editorCueIdx, { notes: e.target.value })}
-                placeholder="Stage-only: cues, chords, prompts… (never shown to the audience)"
-                style={{ flex: 1, resize: 'none', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: 8, fontSize: 12, outline: 'none' }}
-              />
-            </div>
+                </motion.div>
+              </TabPanel>
+              <TabPanel id="notes" className="box-border flex min-h-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto p-3">
+                <motion.div {...PANE_MOTION} style={PANE_STYLE}>
+                {/* PRESENTER NOTES */}
+                <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10, flex: 1, minHeight: 120, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Presenter Notes</div>
+                  <textarea
+                    value={editorCue?.notes || ''}
+                    onChange={(e) => updateCue(editorCueIdx, { notes: e.target.value })}
+                    placeholder="Stage-only: cues, chords, prompts… (never shown to the audience)"
+                    style={{ flex: 1, resize: 'none', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: 8, fontSize: 12, outline: 'none' }}
+                  />
+                </div>
+                </motion.div>
+              </TabPanel>
+            </Tabs>
           </div>
 
           {/* ================== CENTER CANVAS ================== */}
@@ -2047,313 +2089,291 @@ export default function SongEditorModal() {
           </div>
 
           {/* ================== RIGHT SIDEBAR ================== */}
-          <div style={{ flex: '0 0 300px', minWidth: 240, borderLeft: '1px solid var(--ui-border2)', overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {/* TITLE CARD — only while the title slide is the one being
-                edited: a card belongs to the song's opening moment, and the
-                picker would be noise next to a verse's typography. */}
-            {editorCueIdx === -1 && (
-              <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Title Card</span>
-                  <span title="Applies to the title slide of this song — pick Classic to go back to the plain centred look" style={{ fontSize: 9.5, fontWeight: 800, color: ACCENT, background: 'rgba(255,184,0,0.12)', border: '1px solid rgba(255,184,0,0.35)', borderRadius: 999, padding: '2px 7px', whiteSpace: 'nowrap' }}>
-                    {titleCardOf(c).label}
-                  </span>
-                </div>
-                <TitleCardTemplatePicker value={c?.card || 'classic'} onChange={applyTitleCard} C={C} ACCENT={ACCENT} />
-                {titleCardOf(c).chrome ? (
-                  <div style={{ display: 'grid', gap: 6, marginTop: 10 }}>
-                    <label style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>Event line</label>
-                    <input
-                      type="text"
-                      value={c?.cardEvent || ''}
-                      onChange={(e) => updateCue(-1, { cardEvent: e.target.value })}
-                      placeholder="e.g. PASSION 2025"
-                      title="The small line the card prints near the top right. Editorial adds the LIVE FROM caption itself — typing it here too would repeat it (the card hides the duplicate). Leave the line empty and nothing is drawn."
-                      style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px 8px', fontSize: 11.5, outline: 'none', boxSizing: 'border-box' }}
-                    />
-                    <label style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>Venue line</label>
-                    <input
-                      type="text"
-                      value={c?.cardVenue || ''}
-                      onChange={(e) => updateCue(-1, { cardVenue: e.target.value })}
-                      placeholder="e.g. Atlanta, Georgia, USA"
-                      title="The small line the card prints near the bottom right. Leave it empty and nothing is drawn."
-                      style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px 8px', fontSize: 11.5, outline: 'none', boxSizing: 'border-box' }}
-                    />
-                    <div style={{ fontSize: 9, color: C.faint, lineHeight: 1.45 }}>The singer line comes from the song's artist. Empty lines are simply not drawn.</div>
-                  </div>
-                ) : null}
-              </div>
-            )}
-
-            {/* SLIDES */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Slides</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <button
-                    onClick={() => (applySel.length ? setApplySel([]) : selectAllSlides())}
-                    title={applySel.length ? 'Clear the ticks' : 'Tick every slide (title included) for bulk actions'}
-                    style={{ background: applySel.length ? 'rgba(255,184,0,0.2)' : C.elevated, border: '1px solid ' + (applySel.length ? 'rgba(255,184,0,0.55)' : 'var(--ui-border2)'), color: applySel.length ? '#FFC72C' : C.muted, borderRadius: 6, padding: '4px 7px', fontSize: 10, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
-                  ><CheckSquare size={11} /> {applySel.length ? `${applySel.length} ticked` : 'Select'}</button>
-                  {/* Live count: every change re-flows the blocks immediately —
-                      the number is not a setting you confirm elsewhere. An empty
-                      or half-typed value waits for blur rather than rebuilding
-                      the song on 0 lines. */}
-                  <input type="number" min="1" max="12" value={linesPerSlide} title="Lines per slide — blocks re-flow to this count as you change it" onChange={(e) => { setLinesPerSlide(e.target.value); const n = Math.floor(Number(e.target.value)); if (n >= 1) splitCuesToLines(n); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }} onBlur={(e) => { const n = Math.max(1, Math.min(12, Math.floor(Number(e.target.value)) || 4)); setLinesPerSlide(String(n)); splitCuesToLines(n); }} style={{ width: 42, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '4px 5px', fontSize: 11, textAlign: 'center', outline: 'none' }} />
-                  <button onClick={() => splitCuesToLines()} title="Re-flow every section to N lines — merges (Part n) slides back together, or cuts long ones. Changing the number above already does this." style={{ background: '#1e1b4b', border: '1px solid ' + ACCENT, color: C.accLine, borderRadius: 6, padding: '4px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}><AlignLeft size={11} /> Split</button>
-                </div>
-              </div>
-              {applySel.length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8, background: 'rgba(255,184,0,0.10)', border: '1px solid rgba(255,184,0,0.38)', borderRadius: 8, padding: '5px 7px' }}>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: '#FFC72C', whiteSpace: 'nowrap' }}>{applySel.length} ticked</span>
-                  <span style={{ flex: 1 }} />
-                  <button onClick={duplicateSelected} title="Duplicate every ticked slide" style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 5, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}><Copy size={10} /> Copy</button>
-                  <button onClick={deleteSelectedSlides} title="Delete every ticked lyric slide (Ctrl+Z brings them back)" style={{ background: 'rgba(255,69,69,0.12)', border: '1px solid rgba(255,69,69,0.4)', color: '#FF4545', borderRadius: 5, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}><Trash2 size={10} /> Delete</button>
-                  <button onClick={() => setApplySel([])} title="Clear the ticks" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.faint, borderRadius: 5, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</button>
-                </div>
-              )}
-              <div style={{ display: 'grid', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
-                {/* Title Slide Thumbnail */}
-                <div onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); dropCue(dragFrom, 0, 'before', false); }} onClick={(e) => slideClick(e, -1)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: editorCueIdx === -1 ? 'rgba(255,184,0,0.16)' : C.elevated, border: dragFrom != null ? '1px dashed ' + ACCENT : (editorCueIdx === -1 ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(-1) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
-                  <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 5, background: songHasBackground(editingSong) && (editingSong.bg_type === 'color' || editingSong.bg_type === 'gradient') ? editingSong.bg_value : (songHasBackground(editingSong) && editingSong.bg_type === 'animated' ? animatedPresetOf(editingSong.bg_value).base : '#0a0a0a'), position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {editingSong.bg_type === 'image' && editingSong.bg_value && (
-                      <img draggable={false} src={editingSong.bg_value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-                    )}
-                    {editingSong.bg_type === 'video' && editingSong.bg_value && (
-                      <TileVideo src={editingSong.bg_value} animate={editorCueIdx === -1} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-                    )}
-                    {editingSong.bg_type === 'animated' && (
-                      <AnimatedBg value={editingSong.bg_value} k={0.3} />
-                    )}
-                    <div style={{ position: 'relative', zIndex: 2, color: '#f5f5f4', fontSize: 10, fontWeight: 800, textAlign: 'center', padding: '0 6px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{editingSong.title || 'Song Title'}</div>
-                    {applySel.includes(-1) && (
-                      <span style={{ position: 'absolute', top: 4, right: 4, zIndex: 4, width: 14, height: 14, borderRadius: '50%', background: ACCENT, color: '#0D1014', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>✓</span>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }}>
-                    <span style={{ fontSize: 9.5, fontWeight: 800, color: '#38bdf8' }}>Title Slide</span>
-                  </div>
-                </div>
-
-                {(() => {
-                  const groups = [];
-                  (editingSong.cues || []).forEach((c, i) => {
-                    const base = baseGroupLabel(c.label);
-                    let g = groups.find(x => x.base === base);
-                    if (!g) { g = { base, items: [] }; groups.push(g); }
-                    g.items.push({ c, i, li: g.items.length + 1 });
-                  });
-                  return groups.map((g, gi) => (
-                    <div key={gi} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const first = g.items[0]; if (first) dropCue(dragFrom, first.i, 'before'); }}>
-                      <div style={{ fontSize: 10, fontWeight: 800, color: C.accLine, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span>{g.base}</span><span style={{ color: C.faint, fontWeight: 600, letterSpacing: 0 }}>{g.items.length} slide{g.items.length > 1 ? 's' : ''}</span>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                        {g.items.map(({ c, i, li }) => (
-                          <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: i === editorCueIdx ? 'rgba(255,184,0,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
-                            {dropHint && dropHint.i === i && (
-                              <span style={{ position: 'absolute', top: 0, bottom: 0, [dropHint.side === 'before' ? 'left' : 'right']: 0, width: 3, background: ACCENT, borderRadius: 3, zIndex: 6 }} />
-                            )}
-                            <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 5, background: (resolveBg(c, editingSong) && (resolveBg(c, editingSong).type === 'color' || resolveBg(c, editingSong).type === 'gradient') ? resolveBg(c, editingSong).value : (resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'animated' ? animatedPresetOf(resolveBg(c, editingSong).value).base : '#0a0a0a')), position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'image' && (
-                                <img key={`tb-${resolveBg(c, editingSong).value}`} draggable={false} src={resolveBg(c, editingSong).value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-                              )}
-                              {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'video' && (
-                                <TileVideo key={`tb-${resolveBg(c, editingSong).value}`} src={resolveBg(c, editingSong).value} animate={i === editorCueIdx} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-                              )}
-                              {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'animated' && (
-                                <AnimatedBg key={`tba-${resolveBg(c, editingSong).value}`} value={resolveBg(c, editingSong).value} k={0.3} />
-                              )}
-                              {(() => {
-                                // 1:1 with the canvas and the projector: the
-                                // SAME renderer on the SAME 1280×720 design
-                                // canvas, contain-fitted to the thumb (the
-                                // live slide grid does exactly this). Box,
-                                // size, wrapping and position therefore
-                                // always match the editor — split a line and
-                                // the thumb and the canvas move together.
-                                const st = { ...cueLyricStyle(c), layoutMode: 'static' };
-                                const box = st.box;
-                                return (
-                                  <TileCanvas>
-                                    <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
-                                      {renderLyricsLayout(c.text || '', st, box)}
-                                    </div>
-                                    {/* Extra text boxes, drawn on the thumb the
-                                        same way the projector draws them. */}
-                                    {textObjectLayers(c).map((t, ti) => {
-                                      const tb = t.lyric.box;
-                                      return (
-                                        <div key={`tx-${ti}`} style={{ position: 'absolute', left: tb.x, top: tb.y, width: tb.w, height: tb.h, transform: tb.angle ? `rotate(${tb.angle}deg)` : undefined, transformOrigin: 'center center' }}>
-                                          {renderLyricsLayout(t.text, { ...t.lyric, layoutMode: 'static' }, tb)}
-                                        </div>
-                                      );
-                                    })}
-                                  </TileCanvas>
-                                );
-                              })()}
-                              <div style={{ position: 'absolute', top: 3, left: 4, zIndex: 5, fontSize: 8, fontWeight: 800, color: 'rgba(255,255,255,0.85)', background: 'rgba(0,0,0,0.45)', borderRadius: 3, padding: '0 4px' }}>{gi + 1}.{li}</div>
-                              {applySel.includes(i) && (
-                                <span style={{ position: 'absolute', top: 3, right: 4, zIndex: 5, width: 14, height: 14, borderRadius: '50%', background: ACCENT, color: '#0D1014', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>✓</span>
-                              )}
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }}>
-                              {(renameIdx === i && renameFrom === 'strip') ? (
-                                <input ref={renameRef} value={renameVal} onChange={(e) => setRenameVal(e.target.value)} onClick={(e) => e.stopPropagation()} onBlur={commitRename} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitRename(); } else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); } }} style={{ flex: 1, minWidth: 0, background: C.input, color: C.text, border: '1px solid ' + ACCENT, borderRadius: 4, padding: '1px 4px', fontSize: 9.5, fontWeight: 700, outline: 'none' }} />
-                              ) : (
-                                <span onDoubleClick={(e) => { e.stopPropagation(); startRename(i, c, 'strip'); }} title="Double-click to rename" style={{ fontSize: 9.5, fontWeight: 700, color: C.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 84, cursor: 'text' }}>{c.label}</span>
-                              )}
-                              <div style={{ display: 'flex', gap: 2 }}>
-                                <button onClick={(e) => { e.stopPropagation(); updateCue(i, { hidden: !c.hidden }); }} title={c.hidden ? 'Show' : 'Hide from projection'} style={{ background: 'transparent', border: 'none', color: c.hidden ? '#FF4545' : C.faint, cursor: 'pointer', padding: 1 }}>{c.hidden ? <EyeOff size={11} /> : <Eye size={11} />}</button>
-                                <button onClick={(e) => { e.stopPropagation(); updateCue(i, { locked: !c.locked }); }} title={c.locked ? 'Unlock' : 'Lock'} style={{ background: 'transparent', border: 'none', color: c.locked ? '#fbbf24' : C.faint, cursor: 'pointer', padding: 1 }}>{c.locked ? <Lock size={11} /> : <Unlock size={11} />}</button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+          <div style={{ flex: '0 0 300px', minWidth: 240, minHeight: 0, borderLeft: '1px solid var(--ui-border2)', overflow: 'hidden', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+            {/* RIGHT RAIL SECTIONS — Slides (title card + filmstrip), Sequence
+                (the slide-order builder) and Slide Setup (song background +
+                per-slide properties). Only the open tab scrolls. */}
+            <Tabs selectedKey={rightTab} onSelectionChange={setRightTab} className="min-h-0 flex-1">
+              <TabList type="underline" size="sm" className="shrink-0 gap-1 px-3">
+                <Tab id="slides" style={{ outline: 'none', padding: '7px 6px' }}>
+                  {(state) => <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.2, color: state.isSelected ? 'var(--kog-accent)' : 'var(--ui-muted)' }}>Slides</span>}
+                </Tab>
+                <Tab id="sequence" style={{ outline: 'none', padding: '7px 6px' }}>
+                  {(state) => <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.2, color: state.isSelected ? 'var(--kog-accent)' : 'var(--ui-muted)' }}>Sequence</span>}
+                </Tab>
+                <Tab id="setup" style={{ outline: 'none', padding: '7px 6px' }}>
+                  {(state) => <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.2, color: state.isSelected ? 'var(--kog-accent)' : 'var(--ui-muted)' }}>Slide Setup</span>}
+                </Tab>
+              </TabList>
+              <TabPanel id="slides" className="box-border flex min-h-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto p-3">
+                <motion.div {...PANE_MOTION} style={PANE_STYLE}>
+                {/* TITLE CARD — only while the title slide is the one being
+                    edited: a card belongs to the song's opening moment, and the
+                    picker would be noise next to a verse's typography. */}
+                {editorCueIdx === -1 && (
+                  <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Title Card</span>
+                      <span title="Applies to the title slide of this song — pick Classic to go back to the plain centred look" style={{ fontSize: 9.5, fontWeight: 800, color: ACCENT, background: 'rgba(255,184,0,0.12)', border: '1px solid rgba(255,184,0,0.35)', borderRadius: 999, padding: '2px 7px', whiteSpace: 'nowrap' }}>
+                        {titleCardOf(c).label}
+                      </span>
                     </div>
-                  ));
-                })()}
-              </div>
-            </div>
-
-            {/* CUSTOM SLIDE ORDER */}
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Custom Slide Order</div>
-              <div style={{ display: 'grid', gap: 5 }}>
-                {(editingSong.cues || []).map((c, i) => (
-                  <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: i === editorCueIdx ? 'rgba(255,184,0,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, padding: '6px 8px', cursor: 'grab' }}>
-                    {dropHint && dropHint.i === i && (
-                      <span style={{ position: 'absolute', top: 0, bottom: 0, [dropHint.side === 'before' ? 'left' : 'right']: 0, width: 3, background: ACCENT, borderRadius: 3 }} />
-                    )}
-                    <GripVertical size={13} color={C.faint2} style={{ flexShrink: 0 }} />
-                    <span style={{ fontSize: 10.5, fontWeight: 800, color: C.faint, width: 20 }}>{i + 1}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      {(renameIdx === i && renameFrom === 'order') ? (
-                        <input ref={renameRef} value={renameVal} onChange={(e) => setRenameVal(e.target.value)} onClick={(e) => e.stopPropagation()} onBlur={commitRename} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitRename(); } else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); } }} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid ' + ACCENT, borderRadius: 4, padding: '2px 4px', fontSize: 11, fontWeight: 700, outline: 'none' }} />
-                      ) : (
-                        <div onDoubleClick={(e) => { e.stopPropagation(); startRename(i, c, 'order'); }} title="Double-click to rename" style={{ fontSize: 11, fontWeight: 700, color: C.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'text' }}>{c.label || 'Slide'}</div>
-                      )}
-                      <div style={{ fontSize: 9.5, color: C.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stripMarkup(c.text || '').split('\n')[0] || 'empty'}</div>
-                    </div>
-                    <button onClick={(e) => { e.stopPropagation(); moveCue(i, -1); setApplySel([]); }} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: 2 }}><ChevronUp size={12} /></button>
-                    <button onClick={(e) => { e.stopPropagation(); moveCue(i, 1); setApplySel([]); }} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: 2 }}><ChevronDown size={12} /></button>
+                    <TitleCardTemplatePicker value={c?.card || 'classic'} onChange={applyTitleCard} C={C} ACCENT={ACCENT} />
+                    {titleCardOf(c).chrome ? (
+                      <div style={{ display: 'grid', gap: 6, marginTop: 10 }}>
+                        <label style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>Event line</label>
+                        <input
+                          type="text"
+                          value={c?.cardEvent || ''}
+                          onChange={(e) => updateCue(-1, { cardEvent: e.target.value })}
+                          placeholder="e.g. PASSION 2025"
+                          title="The small line the card prints near the top right. Editorial adds the LIVE FROM caption itself — typing it here too would repeat it (the card hides the duplicate). Leave the line empty and nothing is drawn."
+                          style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px 8px', fontSize: 11.5, outline: 'none', boxSizing: 'border-box' }}
+                        />
+                        <label style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>Venue line</label>
+                        <input
+                          type="text"
+                          value={c?.cardVenue || ''}
+                          onChange={(e) => updateCue(-1, { cardVenue: e.target.value })}
+                          placeholder="e.g. Atlanta, Georgia, USA"
+                          title="The small line the card prints near the bottom right. Leave it empty and nothing is drawn."
+                          style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px 8px', fontSize: 11.5, outline: 'none', boxSizing: 'border-box' }}
+                        />
+                        <div style={{ fontSize: 9, color: C.faint, lineHeight: 1.45 }}>The singer line comes from the song's artist. Empty lines are simply not drawn.</div>
+                      </div>
+                    ) : null}
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* SONG BACKGROUND */}
-            <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Song Background</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: (mediaLibrary || []).some(a => a.kind === 'image' || a.kind === 'video') ? 8 : 0 }}>
-                <input type="color" value={editingSong.bg_type === 'color' ? (editingSong.bg_value || '#000000') : '#000000'} onChange={(e) => setSongBackground('color', e.target.value)} style={{ width: 30, height: 26, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} title="Song-wide solid color background" />
-                <label style={{ background: C.input, color: C.text2, border: '1px solid var(--ui-border2)', padding: '4px 8px', borderRadius: 5, fontSize: 10, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}><ImageIcon size={10} /> Image<input type="file" accept="image/*" onChange={(e) => { songBgFileToBackground('image', e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} /></label>
-                <label style={{ background: C.input, color: C.text2, border: '1px solid var(--ui-border2)', padding: '4px 8px', borderRadius: 5, fontSize: 10, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Video size={10} /> Video<input type="file" accept="video/mp4,video/webm" onChange={(e) => { songBgFileToBackground('video', e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} /></label>
-                {songHasBackground(editingSong) && (
-                  <button onClick={() => setSongBackground('color', '#000000')} style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.muted, padding: '4px 7px', borderRadius: 5, fontSize: 10, cursor: 'pointer' }}>Clear</button>
                 )}
-              </div>
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>Gradients</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
-                  {GRADIENT_PACK.map((g) => (
-                    <div key={g.id} onClick={() => setSongBackground('gradient', g.css)} title={g.name} style={{ aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: editingSong.bg_type === 'gradient' && editingSong.bg_value === g.css ? '2px solid #36C982' : '1px solid var(--ui-border2)', background: g.css }} />
-                  ))}
-                </div>
-              </div>
-              <div style={{ marginBottom: (mediaLibrary || []).some(a => a.kind === 'image' || a.kind === 'video') ? 8 : 0 }}>
-                <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>Animated</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 5 }}>
-                  {ANIMATED_GRADIENTS.map((g) => (
-                    <div key={g.id} onClick={() => setSongBackground('animated', `anim:${g.id}`)} title={`${g.name} (animated loop)`} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: editingSong.bg_type === 'animated' && editingSong.bg_value === `anim:${g.id}` ? '2px solid #36C982' : '1px solid var(--ui-border2)', background: g.base }}>
-                      <span style={{ position: 'absolute', bottom: 2, left: 0, right: 0, textAlign: 'center', fontSize: 7, fontWeight: 800, color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{g.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {(mediaLibrary || []).some(a => a.kind === 'image' || a.kind === 'video') && (
+
+                {/* SLIDES */}
                 <div>
-                  <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>From Media Library</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 5 }}>
-                    {(mediaLibrary || []).filter(a => a.kind === 'image' || a.kind === 'video').map(a => {
-                      const active = editingSong.bg_type === a.kind && editingSong.bg_value === a.url;
-                      return (
-                        <div key={a.url} onClick={() => setSongBackground(a.kind, a.url)} title={a.url.split('/').pop() || a.url} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: active ? '2px solid #36C982' : '1px solid var(--ui-border2)', background: '#000' }}>
-                          {a.kind === 'image'
-                            ? <img src={a.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                            : <TileVideo src={a.url} animate={active} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
-                          <span style={{ position: 'absolute', bottom: 2, right: 3, fontSize: 7, fontWeight: 800, color: '#fff', background: 'rgba(0,0,0,0.55)', borderRadius: 3, padding: '0 3px' }}>{a.kind}</span>
-                        </div>
-                      );
-                    })}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Slides</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <button
+                        onClick={() => (applySel.length ? setApplySel([]) : selectAllSlides())}
+                        title={applySel.length ? 'Clear the ticks' : 'Tick every slide (title included) for bulk actions'}
+                        style={{ background: applySel.length ? 'rgba(255,184,0,0.2)' : C.elevated, border: '1px solid ' + (applySel.length ? 'rgba(255,184,0,0.55)' : 'var(--ui-border2)'), color: applySel.length ? '#FFC72C' : C.muted, borderRadius: 6, padding: '4px 7px', fontSize: 10, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
+                      ><CheckSquare size={11} /> {applySel.length ? `${applySel.length} ticked` : 'Select'}</button>
+                      {/* Live count: every change re-flows the blocks immediately —
+                          the number is not a setting you confirm elsewhere. An empty
+                          or half-typed value waits for blur rather than rebuilding
+                          the song on 0 lines. */}
+                      <input type="number" min="1" max="12" value={linesPerSlide} title="Lines per slide — blocks re-flow to this count as you change it" onChange={(e) => { setLinesPerSlide(e.target.value); const n = Math.floor(Number(e.target.value)); if (n >= 1) splitCuesToLines(n); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }} onBlur={(e) => { const n = Math.max(1, Math.min(12, Math.floor(Number(e.target.value)) || 4)); setLinesPerSlide(String(n)); splitCuesToLines(n); }} style={{ width: 42, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '4px 5px', fontSize: 11, textAlign: 'center', outline: 'none' }} />
+                      <button onClick={() => splitCuesToLines()} title="Re-flow every section to N lines — merges (Part n) slides back together, or cuts long ones. Changing the number above already does this." style={{ background: '#1e1b4b', border: '1px solid ' + ACCENT, color: C.accLine, borderRadius: 6, padding: '4px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}><AlignLeft size={11} /> Split</button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-
-            {/* SLIDE PROPERTIES */}
-            {showSlideProps && editorCue && (
-              <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
-                <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Slide Properties</div>
-                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Label</label>
-                <input type="text" value={editorCue.label || ''} onChange={(e) => updateCue(editorCueIdx, { label: e.target.value })} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none', marginBottom: 8 }} />
-                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Background</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: (mediaLibrary || []).some(a => a.kind === 'image' || a.kind === 'video') ? 8 : 10 }}>
-                  <input type="color" value={editorCue.bg_type === 'color' ? (editorCue.bg_value || '#000000') : '#000000'} onChange={(e) => setCueBackground(editorCueIdx, 'color', e.target.value)} style={{ width: 28, height: 24, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 5, cursor: 'pointer', padding: 0 }} />
-                  <label style={{ background: C.input, color: C.text2, border: '1px solid var(--ui-border2)', padding: '4px 7px', borderRadius: 5, fontSize: 10, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}><ImageIcon size={10} /> Img<input type="file" accept="image/*" onChange={(e) => cueFileToBackground(editorCueIdx, 'image', e.target.files[0])} style={{ display: 'none' }} /></label>
-                  <label style={{ background: C.input, color: C.text2, border: '1px solid var(--ui-border2)', padding: '4px 7px', borderRadius: 5, fontSize: 10, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Video size={10} /> Vid<input type="file" accept="video/mp4,video/webm" onChange={(e) => cueFileToBackground(editorCueIdx, 'video', e.target.files[0])} style={{ display: 'none' }} /></label>
-                  {cueHasBackground(editorCue) && (
-                    <button onClick={() => clearCueBackground(editorCueIdx)} style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.muted, padding: '4px 7px', borderRadius: 5, fontSize: 10, cursor: 'pointer' }}>Clear</button>
+                  {applySel.length > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8, background: 'rgba(255,184,0,0.10)', border: '1px solid rgba(255,184,0,0.38)', borderRadius: 8, padding: '5px 7px' }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: '#FFC72C', whiteSpace: 'nowrap' }}>{applySel.length} ticked</span>
+                      <span style={{ flex: 1 }} />
+                      <button onClick={duplicateSelected} title="Duplicate every ticked slide" style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 5, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}><Copy size={10} /> Copy</button>
+                      <button onClick={deleteSelectedSlides} title="Delete every ticked lyric slide (Ctrl+Z brings them back)" style={{ background: 'rgba(255,69,69,0.12)', border: '1px solid rgba(255,69,69,0.4)', color: '#FF4545', borderRadius: 5, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}><Trash2 size={10} /> Delete</button>
+                      <button onClick={() => setApplySel([])} title="Clear the ticks" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.faint, borderRadius: 5, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</button>
+                    </div>
                   )}
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>Gradients</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-                    {GRADIENT_PACK.map((g) => (
-                      <div key={g.id} onClick={() => setCueBackground(editorCueIdx, 'gradient', g.css)} title={g.name} style={{ aspectRatio: '16 / 9', borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: editorCue.bg_type === 'gradient' && editorCue.bg_value === g.css ? '2px solid #36C982' : '1px solid var(--ui-border2)', background: g.css }} />
-                    ))}
+                  <div style={{ display: 'grid', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
+                    {/* Title Slide Thumbnail */}
+                    <div onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); dropCue(dragFrom, 0, 'before', false); }} onClick={(e) => slideClick(e, -1)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: editorCueIdx === -1 ? 'rgba(255,184,0,0.16)' : C.elevated, border: dragFrom != null ? '1px dashed ' + ACCENT : (editorCueIdx === -1 ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(-1) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
+                      <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 5, background: songHasBackground(editingSong) && (editingSong.bg_type === 'color' || editingSong.bg_type === 'gradient') ? editingSong.bg_value : (songHasBackground(editingSong) && editingSong.bg_type === 'animated' ? animatedPresetOf(editingSong.bg_value).base : '#0a0a0a'), position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {editingSong.bg_type === 'image' && editingSong.bg_value && (
+                          <img draggable={false} src={editingSong.bg_value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                        )}
+                        {editingSong.bg_type === 'video' && editingSong.bg_value && (
+                          <TileVideo src={editingSong.bg_value} animate={editorCueIdx === -1} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                        )}
+                        {editingSong.bg_type === 'animated' && (
+                          <AnimatedBg value={editingSong.bg_value} k={0.3} />
+                        )}
+                        <div style={{ position: 'relative', zIndex: 2, color: '#f5f5f4', fontSize: 10, fontWeight: 800, textAlign: 'center', padding: '0 6px', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{editingSong.title || 'Song Title'}</div>
+                        {applySel.includes(-1) && (
+                          <span style={{ position: 'absolute', top: 4, right: 4, zIndex: 4, width: 14, height: 14, borderRadius: '50%', background: ACCENT, color: '#0D1014', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>✓</span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }}>
+                        <span style={{ fontSize: 9.5, fontWeight: 800, color: '#38bdf8' }}>Title Slide</span>
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const groups = [];
+                      (editingSong.cues || []).forEach((c, i) => {
+                        const base = baseGroupLabel(c.label);
+                        let g = groups.find(x => x.base === base);
+                        if (!g) { g = { base, items: [] }; groups.push(g); }
+                        g.items.push({ c, i, li: g.items.length + 1 });
+                      });
+                      return groups.map((g, gi) => (
+                        <div key={gi} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const first = g.items[0]; if (first) dropCue(dragFrom, first.i, 'before'); }}>
+                          <div style={{ fontSize: 10, fontWeight: 800, color: C.accLine, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span>{g.base}</span><span style={{ color: C.faint, fontWeight: 600, letterSpacing: 0 }}>{g.items.length} slide{g.items.length > 1 ? 's' : ''}</span>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                            {g.items.map(({ c, i, li }) => (
+                              <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: i === editorCueIdx ? 'rgba(255,184,0,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
+                                {dropHint && dropHint.i === i && (
+                                  <span style={{ position: 'absolute', top: 0, bottom: 0, [dropHint.side === 'before' ? 'left' : 'right']: 0, width: 3, background: ACCENT, borderRadius: 3, zIndex: 6 }} />
+                                )}
+                                <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 5, background: (resolveBg(c, editingSong) && (resolveBg(c, editingSong).type === 'color' || resolveBg(c, editingSong).type === 'gradient') ? resolveBg(c, editingSong).value : (resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'animated' ? animatedPresetOf(resolveBg(c, editingSong).value).base : '#0a0a0a')), position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'image' && (
+                                    <img key={`tb-${resolveBg(c, editingSong).value}`} draggable={false} src={resolveBg(c, editingSong).value} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                                  )}
+                                  {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'video' && (
+                                    <TileVideo key={`tb-${resolveBg(c, editingSong).value}`} src={resolveBg(c, editingSong).value} animate={i === editorCueIdx} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                                  )}
+                                  {resolveBg(c, editingSong) && resolveBg(c, editingSong).type === 'animated' && (
+                                    <AnimatedBg key={`tba-${resolveBg(c, editingSong).value}`} value={resolveBg(c, editingSong).value} k={0.3} />
+                                  )}
+                                  {(() => {
+                                    // 1:1 with the canvas and the projector: the
+                                    // SAME renderer on the SAME 1280×720 design
+                                    // canvas, contain-fitted to the thumb (the
+                                    // live slide grid does exactly this). Box,
+                                    // size, wrapping and position therefore
+                                    // always match the editor — split a line and
+                                    // the thumb and the canvas move together.
+                                    const st = { ...cueLyricStyle(c), layoutMode: 'static' };
+                                    const box = st.box;
+                                    return (
+                                      <TileCanvas>
+                                        <div style={{ position: 'absolute', left: box.x, top: box.y, width: box.w, height: box.h, transform: box.angle ? `rotate(${box.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+                                          {renderLyricsLayout(c.text || '', st, box)}
+                                        </div>
+                                        {/* Extra text boxes, drawn on the thumb the
+                                            same way the projector draws them. */}
+                                        {textObjectLayers(c).map((t, ti) => {
+                                          const tb = t.lyric.box;
+                                          return (
+                                            <div key={`tx-${ti}`} style={{ position: 'absolute', left: tb.x, top: tb.y, width: tb.w, height: tb.h, transform: tb.angle ? `rotate(${tb.angle}deg)` : undefined, transformOrigin: 'center center' }}>
+                                              {renderLyricsLayout(t.text, { ...t.lyric, layoutMode: 'static' }, tb)}
+                                            </div>
+                                          );
+                                        })}
+                                      </TileCanvas>
+                                    );
+                                  })()}
+                                  <div style={{ position: 'absolute', top: 3, left: 4, zIndex: 5, fontSize: 8, fontWeight: 800, color: 'rgba(255,255,255,0.85)', background: 'rgba(0,0,0,0.45)', borderRadius: 3, padding: '0 4px' }}>{gi + 1}.{li}</div>
+                                  {applySel.includes(i) && (
+                                    <span style={{ position: 'absolute', top: 3, right: 4, zIndex: 5, width: 14, height: 14, borderRadius: '50%', background: ACCENT, color: '#0D1014', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>✓</span>
+                                  )}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }}>
+                                  {(renameIdx === i && renameFrom === 'strip') ? (
+                                    <input ref={renameRef} value={renameVal} onChange={(e) => setRenameVal(e.target.value)} onClick={(e) => e.stopPropagation()} onBlur={commitRename} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitRename(); } else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); } }} style={{ flex: 1, minWidth: 0, background: C.input, color: C.text, border: '1px solid ' + ACCENT, borderRadius: 4, padding: '1px 4px', fontSize: 9.5, fontWeight: 700, outline: 'none' }} />
+                                  ) : (
+                                    <span onDoubleClick={(e) => { e.stopPropagation(); startRename(i, c, 'strip'); }} title="Double-click to rename" style={{ fontSize: 9.5, fontWeight: 700, color: C.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 84, cursor: 'text' }}>{c.label}</span>
+                                  )}
+                                  <div style={{ display: 'flex', gap: 2 }}>
+                                    <button onClick={(e) => { e.stopPropagation(); updateCue(i, { hidden: !c.hidden }); }} title={c.hidden ? 'Show' : 'Hide from projection'} style={{ background: 'transparent', border: 'none', color: c.hidden ? '#FF4545' : C.faint, cursor: 'pointer', padding: 1 }}>{c.hidden ? <EyeOff size={11} /> : <Eye size={11} />}</button>
+                                    <button onClick={(e) => { e.stopPropagation(); updateCue(i, { locked: !c.locked }); }} title={c.locked ? 'Unlock' : 'Lock'} style={{ background: 'transparent', border: 'none', color: c.locked ? '#fbbf24' : C.faint, cursor: 'pointer', padding: 1 }}>{c.locked ? <Lock size={11} /> : <Unlock size={11} />}</button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ));
+                    })()}
                   </div>
                 </div>
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>Animated</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-                    {ANIMATED_GRADIENTS.map((g) => (
-                      <div key={g.id} onClick={() => setCueBackground(editorCueIdx, 'animated', `anim:${g.id}`)} title={`${g.name} (animated loop)`} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: editorCue.bg_type === 'animated' && editorCue.bg_value === `anim:${g.id}` ? '2px solid #36C982' : '1px solid var(--ui-border2)', background: g.base }}>
-                        <span style={{ position: 'absolute', bottom: 1, left: 0, right: 0, textAlign: 'center', fontSize: 7, fontWeight: 800, color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>{g.name}</span>
+
+                </motion.div>
+              </TabPanel>
+              <TabPanel id="sequence" className="box-border flex min-h-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto p-3">
+                <motion.div {...PANE_MOTION} style={PANE_STYLE}>
+                {/* CUSTOM SLIDE ORDER */}
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Custom Slide Order</div>
+                  <div style={{ display: 'grid', gap: 5 }}>
+                    {(editingSong.cues || []).map((c, i) => (
+                      <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: i === editorCueIdx ? 'rgba(255,184,0,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, padding: '6px 8px', cursor: 'grab' }}>
+                        {dropHint && dropHint.i === i && (
+                          <span style={{ position: 'absolute', top: 0, bottom: 0, [dropHint.side === 'before' ? 'left' : 'right']: 0, width: 3, background: ACCENT, borderRadius: 3 }} />
+                        )}
+                        <GripVertical size={13} color={C.faint2} style={{ flexShrink: 0 }} />
+                        <span style={{ fontSize: 10.5, fontWeight: 800, color: C.faint, width: 20 }}>{i + 1}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          {(renameIdx === i && renameFrom === 'order') ? (
+                            <input ref={renameRef} value={renameVal} onChange={(e) => setRenameVal(e.target.value)} onClick={(e) => e.stopPropagation()} onBlur={commitRename} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitRename(); } else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); } }} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid ' + ACCENT, borderRadius: 4, padding: '2px 4px', fontSize: 11, fontWeight: 700, outline: 'none' }} />
+                          ) : (
+                            <div onDoubleClick={(e) => { e.stopPropagation(); startRename(i, c, 'order'); }} title="Double-click to rename" style={{ fontSize: 11, fontWeight: 700, color: C.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'text' }}>{c.label || 'Slide'}</div>
+                          )}
+                          <div style={{ fontSize: 9.5, color: C.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stripMarkup(c.text || '').split('\n')[0] || 'empty'}</div>
+                        </div>
+                        <button onClick={(e) => { e.stopPropagation(); moveCue(i, -1); setApplySel([]); }} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: 2 }}><ChevronUp size={12} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); moveCue(i, 1); setApplySel([]); }} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: 2 }}><ChevronDown size={12} /></button>
                       </div>
                     ))}
                   </div>
                 </div>
-                {(mediaLibrary || []).some(a => a.kind === 'image' || a.kind === 'video') && (
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 9, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 5 }}>From Media Library</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 5 }}>
-                      {(mediaLibrary || []).filter(a => a.kind === 'image' || a.kind === 'video').map(a => {
-                        const active = editorCue.bg_type === a.kind && editorCue.bg_value === a.url;
-                        return (
-                          <div key={a.url} onClick={() => setCueBackground(editorCueIdx, a.kind, a.url)} title={a.url.split('/').pop() || a.url} style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', border: active ? '2px solid #36C982' : '1px solid var(--ui-border2)', background: '#000' }}>
-                            {a.kind === 'image'
-                              ? <img src={a.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                              : <TileVideo src={a.url} animate={active} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
-                            <span style={{ position: 'absolute', bottom: 2, right: 3, fontSize: 7, fontWeight: 800, color: '#fff', background: 'rgba(0,0,0,0.55)', borderRadius: 3, padding: '0 3px' }}>{a.kind}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
+
+                </motion.div>
+              </TabPanel>
+              <TabPanel id="setup" className="box-border flex min-h-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto p-3">
+                <motion.div {...PANE_MOTION} style={PANE_STYLE}>
+                {/* SONG BACKGROUND */}
+                <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Song Background</div>
+                <BackgroundPicker
+                  C={C}
+                  ACCENT={ACCENT}
+                  activeType={editingSong.bg_type || 'color'}
+                  activeValue={editingSong.bg_value}
+                  onPick={setSongBackground}
+                  onClear={() => setSongBackground('color', '#000000')}
+                  onUpload={songBgFileToBackground}
+                  hasBackground={songHasBackground(editingSong)}
+                  mediaLibrary={mediaLibrary}
+                />
+                </div>
+
+                {/* SLIDE PROPERTIES */}
+                {showSlideProps && editorCue && (
+                  <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Slide Properties</div>
+                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Label</label>
+                    <input type="text" value={editorCue.label || ''} onChange={(e) => updateCue(editorCueIdx, { label: e.target.value })} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none', marginBottom: 8 }} />
+                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Background</label>
+                <BackgroundPicker
+                  C={C}
+                  ACCENT={ACCENT}
+                  activeType={editorCue.bg_type || 'color'}
+                  activeValue={editorCue.bg_value}
+                  onPick={(type, value) => setCueBackground(editorCueIdx, type, value)}
+                  onClear={() => clearCueBackground(editorCueIdx)}
+                  onUpload={(kind, file) => cueFileToBackground(editorCueIdx, kind, file)}
+                  hasBackground={cueHasBackground(editorCue)}
+                  mediaLibrary={mediaLibrary}
+                />
+                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Slide Timer (sec)</label>
+                    <input type="number" min="0" max="7200" value={editorCue.duration || 0} onChange={(e) => updateCue(editorCueIdx, { duration: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none' }} />
                   </div>
                 )}
-                <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Slide Timer (sec)</label>
-                <input type="number" min="0" max="7200" value={editorCue.duration || 0} onChange={(e) => updateCue(editorCueIdx, { duration: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none' }} />
-              </div>
-            )}
 
-            {/* BOTTOM CONTROLS */}
-            <div style={{ display: 'flex', gap: 6, marginTop: 'auto', paddingTop: 6 }}>
-              <button onClick={() => duplicateCue(editorCueIdx)} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 7, padding: '7px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Copy size={12} /> Duplicate</button>
-              <button onClick={() => setShowSlideProps(v => !v)} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 7, padding: '7px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><PenLine size={12} /> Properties</button>
-              <button onClick={() => { if (editorCueIdx < 0) return; const cues = [...(editingSong.cues || [])]; if (!cues.length) return; cues.splice(editorCueIdx, 1); setEditingSong({ ...editingSong, cues }); setEditorCueIdx(Math.min(editorCueIdx, Math.max(0, cues.length - 1))); }} style={{ background: 'rgba(255,69,69,0.12)', border: '1px solid rgba(255,69,69,0.4)', color: '#FF4545', borderRadius: 7, padding: '7px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> Delete</button>
+                </motion.div>
+              </TabPanel>
+            </Tabs>
+            {/* SLIDE ACTIONS — pinned outside the tabs because they act on the
+                slide you have open, whatever tab you are in. Delete sits at the
+                far edge and asks first, so a reach for Duplicate cannot wipe it. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 'auto', padding: '10px 12px 12px', borderTop: '1px solid var(--ui-border2)' }}>
+              <button onClick={() => duplicateCue(editorCueIdx)} title="Copy this slide, text and styles included" style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 7, padding: '7px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><Copy size={12} /> Duplicate</button>
+              <button onClick={() => { const next = !showSlideProps; setShowSlideProps(next); if (next) setRightTab('setup'); }} title="Show the per-slide properties (label, background, timer)" style={{ background: C.elevated, border: '1px solid ' + (showSlideProps ? ACCENT : 'var(--ui-border2)'), color: showSlideProps ? ACCENT : C.text2, borderRadius: 7, padding: '7px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><PenLine size={12} /> Properties</button>
+              <span style={{ flex: 1 }} />
+              <button
+                onClick={async () => {
+                  if (editorCueIdx < 0) return;
+                  const ok = await appConfirm('Delete this slide? Its text and styles go with it.\n\nUndo (Ctrl+Z) puts it back.', { title: 'Delete slide', confirmLabel: 'Delete slide', cancelLabel: 'Keep it' });
+                  if (!ok) return;
+                  const cues = [...(editingSong.cues || [])];
+                  if (!cues.length) return;
+                  cues.splice(editorCueIdx, 1);
+                  setEditingSong({ ...editingSong, cues });
+                  setEditorCueIdx(Math.min(editorCueIdx, Math.max(0, cues.length - 1)));
+                }}
+                title={editorCueIdx < 0 ? 'The title slide belongs to the song — edit or clear it instead' : 'Delete this slide (asks first)'}
+                style={{ background: editorCueIdx < 0 ? 'transparent' : 'rgba(255,69,69,0.12)', border: '1px solid ' + (editorCueIdx < 0 ? 'var(--ui-border2)' : 'rgba(255,69,69,0.4)'), color: editorCueIdx < 0 ? C.faint : '#FF4545', borderRadius: 7, padding: '7px 10px', fontSize: 11, fontWeight: 700, cursor: editorCueIdx < 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+              ><Trash2 size={12} /> Delete</button>
             </div>
           </div>
         </>

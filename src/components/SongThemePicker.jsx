@@ -174,7 +174,7 @@ export default function SongThemePicker({
                 onClick={save}
                 disabled={!canSave}
                 title={canSave ? 'Save the current slide’s type, placement, effects and background' : 'Open a slide first'}
-                style={{ background: canSave ? ACCENT : C.elevated2, border: 'none', color: canSave ? '#0D1014' : C.faint, borderRadius: 8, padding: '8px 13px', fontSize: 11.5, fontWeight: 800, cursor: canSave ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 5 }}
+                style={{ background: canSave ? ACCENT : C.elevated2, border: 'none', color: canSave ? '#1C1C1E' : C.faint, borderRadius: 8, padding: '8px 13px', fontSize: 11.5, fontWeight: 800, cursor: canSave ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 5 }}
               ><Save size={13} /> Save look</button>
             </div>
             {savedMsg && <div style={{ fontSize: 10.5, fontWeight: 700, color: '#36C982', marginTop: 6 }}>{savedMsg}</div>}
@@ -209,7 +209,7 @@ export default function SongThemePicker({
               onClick={() => onApply?.(selected, 'all', includeBg)}
               disabled={!selected}
               title="Apply this theme to every slide in the song"
-              style={{ background: ACCENT, border: `1px solid ${ACCENT}`, color: '#0D1014', borderRadius: 8, padding: '8px 15px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
+              style={{ background: ACCENT, border: `1px solid ${ACCENT}`, color: '#1C1C1E', borderRadius: 8, padding: '8px 15px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
             >Apply to all slides</button>
           </div>
         </div>

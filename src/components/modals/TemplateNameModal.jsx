@@ -19,7 +19,7 @@ export default function TemplateNameModal({ C, ACCENT, value, setValue, onCancel
         />
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
           <motion.button {...stubTap} onClick={onCancel} style={{ background: C.border, border: 'none', color: C.text, padding: '10px 16px', borderRadius: '8px', fontSize: '13px', cursor: 'pointer' }}>Cancel</motion.button>
-          <motion.button {...stubTap} onClick={onConfirm} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '10px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}>Save Template</motion.button>
+          <motion.button {...stubTap} onClick={onConfirm} style={{ background: ACCENT, border: 'none', color: '#1C1C1E', padding: '10px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}>Save Template</motion.button>
         </div>
       </motion.div>
     </motion.div>

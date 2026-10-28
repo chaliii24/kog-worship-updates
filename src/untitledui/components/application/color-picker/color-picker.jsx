@@ -55,7 +55,7 @@ const hsvToRgb = ({ h, s, v }) => {
 // Neutral / golden-yellow brand / accent rows — quick picks in the UUI swatch style.
 const SWATCHES = [
   ['#ffffff', '#f5f5f4', '#d6d3d1', '#a8a29e', '#78716c', '#57534e', '#292524', '#000000'],
-  ['#FFF9E6', '#FFE799', '#FFD966', '#FFC72C', '#FFB800', '#E5A000', '#A86F00', '#2A313A'],
+  ['#FFF9E6', '#FFE799', '#FFD966', '#FFC72C', '#FFB800', '#FFB800', '#A86F00', '#2A313A'],
   ['#fecaca', '#fdba74', '#fde047', '#bef264', '#86efac', '#67e8f9', '#93c5fd', '#f0abfc'],
 ];
 
@@ -249,7 +249,7 @@ export default function ColorPicker({
                   key={k}
                   type="button"
                   onClick={() => { if (on) return; emit({ gradient: k === 'gradient' }, false); }}
-                  style={{ flex: 1, background: on ? ACCENT : 'transparent', color: on ? '#0D1014' : C.muted, border: 'none', borderRadius: 7, padding: '5px 0', fontSize: 11, fontWeight: 700, cursor: on ? 'default' : 'pointer' }}
+                  style={{ flex: 1, background: on ? ACCENT : 'transparent', color: on ? '#1C1C1E' : C.muted, border: 'none', borderRadius: 7, padding: '5px 0', fontSize: 11, fontWeight: 700, cursor: on ? 'default' : 'pointer' }}
                 >
                   {lbl}
                 </button>

@@ -27,7 +27,9 @@ import { transposeChart, toNashville, keyOffset } from '../lib/chords';
 // chips) is gone — from across the room only three things should compete
 // for attention: what we sing NOW, what comes NEXT, and red/amber urgency.
 export default function StageDisplay({ currentSlide, C = {}, cfg = null, flow = null, chord = null, frame = null, preview = false }) {
-  const stage = currentSlide && typeof currentSlide === 'object' && currentSlide.current ? currentSlide : { current: { title: 'KOG Worship', label: 'Waiting…', text: '' }, next: null };
+  // The waiting placeholder is not a song: no lyric flag on startup, so the
+  // tempo badge stays off until a real lyric slide is pushed.
+  const stage = currentSlide && typeof currentSlide === 'object' && currentSlide.current ? currentSlide : { current: { title: 'KOG Worship', label: 'Waiting…', text: '', lyric: false }, next: null };
   const current = stage.current || {};
   const nextSlide = stage.next || null;
   const m = { ...DEFAULT_STAGE_CFG, ...(cfg || {}) };
@@ -137,6 +139,11 @@ export default function StageDisplay({ currentSlide, C = {}, cfg = null, flow = 
   const curBudget = Math.max(0.20, 1 - overhead - nextRatio);
   const curSize = fitSize(0.080, 0.032, curBudget, String(current.text || '').split('\n').length) * (Number(m.textScale) || 1);
 
+  // Tempo badge: lyrics only. A photo, video, scripture passage or sermon
+  // slide is not a song, so the beat dot and BPM have nothing to belong to and
+  // stay off the wall (payloads from older builds carry no flag → unchanged).
+  const metronomeOn = !!(m.metronome && current.lyric !== false);
+
   // Segment readouts. A segment that exists only because its label was typed
   // (never started, never paused) is NOT active — no red 0:00 chip, no big
   // timer: it appears the moment Start or Pause gives it a real value.
@@ -144,8 +151,13 @@ export default function StageDisplay({ currentSlide, C = {}, cfg = null, flow = 
   const segActive = !!(seg && (seg.running || seg.remain != null));
   const segColor = !segActive ? '#ffffff' : (!seg.countUp && segSecs <= 0 ? '#FF4545' : (high ? '#fde047' : (C.text || '#fff')));
 
+  // Photo/video on the wall: there is no song, so the monitor NAMES that state
+  // instead of printing the image's file name. Scripture slides keep their
+  // own reference — `media` is set only by the media slide payload.
+  const mediaOnStage = current.media === true;
   const heroText = stripMarkup(current.text);
-  const eyebrow = [current.title, current.label || (heroText ? '' : 'Current')].filter(Boolean).join('  ·  ');
+  const eyebrow = mediaOnStage ? '' : [current.title, current.label || (heroText ? '' : 'Current')].filter(Boolean).join('  ·  ');
+  const stripTitle = mediaOnStage ? 'No song loaded' : current.title;
 
   return (
     <div style={{ position: preview ? 'absolute' : 'fixed', inset: 0, background: bg, color: curColor, fontFamily: 'system-ui, sans-serif', display: 'flex', flexDirection: 'column', padding: `${px(0.032)}px ${pxf(0.04)}px ${px(0.028)}px`, boxSizing: 'border-box', overflow: 'hidden', cursor: preview ? 'default' : 'none', boxShadow: traffic ? `inset 0 0 0 ${Math.max(6, px(0.014))}px ${traffic}` : 'none' }}>
@@ -166,12 +178,12 @@ export default function StageDisplay({ currentSlide, C = {}, cfg = null, flow = 
         <div style={{ display: 'flex', alignItems: 'center', gap: px(0.012), minWidth: 0 }}>
           <span style={{ width: px(0.011), height: px(0.011), borderRadius: '50%', background: '#36C982', boxShadow: '0 0 12px #36C982', animation: 'stageLivePulse 2.2s ease-in-out infinite', flexShrink: 0 }} />
           <span style={{ fontSize: px(0.0135), fontWeight: 800, letterSpacing: '2.5px', color: faint, whiteSpace: 'nowrap' }}>LIVE</span>
-          {current.title && (
-            <span style={{ fontSize: px(0.0145), fontWeight: 700, color: faint, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{current.title}</span>
+          {stripTitle && (
+            <span style={{ fontSize: px(0.0145), fontWeight: 700, color: faint, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{stripTitle}</span>
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: px(0.016), flexShrink: 0 }}>
-          {m.metronome && (
+          {metronomeOn && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: px(0.008) }}>
               <span style={{ width: px(0.013), height: px(0.013), borderRadius: '50%', background: '#fde047', animation: `stageBeat ${60 / (Number(m.bpm) || 96)}s linear infinite` }} />
               <span style={{ fontSize: px(0.0135), fontWeight: 800, color: faint, fontVariantNumeric: 'tabular-nums', letterSpacing: '1px' }}>{Number(m.bpm) || 96}</span>

@@ -39,8 +39,8 @@ function FlashButton({ children, onClick, variant = 'primary', icon }) {
     primary: {
       ...base,
       border: 'none',
-      background: 'linear-gradient(180deg, #FFB800, #E5A000)',
-      color: '#0D1014',
+      background: 'linear-gradient(180deg, #FFB800, #FFB800)',
+      color: '#1C1C1E',
       boxShadow: '0 10px 30px rgba(255,184,0,0.35)',
     },
     ghost: {

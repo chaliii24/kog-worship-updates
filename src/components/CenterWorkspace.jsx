@@ -250,14 +250,14 @@ export default function CenterWorkspace() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                             <span style={{ flex: 1, minWidth: 0, fontSize: 10.5, fontWeight: 600, color: isInstalled ? '#FFB800' : 'var(--ui-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{isInstalled ? `Installed · ${b.books} books` : downloading ? `Downloading… ${pct}%` : `${b.size || ''}${b.lang ? ` · ${b.lang}` : ''}`.replace(/^\W+/, '') || (b.code || b.abbrev).toUpperCase()}</span>
                             {isInstalled ? (
-                              <button onClick={() => { setBibleTransOpen(false); if (!isActive) openBibleTranslation(b.abbrev); }} style={{ flexShrink: 0, background: isActive ? '#E5A000' : 'rgba(255,255,255,0.06)', border: '1px solid var(--ui-border)', color: isActive ? '#0D1014' : 'var(--ui-text2)', padding: '5px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>{isActive ? 'Active' : 'Open'}</button>
+                              <button onClick={() => { setBibleTransOpen(false); if (!isActive) openBibleTranslation(b.abbrev); }} style={{ flexShrink: 0, background: isActive ? '#FFB800' : 'rgba(255,255,255,0.06)', border: '1px solid var(--ui-border)', color: isActive ? '#1C1C1E' : 'var(--ui-text2)', padding: '5px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>{isActive ? 'Active' : 'Open'}</button>
                             ) : (
                               <button onClick={() => downloadBible(b.abbrev)} disabled={downloading} style={{ flexShrink: 0, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '5px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: downloading ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>{downloading ? `${pct}%` : 'Download'}</button>
                             )}
                           </div>
                           {downloading && (
                             <div style={{ height: 4, background: 'rgba(255,255,255,0.08)', borderRadius: 999, overflow: 'hidden' }}>
-                              <div style={{ height: '100%', width: `${pct}%`, background: '#E5A000', borderRadius: 999, transition: 'width 0.2s' }} />
+                              <div style={{ height: '100%', width: `${pct}%`, background: '#FFB800', borderRadius: 999, transition: 'width 0.2s' }} />
                             </div>
                           )}
                           {isInstalled && b.abbrev !== 'kjv' && <button onClick={() => deleteBibleTranslation(b.abbrev)} style={{ justifySelf: 'start', background: 'transparent', border: 'none', color: '#FF4545', fontSize: 10, fontWeight: 700, cursor: 'pointer', padding: 0 }}>Delete from device</button>}
@@ -394,7 +394,7 @@ export default function CenterWorkspace() {
               </div>
               <div style={{ display: 'flex', gap: 4 }}>
                 {[{ k: 'all', label: `All ${bibleAllBooks.length}` }, { k: 'ot', label: `OT ${bibleOtCount}` }, { k: 'nt', label: `NT ${bibleNtCount}` }].map(p => (
-                  <button key={p.k} onClick={() => setBibleTestament(p.k)} title={p.k === 'all' ? 'All 66 books' : p.k === 'ot' ? 'Old Testament (39)' : 'New Testament (27)'} style={{ background: bibleTestament === p.k ? '#E5A000' : 'rgba(30,41,59,0.5)', border: bibleTestament === p.k ? '1px solid #E5A000' : '1px solid var(--ui-border2)', color: bibleTestament === p.k ? '#0D1014' : 'var(--ui-muted)', borderRadius: 8, padding: '6px 12px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{p.label}</button>
+                  <button key={p.k} onClick={() => setBibleTestament(p.k)} title={p.k === 'all' ? 'All 66 books' : p.k === 'ot' ? 'Old Testament (39)' : 'New Testament (27)'} style={{ background: bibleTestament === p.k ? '#FFB800' : 'rgba(58,58,60,0.5)', border: bibleTestament === p.k ? '1px solid #FFB800' : '1px solid var(--ui-border2)', color: bibleTestament === p.k ? '#1C1C1E' : 'var(--ui-muted)', borderRadius: 8, padding: '6px 12px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer' }}>{p.label}</button>
                 ))}
               </div>
               <div style={{ flex: 1 }} />
@@ -448,7 +448,7 @@ export default function CenterWorkspace() {
                 {Array.from({ length: bibleSel.totalChapters || 0 }, (_, i) => i + 1).map((ch, i) => {
                   const active = bibleChapter && bibleChapter.book === bibleSel.bookName && bibleChapter.chapter === ch;
                   return (
-                    <button key={ch} className="bible-item" onClick={() => selectBibleChapter(ch)} title={`${bibleSel.bookName} ${ch}`} style={{ animationDelay: `${Math.min(i * 8, 260)}ms`, background: active ? '#E5A000' : 'var(--ui-elev2)', border: active ? '1px solid #E5A000' : '1px solid var(--ui-border)', color: active ? '#0D1014' : 'var(--ui-muted)', borderRadius: 9, padding: '12px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{ch}</button>
+                    <button key={ch} className="bible-item" onClick={() => selectBibleChapter(ch)} title={`${bibleSel.bookName} ${ch}`} style={{ animationDelay: `${Math.min(i * 8, 260)}ms`, background: active ? '#FFB800' : 'var(--ui-elev2)', border: active ? '1px solid #FFB800' : '1px solid var(--ui-border)', color: active ? '#1C1C1E' : 'var(--ui-muted)', borderRadius: 9, padding: '12px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{ch}</button>
                   );
                 })}
               </div>
@@ -538,7 +538,7 @@ export default function CenterWorkspace() {
                 ) : (
                   <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 40 }}>
                     <div style={{ textAlign: 'center', maxWidth: 360, display: 'grid', gap: 8, justifyItems: 'center' }}>
-                      <div style={{ width: 54, height: 54, borderRadius: 16, background: 'radial-gradient(140% 140% at 30% 20%, #252C35, #0D1014)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><BookOpen size={26} color="#FFB800" /></div>
+                      <div style={{ width: 54, height: 54, borderRadius: 16, background: 'radial-gradient(140% 140% at 30% 20%, #3A3A3C, #1C1C1E)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><BookOpen size={26} color="#FFB800" /></div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ui-text2)' }}>Pick a book, then a chapter</div>
                       <div style={{ fontSize: 11.5, color: 'var(--ui-faint)', lineHeight: 1.6 }}>Click a verse to send it live instantly. Use Ctrl+Click to multi-select or Shift+Click to grab a range, then Add to Playlist.</div>
                     </div>

@@ -4,8 +4,10 @@ import { MonitorPlay, Timer, Megaphone, QrCode, Palette, Music, PanelRight, Play
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 import StageDisplay from './StageDisplay';
+import MetronomeControls from './MetronomeControls';
 import { LAYOUT_PRESETS, segSeconds, fmtMMSS, trafficState } from '../lib/stageLayout';
 import { KEYS } from '../lib/chords';
+import { parseMedleyDef } from '../lib/medley';
 
 // The Stage dock tab: a full-width workspace (left tools column closes itself)
 // with the role presets, clocks/timers, alerts, formatting, traffic light,
@@ -54,7 +56,7 @@ function Segmented({ C, ACCENT, options, value, onPick }) {
           <button
             key={v}
             onClick={() => onPick(v)}
-            style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? '#0D1014' : C.muted, borderRadius: 8, padding: '7px 6px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+            style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? '#1C1C1E' : C.muted, borderRadius: 8, padding: '7px 6px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
           >
             {Icon ? <Icon size={13} /> : null}{lbl}
           </button>
@@ -90,7 +92,11 @@ export default function StagePanel() {
     const { label, ...flags } = LAYOUT_PRESETS[name] || {};
     setStageCfg((prev) => ({ ...prev, layout: name, ...flags }));
   };
-  const toggleFlag = (key) => setStageCfg((prev) => ({ ...prev, [key]: !prev[key], layout: 'custom' }));
+  const toggleFlag = (key) => setStageCfg((prev) => ({
+    ...prev,
+    [key]: !prev[key],
+    layout: 'custom',
+  }));
 
   // --- segment timer -------------------------------------------------------
   const seg = cfg.segment;
@@ -162,17 +168,26 @@ export default function StagePanel() {
   // The card lists the actual setlist songs (compact rows) so the operator
   // can set tempos across the whole order — the just-fired song is
   // pre-selected. Single-song fallback when no service order is loaded.
+  // One row per order entry, in order — the list mirrors the Service Order
+  // instead of a de-duplicated set, so a song listed twice keeps its row and
+  // a medley gets one too (its tempo is the anchor song's). The old Set of
+  // song ids silently collapsed those rows: four songs in the order could
+  // read as three here.
   const setlistSongs = (() => {
     const items = (activeService && activeService.items) || [];
-    const seen = new Set();
     const out = [];
-    for (const it of items) {
-      if (!it || it.item_type !== 'song') continue;
-      const sid = String(it.content ?? '').trim();
-      if (!sid || seen.has(sid)) continue;
-      seen.add(sid);
-      out.push({ songId: sid, title: it.title || 'Song' });
-    }
+    items.forEach((it, i) => {
+      if (!it) return;
+      let sid = '';
+      if (it.item_type === 'song') {
+        sid = String(it.content ?? '').trim();
+      } else if (it.item_type === 'medley') {
+        const def = parseMedleyDef(it);
+        sid = def ? String(def.anchor.songId ?? '').trim() : '';
+      }
+      if (!sid) return;
+      out.push({ rowKey: `${i}:${sid}`, songId: sid, title: it.title || 'Song' });
+    });
     return out;
   })();
   const popupSongId = stageBpmPopup?.songId != null ? String(stageBpmPopup.songId) : null;
@@ -232,6 +247,13 @@ export default function StagePanel() {
     if (!lan?.stageUrl) return;
     navigator.clipboard?.writeText(lan.stageUrl).then(() => {
       setCopied('url');
+      setTimeout(() => setCopied(''), 1600);
+    }).catch(() => {});
+  };
+  const copyDrummerUrl = () => {
+    if (!lan?.drummerUrl) return;
+    navigator.clipboard?.writeText(lan.drummerUrl).then(() => {
+      setCopied('drummer');
       setTimeout(() => setCopied(''), 1600);
     }).catch(() => {});
   };
@@ -299,7 +321,7 @@ export default function StagePanel() {
           {...stubTap}
           onClick={toggleStageWindow}
           title={stageOn ? 'Close the stage window' : 'Open the stage window on the configured display'}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: stageOn ? 'rgba(255,69,69,0.14)' : ACCENT, border: '1px solid ' + (stageOn ? 'rgba(255,69,69,0.5)' : ACCENT), color: stageOn ? '#FF4545' : '#0D1014', borderRadius: 8, padding: '6px 13px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: stageOn ? 'rgba(255,69,69,0.14)' : ACCENT, border: '1px solid ' + (stageOn ? 'rgba(255,69,69,0.5)' : ACCENT), color: stageOn ? '#FF4545' : '#1C1C1E', borderRadius: 8, padding: '6px 13px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
         >
           <Power size={13} /> {stageOn ? 'Close Stage Window' : 'Open Stage Window'}
         </motion.button>
@@ -329,7 +351,7 @@ export default function StagePanel() {
                     const saved = savedBpmOf(s.songId);
                     return (
                       <button
-                        key={s.songId}
+                        key={s.rowKey}
                         onClick={() => setPopupSelectedId(s.songId)}
                         title={fired ? `${s.title} (on air — click to edit)` : `Set tempo for ${s.title}`}
                         style={{ display: 'flex', alignItems: 'center', gap: 7, textAlign: 'left', background: on ? 'rgba(255,184,0,0.18)' : C.elevated2, border: '1px solid ' + (on ? 'rgba(255,184,0,0.55)' : 'var(--ui-border2)'), color: C.text, borderRadius: 7, padding: '5px 9px', fontSize: 12, fontWeight: on ? 800 : 600, cursor: 'pointer', minWidth: 0 }}
@@ -359,7 +381,7 @@ export default function StagePanel() {
                   style={{ ...textInput(C), width: 58, padding: '4px 6px', fontSize: 12, textAlign: 'center' }}
                 />
                 <span style={{ fontSize: 10, fontWeight: 800, color: C.muted }}>BPM</span>
-                <motion.button {...stubTap} onClick={savePopupBpm} style={{ background: popupSavedTick ? 'rgba(54,201,130,0.16)' : ACCENT, border: '1px solid ' + (popupSavedTick ? 'rgba(54,201,130,0.5)' : ACCENT), color: popupSavedTick ? '#36C982' : '#0D1014', borderRadius: 7, padding: '6px 14px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
+                <motion.button {...stubTap} onClick={savePopupBpm} style={{ background: popupSavedTick ? 'rgba(54,201,130,0.16)' : ACCENT, border: '1px solid ' + (popupSavedTick ? 'rgba(54,201,130,0.5)' : ACCENT), color: popupSavedTick ? '#36C982' : '#1C1C1E', borderRadius: 7, padding: '6px 14px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
                   {popupSavedTick ? 'Saved ✓' : 'Save'}
                 </motion.button>
               </div>
@@ -382,28 +404,15 @@ export default function StagePanel() {
                 </Chip>
               ))}
             </div>
-            {/* Metronome tempo — the beat pulse on the stage runs at this
-                rate (60/bpm seconds per beat), so the drummer preset gets a
-                real tempo control instead of a hardcoded default. */}
-            {cfg.metronome && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginTop: 11, paddingTop: 10, borderTop: '1px solid var(--ui-border2)' }}>
-                <label style={{ fontSize: 10, color: C.faint, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.2 }}>Tempo</label>
-                <input type="range" min={40} max={220} step={1} value={cfg.bpm} onChange={(e) => set({ bpm: Number(e.target.value) })} style={{ flex: 1, minWidth: 60 }} />
-                <input
-                  type="number"
-                  min={40}
-                  max={220}
-                  value={cfg.bpm}
-                  onChange={(e) => set({ bpm: Math.min(220, Math.max(40, Number(e.target.value) || 96)) })}
-                  style={{ ...textInput(C), width: 66, padding: '5px 8px', fontSize: 12, textAlign: 'center' }}
-                />
-                <span style={{ fontSize: 10, fontWeight: 800, color: C.muted }}>BPM</span>
-              </div>
-            )}
             <p style={{ margin: '10px 0 0 0', fontSize: 10.5, color: C.faint, lineHeight: 1.5 }}>
               These presets dress <b>the stage monitor</b> (and phones on <b>Follow</b>). Each prompter phone can also pick its own role — Pastor, Worship or Drummer — right on its screen; alerts, clock, traffic and the play key stay shared across all of them.
             </p>
           </Card>
+
+          {/* METRONOME: tempo, tap tempo and meter. Transport lives on the
+              drummer's phone (?role=drummer) — the console only supplies what
+              the pulse should be, never whether it is running. */}
+          <MetronomeControls C={C} ACCENT={ACCENT} cfg={cfg} set={set} />
 
           {/* CLOCKS + TIMERS */}
           <Card C={C} ACCENT={ACCENT} title="Clocks & timers" icon={Timer}>
@@ -464,7 +473,7 @@ export default function StagePanel() {
               <Segmented C={C} ACCENT={ACCENT} options={[[5, '5s'], [10, '10s'], [30, '30s'], [0, 'Hold']]} value={alertDur} onPick={setAlertDur} />
             </div>
             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-              <motion.button {...stubTap} onClick={flashAlert} style={{ background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 8, padding: '7px 14px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>Flash to stage</motion.button>
+              <motion.button {...stubTap} onClick={flashAlert} style={{ background: ACCENT, border: 'none', color: '#1C1C1E', borderRadius: 8, padding: '7px 14px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>Flash to stage</motion.button>
               <motion.button {...stubTap} onClick={() => set({ alert: null })} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, padding: '7px 14px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>Clear</motion.button>
             </div>
           </Card>
@@ -514,7 +523,7 @@ export default function StagePanel() {
                 {stageFlow.labels.map((l, i) => (
                   <React.Fragment key={`${l}-${i}`}>
                     {i > 0 && <span style={{ color: C.faint2, fontSize: 11, fontWeight: 800 }}>›</span>}
-                    <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase', padding: '3px 9px', borderRadius: 999, background: i === stageFlow.index ? ACCENT : C.elevated2, color: i === stageFlow.index ? '#0D1014' : C.muted, border: '1px solid ' + (i === stageFlow.index ? 'transparent' : 'var(--ui-border2)') }}>{l}</span>
+                    <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase', padding: '3px 9px', borderRadius: 999, background: i === stageFlow.index ? ACCENT : C.elevated2, color: i === stageFlow.index ? '#1C1C1E' : C.muted, border: '1px solid ' + (i === stageFlow.index ? 'transparent' : 'var(--ui-border2)') }}>{l}</span>
                   </React.Fragment>
                 ))}
               </div>
@@ -540,7 +549,7 @@ export default function StagePanel() {
                     {KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
                   </select>
                   <span style={{ flex: 1, minWidth: 8 }} />
-                  <motion.button {...stubTap} onClick={saveChart} style={{ background: chartSaved ? 'rgba(54,201,130,0.16)' : ACCENT, border: '1px solid ' + (chartSaved ? 'rgba(54,201,130,0.5)' : ACCENT), color: chartSaved ? '#36C982' : '#0D1014', borderRadius: 8, padding: '7px 14px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>
+                  <motion.button {...stubTap} onClick={saveChart} style={{ background: chartSaved ? 'rgba(54,201,130,0.16)' : ACCENT, border: '1px solid ' + (chartSaved ? 'rgba(54,201,130,0.5)' : ACCENT), color: chartSaved ? '#36C982' : '#1C1C1E', borderRadius: 8, padding: '7px 14px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}>
                     {chartSaved ? 'Saved ✓' : 'Save chart'}
                   </motion.button>
                 </div>
@@ -599,6 +608,13 @@ export default function StagePanel() {
                 <div onClick={copyUrl} title="Click to copy" style={{ background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 7, padding: '7px 9px', fontSize: 10.5, fontFamily: 'ui-monospace, Consolas, monospace', color: copied === 'url' ? '#36C982' : C.text2, wordBreak: 'break-all', cursor: 'pointer' }}>
                   {copied === 'url' ? 'Copied ✓' : (lan?.stageUrl || '—')}
                 </div>
+                <button
+                  onClick={copyDrummerUrl}
+                  title="Copy a link that locks the phone straight into the full-screen drummer metronome"
+                  style={{ alignSelf: 'flex-start', background: 'transparent', border: 'none', color: copied === 'drummer' ? '#36C982' : '#FFC72C', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', padding: 0, textAlign: 'left' }}
+                >
+                  {copied === 'drummer' ? 'Drummer link copied ✓' : 'Copy direct drummer link (?role=drummer)'}
+                </button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                   <motion.button {...stubTap} onClick={() => act(lan?.running ? 'lan-stop' : 'lan-start')} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: lan?.running ? 'rgba(255,69,69,0.14)' : 'rgba(54,201,130,0.14)', border: '1px solid ' + (lan?.running ? 'rgba(255,69,69,0.5)' : 'rgba(54,201,130,0.5)'), color: lan?.running ? '#FF4545' : '#36C982', borderRadius: 7, padding: '5px 10px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>
                     <Power size={11} /> {lan?.running ? 'Stop' : 'Start'}

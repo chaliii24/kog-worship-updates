@@ -104,7 +104,7 @@ export const SONG_THEMES = [
     box: { x: 90, y: 110, w: 1100, h: 460 },
     titleBox: { x: 90, y: 150, w: 1100, h: 400 },
     bgType: 'gradient',
-    bgValue: 'linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0b1220 100%)',
+    bgValue: 'linear-gradient(135deg, #1C1C1E 0%, #3A3A3C 55%, #2C2C2E 100%)',
   }, ['film']),
   theme('lower-third', 'Lower Third', 'Left-aligned, low on the wall — lyrics over the room.', {
     font: FACE('CMG Sans Condensed'),
@@ -321,5 +321,5 @@ export const themeStyleFromCue = (cue, song, titleCue) => {
 export const songThemeBackgroundCss = (style) => {
   if (!style) return '#000000';
   if (style.bgType === 'gradient' || style.bgType === 'color') return style.bgValue || '#000000';
-  return 'linear-gradient(135deg, #0f172a 0%, #1e293b 55%, #0b1220 100%)';
+  return 'linear-gradient(135deg, #1C1C1E 0%, #3A3A3C 55%, #2C2C2E 100%)';
 };

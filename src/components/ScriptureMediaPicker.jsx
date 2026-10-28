@@ -125,7 +125,7 @@ export default function ScriptureMediaPicker({ mode = 'session', onClose, onPick
           <div title={folder || 'No folder selected'} style={{ flex: 1, minWidth: 0, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '6px 9px', fontSize: 11.5, color: folder ? C.text2 : C.faint, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {folder || 'No folder selected'}
           </div>
-          <motion.button {...stubTap} onClick={chooseFolder} style={{ background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 8, padding: '6px 11px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+          <motion.button {...stubTap} onClick={chooseFolder} style={{ background: ACCENT, border: 'none', color: '#1C1C1E', borderRadius: 8, padding: '6px 11px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
             <FolderOpen size={12} /> {folder ? 'Change' : 'Select folder'}
           </motion.button>
           <motion.button {...stubTap} onClick={() => listFolder(folder)} title="Refresh this folder" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, padding: '6px 8px', cursor: 'pointer', display: 'inline-flex', flexShrink: 0 }}>
@@ -147,7 +147,7 @@ export default function ScriptureMediaPicker({ mode = 'session', onClose, onPick
               <div style={{ fontSize: 11.5, color: C.muted, lineHeight: 1.55, maxWidth: 380, margin: '0 auto 14px auto' }}>
                 Pick the folder where your Bible pictures and videos live — they stay on disk and are used straight from there.
               </div>
-              <motion.button {...stubTap} onClick={chooseFolder} style={{ background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 9, padding: '9px 16px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>
+              <motion.button {...stubTap} onClick={chooseFolder} style={{ background: ACCENT, border: 'none', color: '#1C1C1E', borderRadius: 9, padding: '9px 16px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>
                 <FolderOpen size={13} style={{ verticalAlign: '-2px', marginRight: 6 }} /> Select a folder
               </motion.button>
             </div>

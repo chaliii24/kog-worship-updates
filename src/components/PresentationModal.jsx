@@ -215,14 +215,14 @@ export default function PresentationModal() {
           {headerBtn(doExport, Download, busy === 'export' ? 'Exporting\u2026' : 'Export .pptx', { busy: busy === 'export' })}
           {headerBtn(doSave, Save, busy === 'save' ? 'Saving\u2026' : 'Save', { busy: busy === 'save' })}
           {headerBtn(() => addPresentationToService(deck), ListPlus, 'To Service')}
-          {headerBtn(() => { presentDeck(deck); flash('Live on projector \u25B6'); }, MonitorPlay, 'Present', { bg: ACCENT, border: ACCENT, color: '#0D1014' })}
+          {headerBtn(() => { presentDeck(deck); flash('Live on projector \u25B6'); }, MonitorPlay, 'Present', { bg: ACCENT, border: ACCENT, color: '#1C1C1E' })}
           <button onClick={closePresentationEditor} style={{ background: 'transparent', border: 'none', color: C.muted, cursor: 'pointer', padding: 4 }}><X size={18} /></button>
         </div>
 
         {showOutline && (
           <div style={{ padding: 12, borderBottom: '1px solid var(--ui-border2)', background: 'var(--ui-input)', display: 'flex', gap: 10 }}>
             <textarea value={outline} onChange={(e) => setOutline(e.target.value)} rows={4} placeholder={'Paste your sermon outline or script.\n\nBlank line = new slide.\nFirst line = slide title, following lines = bullets.'} style={{ flex: 1, background: 'var(--ui-bg)', border: '1px solid var(--ui-border2)', borderRadius: 8, padding: 10, color: C.text, fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit' }} />
-            <button onClick={genFromOutline} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '0 18px', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Generate Slides</button>
+            <button onClick={genFromOutline} style={{ background: ACCENT, border: 'none', color: '#1C1C1E', padding: '0 18px', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>Generate Slides</button>
           </div>
         )}
 

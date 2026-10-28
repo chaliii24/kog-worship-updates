@@ -125,7 +125,7 @@ export default function AudioPanel() {
           <button
             key={v}
             onClick={() => setTab(v)}
-            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 10, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: tab === v ? ACCENT : C.elevated2, border: `1px solid ${tab === v ? ACCENT : 'var(--ui-border2)'}`, color: tab === v ? '#0D1014' : C.muted }}
+            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 10, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: tab === v ? ACCENT : C.elevated2, border: `1px solid ${tab === v ? ACCENT : 'var(--ui-border2)'}`, color: tab === v ? '#1C1C1E' : C.muted }}
           ><Icon size={14} /> {lbl}</button>
         ))}
       </div>

@@ -132,7 +132,7 @@ return (
             </select>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            <button onClick={() => setServiceAddMenu(serviceAddMenu === 'builder-song' ? null : 'builder-song')} style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-song' ? '#1e1b4b' : C.elevated2, color: serviceAddMenu === 'builder-song' ? C.accLine : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-song' ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Song</button>
+            <button onClick={() => setServiceAddMenu(serviceAddMenu === 'builder-song' ? null : 'builder-song')} style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-song' ? '#2C2C2E' : C.elevated2, color: serviceAddMenu === 'builder-song' ? C.accLine : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-song' ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Song</button>
             <button onClick={() => { if (targetSecId) addSlideToSection(targetSecId); }} style={{ fontSize: 10, fontWeight: 700, background: C.elevated2, color: C.text2, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Slide</button>
             <button onClick={() => { const open = serviceAddMenu !== 'builder-media'; setServiceAddMenu(open ? 'builder-media' : null); if (open) { setBuilderMediaPicker(true); fetchMediaLibrary(); } else { setBuilderMediaPicker(false); } }} title="Upload a file, or pick media that is already in the app" style={{ fontSize: 10, fontWeight: 700, background: serviceAddMenu === 'builder-media' ? 'rgba(255,184,0,0.18)' : C.elevated2, color: serviceAddMenu === 'builder-media' ? '#FFC72C' : C.text2, border: '1px solid ' + (serviceAddMenu === 'builder-media' ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), borderRadius: 5, padding: '4px 7px', cursor: 'pointer' }}>Add Media</button>
             <input type="file" id="show-media-input-builder" accept="image/*,video/*" style={{ display: 'none' }} onChange={addShowBuilderMedia} />
@@ -240,7 +240,7 @@ return (
         <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--ui-border)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1 }}>Grid Density</span>
           {[1, 2, 3, 4].map(d => (
-            <button key={d} onClick={() => setBuilderDensity(d)} style={{ width: 26, height: 22, borderRadius: 4, background: builderDensity === d ? ACCENT : C.elevated2, color: builderDensity === d ? '#0D1014' : C.muted, border: '1px solid var(--ui-border2)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{d}</button>
+            <button key={d} onClick={() => setBuilderDensity(d)} style={{ width: 26, height: 22, borderRadius: 4, background: builderDensity === d ? ACCENT : C.elevated2, color: builderDensity === d ? '#1C1C1E' : C.muted, border: '1px solid var(--ui-border2)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{d}</button>
           ))}
           {cur && <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: C.text }}>{cur.sec.title} — {cur.item.title}</span>}
         </div>

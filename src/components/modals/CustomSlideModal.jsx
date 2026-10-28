@@ -65,7 +65,7 @@ export default function CustomSlideModal({ C, ACCENT, newSlideData, setNewSlideD
 
   const labelStyle = { fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.1, display: 'block', marginBottom: 5 };
   const inputStyle = { width: '100%', boxSizing: 'border-box', background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '9px 10px', color: C.text, fontSize: 13, outline: 'none' };
-  const segBtn = (on) => ({ flex: 1, background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' });
+  const segBtn = (on) => ({ flex: 1, background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#1C1C1E' : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' });
   const toggle = (key, on, Icon, title) => (
     <button type="button" title={title} onClick={() => setLyric({ [key]: !on })} style={{ ...segBtn(on), gap: 4, padding: '7px 0', fontSize: 11, fontWeight: 700 }}>
       {Icon ? <Icon size={13} /> : null}
@@ -229,7 +229,7 @@ export default function CustomSlideModal({ C, ACCENT, newSlideData, setNewSlideD
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '11px 18px', borderTop: '1px solid var(--ui-border2)', flexShrink: 0 }}>
           <motion.button {...stubTap} onClick={onCancel} style={{ background: C.border, border: 'none', color: C.text, padding: '9px 16px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Cancel</motion.button>
-          <motion.button {...stubTap} onClick={onAdd} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{editing ? 'Save Changes' : 'Add to Service Plan'}</motion.button>
+          <motion.button {...stubTap} onClick={onAdd} style={{ background: ACCENT, border: 'none', color: '#1C1C1E', padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{editing ? 'Save Changes' : 'Add to Service Plan'}</motion.button>
         </div>
       </motion.div>
     </motion.div>

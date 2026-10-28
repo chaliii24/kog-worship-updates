@@ -252,7 +252,7 @@
      designed look. App.jsx sets <html data-theme> + color-scheme so
      native controls (scrollbars, selects, color pickers) follow too.
      ===================================================================== */
-  --ui-bg: #0D1014;
+  --ui-bg: #1C1C1E;
   /* Chrome and canvas, split the way the Presentations tab already does it.
      Both side panels (left command centre, right Live Output) sit on
      --ui-sidebar; the centre stage drops to --ui-bg so the workspace reads as
@@ -260,16 +260,16 @@
      stage — slide tiles, the empty-state card — not from a second colour
      invented for the middle column. */
   --ui-stage: var(--ui-bg);
-  --ui-sidebar: #101419;
-  --ui-panel: #14191F;
-  --ui-elev: #1A2027;
+  --ui-sidebar: #2C2C2E;
+  --ui-panel: #2C2C2E;
+  --ui-elev: #3A3A3C;
   /* One derived step between the secondary panel and hover. The supplied
      palette names the resting and hover surfaces; raised controls need a
      third value so inputs do not flatten into the cards around them. */
-  --ui-elev2: #1F262E;
-  --ui-input: #1A2027;
-  --ui-border: #29313B;
-  --ui-border2: #29313B;
+  --ui-elev2: #48484A;
+  --ui-input: #2C2C2E;
+  --ui-border: #38383A;
+  --ui-border2: #38383A;
   --ui-blight: rgba(255, 255, 255, 0.07);
   --ui-text: #F1F2F3;
   --ui-text2: #A1A8B3;
@@ -278,15 +278,15 @@
   --ui-dock-idle: #737D8B;
   --ui-dock-hover: #F1F2F3;
   --ui-dock-active: #FFC72C;
-  --ui-hover-bg: #252C35;
+  --ui-hover-bg: #3A3A3C;
   --ui-hover-border: rgba(255, 184, 0, 0.24);
-  --ui-tip-bg: #1A2027;
+  --ui-tip-bg: #2C2C2E;
   --ui-tip-text: #F1F2F3;
-  --ui-scroll-track: #0D1014;
-  --ui-scroll-thumb: #29313B;
+  --ui-scroll-track: #1C1C1E;
+  --ui-scroll-thumb: #38383A;
   --kog-accent: #FFB800;
   --kog-accent-hover: #FFC72C;
-  --kog-accent-pressed: #E5A000;
+  --kog-accent-pressed: #FFB800;
   --kog-accent-bg: #332609;
   --kog-success: #36C982;
   --kog-warning: #E2AE58;
@@ -304,7 +304,7 @@
   --ui-input: #FFFFFF;
   --ui-border: #E1E4E8;
   --ui-border2: #CFD5DC;
-  --ui-blight: rgba(15, 23, 42, 0.08);
+  --ui-blight: rgba(60, 60, 60, 0.08);
   --ui-text: #161A1F;
   --ui-text2: #3E4651;
   --ui-muted: #6B7480;
@@ -2160,3 +2160,5 @@ textarea {
     transition: none !important;
   }
 }
+
+input[type="range"] { accent-color: var(--kog-accent, #FFB800); }

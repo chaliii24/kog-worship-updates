@@ -414,12 +414,15 @@ export default function LiveOutputPanel({
             together while the Countdown tab owns the output. */}
         <div style={lockStyle} inert={lockInert} aria-disabled={locked || undefined}>
         {/* LYRICS UP NEXT — the slide that follows the live one in the flow.
-            Clicking fires it, exactly like its grid tile. */}
-        {lyricsNextTile && (
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 4 }}>
-              Up Next{lyricsNextTile.isTitle ? ' — Title' : (lyricsNextTile.cue?.label ? ` — ${lyricsNextTile.cue.label}` : '')}
-            </div>
+            The slot is ALWAYS here: with nothing queued it shows an empty state
+            instead of vanishing, so loading or unloading a song never reflows
+            the panel under the operator's cursor. Clicking fires the slide,
+            exactly like its grid tile. */}
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 4 }}>
+            Up Next{lyricsNextTile ? (lyricsNextTile.isTitle ? ' — Title' : (lyricsNextTile.cue?.label ? ` — ${lyricsNextTile.cue.label}` : '')) : ''}
+          </div>
+          {lyricsNextTile ? (
             <button
               onClick={() => fireGridTile && fireGridTile(lyricsNextTile)}
               title={lyricsNextTile.isTitle ? 'Fire the title slide' : 'Fire this slide'}
@@ -427,8 +430,16 @@ export default function LiveOutputPanel({
             >
               {renderFrozenWallFace ? renderFrozenWallFace(lyricsNextTile) : (renderSlideFace ? renderSlideFace(lyricsNextTile, { aspect: '16 / 9' }) : null)}
             </button>
-          </div>
-        )}
+          ) : (
+            <div
+              title="Nothing is queued yet — load a song or pick the next slide and it appears here"
+              style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 8, border: '1px dashed ' + C.border2, background: C.elevated, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, textAlign: 'center', padding: 8, boxSizing: 'border-box' }}
+            >
+              <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase', color: C.faint }}>Nothing queued</span>
+              <span style={{ fontSize: 9.5, color: C.muted, lineHeight: 1.4 }}>The next slide appears here</span>
+            </div>
+          )}
+        </div>
         {/* SCRIPTURE: explicit push — verse clicks only select locally */}
         {dockTab === 'scripture' && (
           <div style={{ marginBottom: 8 }}>

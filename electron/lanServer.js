@@ -7,8 +7,10 @@
 //
 // Security model: the socket is read-only until a phone presents a pairing
 // PIN shown on the operator's screen. Stage phones (singers) connect without
-// a PIN because they can only *receive* — the server refuses to forward any
-// command from a socket that has not paired as a control client.
+// a PIN because they can only *receive*. The single exception is the drummer's
+// `metronomeSet` (tempo, meter, song pick): that surface is provisioned as a
+// stage phone but owns the click, so the server forwards that one command and
+// still refuses every other control command from an unpaired socket.
 import http from 'http';
 import net from 'net';
 import fs from 'fs';
@@ -20,6 +22,7 @@ import { WebSocketServer } from 'ws';
 import QRCode from 'qrcode';
 import electronLog from 'electron-log';
 import { BIBLE_MEDIA_EXT } from './mediaTypes.js';
+import { canRunLanCommand } from './lanCommandRules.js';
 
 const log = electronLog || { info: (...a) => console.log(...a), error: (...a) => console.error(...a) };
 
@@ -204,13 +207,14 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
   };
 
   // Vite has not produced dist/ yet, or we are in dev — hand the phone to the
-  // live dev server instead of a stale build. `location.hash` is carried over
-  // explicitly because the browser never sends the fragment to the server, so
-  // a meta-refresh alone would drop #control / #stage.
+  // live dev server instead of a stale build. `location.search` / `hash` are
+  // carried over explicitly because the browser never sends the fragment to
+  // the server, and a meta-refresh alone would drop both — including the
+  // `?role=drummer` provisioning parameter.
   const redirectToDev = (res) => {
     const target = `http://${primaryAddress()}:5173/mobile.html`;
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
-    res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#090a0f;color:#fff;font:600 16px system-ui;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:24px"><div>Opening the dev build…<br><br><a id="l" style="color:#a78bfa" href="${target}">tap here if nothing happens</a></div><script>location.replace('${target}'+location.hash);document.getElementById('l').href='${target}'+location.hash;</script></body></html>`);
+    res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#090a0f;color:#fff;font:600 16px system-ui;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:24px"><div>Opening the dev build…<br><br><a id="l" style="color:#a78bfa" href="${target}">tap here if nothing happens</a></div><script>location.replace('${target}'+location.search+location.hash);document.getElementById('l').href='${target}'+location.search+location.hash;</script></body></html>`);
   };
 
   // Is the Vite dev server actually up? Probed per request (cached briefly) so
@@ -439,13 +443,22 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
     }
 
     if (msg.t === 'cmd') {
-      // The entire reason a PIN exists: unpaired sockets cannot touch output.
-      if (sock.kogRole !== 'control' || !sock.kogControl) {
-        try { sock.send(JSON.stringify({ t: 'ack', cmd: msg.cmd, ok: false, reason: 'forbidden' })); } catch { /* noop */ }
-        return;
-      }
       const cmd = typeof msg.cmd === 'string' ? msg.cmd.slice(0, 40) : '';
       if (!cmd) return;
+      // The entire reason a PIN exists: unpaired sockets cannot touch output.
+      // The drummer phone is the one exception (see lanCommandRules.js):
+      // without it the console never received metronomeSet and the phone's
+      // optimistic BPM reverted as soon as its echo timed out.
+      const allowed = canRunLanCommand({
+        role: sock.kogRole,
+        authed: sock.kogAuthed,
+        control: sock.kogControl,
+        cmd,
+      });
+      if (!allowed) {
+        try { sock.send(JSON.stringify({ t: 'ack', cmd, ok: false, reason: 'forbidden' })); } catch { /* noop */ }
+        return;
+      }
       let ok = false;
       try { ok = commandPort ? !!commandPort({ cmd, payload: msg.payload }) : false; } catch (e) { log.error('[lan] command failed:', e.message); }
       try { sock.send(JSON.stringify({ t: 'ack', cmd, ok })); } catch { /* noop */ }
@@ -525,6 +538,9 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
   // the QR code stays valid across dev and packaged runs.
   const controlUrl = () => `http://${primaryAddress()}:${PORT}/#control`;
   const stageUrl = () => `http://${primaryAddress()}:${PORT}/#stage`;
+  // Deep link straight into the full-screen drummer metronome: the mobile
+  // router reads ?role=drummer on load and skips every menu / role picker.
+  const drummerUrl = () => `http://${primaryAddress()}:${PORT}/?role=drummer`;
 
   const info = () => ({
     running: !!server,
@@ -533,6 +549,7 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
     addresses: lanAddresses(),
     controlUrl: controlUrl(),
     stageUrl: stageUrl(),
+    drummerUrl: drummerUrl(),
     pin,
     clients: sockets.size,
     paired: pairing.tokens.length,
