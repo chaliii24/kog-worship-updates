@@ -139,7 +139,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
           <button
             key={v}
             onClick={() => setTab(v)}
-            style={{ flex: '1 0 76px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 10, padding: '10px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: tab === v ? ACCENT : C.elevated2, border: `1px solid ${tab === v ? ACCENT : C.border2}`, color: tab === v ? '#0D1014' : C.muted, minWidth: 0, whiteSpace: 'nowrap' }}
+            style={{ flex: '1 0 76px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 10, padding: '10px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: tab === v ? ACCENT : C.elevated2, border: `1px solid ${tab === v ? ACCENT : C.border2}`, color: tab === v ? '#1C1C1E' : C.muted, minWidth: 0, whiteSpace: 'nowrap' }}
           ><Icon size={13} /> {lbl}{v === 'countdown' && cdLive ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#36C982', boxShadow: '0 0 6px #36C982' }} /> : null}{v === 'presentation' && state?.sermon?.loaded ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#36C982', boxShadow: '0 0 6px #36C982' }} /> : null}{v === 'message' && state?.overlay ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#36C982', boxShadow: '0 0 6px #36C982' }} /> : null}{v === 'draw' && state?.draw ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#FFC72C', boxShadow: '0 0 6px #FFC72C' }} /> : null}{v === 'outputs' && onAir ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#36C982', boxShadow: '0 0 6px #36C982' }} /> : null}</button>
         ))}
         {state?.song ? (
@@ -163,7 +163,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
               <button
                 key={id}
                 onClick={() => pickStageRole(id)}
-                style={{ flex: 1, minWidth: 0, background: on ? ACCENT : C.elevated2, border: `1px solid ${on ? ACCENT : C.border2}`, color: on ? '#0D1014' : C.muted, borderRadius: 999, padding: '5px 0', fontSize: 9.5, fontWeight: 900, letterSpacing: 0.5, textTransform: 'uppercase', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', overflow: 'hidden' }}
+                style={{ flex: 1, minWidth: 0, background: on ? ACCENT : C.elevated2, border: `1px solid ${on ? ACCENT : C.border2}`, color: on ? '#1C1C1E' : C.muted, borderRadius: 999, padding: '5px 0', fontSize: 9.5, fontWeight: 900, letterSpacing: 0.5, textTransform: 'uppercase', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', overflow: 'hidden' }}
               >
                 {lbl}
               </button>
@@ -193,7 +193,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
             <div style={{ marginLeft: 8, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
               <span style={{ fontSize: 15, fontWeight: 800, color: C.muted }}>{onAir ? 'Background only — no lyrics' : 'Output is cleared'}</span>
               {onAir ? (
-                <button onClick={() => send('reassert')} style={{ background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 10, padding: '11px 18px', fontSize: 14, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'inherit' }}>
+                <button onClick={() => send('reassert')} style={{ background: ACCENT, border: 'none', color: '#1C1C1E', borderRadius: 10, padding: '11px 18px', fontSize: 14, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'inherit' }}>
                   <RotateCcw size={15} /> Put the slide back
                 </button>
               ) : (
@@ -271,7 +271,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
               <button
                 key={v}
                 onClick={() => cdSet({ mode: v })}
-                style={{ flex: 1, borderRadius: 8, padding: '8px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: cd.mode === v ? ACCENT : C.elevated2, border: `1px solid ${cd.mode === v ? ACCENT : C.border2}`, color: cd.mode === v ? '#0D1014' : C.muted }}
+                style={{ flex: 1, borderRadius: 8, padding: '8px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: cd.mode === v ? ACCENT : C.elevated2, border: `1px solid ${cd.mode === v ? ACCENT : C.border2}`, color: cd.mode === v ? '#1C1C1E' : C.muted }}
               >{lbl}</button>
             ))}
           </div>
@@ -286,7 +286,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
               </div>
               <div style={{ display: 'flex', gap: 5, marginTop: 7 }}>
                 {[[60, '1m'], [180, '3m'], [300, '5m'], [600, '10m'], [900, '15m'], [1800, '30m']].map(([v, lbl]) => (
-                  <button key={v} onClick={() => cdSet({ durationSec: v })} style={{ flex: 1, borderRadius: 6, padding: '7px 0', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: Number(cd.durationSec) === v ? ACCENT : C.elevated2, border: `1px solid ${Number(cd.durationSec) === v ? ACCENT : C.border2}`, color: Number(cd.durationSec) === v ? '#0D1014' : C.muted }}>{lbl}</button>
+                  <button key={v} onClick={() => cdSet({ durationSec: v })} style={{ flex: 1, borderRadius: 6, padding: '7px 0', fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: Number(cd.durationSec) === v ? ACCENT : C.elevated2, border: `1px solid ${Number(cd.durationSec) === v ? ACCENT : C.border2}`, color: Number(cd.durationSec) === v ? '#1C1C1E' : C.muted }}>{lbl}</button>
                 ))}
               </div>
             </>
@@ -301,7 +301,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
               <button
                 key={v}
                 onClick={() => cdSet({ showOn: v })}
-                style={{ flex: 1, borderRadius: 8, padding: '8px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: cd.showOn === v ? ACCENT : C.elevated2, border: `1px solid ${cd.showOn === v ? ACCENT : C.border2}`, color: cd.showOn === v ? '#0D1014' : C.muted }}
+                style={{ flex: 1, borderRadius: 8, padding: '8px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: cd.showOn === v ? ACCENT : C.elevated2, border: `1px solid ${cd.showOn === v ? ACCENT : C.border2}`, color: cd.showOn === v ? '#1C1C1E' : C.muted }}
               >{lbl}</button>
             ))}
           </div>
@@ -358,16 +358,16 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
           />
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
             {[['lower', 'Lower'], ['center', 'Center'], ['banner', 'Banner']].map(([v, lbl]) => (
-              <button key={v} onClick={() => setMsgStyle(v)} style={{ flex: 1, borderRadius: 8, padding: '8px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: msgStyle === v ? ACCENT : C.elevated2, border: `1px solid ${msgStyle === v ? ACCENT : C.border2}`, color: msgStyle === v ? '#0D1014' : C.muted }}>{lbl}</button>
+              <button key={v} onClick={() => setMsgStyle(v)} style={{ flex: 1, borderRadius: 8, padding: '8px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: msgStyle === v ? ACCENT : C.elevated2, border: `1px solid ${msgStyle === v ? ACCENT : C.border2}`, color: msgStyle === v ? '#1C1C1E' : C.muted }}>{lbl}</button>
             ))}
           </div>
           <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
             {[[10, '10s'], [30, '30s'], [0, 'Pinned']].map(([v, lbl]) => (
-              <button key={lbl} onClick={() => setMsgSecs(v)} style={{ flex: 1, borderRadius: 8, padding: '8px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: msgSecs === v ? ACCENT : C.elevated2, border: `1px solid ${msgSecs === v ? ACCENT : C.border2}`, color: msgSecs === v ? '#0D1014' : C.muted }}>{lbl}</button>
+              <button key={lbl} onClick={() => setMsgSecs(v)} style={{ flex: 1, borderRadius: 8, padding: '8px 0', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: msgSecs === v ? ACCENT : C.elevated2, border: `1px solid ${msgSecs === v ? ACCENT : C.border2}`, color: msgSecs === v ? '#1C1C1E' : C.muted }}>{lbl}</button>
             ))}
           </div>
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-            <motion.button {...stubTap} onClick={() => { if (msgText.trim()) { send('overlayShow', { text: msgText.trim(), style: msgStyle, secs: msgSecs }); setMsgText(''); } }} style={{ flex: 1.4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: msgText.trim() ? ACCENT : C.elevated2, border: `1px solid ${msgText.trim() ? ACCENT : C.border2}`, color: msgText.trim() ? '#0D1014' : C.muted, borderRadius: 10, padding: '12px 0', fontSize: 14, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit' }}>
+            <motion.button {...stubTap} onClick={() => { if (msgText.trim()) { send('overlayShow', { text: msgText.trim(), style: msgStyle, secs: msgSecs }); setMsgText(''); } }} style={{ flex: 1.4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: msgText.trim() ? ACCENT : C.elevated2, border: `1px solid ${msgText.trim() ? ACCENT : C.border2}`, color: msgText.trim() ? '#1C1C1E' : C.muted, borderRadius: 10, padding: '12px 0', fontSize: 14, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit' }}>
               <Megaphone size={15} /> Show
             </motion.button>
             {ovLive && (
@@ -404,7 +404,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
                     {[['kog', 'Lyrics'], ['passthrough', sm?.provider === 'wps' ? 'WPS' : sm?.provider === 'libreoffice' ? 'LibreOffice' : 'Slides']].map(([v, lbl]) => {
                       const on = (sm.passthrough ? 'passthrough' : 'kog') === v;
                       return (
-                        <button key={v} onClick={() => send('sermonLayer', { layer: v })} style={{ flex: 1, borderRadius: 8, padding: '9px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: on ? ACCENT : C.elevated2, border: `1px solid ${on ? ACCENT : C.border2}`, color: on ? '#0D1014' : C.muted }}>{lbl}</button>
+                        <button key={v} onClick={() => send('sermonLayer', { layer: v })} style={{ flex: 1, borderRadius: 8, padding: '9px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', background: on ? ACCENT : C.elevated2, border: `1px solid ${on ? ACCENT : C.border2}`, color: on ? '#1C1C1E' : C.muted }}>{lbl}</button>
                       );
                     })}
                   </div>
@@ -412,7 +412,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
                     <motion.button {...stubTap} onClick={() => send('sermonPrev')} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: C.elevated2, border: `1px solid ${C.border2}`, color: C.text, borderRadius: 10, padding: '12px 0', fontSize: 14, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit' }}>
                       <SkipBack size={18} /> Prev
                     </motion.button>
-                    <motion.button {...stubTap} onClick={() => send('sermonNext')} style={{ flex: 1.4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 10, padding: '12px 0', fontSize: 14, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    <motion.button {...stubTap} onClick={() => send('sermonNext')} style={{ flex: 1.4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: ACCENT, border: 'none', color: '#1C1C1E', borderRadius: 10, padding: '12px 0', fontSize: 14, fontWeight: 900, cursor: 'pointer', fontFamily: 'inherit' }}>
                       Next <SkipForward size={18} />
                     </motion.button>
                   </div>
@@ -453,7 +453,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
             <div style={{ marginLeft: 8, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
               <span style={{ fontSize: 15, fontWeight: 800, color: C.muted }}>{onAir ? 'Background only — no lyrics' : 'Output is cleared'}</span>
               {onAir ? (
-                <button onClick={() => send('reassert')} style={{ background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 10, padding: '11px 18px', fontSize: 14, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'inherit' }}>
+                <button onClick={() => send('reassert')} style={{ background: ACCENT, border: 'none', color: '#1C1C1E', borderRadius: 10, padding: '11px 18px', fontSize: 14, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'inherit' }}>
                   <RotateCcw size={15} /> Put the slide back
                 </button>
               ) : (
@@ -562,7 +562,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
           <motion.button {...stubTap} onClick={() => send('prev')} style={{ ...bigBtn(C), background: C.elevated2, color: C.text, border: `1px solid ${C.border2}` }}>
             <SkipBack size={22} /> Prev
           </motion.button>
-          <motion.button {...stubTap} onClick={() => send('next')} style={{ ...bigBtn(C), background: ACCENT, color: '#0D1014', border: `1px solid ${ACCENT}` }}>
+          <motion.button {...stubTap} onClick={() => send('next')} style={{ ...bigBtn(C), background: ACCENT, color: '#1C1C1E', border: `1px solid ${ACCENT}` }}>
             Next <SkipForward size={22} />
           </motion.button>
         </div>

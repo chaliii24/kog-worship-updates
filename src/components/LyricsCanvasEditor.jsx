@@ -1501,7 +1501,7 @@ export default function LyricsCanvasEditor({
                 type="button"
                 title={v === 1 ? 'Normal — back to full size' : `${hasSel ? 'Scale the selection' : 'Scale this line'} to ${v}× of Size`}
                 onClick={() => applyStyle({ scale: v === 1 ? false : v })}
-                style={{ minWidth: 32, background: on ? ACCENT : 'rgba(255,255,255,0.07)', border: `1px solid ${on ? ACCENT : 'rgba(255,255,255,0.16)'}`, color: on ? '#04121f' : '#cfe9ff', borderRadius: 999, padding: '3px 7px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4, fontFamily: 'inherit' }}
+                style={{ minWidth: 32, background: on ? ACCENT : 'rgba(255,255,255,0.07)', border: `1px solid ${on ? ACCENT : 'rgba(255,255,255,0.16)'}`, color: on ? '#1C1C1E' : '#F1F2F3', borderRadius: 999, padding: '3px 7px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4, fontFamily: 'inherit' }}
               >
                 {v}
               </button>
@@ -1520,7 +1520,7 @@ export default function LyricsCanvasEditor({
                   minWidth: 26,
                   background: on ? ACCENT : 'rgba(255,255,255,0.07)',
                   border: `1px solid ${on ? ACCENT : 'rgba(255,255,255,0.16)'}`,
-                  color: on ? '#04121f' : '#cfe9ff',
+                  color: on ? '#1C1C1E' : '#F1F2F3',
                   borderRadius: 999,
                   padding: '3px 6px',
                   fontSize: 10,
@@ -1549,11 +1549,11 @@ export default function LyricsCanvasEditor({
               />
             );
           })}
-          <button type="button" title="Clear the highlighted text’s colour (back to the slide colour)" onClick={() => applyStyle({ color: false })} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#cfe9ff', borderRadius: 999, padding: '1px 5px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>×</button>
+          <button type="button" title="Clear the highlighted text’s colour (back to the slide colour)" onClick={() => applyStyle({ color: false })} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#F1F2F3', borderRadius: 999, padding: '1px 5px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>×</button>
           <span style={{ width: 1, height: 15, background: 'rgba(255,255,255,0.2)', margin: '0 3px', flexShrink: 0 }} />
-          <button type="button" title={`Cycle the highlighted text’s face${tgtAttrs.font ? ` (now: ${(SEL_FONTS.find((f) => f.value === tgtAttrs.font) || {}).label || 'custom'})` : ''}`} onClick={cycleSelFont} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#cfe9ff', borderRadius: 999, padding: '2px 7px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4, fontFamily: 'Georgia, serif' }}>Aa</button>
-          <button type="button" title="Tighter tracking on the highlighted text" onClick={() => nudgeSelTrack(-1)} style={{ minWidth: 22, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#cfe9ff', borderRadius: 999, padding: '2px 6px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>−</button>
-          <button type="button" title="Wider tracking on the highlighted text" onClick={() => nudgeSelTrack(1)} style={{ minWidth: 22, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#cfe9ff', borderRadius: 999, padding: '2px 6px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>+</button>
+          <button type="button" title={`Cycle the highlighted text’s face${tgtAttrs.font ? ` (now: ${(SEL_FONTS.find((f) => f.value === tgtAttrs.font) || {}).label || 'custom'})` : ''}`} onClick={cycleSelFont} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#F1F2F3', borderRadius: 999, padding: '2px 7px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4, fontFamily: 'Georgia, serif' }}>Aa</button>
+          <button type="button" title="Tighter tracking on the highlighted text" onClick={() => nudgeSelTrack(-1)} style={{ minWidth: 22, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#F1F2F3', borderRadius: 999, padding: '2px 6px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>−</button>
+          <button type="button" title="Wider tracking on the highlighted text" onClick={() => nudgeSelTrack(1)} style={{ minWidth: 22, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.16)', color: '#F1F2F3', borderRadius: 999, padding: '2px 6px', fontSize: 10, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>+</button>
           <button type="button" title="Clear all inline styling on the highlighted text" onClick={clearSelStyle} style={{ background: 'rgba(255,69,69,0.14)', border: '1px solid rgba(255,69,69,0.4)', color: '#FF8A8A', borderRadius: 999, padding: '2px 6px', fontSize: 9.5, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}>Clear</button>
         </div>
       )}
@@ -1578,7 +1578,7 @@ export default function LyricsCanvasEditor({
 }
 
 const badgeStyle = {
-  green: { fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: '3px 8px', borderRadius: 999, background: 'rgba(54,201,130,0.16)', color: '#36C982', border: '1px solid rgba(54,201,130,0.45)' },
-  cyan: { fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: '3px 8px', borderRadius: 999, background: 'rgba(0,170,255,0.16)', color: '#93c5fd', border: '1px solid rgba(0,170,255,0.45)' },
+  green: { fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: '3px 8px', borderRadius: 999, background: 'rgba(255,184,0,0.16)', color: '#FFB800', border: '1px solid rgba(255,184,0,0.45)' },
+  cyan: { fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: '3px 8px', borderRadius: 999, background: 'rgba(161,161,170,0.16)', color: '#d4d4d8', border: '1px solid rgba(161,161,170,0.45)' },
   amber: { fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: '3px 8px', borderRadius: 999, background: 'rgba(245,158,11,0.16)', color: '#fcd34d', border: '1px solid rgba(245,158,11,0.45)' },
 };

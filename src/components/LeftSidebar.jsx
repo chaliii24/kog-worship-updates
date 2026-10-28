@@ -836,7 +836,7 @@ export default function LeftSidebar() {
                       })()}
                     </>
                   )}
-                  <button onClick={addScriptureNow} disabled={scBusy} title="Insert this passage into the section marked ADD TO" style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '7px 9px', borderRadius: 7, fontSize: 11, fontWeight: 800, cursor: scBusy ? 'default' : 'pointer', opacity: scBusy ? 0.7 : 1 }}>
+                  <button onClick={addScriptureNow} disabled={scBusy} title="Insert this passage into the section marked ADD TO" style={{ background: ACCENT, border: 'none', color: '#1C1C1E', padding: '7px 9px', borderRadius: 7, fontSize: 11, fontWeight: 800, cursor: scBusy ? 'default' : 'pointer', opacity: scBusy ? 0.7 : 1 }}>
                     {scBusy ? 'Adding…' : `Add to ${serviceTargetTitle || 'end of order'}`}
                   </button>
                   {bibleBooks && scMsg?.err && <div style={{ fontSize: 10.5, color: '#FF4545', lineHeight: 1.45 }}>{scMsg.err}</div>}
@@ -964,7 +964,7 @@ export default function LeftSidebar() {
                         {isLive ? (
                           <button onClick={(e) => { e.stopPropagation(); stopServiceItemLive(row.item); }} title="Stop — take this item off air" style={{ background: 'rgba(255,69,69,0.16)', border: '1px solid rgba(255,69,69,0.55)', color: 'var(--kog-error)', borderRadius: 5, fontSize: 10, fontWeight: 700, padding: '2px 7px', cursor: 'pointer' }}>■ Stop</button>
                         ) : (
-                          <button onClick={(e) => { e.stopPropagation(); fireServiceItemLive(row.item); }} title="Go live" style={{ background: 'var(--kog-accent)', border: '1px solid var(--kog-accent)', color: '#0D1014', borderRadius: 5, fontSize: 10, fontWeight: 800, padding: '2px 7px', cursor: 'pointer' }}>Go</button>
+                          <button onClick={(e) => { e.stopPropagation(); fireServiceItemLive(row.item); }} title="Go live" style={{ background: 'var(--kog-accent)', border: '1px solid var(--kog-accent)', color: '#1C1C1E', borderRadius: 5, fontSize: 10, fontWeight: 800, padding: '2px 7px', cursor: 'pointer' }}>Go</button>
                         )}
                         {(row.item.item_type === 'song' || row.item.item_type === 'medley') && (
                           <button onClick={(e) => { e.stopPropagation(); openMedleyForRow(row.item, row.idx); }} title={row.item.item_type === 'medley' ? 'Edit medley links' : 'Link songs into a medley'} style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: row.item.item_type === 'medley' ? '#FFC72C' : C.faint, padding: '2px 5px', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Link2 size={11} /></button>
@@ -1017,7 +1017,7 @@ export default function LeftSidebar() {
                       key={chip.id}
                       onClick={() => setActiveCategory(chip.id)}
                       title={chip.title || `Show every song filed under ${chip.label}`}
-                      style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 999, fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', background: on ? ACCENT : 'rgba(255,255,255,0.04)', border: '1px solid ' + (on ? ACCENT : 'var(--ui-border)'), color: on ? '#0D1014' : 'var(--ui-text2)', transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease' }}
+                      style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 999, fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', background: on ? ACCENT : 'rgba(255,255,255,0.04)', border: '1px solid ' + (on ? ACCENT : 'var(--ui-border)'), color: on ? '#1C1C1E' : 'var(--ui-text2)', transition: 'background 0.15s ease, border-color 0.15s ease, color 0.15s ease' }}
                     >
                       {ChipIcon ? <ChipIcon size={11} fill={on && chip.id === 'Favorites' ? 'currentColor' : 'none'} /> : null}
                       {chip.label}
@@ -1029,7 +1029,7 @@ export default function LeftSidebar() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px 6px 10px', flexShrink: 0 }}>
                 <span style={{ fontSize: 10.5, color: C.faint || 'var(--ui-faint)', fontWeight: 700 }}>{exportSel.length} selected</span>
                 <span style={{ flex: 1 }} />
-                <button onClick={runExportSelected} disabled={!exportSel.length} title="Save the ticked songs to a backup file" style={{ background: exportSel.length ? ACCENT : 'rgba(255,255,255,0.04)', border: 'none', color: exportSel.length ? '#0D1014' : 'var(--ui-text2)', padding: '5px 12px', borderRadius: 7, fontSize: 10.5, fontWeight: 800, cursor: exportSel.length ? 'pointer' : 'default', opacity: exportSel.length ? 1 : 0.5 }}>Back up selected</button>
+                <button onClick={runExportSelected} disabled={!exportSel.length} title="Save the ticked songs to a backup file" style={{ background: exportSel.length ? ACCENT : 'rgba(255,255,255,0.04)', border: 'none', color: exportSel.length ? '#1C1C1E' : 'var(--ui-text2)', padding: '5px 12px', borderRadius: 7, fontSize: 10.5, fontWeight: 800, cursor: exportSel.length ? 'pointer' : 'default', opacity: exportSel.length ? 1 : 0.5 }}>Back up selected</button>
               </div>
             )}
             {exportMsg && (
@@ -1093,7 +1093,7 @@ export default function LeftSidebar() {
       return (
         <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'grid', gap: 10, alignContent: 'start' }}>
           <div className="kog-guide-eyebrow">Slideshow decks</div>
-          <button onClick={() => openPresentationEditor(null)} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '9px', borderRadius: 9, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><Plus size={14} /> New Presentation</button>
+          <button onClick={() => openPresentationEditor(null)} style={{ background: ACCENT, border: 'none', color: '#1C1C1E', padding: '9px', borderRadius: 9, fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><Plus size={14} /> New Presentation</button>
           <div style={{ fontSize: 10.5, color: 'var(--ui-faint)', lineHeight: 1.5 }}>Create a slideshow deck, present it live, or add it to the Home service order.</div>
           {(presentations || []).length === 0 && <div style={{ textAlign: 'center', color: 'var(--ui-faint)', fontSize: 12, padding: 12, border: '1px dashed var(--ui-border)', borderRadius: 10 }}>No slideshow decks yet. Start a new presentation to build one.</div>}
           {(presentations || []).map(p => (
@@ -1105,7 +1105,7 @@ export default function LeftSidebar() {
               <div style={{ display: 'flex', gap: 5 }}>
                 <button onClick={async () => { const d = await (window.require ? window.require('electron').ipcRenderer.invoke('db-get-presentation', p.id) : null); if (d) addPresentationToService(d); }} title="Add to Service Plan — goes into the section you are working in" style={{ flexShrink: 0, background: 'transparent', border: '1px solid var(--ui-border)', color: '#FFC72C', padding: '5px 8px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Plus size={11} /> Plan</button>
                 <button onClick={() => openPresentation(p.id)} title="Edit" style={{ flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--ui-border)', color: 'var(--ui-text2)', padding: '5px 8px', borderRadius: 7, fontSize: 10.5, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Edit3 size={11} /> Edit</button>
-                <button onClick={async () => { const d = await (window.require ? window.require('electron').ipcRenderer.invoke('db-get-presentation', p.id) : null); if (d) presentDeck(d); else openPresentation(p.id); }} title="Present live" style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '5px 10px', borderRadius: 7, fontSize: 10.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Monitor size={11} /> Present</button>
+                <button onClick={async () => { const d = await (window.require ? window.require('electron').ipcRenderer.invoke('db-get-presentation', p.id) : null); if (d) presentDeck(d); else openPresentation(p.id); }} title="Present live" style={{ background: ACCENT, border: 'none', color: '#1C1C1E', padding: '5px 10px', borderRadius: 7, fontSize: 10.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}><Monitor size={11} /> Present</button>
                 <button onClick={() => deletePresentationDeck(p.id)} title="Delete deck — asks for confirmation" style={{ background: 'rgba(255,69,69,0.10)', border: '1px solid rgba(255,69,69,0.28)', color: '#FF4545', cursor: 'pointer', padding: '4px 7px', borderRadius: 7, display: 'flex', alignItems: 'center' }}><Trash2 size={11} /></button>
               </div>
             </div>
@@ -1120,7 +1120,7 @@ export default function LeftSidebar() {
       return (
         <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'grid', gap: 8, alignContent: 'start' }}>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={saveCurrentTemplate} style={{ flex: 1, background: ACCENT, border: 'none', color: '#0D1014', padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Save Current as Template</button>
+            <button onClick={saveCurrentTemplate} style={{ flex: 1, background: ACCENT, border: 'none', color: '#1C1C1E', padding: '8px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Save Current as Template</button>
           </div>
           {templates.map(t => (
             <div key={t.id} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: '9px 11px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

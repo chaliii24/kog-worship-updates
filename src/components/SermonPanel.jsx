@@ -126,7 +126,7 @@ export default function SermonPanel() {
                         <button
                           key={v}
                           onClick={() => sermonSetLayer(v)}
-                          style={{ flex: 1, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? '#0D1014' : C.muted, borderRadius: 8, padding: '9px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
+                          style={{ flex: 1, background: selected ? ACCENT : C.elevated2, border: '1px solid ' + (selected ? ACCENT : 'var(--ui-border2)'), color: selected ? '#1C1C1E' : C.muted, borderRadius: 8, padding: '9px 0', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
                         >{lbl}</button>
                       );
                     })}
@@ -139,7 +139,7 @@ export default function SermonPanel() {
                     <motion.button {...stubTap} onClick={() => sermonNav(-1)} title="Previous slide" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text, borderRadius: 8, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>
                       <ChevronLeft size={15} /> Prev
                     </motion.button>
-                    <motion.button {...stubTap} onClick={() => sermonNav(1)} title="Next slide" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 8, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>
+                    <motion.button {...stubTap} onClick={() => sermonNav(1)} title="Next slide" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: ACCENT, border: 'none', color: '#1C1C1E', borderRadius: 8, padding: '10px 0', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>
                       Next <ChevronRight size={15} />
                     </motion.button>
                   </div>
@@ -179,7 +179,7 @@ export default function SermonPanel() {
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1 }}>Grid Density</span>
                   {[2, 3, 4, 5].map(d => (
-                    <button key={d} onClick={() => setSermonDensity(d)} style={{ width: 26, height: 22, borderRadius: 4, background: sermonDensity === d ? ACCENT : C.elevated2, color: sermonDensity === d ? '#0D1014' : C.muted, border: '1px solid var(--ui-border2)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{d}</button>
+                    <button key={d} onClick={() => setSermonDensity(d)} style={{ width: 26, height: 22, borderRadius: 4, background: sermonDensity === d ? ACCENT : C.elevated2, color: sermonDensity === d ? '#1C1C1E' : C.muted, border: '1px solid var(--ui-border2)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{d}</button>
                   ))}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: `repeat(${sermonDensity}, 1fr)`, gap: 8, maxHeight: 380, overflowY: 'auto', padding: 2 }}>

@@ -424,7 +424,7 @@ export default function OutputsMonitorModal({
                       {...stubTap}
                       onClick={() => setOutputRunning(out.id, !isOpen)}
                       title={isOpen ? 'Stop this output' : 'Start this output (nothing opens until you do)'}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: isOpen ? 'rgba(255,69,69,0.14)' : accent, border: isOpen ? '1px solid rgba(255,69,69,0.4)' : '1px solid transparent', color: isOpen ? '#FF4545' : '#0D1014', padding: '7px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: isOpen ? 'rgba(255,69,69,0.14)' : accent, border: isOpen ? '1px solid rgba(255,69,69,0.4)' : '1px solid transparent', color: isOpen ? '#FF4545' : '#1C1C1E', padding: '7px 10px', borderRadius: 8, fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
                     >
                       <Power size={13} /> {isOpen ? 'Stop Output' : 'Start Output'}
                     </motion.button>

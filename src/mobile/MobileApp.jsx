@@ -7,18 +7,40 @@ import PinPad from './screens/PinPad.jsx';
 import ControlScreen from './screens/ControlScreen.jsx';
 import StageScreen from './screens/StageScreen.jsx';
 
-// The role lives in the URL hash so the SAME build serves both jobs and it
-// works identically whether the page came from Vite (:5173) or Electron (:8787).
-// `#/stage` was not usable here because the desktop renderer routes its stage
-// output window on `hash.includes('/stage')`.
-function roleFromHash() {
-  return String(window.location.hash || '').toLowerCase().includes('stage') ? 'stage' : 'control';
+// Role routing lives in two places because the same build serves every surface:
+//   * `?role=drummer` (or pastor / worship / follow) deep-links a phone straight
+//     into a LOCKED stage view — no menus, no role picker, just that role's
+//     screen. Drummer additionally goes full-screen metronome.
+//   * `#stage` / `#control` keeps the legacy toggle used by the QR codes.
+// The query wins over the hash so an operator can hand out a dedicated link
+// that a singer cannot accidentally navigate away from.
+const LOCKED_STAGE_ROLES = new Set(['drummer', 'pastor', 'worship', 'follow']);
+
+function parseRoleRoute() {
+  let param = '';
+  try {
+    param = String(new URLSearchParams(window.location.search).get('role') || '').trim().toLowerCase();
+  } catch { param = ''; }
+  if (param === 'drum') param = 'drummer';
+  if (param === 'singer' || param === 'prompter') param = 'stage';
+  if (param === 'operator' || param === 'desktop') param = 'control';
+
+  if (LOCKED_STAGE_ROLES.has(param)) {
+    return { role: 'stage', lockedRole: param };
+  }
+  if (param === 'stage' || param === 'control') {
+    return { role: param, lockedRole: null };
+  }
+  const hash = String(window.location.hash || '').toLowerCase();
+  return { role: hash.includes('stage') ? 'stage' : 'control', lockedRole: null };
 }
 
 const PIN_STATUSES = ['need-pin', 'wrong', 'locked'];
 
 export default function MobileApp() {
-  const [role] = useState(roleFromHash);
+  // Parsed once on load: the URL is the provisioner, not a live preference.
+  const [route] = useState(parseRoleRoute);
+  const role = route.role;
   const [state, setState] = useState(null);
   const [status, setStatus] = useState('connecting');
   const [reason, setReason] = useState('');
@@ -67,8 +89,17 @@ export default function MobileApp() {
   };
 
   const switchRole = (to) => {
-    window.location.hash = to;
-    window.location.reload();
+    // A manual switch must not bounce back through a locking `?role=` param
+    // on reload, so drop it before changing the hash.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('role');
+      url.hash = to;
+      window.location.replace(url.toString());
+    } catch {
+      window.location.hash = to;
+      window.location.reload();
+    }
   };
 
   const needsPin = PIN_STATUSES.includes(status);
@@ -114,7 +145,7 @@ export default function MobileApp() {
       ) : connecting ? (
         <Connecting C={C} state={state} />
       ) : role === 'stage' ? (
-        <StageScreen C={C} state={state} status={status} onSwitchRole={switchRole} />
+        <StageScreen C={C} state={state} status={status} send={send} onSwitchRole={switchRole} lockedRole={route.lockedRole} />
       ) : (
         <ControlScreen C={C} T={T} state={state} status={status} send={send} onSwitchRole={switchRole} />
       )}
@@ -148,7 +179,7 @@ function Denied({ C, reason, onRetry }) {
           ? 'The operator disconnected all phones. Ask for the new pairing code on the computer.'
           : 'This phone is not authorised to control the output.'}
       </div>
-      <motion.button {...stubTap} onClick={onRetry} style={{ background: '#E5A000', color: '#0D1014', border: 'none', borderRadius: 10, padding: '13px 26px', fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>
+      <motion.button {...stubTap} onClick={onRetry} style={{ background: '#FFB800', color: '#1C1C1E', border: 'none', borderRadius: 10, padding: '13px 26px', fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>
         Pair again
       </motion.button>
     </div>

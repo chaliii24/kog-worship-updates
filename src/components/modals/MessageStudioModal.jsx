@@ -185,7 +185,7 @@ export default function MessageStudioModal({ C, ACCENT, ovDraft, setOvDraft, ove
                         {t.style === 'center' ? 'Center' : t.style === 'banner' ? 'Banner' : 'Lower'} · {t.secs === 0 ? 'Pinned' : `${t.secs}s`}{t.media ? ' · bug' : ''}{t.text ? ` · ${t.text}` : ''}
                       </span>
                     </button>
-                    <button onClick={() => fireTpl(t)} title={`Fire "${t.name}" straight to the wall`} style={{ background: ACCENT, border: 'none', color: '#0D1014', borderRadius: 7, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><Play size={13} /></button>
+                    <button onClick={() => fireTpl(t)} title={`Fire "${t.name}" straight to the wall`} style={{ background: ACCENT, border: 'none', color: '#1C1C1E', borderRadius: 7, width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}><Play size={13} /></button>
                     <button onClick={() => setOvTemplates((prev) => prev.filter((x) => x.name !== t.name))} title={`Delete template "${t.name}"`} style={{ background: 'transparent', border: 'none', color: '#FF4545', cursor: 'pointer', display: 'flex', padding: 5, flexShrink: 0 }}><Trash2 size={13} /></button>
                   </div>
                 ))}
@@ -208,7 +208,7 @@ export default function MessageStudioModal({ C, ACCENT, ovDraft, setOvDraft, ove
           {overlayLive && (
             <motion.button {...stubTap} onClick={() => clearOverlay && clearOverlay()} title="Take the message down (the slide stays)" style={{ flex: 1, background: 'transparent', border: '1px solid rgba(255,69,69,0.45)', color: '#FF4545', borderRadius: 9, padding: '11px 0', fontSize: 13, fontWeight: 800, cursor: 'pointer' }}>Clear</motion.button>
           )}
-          <motion.button {...stubTap} onClick={show} title="Pin this message above the live slide" style={{ flex: 2, background: ovReady ? ACCENT : C.elevated2, border: '1px solid ' + (ovReady ? ACCENT : 'var(--ui-border2)'), color: ovReady ? '#0D1014' : C.muted, borderRadius: 9, padding: '11px 0', fontSize: 13.5, fontWeight: 900, cursor: ovReady ? 'pointer' : 'default', opacity: ovReady ? 1 : 0.55 }}>Show on wall</motion.button>
+          <motion.button {...stubTap} onClick={show} title="Pin this message above the live slide" style={{ flex: 2, background: ovReady ? ACCENT : C.elevated2, border: '1px solid ' + (ovReady ? ACCENT : 'var(--ui-border2)'), color: ovReady ? '#1C1C1E' : C.muted, borderRadius: 9, padding: '11px 0', fontSize: 13.5, fontWeight: 900, cursor: ovReady ? 'pointer' : 'default', opacity: ovReady ? 1 : 0.55 }}>Show on wall</motion.button>
         </div>
       </motion.div>
     </motion.div>

@@ -164,7 +164,7 @@ export default function DrawScreen({ C, ACCENT, state, send }) {
           ))}
           <span style={{ width: 8 }} />
           {DRAW_WIDTHS.map((wd) => (
-            <button key={wd} onClick={() => setWidth(wd)} title={`${wd}px`} style={{ width: 34, height: 34, borderRadius: 9, background: width === wd ? ACCENT : C.elevated2, border: `1px solid ${width === wd ? ACCENT : C.border2}`, color: width === wd ? '#0D1014' : C.muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit' }}>
+            <button key={wd} onClick={() => setWidth(wd)} title={`${wd}px`} style={{ width: 34, height: 34, borderRadius: 9, background: width === wd ? ACCENT : C.elevated2, border: `1px solid ${width === wd ? ACCENT : C.border2}`, color: width === wd ? '#1C1C1E' : C.muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit' }}>
               <span style={{ width: wd, height: wd, borderRadius: '50%', background: 'currentColor' }} />
             </button>
           ))}

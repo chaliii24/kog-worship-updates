@@ -159,7 +159,7 @@ export default function SettingsPanel() {
           <div style={{ background: 'radial-gradient(130% 160% at 20% 0%, rgba(255,184,0,0.28), rgba(255,184,0,0.04) 55%, transparent 80%), var(--ui-elev)', border: '1px solid var(--ui-border)', borderRadius: 10, padding: '12px 14px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 15, fontWeight: 900, letterSpacing: 0.4 }}>KOGWorship</span>
-              <span style={{ fontSize: 10.5, fontWeight: 800, color: '#0D1014', background: ACCENT, borderRadius: 999, padding: '2px 10px' }}>v{appInfo?.version || '—'}</span>
+              <span style={{ fontSize: 10.5, fontWeight: 800, color: '#1C1C1E', background: ACCENT, borderRadius: 999, padding: '2px 10px' }}>v{appInfo?.version || '—'}</span>
               <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Presentation Suite</span>
             </div>
             <p style={{ fontSize: 12, lineHeight: 1.65, color: C.text2, margin: '8px 0 10px 0' }}>
@@ -374,7 +374,7 @@ export default function SettingsPanel() {
                     {isInstalled ? `Installed · ${b.books} books` : downloading ? `Downloading… ${pct}%` : `${b.size || ''}${b.lang ? ` · ${b.lang}` : ''}`.replace(/^\W+/, '') || (b.code || b.abbrev).toUpperCase()}
                   </span>
                   {isInstalled ? (
-                    <button onClick={() => { if (!isActive) openBibleTranslation(b.abbrev); }} style={{ flexShrink: 0, background: isActive ? '#E5A000' : C.elevated2, border: '1px solid var(--ui-border)', color: isActive ? '#0D1014' : C.text2, padding: '5px 12px', borderRadius: 7, fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>{isActive ? 'Active' : 'Open'}</button>
+                    <button onClick={() => { if (!isActive) openBibleTranslation(b.abbrev); }} style={{ flexShrink: 0, background: isActive ? '#FFB800' : C.elevated2, border: '1px solid var(--ui-border)', color: isActive ? '#1C1C1E' : C.text2, padding: '5px 12px', borderRadius: 7, fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>{isActive ? 'Active' : 'Open'}</button>
                   ) : (
                     <button onClick={() => downloadBible(b.abbrev)} disabled={downloading} style={{ flexShrink: 0, background: C.elevated2, border: '1px solid var(--ui-border)', color: C.text2, padding: '5px 12px', borderRadius: 7, fontSize: 11, fontWeight: 800, cursor: downloading ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>{downloading ? `${pct}%` : 'Download'}</button>
                   )}

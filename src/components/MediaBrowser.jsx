@@ -128,7 +128,7 @@ export default function MediaBrowser() {
               <button
                 key={f.id}
                 onClick={() => setFilter(f.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#0D1014' : C.muted, borderRadius: 999, padding: '6px 12px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: on ? '0 0 0 1px rgba(255,184,0,0.5), 0 6px 20px rgba(255,184,0,0.35)' : 'none' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#1C1C1E' : C.muted, borderRadius: 999, padding: '6px 12px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: on ? '0 0 0 1px rgba(255,184,0,0.5), 0 6px 20px rgba(255,184,0,0.35)' : 'none' }}
               >
                 {Icon ? <Icon size={12} /> : null}{f.label}
                 <span style={{ fontSize: 10, fontWeight: 800, opacity: on ? 0.85 : 0.6 }}>{n}</span>
@@ -155,7 +155,7 @@ export default function MediaBrowser() {
         </select>
         <div style={{ display: 'flex', background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: 2, gap: 2 }}>
           {[['grid', LayoutGrid, 'Grid view'], ['list', List, 'List view']].map(([v, Icon, tip]) => (
-            <button key={v} onClick={() => setViewPersist(v)} title={tip} style={{ background: view === v ? ACCENT : 'transparent', border: 'none', color: view === v ? '#0D1014' : C.muted, borderRadius: 6, padding: '5px 8px', cursor: 'pointer', display: 'flex', boxShadow: view === v ? '0 0 12px rgba(255,184,0,0.45)' : 'none' }}><Icon size={14} /></button>
+            <button key={v} onClick={() => setViewPersist(v)} title={tip} style={{ background: view === v ? ACCENT : 'transparent', border: 'none', color: view === v ? '#1C1C1E' : C.muted, borderRadius: 6, padding: '5px 8px', cursor: 'pointer', display: 'flex', boxShadow: view === v ? '0 0 12px rgba(255,184,0,0.45)' : 'none' }}><Icon size={14} /></button>
           ))}
         </div>
       </div>

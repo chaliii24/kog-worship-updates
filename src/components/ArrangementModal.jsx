@@ -354,11 +354,11 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
                   key={n}
                   onClick={() => setLinesPer(n)}
                   title={`${n} lines per slide`}
-                  style={{ background: linesPer === n ? ACCENT : C.elevated2, border: '1px solid ' + (linesPer === n ? ACCENT : 'var(--ui-border2)'), color: linesPer === n ? '#0D1014' : C.muted, borderRadius: 6, padding: '4px 11px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
+                  style={{ background: linesPer === n ? ACCENT : C.elevated2, border: '1px solid ' + (linesPer === n ? ACCENT : 'var(--ui-border2)'), color: linesPer === n ? '#1C1C1E' : C.muted, borderRadius: 6, padding: '4px 11px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
                 >{n}</button>
               ))}
               <span style={{ fontSize: 10.5, color: C.muted, flex: 1, minWidth: 0 }}>lines per slide — rebuilds the song</span>
-              <button onClick={tidy} disabled={tidying} style={{ background: tidying ? C.elevated2 : ACCENT, border: 'none', color: tidying ? C.muted: '#0D1014', borderRadius: 7, padding: '7px 14px', fontSize: 11.5, fontWeight: 800, cursor: tidying ? 'default' : 'pointer' }}>
+              <button onClick={tidy} disabled={tidying} style={{ background: tidying ? C.elevated2 : ACCENT, border: 'none', color: tidying ? C.muted: '#1C1C1E', borderRadius: 7, padding: '7px 14px', fontSize: 11.5, fontWeight: 800, cursor: tidying ? 'default' : 'pointer' }}>
                 {tidying ? 'Rebuilding…' : 'Apply'}
               </button>
             </div>
@@ -370,7 +370,7 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
               )}
               <span style={{ flex: 1 }} />
               <button onClick={maybeClose} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, padding: '10px 18px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={() => save(false)} disabled={!flow.length} style={{ background: flow.length ? ACCENT : C.elevated2, border: 'none', color: flow.length ? '#0D1014' : C.muted, borderRadius: 8, padding: '10px 18px', fontSize: 12.5, fontWeight: 800, cursor: flow.length ? 'pointer' : 'default' }}>Save Arrangement</button>
+              <button onClick={() => save(false)} disabled={!flow.length} style={{ background: flow.length ? ACCENT : C.elevated2, border: 'none', color: flow.length ? '#1C1C1E' : C.muted, borderRadius: 8, padding: '10px 18px', fontSize: 12.5, fontWeight: 800, cursor: flow.length ? 'pointer' : 'default' }}>Save Arrangement</button>
             </div>
           </>
         )}

@@ -291,7 +291,7 @@ export default function CinematicPanel({
 
               <button
                 onClick={apply}
-                style={{ width: '100%', background: ACCENT, border: 'none', color: '#04121f', borderRadius: 7, padding: '7px 8px', fontSize: 10.5, fontWeight: 900, cursor: 'pointer', marginBottom: 10 }}
+                style={{ width: '100%', background: ACCENT, border: 'none', color: '#1C1C1E', borderRadius: 7, padding: '7px 8px', fontSize: 10.5, fontWeight: 900, cursor: 'pointer', marginBottom: 10 }}
               >Apply {preset ? `“${preset.name}”` : 'look'}</button>
 
               <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Save this look</div>
@@ -461,7 +461,7 @@ export default function CinematicPanel({
 
               <div style={{ display: 'flex', gap: 3, marginBottom: 6 }}>
                 {[['none', 'Aa'], ['upper', 'AA'], ['lower', 'aa']].map(([m, label]) => (
-                  <button key={m} onClick={() => setGhost({ case: m })} style={{ flex: 1, background: (ghost.case || 'upper') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (ghost.case || 'upper') === m ? '#0D1014' : C.muted, borderRadius: 5, padding: '4px 0', fontSize: 9, fontWeight: 800, cursor: 'pointer' }}>{label}</button>
+                  <button key={m} onClick={() => setGhost({ case: m })} style={{ flex: 1, background: (ghost.case || 'upper') === m ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (ghost.case || 'upper') === m ? '#1C1C1E' : C.muted, borderRadius: 5, padding: '4px 0', fontSize: 9, fontWeight: 800, cursor: 'pointer' }}>{label}</button>
                 ))}
                 <select
                   value={ghost.blendMode || 'screen'}

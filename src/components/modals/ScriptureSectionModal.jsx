@@ -124,7 +124,7 @@ export default function ScriptureSectionModal({
             ref={okRef}
             data-testid="bible-queue-confirm"
             onClick={() => onPick?.(picked)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: ACCENT || '#FFB800', border: 'none', color: '#0D1014', padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: ACCENT || '#FFB800', border: 'none', color: '#1C1C1E', padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
           >
             <Plus size={13} /> Add to Section
           </motion.button>

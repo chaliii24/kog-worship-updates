@@ -19,7 +19,7 @@ export default function PresentationSlide({ slide, width = 1280, height = 720, k
   const s = slide;
   const bg = s.bg || {};
   const bgType = bg.type || 'color';
-  const bgValue = bg.value || '#0B0F19';
+  const bgValue = bg.value || '#1C1C1E';
   const textColor = s.textColor || '#FFFFFF';
   const align = s.align || 'left';
   const font = s.font || "'CMG Sans', system-ui, sans-serif";

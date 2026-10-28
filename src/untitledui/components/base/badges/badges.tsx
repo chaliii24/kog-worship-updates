@@ -9,9 +9,9 @@ import { badgeTypes } from "./badge-types";
 
 export const filledColors: Record<BadgeColors, { root: string; addon: string; addonButton: string }> = {
     gray: {
-        root: "bg-utility-neutral-50 text-utility-neutral-700 ring-utility-neutral-200",
-        addon: "text-utility-neutral-500",
-        addonButton: "hover:bg-utility-neutral-100 text-utility-neutral-400 hover:text-utility-neutral-500",
+        root: "bg-utility-zinc-50 text-utility-zinc-700 ring-utility-zinc-200",
+        addon: "text-utility-zinc-500",
+        addonButton: "hover:bg-utility-zinc-100 text-utility-zinc-400 hover:text-utility-zinc-500",
     },
     brand: {
         root: "bg-utility-brand-50 text-utility-brand-700 ring-utility-brand-200",
@@ -34,9 +34,9 @@ export const filledColors: Record<BadgeColors, { root: string; addon: string; ad
         addonButton: "hover:bg-utility-green-100 text-utility-green-400 hover:text-utility-green-500",
     },
     slate: {
-        root: "bg-utility-slate-50 text-utility-slate-700 ring-utility-slate-200",
-        addon: "text-utility-slate-500",
-        addonButton: "hover:bg-utility-slate-100 text-utility-slate-400 hover:text-utility-slate-500",
+        root: "bg-utility-zinc-50 text-utility-zinc-700 ring-utility-zinc-200",
+        addon: "text-utility-zinc-500",
+        addonButton: "hover:bg-utility-zinc-100 text-utility-zinc-400 hover:text-utility-zinc-500",
     },
     sky: {
         root: "bg-utility-sky-50 text-utility-sky-700 ring-utility-sky-200",
@@ -89,8 +89,8 @@ const withPillTypes = {
         styles: {
             gray: {
                 root: "bg-primary text-secondary ring-primary",
-                addon: "text-neutral-500",
-                addonButton: "hover:bg-utility-neutral-100 text-utility-neutral-400 hover:text-utility-neutral-500",
+                addon: "text-zinc-500",
+                addonButton: "hover:bg-utility-zinc-100 text-utility-zinc-400 hover:text-utility-zinc-500",
             },
         },
     },

@@ -32,6 +32,8 @@ import { mediaLabel } from './lib/backgrounds';
 import { audioEngine } from './lib/audioEngine';
 import { resolveArrangementFlow } from './lib/arrangement';
 import { DEFAULT_STAGE_CFG } from './lib/stageLayout';
+import { SONG_DRAFT_KEY, SERVICE_DRAFT_KEY, detectFirstRunBoot } from './lib/firstRun';
+import { clampBpm, normalizeTimeSignature, MIN_BPM, MAX_BPM } from './lib/metronome';
 import { loadIconTheme, saveIconTheme } from './lib/icons';
 import CustomSlideModal from './components/modals/CustomSlideModal';
 import { defaultCustomSlideData, normalizeCustomSlideStyle } from './lib/customSlides';
@@ -92,17 +94,23 @@ const migrateOutputAutoFit = (list) => (Array.isArray(list) ? list : []).map((o)
   return nativeRes && namedRatio ? { ...o, aspect: 'auto' } : o;
 });
 
-// Single-slot crash recovery for the Song Editor. Most recent draft wins, so a
-// leftover entry means exactly one thing: the last session died with unsaved
-// work in flight. It is cleared the moment that work is safe (saved) or
-// deliberately abandoned (discarded) — never by simply closing another song.
-const SONG_DRAFT_KEY = 'kog-song-draft';
+// Single-slot crash recovery for the Song Editor and the SERVICE PLAN: the
+// draft keys live in lib/firstRun.js (a brand-new profile must ignore them),
+// while the recovery code below owns when they are written and cleared.
 
-// Single-slot crash recovery for the SERVICE PLAN — the other thing an
-// operator builds live on a Sunday. Same contract as the song draft: it exists
-// only while there are unsaved changes, and it is dropped the moment that work
-// is saved or deliberately discarded.
-const SERVICE_DRAFT_KEY = 'kog-service-draft';
+// Brand-new installs open CLEAN — see lib/firstRun.js for the full policy.
+// Cached for the life of this window: StrictMode mounts the component twice
+// and a second pass must not see the marker it just wrote and flip to false.
+let firstRunBootCache = null;
+const isFirstRunBoot = () => {
+  if (firstRunBootCache !== null) return firstRunBootCache;
+  try {
+    firstRunBootCache = detectFirstRunBoot(localStorage);
+  } catch {
+    firstRunBootCache = false;
+  }
+  return firstRunBootCache;
+};
 
 // The plan the console opens on — and the one "Start Blank" must produce.
 // Built fresh each call so a reset never shares the startup object.
@@ -119,6 +127,11 @@ export default function App() {
     window.location.hash.includes('/projector') ||
     window.location.hash.includes('/stage')
   );
+  // Only the operator decides the first-run state. Output windows share this
+  // localStorage and must never consume the one-time blank boot.
+  const firstRunRef = useRef(null);
+  if (firstRunRef.current === null) firstRunRef.current = isOutputWindow ? false : isFirstRunBoot();
+  const firstRunBoot = firstRunRef.current;
   const [isProjector, setIsProjector] = useState(false);
   const [isStage, setIsStage] = useState(false);
   const [isOutput, setIsOutput] = useState(false);
@@ -613,11 +626,21 @@ export default function App() {
   // dock tab, persisted, and pushed to the stage window over the
   // `update-stage-config` channel (main caches the last value + fans it out).
   const [stageCfg, setStageCfg] = useState(() => {
+    // First launch: no carried-over tempo. The drummer phone keeps the BPM
+    // area blank until a song (or the operator) actually sets one.
+    if (firstRunBoot) return { ...DEFAULT_STAGE_CFG, bpm: null, metronome: false };
     try { return { ...DEFAULT_STAGE_CFG, ...(JSON.parse(localStorage.getItem('kog_stage_cfg')) || {}) }; }
     catch { return { ...DEFAULT_STAGE_CFG }; }
   });
   useEffect(() => {
-    try { localStorage.setItem('kog_stage_cfg', JSON.stringify(stageCfg)); } catch { /* quota */ }
+    try {
+      // Transport is owned by each drummer phone, so nothing here is
+      // session-scoped. Drop the legacy `metronomeRunning` key if an older
+      // build left it in localStorage.
+      const persisted = { ...stageCfg };
+      delete persisted.metronomeRunning;
+      localStorage.setItem('kog_stage_cfg', JSON.stringify(persisted));
+    } catch { /* quota */ }
   }, [stageCfg]);
   // Stage WINDOW side: the feed received from main ({ cfg, flow, chord }).
   // Output windows never push — they only render what arrives here.
@@ -2005,6 +2028,13 @@ export default function App() {
         title: currentPayload.title || '',
         label: currentPayload.label || '',
         text: currentPayload.text || '',
+        // Is a LYRIC slide on the wall? Media, scripture and sermon slides are
+        // not, and the monitor's metronome badge keys off this so a photo's
+        // name never sits beside a tempo that belongs to some other song.
+        lyric: currentPayload.lyric !== false,
+        // A photo/video is on the wall: the monitor names the state instead of
+        // echoing the file name (scripture slides keep their own title).
+        media: currentPayload.media === true,
         // Countdown on stage: the timer rides on the current payload so the
         // monitor shows the SAME TimerFace as the wall (it used to be
         // silently dropped here, leaving the stage timerless).
@@ -2580,7 +2610,7 @@ export default function App() {
       if (targetedDisplays.includes(1)) ipcRenderer.send('update-live-slide', slidePayload);
     }
     if (timer.showOn === 'both' || timer.showOn === 'stage') {
-      sendStageData({ title: timer.title || 'Countdown', label: 'Countdown Timer', text: '', timer, timestamp: stamp }, null);
+      sendStageData({ title: timer.title || 'Countdown', label: 'Countdown Timer', text: '', timer, lyric: false, timestamp: stamp }, null);
     }
   }, [countdown]);
 
@@ -2601,7 +2631,7 @@ export default function App() {
       fireCueLive({ id: 'clear', label: 'Clear', text: '' });
     }
     if (!showOn || showOn === 'both' || showOn === 'stage') {
-      sendStageData({ title: '', label: '', text: '', timestamp: liveStamp() }, null);
+      sendStageData({ title: '', label: '', text: '', lyric: false, timestamp: liveStamp() }, null);
     }
   };
 
@@ -2635,6 +2665,14 @@ export default function App() {
     if (window.require && targetedDisplays.includes(1)) {
       window.require('electron').ipcRenderer.send('update-live-slide', slidePayload);
     }
+    // Stage feed: a video on the wall is not a song, so the monitor names the
+    // state and keeps the tempo badge off. Stopping (onAir false) clears it.
+    sendStageData(
+      onAir
+        ? { title: video.name || '', label: 'Video', text: '', lyric: false, media: true, timestamp: stamp }
+        : { title: '', label: 'Clear', text: '', lyric: false, timestamp: stamp },
+      null
+    );
   };
 
   // Clear All blacks the whole output. Clear Lyrics is the softer one: only the
@@ -2689,7 +2727,7 @@ export default function App() {
       ipcRenderer.send('update-live-slide', slidePayload);
     }
     sendStageData(
-      { title: slidePayload.title, label: '', text: '', timestamp: slidePayload.timestamp },
+      { title: slidePayload.title, label: '', text: '', lyric: false, timestamp: slidePayload.timestamp },
       nextCue ? { title: activeSong?.title, label: nextCue.label, text: nextCue.text } : null
     );
   };
@@ -2844,7 +2882,7 @@ export default function App() {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('update-live-slide', slidePayload);
     }
-    sendStageData({ title: deck.title, label: slidePayload.label, text: s.notes || '', timestamp: slidePayload.timestamp }, null);
+    sendStageData({ title: deck.title, label: slidePayload.label, text: s.notes || '', lyric: false, timestamp: slidePayload.timestamp }, null);
   };
 
   const presentDeck = (deck) => {
@@ -3103,7 +3141,7 @@ export default function App() {
         const { ipcRenderer } = window.require('electron');
         ipcRenderer.send('update-live-slide', slidePayload);
       }
-      sendStageData({ title: item.title, label: item.subtitle, text: item.content, timestamp: slidePayload.timestamp }, null);
+      sendStageData({ title: item.title, label: item.subtitle, text: item.content, lyric: false, timestamp: slidePayload.timestamp }, null);
     }
   };
 
@@ -3128,15 +3166,23 @@ export default function App() {
   const svcPopRef = useRef(null);
   useEffect(() => {
     if (isOutputWindow) return;
-    const items = ((activeService && activeService.items) || []).filter((i) => i && i.item_type === 'song');
+    const items = ((activeService && activeService.items) || []).filter((i) => i && (i.item_type === 'song' || i.item_type === 'medley'));
     if (!items.length) return;
-    const key = `${activeService?.id ?? 'new'}:${items.map((i) => i.content).join(',')}`;
+    const key = `${activeService?.id ?? 'new'}:${items.map((i) => i.id ?? i.content).join(',')}`;
     if (svcPopRef.current === key) return;
     svcPopRef.current = key;
-    const firstId = String(items[0].content ?? '').trim();
+    const songRefOf = (it) => {
+      if (it.item_type === 'song') return String(it.content ?? '').trim();
+      if (it.item_type === 'medley') {
+        const def = parseMedleyDef(it);
+        return def && def.anchor && def.anchor.songId != null ? String(def.anchor.songId).trim() : '';
+      }
+      return '';
+    };
+    const firstId = songRefOf(items[0]);
     if (!firstId) return;
     setStageBpmPopup((prev) => {
-      if (prev && items.some((i) => String(i.content) === String(prev.songId))) return prev;
+      if (prev && items.some((i) => songRefOf(i) === String(prev.songId))) return prev;
       return { songId: firstId, title: items[0].title || 'Song' };
     });
   }, [activeService]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -3694,7 +3740,7 @@ export default function App() {
       return;
     }
     const bgType = mediaType === 'video' ? 'video' : 'image';
-    const slidePayload = { title: item.title, text: '', label: item.subtitle || 'Media', style: { ...stageStyle, backgroundType: bgType, backgroundValue: mediaUrl }, audio: activeSong?.audio_url || null, timestamp: liveStamp() };
+    const slidePayload = { title: item.title, text: '', label: item.subtitle || 'Media', style: { ...stageStyle, backgroundType: bgType, backgroundValue: mediaUrl }, audio: activeSong?.audio_url || null, media: true, timestamp: liveStamp() };
     setActiveCue({ id: item.id, label: item.subtitle || 'Media', text: '' });
     setSlideTimer({ start: Date.now(), elapsed: 0, duration: 0 });
     setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
@@ -3702,7 +3748,7 @@ export default function App() {
       const { ipcRenderer } = window.require('electron');
       ipcRenderer.send('update-live-slide', slidePayload);
     }
-    sendStageData({ title: item.title, label: item.subtitle || 'Media', text: '', timestamp: slidePayload.timestamp }, null);
+    sendStageData({ title: item.title, label: item.subtitle || 'Media', text: '', lyric: false, media: true, timestamp: slidePayload.timestamp }, null);
   };
 
   // Clear the workspace: unload the song from the center grid back to the
@@ -3726,7 +3772,7 @@ export default function App() {
         const { ipcRenderer } = window.require('electron');
         ipcRenderer.send('update-live-slide', slidePayload);
       }
-      sendStageData({ title: '', label: 'Clear', text: '', timestamp: slidePayload.timestamp }, null);
+      sendStageData({ title: '', label: 'Clear', text: '', lyric: false, timestamp: slidePayload.timestamp }, null);
       return;
     }
     if (item.item_type === 'song') {
@@ -3741,7 +3787,7 @@ export default function App() {
         const { ipcRenderer } = window.require('electron');
         ipcRenderer.send('update-live-slide', slidePayload);
       }
-      sendStageData({ title: '', label: 'Clear', text: '', timestamp: slidePayload.timestamp }, null);
+      sendStageData({ title: '', label: 'Clear', text: '', lyric: false, timestamp: slidePayload.timestamp }, null);
       return;
     }
     fireCueLive({ id: 'clear', label: 'Clear', text: '' });
@@ -3828,6 +3874,8 @@ export default function App() {
   // and localStorage, and must never adopt (or announce) the operator's plan.
   useEffect(() => {
     if (isOutputWindow || showSplash) return;
+    // First launch stays blank by default: never resurrect a previous order.
+    if (firstRunBoot) return;
     let draft = null;
     try {
       const raw = localStorage.getItem(SERVICE_DRAFT_KEY);
@@ -4717,6 +4765,41 @@ export default function App() {
       drawAdd: (p) => addDrawStroke(p && p.stroke),
       drawUndo: () => { undoDrawStroke(); return true; },
       drawClear: () => { clearDrawStrokes(); return true; },
+      // DRUMMER METRONOME CONTROL: the drummer's stage phone owns tempo + song
+      // pick. Everything lands on the SAME stageCfg/tempo panel the desktop
+      // edits, so the room (stage beat-dot, desktop panel, every other phone)
+      // converges on the drummer's numbers — no private tempo anywhere.
+      //   · songId → the console's loaded song + tempo panel follow the pick
+      //     (selectSong never touches the output, so projection is untouched)
+      //   · bpm / timeSignature → the shared metronome config moves.
+      metronomeSet: (p) => {
+        if (!p || typeof p !== 'object') return false;
+        const rawId = p.songId == null ? '' : String(p.songId).trim();
+        const wantBpm = Math.round(Number(p.bpm));
+        const hasBpm = Number.isFinite(wantBpm) && wantBpm >= MIN_BPM && wantBpm <= MAX_BPM;
+        const wantMeter = Math.round(Number(p.timeSignature));
+        const hasMeter = Number.isFinite(wantMeter) && wantMeter >= 1 && wantMeter <= 12;
+        if (!rawId && !hasBpm && !hasMeter) return false;
+        if (rawId) {
+          const asNum = Number(rawId);
+          selectSong(Number.isFinite(asNum) ? asNum : rawId);
+          // The tempo panel follows immediately (id-keyed effect below only
+          // re-fires on an actual song CHANGE, so set it here too).
+          const rec = (songs || []).find((s) => String(s.id) === rawId);
+          setStageBpmPopup({ songId: rawId, title: String(p.title || (rec && rec.title) || 'Song').slice(0, 120) });
+        }
+        if (hasBpm || hasMeter) {
+          setStageCfg((prev) => {
+            const next = { ...prev, metronome: true };
+            if (hasBpm) next.bpm = wantBpm;
+            if (hasMeter) next.timeSignature = wantMeter;
+            return next.bpm === prev.bpm && next.timeSignature === prev.timeSignature && next.metronome === prev.metronome
+              ? prev
+              : next;
+          });
+        }
+        return true;
+      },
     };
   });
 
@@ -4745,9 +4828,19 @@ export default function App() {
       v: 1,
       at: Date.now(),
       themeDark: !!themeDark,
+      // Visual metronome settings. Drummer phones own their transport; this
+      // block only tells them WHAT to play (tempo + meter), never whether the
+      // pulse is running.
+      metronome: {
+        bpm: clampBpm(stageCfg?.bpm),
+        timeSignature: normalizeTimeSignature(stageCfg?.timeSignature),
+      },
       live: live ? {
         title: live.title || '',
         label: live.label || '',
+        // A photo/video slide is not a song: drummer phones use this flag so a
+        // media file can never be mistaken for the loaded lyric song.
+        media: live.media === true,
         text: live.text || '',
         timestamp: live.timestamp || 0,
         presentation: live.presentation || null,
@@ -4782,20 +4875,43 @@ export default function App() {
       } : null,
       activeCueId: activeCue ? activeCue.id : null,
       liveItemId: liveId,
-      service: {
-        name: activeService?.name || activeService?.title || '',
-        sections: serviceSections().map(s => ({
-          title: s.title,
-          items: s.items.map(i => ({
-            id: i.id,
-            item_type: i.item_type,
-            title: i.title || '',
-            subtitle: i.subtitle || '',
-            bible: !!(i.meta && i.meta.kind === 'bible'),
-            live: i.id != null && i.id === liveId,
+      service: (() => {
+        // Song rows carry their id + saved tempo so a phone (the drummer's
+        // set-list picker) can offer every song in the order WITH its BPM
+        // without a second channel. Medleys resolve to their anchor song.
+        const songMeta = new Map();
+        for (const s of songs || []) if (s && s.id != null) songMeta.set(String(s.id), s);
+        const songRefOf = (it) => {
+          let sid = null;
+          if (it.item_type === 'song') sid = String(it.content ?? '').trim();
+          else if (it.item_type === 'medley') {
+            const def = parseMedleyDef(it);
+            if (def && def.anchor && def.anchor.songId != null) sid = String(def.anchor.songId);
+          }
+          return sid || null;
+        };
+        return {
+          name: activeService?.name || activeService?.title || '',
+          sections: serviceSections().map(s => ({
+            title: s.title,
+            items: s.items.map(i => {
+              const songId = songRefOf(i);
+              const rec = songId ? songMeta.get(songId) : null;
+              const saved = rec ? Math.round(Number(rec.bpm)) : 0;
+              return {
+                id: i.id,
+                item_type: i.item_type,
+                title: i.title || '',
+                subtitle: i.subtitle || '',
+                bible: !!(i.meta && i.meta.kind === 'bible'),
+                live: i.id != null && i.id === liveId,
+                songId,
+                bpm: saved >= MIN_BPM && saved <= MAX_BPM ? saved : null,
+              };
+            }),
           })),
-        })),
-      },
+        };
+      })(),
       timer: {
         start: slideTimer?.start ?? null,
         elapsed: slideTimer?.elapsed ?? 0,
@@ -4860,7 +4976,7 @@ export default function App() {
   };
   pushMobileRef.current = pushMobileState;
 
-  useEffect(() => { pushMobileState(); }, [currentSlide, displays, activeSong, activeCue, activeService, slideTimer, themeDark, targetedDisplays, countdown, sermon, outputAspect, outputs, stageCfg, liveOverlay, drawStrokes, bibleRemote]);
+  useEffect(() => { pushMobileState(); }, [currentSlide, displays, activeSong, activeCue, activeService, slideTimer, themeDark, targetedDisplays, countdown, sermon, outputAspect, outputs, stageCfg, liveOverlay, drawStrokes, bibleRemote, songs]);
 
   // Auto-stop: a live non-overtime timer ends itself at zero (blackout +
   // stage clear, same as the Stop button) instead of sitting on 0:00 until
@@ -5244,7 +5360,8 @@ export default function App() {
     // the old code threw on .split and the confirm never appeared.
     const url = asset.url || asset.value || '';
     if (!url) return;
-    const fileName = String(url).split('/').pop() || 'this asset';
+    let fileName = String(url).split('/').pop() || 'this asset';
+    try { fileName = decodeURIComponent(fileName); } catch (_) {}
     const ok = await appConfirm(`Remove "${fileName}" from the media library?\n\nSongs that reference it will fall back to their color background.`, { confirmLabel: 'Remove' });
     if (!ok) return;
     const { ipcRenderer } = window.require('electron');

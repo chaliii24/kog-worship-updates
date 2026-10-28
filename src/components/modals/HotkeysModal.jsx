@@ -30,7 +30,7 @@ export default function HotkeysModal({ C, ACCENT, onClose }) {
           ))}
         </div>
 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <motion.button {...stubTap} onClick={onClose} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '10px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}>Close</motion.button>
+          <motion.button {...stubTap} onClick={onClose} style={{ background: ACCENT, border: 'none', color: '#1C1C1E', padding: '10px 20px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}>Close</motion.button>
         </div>
       </motion.div>
     </motion.div>

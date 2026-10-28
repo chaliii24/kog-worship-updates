@@ -4,6 +4,8 @@
 // derive the same numbers from the same code — a preview that disagrees with
 // the wall is worse than no preview.
 
+import { DEFAULT_BPM, DEFAULT_TIME_SIGNATURE } from './metronome.js';
+
 export const DEFAULT_STAGE_CFG = {
   // Role preset id: 'standard' | 'pastor' | 'worship' | 'drummer' | 'custom'.
   layout: 'standard',
@@ -15,8 +17,12 @@ export const DEFAULT_STAGE_CFG = {
   showAlert: true,
   showChords: false,
   showTimer: false, // big segment timer in the main area
+  // Tempo badge on the physical stage monitor. Drummer phones always receive
+  // BPM/meter from the same cfg, but each phone owns its own transport.
   metronome: false,
-  bpm: 96,
+  bpm: DEFAULT_BPM,
+  // Numerator of the meter (4 == 4/4). Beat 1 is rendered as the downbeat.
+  timeSignature: DEFAULT_TIME_SIGNATURE,
   // 'standard' (theme colors) | 'high-yellow' | 'high-white' — the last two
   // are the ProPresenter-style confidence look: yellow/white on pure black,
   // readable from 20+ ft.

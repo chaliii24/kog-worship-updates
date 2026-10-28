@@ -52,7 +52,7 @@ export default function ConfirmModal({ C, ACCENT, mode = 'confirm', title, messa
           <Icon size={16} color={isConfirm ? C.accLine || ACCENT : '#F59E0B'} />
           {title || (isConfirm ? 'Confirm' : 'Notice')}
         </h2>
-        <p style={{ margin: '0 0 20px 0', fontSize: '13px', lineHeight: 1.5, color: C.sub || C.text, whiteSpace: 'pre-wrap' }}>
+        <p style={{ margin: '0 0 20px 0', fontSize: '13px', lineHeight: 1.5, color: C.sub || C.text, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
           {message}
         </p>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
@@ -88,7 +88,7 @@ export default function ConfirmModal({ C, ACCENT, mode = 'confirm', title, messa
             <motion.button
               {...stubTap}
               onClick={onExtra}
-              style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+              style={{ background: ACCENT, border: 'none', color: '#1C1C1E', padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
             >
               {extraLabel}
             </motion.button>
