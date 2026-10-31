@@ -12,7 +12,11 @@ import { scriptureTemplateOf } from '../lib/scriptureTemplates';
  * size). Everything here is in design canvas pixels, like the lyric box, so
  * the projector and the console preview draw it identically.
  */
-const ScriptureRef = ({ meta, title, color, font, templateId }) => {
+// `stretch` is the wall's widened design space (designCanvasFilled): on a
+// screen wider than 16:9 the corner anchor has to move out with the space, or
+// the reference would sit inboard of the widened picture's edge.
+const ScriptureRef = ({ meta, title, color, font, templateId, stretch = 1 }) => {
+  const k = Number(stretch) > 0 ? Number(stretch) : 1;
   const tpl = scriptureTemplateOf(templateId || (meta && meta.template));
   const pos = (tpl.ref && tpl.ref.pos) || 'hidden';
   // 'inline' is the Default template: the reference stays a line of the
@@ -34,7 +38,7 @@ const ScriptureRef = ({ meta, title, color, font, templateId }) => {
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${tpl.ref.opacity != null ? tpl.ref.opacity : 0.8})`;
   })();
 
-  const edge = 56;
+  const edge = 56 * k;
   const box = { position: 'absolute', zIndex: 1, maxWidth: `calc(100% - ${edge * 2}px)`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: font || tpl.font, fontSize: tpl.ref.size || 30, fontWeight: 600, letterSpacing: '0.02em', lineHeight: 1.25, color: rgba, textShadow: '0 2px 10px rgba(0,0,0,0.75)', pointerEvents: 'none' };
 
   if (pos === 'top-left') return <div style={{ ...box, left: edge, top: 56 }}>{withTrans}</div>;

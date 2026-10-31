@@ -722,7 +722,7 @@ export default function CenterWorkspace() {
                   {live ? <span className="kog-live-chip">LIVE</span> : null}
                 </div>
                 <div className="kog-slide-face" style={{ position: 'relative', padding: 0, lineHeight: 0 }}>
-                  {renderSlideFace(tile, { aspect: (outputAspect || '16:9').replace(':', ' / '), radius: '6px', showLiveBadge: false })}
+                  {renderSlideFace(tile, { aspect: '16 / 9', radius: '6px', showLiveBadge: false })}
                 </div>
                 {tile.medSong ? (
                   <span style={{ fontSize: 9.5, color: 'var(--ui-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tile.medSong.title || 'Song'}</span>

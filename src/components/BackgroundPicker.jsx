@@ -70,6 +70,10 @@ export default function BackgroundPicker({
   onUpload,
   hasBackground,
   mediaLibrary,
+  // Slide Properties shows its own "Active Background" card + gallery sheet,
+  // so the 30-tile media grid would be a second copy of the same library in
+  // one rail. Colour and Motion stay here.
+  hideMedia = false,
 }) {
   const [tab, setTab] = useState('color');
   const [cat, setCat] = useState('all');
@@ -148,7 +152,7 @@ export default function BackgroundPicker({
       <div style={{ display: 'flex', gap: 2, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: 2, marginBottom: 9 }}>
         {tabBtn('color', 'Color', 'Solid colour and gradients')}
         {tabBtn('motion', 'Motion', 'Animated gradient loops')}
-        {tabBtn('media', 'Media', 'Images and videos from your library')}
+        {!hideMedia && tabBtn('media', 'Media', 'Images and videos from your library')}
       </div>
 
       {tab === 'color' && (
@@ -216,7 +220,7 @@ export default function BackgroundPicker({
         </>
       )}
 
-      {tab === 'media' && (
+      {!hideMedia && tab === 'media' && (
         <>
           <div style={{ display: 'flex', gap: 5, marginBottom: 8 }}>
             <label style={uploadBtn} title="Upload an image from this computer">

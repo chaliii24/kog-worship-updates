@@ -1,8 +1,8 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Image as ImageIcon, Video, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, KeyRound, Timer, Clock3, Save, Copy, ChevronUp, ChevronDown, Eye, EyeOff, Lock, Unlock, GripVertical, ChevronLeft, ChevronRight, Type, PenLine, BringToFront, SendToBack, Undo2, Redo2, Sparkles, Palette as PaletteIcon, CheckSquare } from 'lucide-react';
+import { Plus, Trash2, Image as ImageIcon, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, KeyRound, Timer, Clock3, Save, Copy, Eye, EyeOff, Lock, Unlock, ChevronLeft, ChevronRight, ChevronDown, Type, PenLine, BringToFront, SendToBack, Undo2, Redo2, Sparkles, Palette as PaletteIcon, CheckSquare, X, Play, SlidersHorizontal, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, FALLBACK_SYSTEM_FONTS } from '../lib/constants';
-import { renderLyricsLayout, cueLyricStyle, stripMarkup, ghostLayerOf, FONT_SIZE_MIN, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, autoPadForSize, fitBoxToText, growBoxToText, restyleLineScales } from '../lib/lyrics';
+import { renderLyricsLayout, cueLyricStyle, stripMarkup, ghostLayerOf, FONT_SIZE_MIN, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, autoPadForSize, padCeilingForBox, fitBoxToText, growBoxToText, restyleLineScales } from '../lib/lyrics';
 import { allTextObjects, newTextObject, textObjectLayers, textTransitionOf } from '../lib/songTextObjects';
 import { useApp } from '../context/AppContext';
 import { stubTap, iconBtnTap } from '../lib/anim';
@@ -16,7 +16,8 @@ import SongThemePicker from './SongThemePicker';
 import TitleCardTemplatePicker from './TitleCardTemplatePicker';
 import { titleCardCue, titleCardOf } from '../lib/titleCardTemplates';
 import CinematicPanel from './CinematicPanel';
-import BackgroundPicker from './BackgroundPicker';
+import BackgroundPicker, { mediaCategory } from './BackgroundPicker';
+import { BG_FIT_MODES, bgMediaFields, bgFitCss } from '../lib/backgrounds';
 import { allCinematicPresets, cinematicCuePatch, cinematicTextPatch, cinematicTransitionPatch, presetFromCue, saveCustomCinematicPreset, deleteCustomCinematicPreset, normalizeGhost, TEXT_LOOK_KEYS } from '../lib/cinematic';
 import { allSongThemes, songThemeCuePatch, themeStyleFromCue, saveCustomSongTheme, updateCustomSongTheme, deleteCustomSongTheme, lastSongThemeId, rememberSongTheme, DEFAULT_TITLE_BOX } from '../lib/songThemes';
 import ColorPicker from '../untitledui/components/application/color-picker/color-picker';
@@ -170,7 +171,24 @@ const PANE_MOTION = {
   animate: { opacity: 1, y: 0 },
   transition: { duration: 0.18, ease: [0.22, 1, 0.36, 1] },
 };
-const PANE_STYLE = { display: 'flex', flexDirection: 'column', gap: 12, flex: 1 };
+const PANE_STYLE = { display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minWidth: 0, width: '100%' };
+
+// One-click section tags for the slide you have open. Typing "Verse 1" by
+// hand for every added slide is the slow path; a chip is one click and the
+// filmstrip regroups instantly.
+const SECTION_PILLS = ['Intro', 'Verse 1', 'Verse 2', 'Pre-Chorus', 'Chorus', 'Bridge', 'Tag', 'Outro', 'Blank'];
+
+// Library assets only carry a url (and sometimes a name). The active-media card
+// needs something human to print under the preview.
+const mediaName = (url, library) => {
+  const hit = (library || []).find((a) => a.url === url);
+  if (hit?.name) return hit.name;
+  try {
+    return decodeURIComponent(String(url || '').split('/').pop().split('?')[0]) || 'Media';
+  } catch {
+    return 'Media';
+  }
+};
 
 export default function SongEditorModal() {
   const app = useApp();
@@ -266,6 +284,10 @@ export default function SongEditorModal() {
   // and right rails never grow a page-long scroll of their own.
   const [leftTab, setLeftTab] = useState('style');
   const [rightTab, setRightTab] = useState('slides');
+  // NEW: collapsed slide groups + search + interactive sequence arrangement
+  const [collapsedGroups, setCollapsedGroups] = useState(new Set());
+  const [slideSearch, setSlideSearch] = useState('');
+  const [sequenceArrangement, setSequenceArrangement] = useState([]);
   const [previewTick, setPreviewTick] = useState(0);
   const hoverTimeoutRef = useRef(null);
   // Live view of what the canvas textarea has highlighted. With a highlight,
@@ -283,6 +305,11 @@ export default function SongEditorModal() {
   const activeIdx = Math.max(0, Math.min(activeObj, Math.max(0, textObjs.length - 1)));
   const c = textObjs[activeIdx] || editorCue || {};
   const cBox = c.box || DEFAULT_BOX;
+  // PADDING is bounded by THIS box: a small box cannot hold a big buffer, and
+  // the ceiling is the same one the renderer uses (padCeilingForBox), so the
+  // number on the slider and the gutter you see are always the same number.
+  const padMax = Math.max(8, Math.min(80, padCeilingForBox(cBox)));
+  const padNow = Math.max(0, Math.min(padMax, Math.round(Number(c?.pad ?? autoPadForSize(c?.size)) || 0)));
   // Effective entrance settings for the box the sidebar is styling. Extra
   // boxes inherit the slide's transition until the operator picks one, so
   // existing songs keep animating exactly as they did.
@@ -429,6 +456,15 @@ export default function SongEditorModal() {
     if (kind === 'parse') processAutoPaste(undefined, { linesPerSlide: n });
   };
 
+  // Slide Properties media workflow: the library grid lives in a sheet behind
+  // one button instead of 30 tiles burned into the rail.
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryCat, setGalleryCat] = useState('all');
+  const mediaAssets = useMemo(
+    () => (mediaLibrary || []).filter((a) => a.kind === 'image' || a.kind === 'video'),
+    [mediaLibrary],
+  );
+
   const [renameIdx, setRenameIdx] = useState(null);
   const [renameFrom, setRenameFrom] = useState('strip');
   // Identity anchor: renameIdx is positional, so a reorder/delete/split
@@ -489,6 +525,15 @@ export default function SongEditorModal() {
   // --- bulk actions on ticked slides ---------------------------------------
   const selectAllSlides = () => {
     setApplySel([-1, ...(editingSong.cues || []).map((_, i) => i)]);
+  };
+  // NEW: toggle a collapsible slide group by its base label
+  const toggleGroup = (baseLabel) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(baseLabel)) next.delete(baseLabel);
+      else next.add(baseLabel);
+      return next;
+    });
   };
 
   const duplicateSelected = () => {
@@ -1434,8 +1479,7 @@ export default function SongEditorModal() {
           <div style={{ flex: '0 0 240px', minWidth: 200, minHeight: 0, borderRight: '1px solid var(--ui-border2)', overflow: 'hidden', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
             {/* LEFT RAIL SECTIONS — three tabs instead of one long stacked
                 scroll, so the rail itself never moves: Style (alignment, layout,
-                typography), Motion (transition + cinematic) and Notes. */}
-            <Tabs selectedKey={leftTab} onSelectionChange={setLeftTab} className="min-h-0 flex-1">
+                typography), Motion (transition + cinematic) and Notes. */}              <Tabs selectedKey={leftTab} onSelectionChange={setLeftTab} className="min-h-0 w-full min-w-0 flex-1">
               <TabList type="underline" size="sm" className="shrink-0 gap-1 px-3">
                 <Tab id="style" style={{ outline: 'none', padding: '7px 6px' }}>
                   {(state) => <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.2, color: state.isSelected ? 'var(--kog-accent)' : 'var(--ui-muted)' }}>Style</span>}
@@ -1463,10 +1507,27 @@ export default function SongEditorModal() {
                       <button key={v} title={`Vertical: ${lbl}`} onClick={() => patchText({ valign: v })} style={{ flex: 1, background: (c?.valign || 'middle') === v ? ACCENT : C.elevated2, border: '1px solid var(--ui-border2)', color: (c?.valign || 'middle') === v ? '#0D1014' : C.muted, borderRadius: 6, padding: '6px 0', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}><Icon size={14} /></button>
                     ))}
                   </div>
+                  <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4 }}>Padding</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span
+                      title="Breathing room INSIDE the box: the buffer that keeps words clear of the edges, stops overlapping text and keeps the block readable from the stage. Auto (0) grows it with the font size — drag to set your own, or press Auto to hand it back. Word and letter spacing is Tracking, below."
+                      style={{ fontSize: 9.5, color: C.faint, fontWeight: 700, lineHeight: 1.4, flex: 1, cursor: 'help' }}
+                    >
+                      Space around the text, on all four sides
+                    </span>
+                  </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1 }} title={c?.pad != null ? 'Padding' : `Auto — ${autoPadForSize(c?.size)}px at this font size`}>Padding{c?.pad == null && <span style={{ color: C.muted, fontWeight: 600 }}> · auto</span>}</label>
-                    <input type="range" min="0" max="80" step="2" value={c?.pad ?? autoPadForSize(c?.size)} onChange={(e) => patchTextT({ pad: Number(e.target.value) })} style={{ flex: 1 }} />
-                    <span style={{ fontSize: 11, color: C.muted, width: 28, textAlign: 'right' }}>{c?.pad ?? autoPadForSize(c?.size)}</span>
+                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, flex: 1, whiteSpace: 'nowrap' }} title={c?.pad != null ? `Padding: ${padNow}px of buffer on all four sides of this box` : `Auto — ${padNow}px at this font size, tracks the font`}>Padding{c?.pad == null && <span style={{ color: C.muted, fontWeight: 600 }}> · auto</span>}</label>
+                    <input type="range" min="0" max={padMax} step="2" value={padNow} onChange={(e) => patchTextT({ pad: Number(e.target.value) })} style={{ flex: 1, minWidth: 0 }} />
+                    <span style={{ fontSize: 11, color: C.muted, width: 30, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{padNow}</span>
+                    {c?.pad != null && (
+                      <button
+                        type="button"
+                        onClick={() => patchText({ pad: null })}
+                        title="Back to auto — the buffer tracks the font size instead of staying fixed"
+                        style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '3px 7px', fontSize: 9.5, fontWeight: 800, cursor: 'pointer', lineHeight: 1.4 }}
+                      >Auto</button>
+                    )}
                   </div>
                 </div>
 
@@ -1936,18 +1997,23 @@ export default function SongEditorModal() {
               <button onClick={() => setEditorCueIdx(i => Math.min((editingSong.cues || []).length - 1, i + 1))} style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 7, padding: '5px 9px', cursor: 'pointer', display: 'flex' }}><ChevronRight size={15} /></button>
             </div>
 
-            {/* canvas — contain-fit stage: the padding sits on the OUTER box so
-                the inner one is padding-free; LyricsCanvasEditor measures that
-                box and sizes itself to the largest 16:9 that fits, keeping the
-                stage centered and clear of the footer. */}
+            {/* canvas — DYNAMIC SCALING, the projector's own logic: the padding
+                sits on the OUTER box so the inner one is padding-free;
+                LyricsCanvasEditor measures this box and fits the 1280x720
+                design canvas into it with designCanvasInFrame — the SAME
+                contain-fit helper ProjectorDisplay uses for its content band
+                (uniform transform: scale, centred, never cropped). The preview
+                here and the live output therefore always show the same
+                picture, scaled only, at any window size or output setting. */}
             <div style={{ flex: 1, minHeight: 0, padding: 12, overflow: 'hidden' }}>
               <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {editorCue ? (
                 <LyricsCanvasEditor
+                  lyricStyle={cueLyricStyle(c)}
                   text={c.text || ''}
                   fontFamily={c.font || FONT_OPTIONS[0].value}
                   fontSize={Number(c.size) || DEFAULT_LYRIC_SIZE}
-                  fontColor={c.color || '#ffffff'}
+                  fontColor={c.color || '#f5f5f4'}
                   textAlign={c.align || 'center'}
                   lineHeight={c.lineHeight || 1.05}
                   letterSpacing={c.letterSpacing || 0}
@@ -1967,6 +2033,8 @@ export default function SongEditorModal() {
                   box={cBox}
                   bgType={resolveBg(editorCue, editingSong)?.type || 'color'}
                   bgValue={resolveBg(editorCue, editingSong)?.value || '#000000'}
+                  bgDim={cueHasBackground(editorCue) ? (Number(editorCue.bg_dim) || 0) : 0}
+                  bgFit={cueHasBackground(editorCue) ? (editorCue.bg_fit || 'cover') : 'cover'}
                   cueLocked={!!editorCue.locked}
                   highlight={!!c.highlight}
                   hlOpacity={c.hlOpacity ?? 40}
@@ -2061,7 +2129,26 @@ export default function SongEditorModal() {
                 the column; buttons and behaviour are unchanged. The divider
                 moved from bottom to top for the same reason. */}
             <div style={{ padding: '8px 12px', borderTop: '1px solid var(--ui-border2)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <ToolbarBtn onClick={() => { const cues = [...(editingSong.cues || []), { label: 'Verse 1', text: '', box: DEFAULT_BOX }]; setEditingSong({ ...editingSong, cues }); setEditorCueIdx(cues.length - 1); startRename(cues.length - 1, cues[cues.length - 1], 'strip'); }} title="Add a new slide"><Plus size={14} /> <span>New Slide</span></ToolbarBtn>
+              {/* Smart auto-inheritance. Two things were wrong with "add and
+                  rename": the new slide always landed at the END of the song
+                  (so adding inside Verse 2 filed it after the outro), and the
+                  auto-rename stole focus off the canvas. Now:
+                    · the label is the current slide's GROUP ("Verse 1 (Part 3)"
+                      → "Verse 1"), so it joins that section's block;
+                    · the slide is spliced in directly AFTER the one you are
+                      editing — the words you are about to type stay where the
+                      thought is;
+                    · nothing opens, so the canvas is ready for typing. */}
+              <ToolbarBtn onClick={() => {
+                const list = editingSong.cues || [];
+                const anchor = editorCueIdx >= 0 ? list[editorCueIdx] : null;
+                const base = (anchor && baseGroupLabel(anchor.label || '')) || 'Verse 1';
+                const at = Math.max(0, Math.min(list.length, editorCueIdx + 1));
+                const cues = [...list];
+                cues.splice(at, 0, { label: base, text: '', box: DEFAULT_BOX });
+                setEditingSong({ ...editingSong, cues });
+                setEditorCueIdx(at);
+              }} title="Add a new slide after this one, inheriting its section"><Plus size={14} /> <span>New Slide</span></ToolbarBtn>
               <ToolbarBtn onClick={() => setThemeOpen(true)} title="Song themes — apply a house look to this slide or the whole song"><PaletteIcon size={14} /> <span>Theme</span></ToolbarBtn>
               <div style={{ width: 1, height: 18, background: 'var(--ui-border2)', margin: '0 4px' }} />
               <ToolbarBtn onClick={undo} disabled={!canUndo} title="Undo - Ctrl+Z. Takes back the last change (typing, sizes, a deleted slide, an Apply)"><Undo2 size={14} /></ToolbarBtn>
@@ -2093,7 +2180,7 @@ export default function SongEditorModal() {
             {/* RIGHT RAIL SECTIONS — Slides (title card + filmstrip), Sequence
                 (the slide-order builder) and Slide Setup (song background +
                 per-slide properties). Only the open tab scrolls. */}
-            <Tabs selectedKey={rightTab} onSelectionChange={setRightTab} className="min-h-0 flex-1">
+            <Tabs selectedKey={rightTab} onSelectionChange={setRightTab} className="min-h-0 w-full min-w-0 flex-1">
               <TabList type="underline" size="sm" className="shrink-0 gap-1 px-3">
                 <Tab id="slides" style={{ outline: 'none', padding: '7px 6px' }}>
                   {(state) => <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.2, color: state.isSelected ? 'var(--kog-accent)' : 'var(--ui-muted)' }}>Slides</span>}
@@ -2147,7 +2234,24 @@ export default function SongEditorModal() {
 
                 {/* SLIDES */}
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  {/* NEW: Search & filter bar for slides */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '4px 8px' }}>
+                    <Search size={12} color={C.faint} />
+                    <input
+                      type="text"
+                      value={slideSearch}
+                      onChange={(e) => setSlideSearch(e.target.value)}
+                      placeholder="Search slides…"
+                      style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', color: C.text, fontSize: 11, outline: 'none' }}
+                    />
+                    {slideSearch && (
+                      <button onClick={() => setSlideSearch('')} title="Clear search" style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: 0, display: 'flex' }}><X size={11} /></button>
+                    )}
+                  </div>
+                  {/* Wraps instead of pushing Split past the rail edge: on a
+                      narrow sidebar the controls drop to a second line rather
+                      than being clipped by the panel. */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 6, marginBottom: 8 }}>
                     <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Slides</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                       <button
@@ -2172,7 +2276,10 @@ export default function SongEditorModal() {
                       <button onClick={() => setApplySel([])} title="Clear the ticks" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.faint, borderRadius: 5, padding: '3px 7px', fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>Clear</button>
                     </div>
                   )}
-                  <div style={{ display: 'grid', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
+                  {/* No capped inner scroll here: the slide list used to stop at
+                      380px and cut a row in half with dead space below it. The tab
+                      panel already scrolls, so the list simply runs to the bottom. */}
+                  <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>
                     {/* Title Slide Thumbnail */}
                     <div onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); dropCue(dragFrom, 0, 'before', false); }} onClick={(e) => slideClick(e, -1)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: editorCueIdx === -1 ? 'rgba(255,184,0,0.16)' : C.elevated, border: dragFrom != null ? '1px dashed ' + ACCENT : (editorCueIdx === -1 ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(-1) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
                       <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 5, background: songHasBackground(editingSong) && (editingSong.bg_type === 'color' || editingSong.bg_type === 'gradient') ? editingSong.bg_value : (songHasBackground(editingSong) && editingSong.bg_type === 'animated' ? animatedPresetOf(editingSong.bg_value).base : '#0a0a0a'), position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -2190,14 +2297,20 @@ export default function SongEditorModal() {
                           <span style={{ position: 'absolute', top: 4, right: 4, zIndex: 4, width: 14, height: 14, borderRadius: '50%', background: ACCENT, color: '#0D1014', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>✓</span>
                         )}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, minWidth: 0, marginTop: 5 }}>
                         <span style={{ fontSize: 9.5, fontWeight: 800, color: '#38bdf8' }}>Title Slide</span>
                       </div>
                     </div>
 
                     {(() => {
                       const groups = [];
+                      const q = slideSearch.trim().toLowerCase();
                       (editingSong.cues || []).forEach((c, i) => {
+                        // NEW: search filter (case-insensitive match on text/label/notes)
+                        if (q) {
+                          const hay = `${c.text || ''} ${c.label || ''} ${c.notes || ''}`.toLowerCase();
+                          if (!hay.includes(q)) return;
+                        }
                         const base = baseGroupLabel(c.label);
                         let g = groups.find(x => x.base === base);
                         if (!g) { g = { base, items: [] }; groups.push(g); }
@@ -2205,10 +2318,21 @@ export default function SongEditorModal() {
                       });
                       return groups.map((g, gi) => (
                         <div key={gi} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const first = g.items[0]; if (first) dropCue(dragFrom, first.i, 'before'); }}>
-                          <div style={{ fontSize: 10, fontWeight: 800, color: C.accLine, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span>{g.base}</span><span style={{ color: C.faint, fontWeight: 600, letterSpacing: 0 }}>{g.items.length} slide{g.items.length > 1 ? 's' : ''}</span>
+                          {/* NEW: clickable group header with collapse chevron + Select Block button */}
+                          <div style={{ fontSize: 10, fontWeight: 800, color: C.accLine, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                            <span onClick={() => toggleGroup(g.base)} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', flex: 1, minWidth: 0 }}>
+                              {collapsedGroups.has(g.base) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.base}</span>
+                            </span>
+                            <span style={{ color: C.faint, fontWeight: 600, letterSpacing: 0, whiteSpace: 'nowrap' }}>{g.items.length} slide{g.items.length > 1 ? 's' : ''}</span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setApplySel((prev) => { const ids = g.items.map((x) => x.i); const merged = new Set([...prev, ...ids]); return [...merged]; }); }}
+                              title="Select all slides in this section"
+                              style={{ background: C.elevated, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 5, padding: '2px 6px', fontSize: 9, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}
+                            ><CheckSquare size={10} /> Select Block</button>
                           </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                          {!collapsedGroups.has(g.base) && (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, minWidth: 0 }}>
                             {g.items.map(({ c, i, li }) => (
                               <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ cursor: 'pointer', position: 'relative', background: i === editorCueIdx ? 'rgba(255,184,0,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, overflow: 'hidden', padding: 6 }}>
                                 {dropHint && dropHint.i === i && (
@@ -2257,11 +2381,11 @@ export default function SongEditorModal() {
                                     <span style={{ position: 'absolute', top: 3, right: 4, zIndex: 5, width: 14, height: 14, borderRadius: '50%', background: ACCENT, color: '#0D1014', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>✓</span>
                                   )}
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, minWidth: 0, marginTop: 5 }}>
                                   {(renameIdx === i && renameFrom === 'strip') ? (
                                     <input ref={renameRef} value={renameVal} onChange={(e) => setRenameVal(e.target.value)} onClick={(e) => e.stopPropagation()} onBlur={commitRename} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitRename(); } else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); } }} style={{ flex: 1, minWidth: 0, background: C.input, color: C.text, border: '1px solid ' + ACCENT, borderRadius: 4, padding: '1px 4px', fontSize: 9.5, fontWeight: 700, outline: 'none' }} />
                                   ) : (
-                                    <span onDoubleClick={(e) => { e.stopPropagation(); startRename(i, c, 'strip'); }} title="Double-click to rename" style={{ fontSize: 9.5, fontWeight: 700, color: C.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 84, cursor: 'text' }}>{c.label}</span>
+                                    <span onDoubleClick={(e) => { e.stopPropagation(); startRename(i, c, 'strip'); }} title="Double-click to rename" style={{ fontSize: 9.5, fontWeight: 700, color: C.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: '1 1 auto', maxWidth: 84, cursor: 'text' }}>{c.label}</span>
                                   )}
                                   <div style={{ display: 'flex', gap: 2 }}>
                                     <button onClick={(e) => { e.stopPropagation(); updateCue(i, { hidden: !c.hidden }); }} title={c.hidden ? 'Show' : 'Hide from projection'} style={{ background: 'transparent', border: 'none', color: c.hidden ? '#FF4545' : C.faint, cursor: 'pointer', padding: 1 }}>{c.hidden ? <EyeOff size={11} /> : <Eye size={11} />}</button>
@@ -2271,6 +2395,7 @@ export default function SongEditorModal() {
                               </div>
                             ))}
                           </div>
+                          )}
                         </div>
                       ));
                     })()}
@@ -2281,29 +2406,43 @@ export default function SongEditorModal() {
               </TabPanel>
               <TabPanel id="sequence" className="box-border flex min-h-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto p-3">
                 <motion.div {...PANE_MOTION} style={PANE_STYLE}>
-                {/* CUSTOM SLIDE ORDER */}
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Custom Slide Order</div>
-                  <div style={{ display: 'grid', gap: 5 }}>
-                    {(editingSong.cues || []).map((c, i) => (
-                      <div key={i} draggable onDragStart={(e) => dragStart(e, i)} onDragOver={(e) => dragOverTile(e, i)} onDrop={(e) => dropOnTile(e, i)} onDragEnd={dragEnded} onClick={(e) => slideClick(e, i)} title="Ctrl+click to tick it for Apply to ▸ Selected" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, background: i === editorCueIdx ? 'rgba(255,184,0,0.16)' : C.elevated, border: dropHint && dropHint.i === i ? '1px dashed ' + ACCENT : (i === editorCueIdx ? '1px solid ' + ACCENT : '1px solid var(--ui-border2)'), boxShadow: applySel.includes(i) ? '0 0 0 2px ' + ACCENT : 'none', borderRadius: 8, padding: '6px 8px', cursor: 'grab' }}>
-                        {dropHint && dropHint.i === i && (
-                          <span style={{ position: 'absolute', top: 0, bottom: 0, [dropHint.side === 'before' ? 'left' : 'right']: 0, width: 3, background: ACCENT, borderRadius: 3 }} />
-                        )}
-                        <GripVertical size={13} color={C.faint2} style={{ flexShrink: 0 }} />
-                        <span style={{ fontSize: 10.5, fontWeight: 800, color: C.faint, width: 20 }}>{i + 1}</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          {(renameIdx === i && renameFrom === 'order') ? (
-                            <input ref={renameRef} value={renameVal} onChange={(e) => setRenameVal(e.target.value)} onClick={(e) => e.stopPropagation()} onBlur={commitRename} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitRename(); } else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); } }} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid ' + ACCENT, borderRadius: 4, padding: '2px 4px', fontSize: 11, fontWeight: 700, outline: 'none' }} />
-                          ) : (
-                            <div onDoubleClick={(e) => { e.stopPropagation(); startRename(i, c, 'order'); }} title="Double-click to rename" style={{ fontSize: 11, fontWeight: 700, color: C.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'text' }}>{c.label || 'Slide'}</div>
-                          )}
-                          <div style={{ fontSize: 9.5, color: C.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stripMarkup(c.text || '').split('\n')[0] || 'empty'}</div>
+                {/* NEW: Interactive Sequence Builder (local state only) */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, minHeight: 0 }}>
+                  <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Available Sections</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {[...new Set((editingSong.cues || []).map((c) => baseGroupLabel(c.label)))].map((sec) => (
+                        <button
+                          key={sec}
+                          onClick={() => setSequenceArrangement((prev) => [...prev, sec])}
+                          title={`Add ${sec} to arrangement`}
+                          style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 6, padding: '6px 8px', fontSize: 11, fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}
+                        >+ {sec}</button>
+                      ))}
+                      {(editingSong.cues || []).length === 0 && (
+                        <div style={{ fontSize: 10, color: C.faint }}>No slides yet.</div>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Current Arrangement</div>
+                      {sequenceArrangement.length > 0 && (
+                        <button onClick={() => setSequenceArrangement([])} title="Clear arrangement" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.faint, borderRadius: 5, padding: '2px 6px', fontSize: 9, fontWeight: 800, cursor: 'pointer' }}>Clear</button>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minHeight: 40 }}>
+                      {sequenceArrangement.length === 0 && (
+                        <div style={{ fontSize: 10, color: C.faint }}>Click a section to append it.</div>
+                      )}
+                      {sequenceArrangement.map((sec, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px 8px' }}>
+                          <span style={{ fontSize: 10, fontWeight: 800, color: C.accLine }}>{idx + 1}</span>
+                          <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: C.text2 }}>{sec}</span>
+                          <button onClick={() => setSequenceArrangement((prev) => prev.filter((_, j) => j !== idx))} title="Remove" style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: 0, display: 'flex' }}><X size={11} /></button>
                         </div>
-                        <button onClick={(e) => { e.stopPropagation(); moveCue(i, -1); setApplySel([]); }} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: 2 }}><ChevronUp size={12} /></button>
-                        <button onClick={(e) => { e.stopPropagation(); moveCue(i, 1); setApplySel([]); }} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: 2 }}><ChevronDown size={12} /></button>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 </div>
 
@@ -2327,29 +2466,222 @@ export default function SongEditorModal() {
                 />
                 </div>
 
-                {/* SLIDE PROPERTIES */}
-                {showSlideProps && editorCue && (
-                  <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Slide Properties</div>
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Label</label>
-                    <input type="text" value={editorCue.label || ''} onChange={(e) => updateCue(editorCueIdx, { label: e.target.value })} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none', marginBottom: 8 }} />
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Background</label>
-                <BackgroundPicker
-                  C={C}
-                  ACCENT={ACCENT}
-                  activeType={editorCue.bg_type || 'color'}
-                  activeValue={editorCue.bg_value}
-                  onPick={(type, value) => setCueBackground(editorCueIdx, type, value)}
-                  onClear={() => clearCueBackground(editorCueIdx)}
-                  onUpload={(kind, file) => cueFileToBackground(editorCueIdx, kind, file)}
-                  hasBackground={cueHasBackground(editorCue)}
-                  mediaLibrary={mediaLibrary}
-                />
-                    <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Slide Timer (sec)</label>
-                    <input type="number" min="0" max="7200" value={editorCue.duration || 0} onChange={(e) => updateCue(editorCueIdx, { duration: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none' }} />
-                  </div>
-                )}
+                {/* SLIDE PROPERTIES — identity first, then media. The 30-tile
+                    library grid that used to live here is now a sheet behind one
+                    button: the rail shows what is APPLIED and how it is tuned,
+                    not every asset you could apply. */}
+                {showSlideProps && editorCue && (() => {
+                  const tune = bgMediaFields(editorCue);
+                  const bgType = editorCue.bg_type || 'color';
+                  const bgValue = editorCue.bg_value || '#000000';
+                  const hasBg = cueHasBackground(editorCue);
+                  const bgName = bgType === 'image' || bgType === 'video'
+                    ? mediaName(bgValue, mediaLibrary)
+                    : bgType === 'gradient'
+                      ? 'Gradient'
+                      : bgType === 'animated'
+                        ? animatedPresetOf(bgValue).name
+                        : 'Solid colour';
+                  const pill = (on) => ({
+                    background: on ? ACCENT : C.input,
+                    border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'),
+                    color: on ? '#0D1014' : C.text2,
+                    borderRadius: 999,
+                    padding: '4px 9px',
+                    fontSize: 10,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    boxSizing: 'border-box',
+                  });
+                  const subLabel = { fontSize: 9.5, color: C.faint, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.1, display: 'block', marginBottom: 4 };
+                  const toggle = (on) => ({
+                    flex: 1,
+                    background: on ? 'rgba(255,184,0,0.16)' : C.elevated,
+                    border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'),
+                    color: on ? ACCENT : C.muted,
+                    borderRadius: 6,
+                    padding: '4px 6px',
+                    fontSize: 9.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  });
+                  return (
+                    <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Slide Properties</div>
 
+                      <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Label</label>
+                      <input
+                        type="text"
+                        value={editorCue.label || ''}
+                        onChange={(e) => updateCue(editorCueIdx, { label: e.target.value })}
+                        placeholder="Verse 1 (Part 2)"
+                        style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none', marginBottom: 7, boxSizing: 'border-box' }}
+                      />
+
+                      {/* Quick Tag — one click writes the label, so the canvas
+                          and the filmstrip regroup on the same frame. */}
+                      <span style={subLabel}>Quick tag</span>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8, minWidth: 0 }}>
+                        {SECTION_PILLS.map((tag) => (
+                          <button
+                            key={tag}
+                            onClick={() => updateCue(editorCueIdx, { label: tag })}
+                            title={`Tag this slide as ${tag}`}
+                            style={pill(baseGroupLabel(editorCue.label || '') === tag)}
+                          >{tag}</button>
+                        ))}
+                      </div>
+
+                      <span style={subLabel}>Confidence monitor notes</span>
+                      <textarea
+                        rows={2}
+                        value={editorCue.notes || ''}
+                        onChange={(e) => updateCue(editorCueIdx, { notes: e.target.value })}
+                        placeholder="Stage notes: Repeat 2x, Acoustic only"
+                        style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px 7px', fontSize: 11, lineHeight: 1.4, outline: 'none', resize: 'vertical', marginBottom: 10, boxSizing: 'border-box' }}
+                      />
+
+                      <span style={subLabel}>Active background</span>
+                      {/* Compact 16:9 truth-teller: exactly the media, fit and
+                          dimmer the wall will use. */}
+                      <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 8, overflow: 'hidden', border: '1px solid ' + (hasBg ? ACCENT : 'var(--ui-border2)'), background: '#000', marginBottom: 5 }}>
+                        {bgType === 'image' && bgValue && (
+                          <img src={bgValue} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: bgFitCss(tune.bgFit) }} />
+                        )}
+                        {bgType === 'video' && bgValue && (
+                          <TileVideo src={bgValue} animate style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: bgFitCss(tune.bgFit) }} />
+                        )}
+                        {bgType === 'gradient' && bgValue && (
+                          <div style={{ position: 'absolute', inset: 0, background: bgValue }} />
+                        )}
+                        {bgType === 'animated' && <AnimatedBg value={bgValue} k={0.3} />}
+                        {bgType === 'color' && (
+                          <div style={{ position: 'absolute', inset: 0, background: bgValue }} />
+                        )}
+                        {tune.bgDim > 0 && (
+                          <div style={{ position: 'absolute', inset: 0, background: '#000', opacity: tune.bgDim / 100, pointerEvents: 'none' }} />
+                        )}
+                        {!hasBg && (
+                          <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>Song background</span>
+                        )}
+                        {hasBg && (
+                          <button
+                            onClick={() => clearCueBackground(editorCueIdx)}
+                            title="Clear this slide's background (it falls back to the song background)"
+                            style={{ position: 'absolute', top: 5, right: 5, zIndex: 3, width: 22, height: 22, borderRadius: 6, background: 'rgba(0,0,0,0.62)', border: '1px solid rgba(255,255,255,0.28)', color: '#FF4545', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0 }}
+                          ><Trash2 size={11} /></button>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, minWidth: 0 }}>
+                        <span title={hasBg ? bgName : 'No background on this slide'} style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 700, color: hasBg ? C.text2 : C.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {hasBg ? bgName : 'Inherits the song background'}
+                        </span>
+                        {hasBg && (
+                          <span style={{ flexShrink: 0, fontSize: 8.5, fontWeight: 800, letterSpacing: 0.6, color: C.faint, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '1px 6px', textTransform: 'uppercase' }}>{bgType}</span>
+                        )}
+                      </div>
+
+                      {/* NEW: Quick Recent Media row */}
+                      <div style={{ marginBottom: 8 }}>
+                        <span style={{ fontSize: 9.5, color: C.faint, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.1, display: 'block', marginBottom: 4 }}>Recent</span>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {(mediaLibrary || []).filter((a) => a.kind === 'image' || a.kind === 'video').slice(0, 5).map((a) => (
+                            <button
+                              key={a.url}
+                              onClick={() => setCueBackground(editorCueIdx, a.kind, a.url)}
+                              title={mediaName(a.url, mediaLibrary)}
+                              style={{ flex: 1, aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', padding: 0, background: '#000', border: '1px solid var(--ui-border2)', position: 'relative' }}
+                            >
+                              {a.kind === 'video'
+                                ? <video src={a.url} muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                                : <img src={a.url} alt="" loading="lazy" decoding="async" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />}
+                            </button>
+                          ))}
+                          {((mediaLibrary || []).filter((a) => a.kind === 'image' || a.kind === 'video').length === 0) && (
+                            <div style={{ fontSize: 10, color: C.faint, padding: 6 }}>No media yet.</div>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => setGalleryOpen(true)}
+                        title="Open your image and video library"
+                        style={{ width: '100%', background: '#1e1b4b', border: '1px solid ' + ACCENT, color: C.accLine, borderRadius: 8, padding: '8px 10px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 8, boxSizing: 'border-box' }}
+                      ><ImageIcon size={13} /> Browse Media Gallery…</button>
+
+                      {/* Fine tuning only exists when there is MEDIA to tune —
+                          a solid colour has nothing to fit, loop or dim. */}
+                      {(bgType === 'image' || bgType === 'video') && (
+                        <div style={{ border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '8px 9px', background: C.input, marginBottom: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 7 }}>
+                            <SlidersHorizontal size={11} color={C.faint} />
+                            <span style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.1 }}>Media tuning</span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: C.text2 }}>Dark overlay</span>
+                            <span style={{ fontSize: 10, fontWeight: 800, color: ACCENT }}>{tune.bgDim}%</span>
+                          </div>
+                          <input
+                            type="range" min="0" max="100" step="1"
+                            value={tune.bgDim}
+                            onChange={(e) => updateCue(editorCueIdx, { bg_dim: Number(e.target.value) })}
+                            title="Black wash between the media and the lyrics"
+                            style={{ width: '100%', accentColor: ACCENT, margin: '0 0 8px', cursor: 'pointer' }}
+                          />
+
+                          <label style={{ fontSize: 10, fontWeight: 700, color: C.text2, display: 'block', marginBottom: 3 }}>Media fit</label>
+                          <select
+                            value={tune.bgFit}
+                            onChange={(e) => updateCue(editorCueIdx, { bg_fit: e.target.value })}
+                            style={{ width: '100%', background: C.elevated, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '5px 6px', fontSize: 11, outline: 'none', marginBottom: 8, boxSizing: 'border-box' }}
+                          >
+                            {BG_FIT_MODES.map((m) => <option key={m.k} value={m.k}>{m.label}</option>)}
+                          </select>
+
+                          {bgType === 'video' && (
+                            <>
+                              <div style={{ display: 'flex', gap: 5, marginBottom: 7 }}>
+                                <button onClick={() => updateCue(editorCueIdx, { bg_loop: !tune.bgLoop })} title="Loop the background video" style={toggle(tune.bgLoop)}>Loop {tune.bgLoop ? 'on' : 'off'}</button>
+                                <button onClick={() => updateCue(editorCueIdx, { bg_muted: !tune.bgMuted })} title="Background audio never rides the program mix — muting is the safe default" style={toggle(tune.bgMuted)}>Mute {tune.bgMuted ? 'on' : 'off'}</button>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: C.text2 }}>Speed</span>
+                                <span style={{ fontSize: 10, fontWeight: 800, color: ACCENT }}>{Number(tune.bgRate).toFixed(2)}x</span>
+                              </div>
+                              <input
+                                type="range" min="0.5" max="2" step="0.05"
+                                value={tune.bgRate}
+                                onChange={(e) => updateCue(editorCueIdx, { bg_rate: Number(e.target.value) })}
+                                style={{ width: '100%', accentColor: ACCENT, margin: 0, cursor: 'pointer' }}
+                              />
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Colour and motion stay inline — they are one click, and
+                          they are what most slides actually use. */}
+                      <BackgroundPicker
+                        C={C}
+                        ACCENT={ACCENT}
+                        activeType={bgType}
+                        activeValue={editorCue.bg_value}
+                        onPick={(type, value) => setCueBackground(editorCueIdx, type, value)}
+                        onClear={() => clearCueBackground(editorCueIdx)}
+                        onUpload={(kind, file) => cueFileToBackground(editorCueIdx, kind, file)}
+                        hasBackground={hasBg}
+                        mediaLibrary={mediaLibrary}
+                        hideMedia
+                      />
+
+                      <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', margin: '10px 0 4px' }}>Slide Timer (sec)</label>
+                      <input type="number" min="0" max="7200" value={editorCue.duration || 0} onChange={(e) => updateCue(editorCueIdx, { duration: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '7px', fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
+                    </div>
+                  );
+                })()}
                 </motion.div>
               </TabPanel>
             </Tabs>
@@ -2379,6 +2711,90 @@ export default function SongEditorModal() {
         </>
       </TabPanel>
     </Tabs>
+
+    {/* ===== MEDIA GALLERY SHEET =====
+        The library used to be 30+ tiles rendered inside the rail on every open.
+        It is the same list, opened on demand, big enough to see what you are
+        picking. Picking writes the cue background and closes. */}
+    <AnimatePresence>
+      {galleryOpen && editorCue && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.16 }}
+          onClick={(e) => { if (e.target === e.currentTarget) setGalleryOpen(false); }}
+          style={{ position: 'absolute', inset: 0, zIndex: 70, background: 'rgba(5,5,9,0.8)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 22 }}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98, y: 8 }} transition={{ duration: 0.18 }}
+            style={{ width: 'min(820px, 100%)', maxHeight: '84%', display: 'flex', flexDirection: 'column', background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 14, overflow: 'hidden' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderBottom: '1px solid var(--ui-border2)', flexShrink: 0 }}>
+              <ImageIcon size={14} color={ACCENT} />
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: C.text }}>Media Gallery</span>
+              <span style={{ fontSize: 10, color: C.faint }}>{mediaAssets.length} in library</span>
+              <span style={{ flex: 1 }} />
+              <label style={{ background: C.input, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 6, padding: '5px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Upload an image">
+                <ImageIcon size={10} /> Image
+                <input type="file" accept="image/*" onChange={(e) => { if (e.target.files[0]) cueFileToBackground(editorCueIdx, 'image', e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+              </label>
+              <label style={{ background: C.input, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 6, padding: '5px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Upload a video">
+                <Play size={10} /> Video
+                <input type="file" accept="video/mp4,video/webm" onChange={(e) => { if (e.target.files[0]) cueFileToBackground(editorCueIdx, 'video', e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+              </label>
+              <button onClick={() => setGalleryOpen(false)} title="Close" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0 }}><X size={13} /></button>
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, padding: '10px 14px 0', flexShrink: 0 }}>
+              {[['all', 'All'], ['backgrounds', 'Backgrounds'], ['videos', 'Videos'], ['photos', 'Photos'], ['logos', 'Logos']].map(([k, label]) => {
+                const on = galleryCat === k;
+                return (
+                  <button
+                    key={k}
+                    onClick={() => setGalleryCat(k)}
+                    style={{ background: on ? 'rgba(255,184,0,0.16)' : C.input, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? ACCENT : C.muted, borderRadius: 999, padding: '4px 10px', fontSize: 10, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  >{label}</button>
+                );
+              })}
+            </div>
+
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: 14 }}>
+              {mediaAssets.length === 0 ? (
+                <div style={{ padding: 24, textAlign: 'center', fontSize: 11, color: C.faint, border: '1px dashed var(--ui-border2)', borderRadius: 10 }}>
+                  No images or videos in the library yet — upload one above.
+                </div>
+              ) : (() => {
+                const shown = galleryCat === 'all' ? mediaAssets : mediaAssets.filter((a) => mediaCategory(a) === galleryCat);
+                if (!shown.length) {
+                  return <div style={{ padding: 24, textAlign: 'center', fontSize: 11, color: C.faint, border: '1px dashed var(--ui-border2)', borderRadius: 10 }}>Nothing tagged {galleryCat} in the library.</div>;
+                }
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8 }}>
+                    {shown.map((a) => {
+                      const on = (editorCue.bg_type === a.kind) && editorCue.bg_value === a.url;
+                      return (
+                        <button
+                          key={a.url}
+                          onClick={() => { setCueBackground(editorCueIdx, a.kind, a.url); setGalleryOpen(false); }}
+                          title={mediaName(a.url, mediaLibrary)}
+                          style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 8, overflow: 'hidden', cursor: 'pointer', padding: 0, background: '#000', border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), boxShadow: on ? `0 0 0 2px ${ACCENT}55` : 'none' }}
+                        >
+                          {a.kind === 'video'
+                            ? <video src={a.url} muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                            : <img src={a.url} alt="" loading="lazy" decoding="async" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />}
+                          <span style={{ position: 'absolute', top: 4, left: 4, width: 15, height: 15, borderRadius: 4, background: 'rgba(0,0,0,0.62)', border: '1px solid rgba(255,255,255,0.22)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
+                            {a.kind === 'video' ? <Play size={8} strokeWidth={3} /> : <ImageIcon size={8} strokeWidth={2.5} />}
+                          </span>
+                          {on && <span style={{ position: 'absolute', top: 4, right: 4, zIndex: 3, width: 15, height: 15, borderRadius: 999, background: ACCENT, color: '#0D1014', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✓</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
 
     {themeOpen && (
       <SongThemePicker
@@ -2475,7 +2891,31 @@ export default function SongEditorModal() {
       </div>
       )}
       <motion.button {...stubTap} onClick={attemptClose} style={{ background: C.border, border: 'none', color: C.text, padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</motion.button>
-      <motion.button {...stubTap} onClick={handleSaveSong} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Save Song</motion.button>
+      <motion.button {...stubTap} onClick={() => {
+        // NEW: apply the Sequence tab arrangement to the saved cue order.
+        let songToSave = editingSong;
+        if (sequenceArrangement && sequenceArrangement.length) {
+          const cues = editingSong.cues || [];
+          const bySection = {};
+          cues.forEach((c) => {
+            const base = baseGroupLabel(c.label);
+            (bySection[base] = bySection[base] || []).push(c);
+          });
+          const newCues = [];
+          sequenceArrangement.forEach((sec) => {
+            (bySection[sec] || []).forEach((c) => {
+              const copy = { ...c };
+              delete copy.id;
+              newCues.push(copy);
+            });
+          });
+          if (newCues.length) {
+            songToSave = { ...editingSong, cues: newCues };
+            setEditingSong(songToSave);
+          }
+        }
+        handleSaveSong(songToSave);
+      }} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Save Song</motion.button>
     </div>
 
     {/* Apply confirmations go through the shared Untitled UI toast stack

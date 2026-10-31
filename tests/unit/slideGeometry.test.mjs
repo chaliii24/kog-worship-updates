@@ -17,6 +17,9 @@ import {
   boxFromKonvaNode,
   applyBoxToKonvaNode,
   containScale,
+  designCanvasInFrame,
+  designCanvasFilled,
+  aspectFrameInViewport,
   clientToSlide,
   slideToClient,
   pointInBox,
@@ -89,6 +92,180 @@ test('contain-fit keeps 16:9 and respects both axes', () => {
   approx(containScale(1600, 900) * SLIDE_WIDTH, 1600);
   approx(containScale(1000, 200) * SLIDE_HEIGHT, 200);
   assert.equal(containScale(0, 100), 0);
+});
+
+// THE PROJECTOR/CANVAS CONTRACT. The song editor's canvas is the reference
+// picture; the output frame may only SCALE it. These three properties are
+// exactly the user-visible promise: changing the output aspect ratio or the
+// screen resolution changes the SIZE of the picture and never its FORMAT or
+// its internal layout.
+test('the output picture is always 16:9, whatever the frame shape', () => {
+  const frames = [
+    [1920, 1080], // 16:9
+    [2560, 1080], // 21:9 ultra-wide LED
+    [3840, 1080], // a very wide strip
+    [1024, 768],  // 4:3 projector
+    [1080, 1920], // portrait
+    [1280, 720],  // the native design size
+  ];
+  for (const [fw, fh] of frames) {
+    const { s, cw, ch } = designCanvasInFrame(fw, fh);
+    // FORMAT never changes: the canvas stays exactly 16:9 (1280x720).
+    approx(cw / ch, SLIDE_WIDTH / SLIDE_HEIGHT, 1e-9);
+    approx(cw, SLIDE_WIDTH * s, 1e-9);
+    approx(ch, SLIDE_HEIGHT * s, 1e-9);
+  }
+});
+
+test('resolution only scales the picture — doubling the frame doubles it exactly', () => {
+  const base = designCanvasInFrame(1280, 720);
+  const big = designCanvasInFrame(2560, 1440);
+  // SIZE only: every linear dimension doubles, the proportions do not move.
+  approx(big.s, base.s * 2, 1e-9);
+  approx(big.cw, base.cw * 2, 1e-9);
+  approx(big.ch, base.ch * 2, 1e-9);
+  // An ultra-wide frame does NOT widen the picture — it only changes how much
+  // of the frame the (still 16:9) picture occupies and where it sits.
+  const wide = designCanvasInFrame(2560, 1080);
+  const hd = designCanvasInFrame(1920, 1080);
+  approx(wide.cw / wide.ch, hd.cw / hd.ch, 1e-9);
+  approx(wide.s, hd.s, 1e-9); // height-limited: same size as plain 1080p
+});
+
+test('the canvas is centred and never cropped by the frame', () => {
+  for (const [fw, fh] of [[2560, 1080], [1024, 768], [800, 1200]]) {
+    const { cw, ch, cx, cy } = designCanvasInFrame(fw, fh, 0, 0);
+    // Contain: the picture fits INSIDE the frame on both axes (no crop).
+    assert.ok(cw <= fw + 1e-9, `${cw} > ${fw}`);
+    assert.ok(ch <= fh + 1e-9, `${ch} > ${fh}`);
+    // Centred: equal margins on opposing sides.
+    approx(cx, (fw - cw) / 2, 1e-9);
+    approx(cy, (fh - ch) / 2, 1e-9);
+    approx(fw - cw - cx, cx, 1e-9); // left margin == right margin
+    approx(fh - ch - cy, cy, 1e-9); // top margin == bottom margin
+  }
+  // A framed card sitting at an offset inside a bigger window keeps that
+  // offset (the picture is centred in the FRAME, not in the window).
+  const off = designCanvasInFrame(1280, 720, 100, 50);
+  approx(off.cx, 100, 1e-9);
+  approx(off.cy, 50, 1e-9);
+});
+
+test('an unmeasured frame yields a zero scale, never NaN dimensions', () => {
+  // ResizeObserver has not fired yet on a framed card: 0x0 for one tick.
+  const { s, cw, ch, cx, cy } = designCanvasInFrame(0, 0);
+  assert.equal(s, 0);
+  for (const v of [cw, ch, cx, cy]) assert.ok(Number.isFinite(v), `${v} is not finite`);
+});
+
+// THE WALL'S FILL — a screen wider than 16:9 is covered by widening the DESIGN
+// SPACE (boxes spread, type size untouched), never by cropping the design and
+// never by leaving bars at the sides.
+test('a 16:9 frame fills exactly like the plain contain fit', () => {
+  for (const [fw, fh] of [[1280, 720], [1920, 1080], [3840, 2160]]) {
+    const filled = designCanvasFilled(fw, fh);
+    const contain = designCanvasInFrame(fw, fh);
+    approx(filled.stretch, 1, 1e-9);
+    approx(filled.s, contain.s, 1e-9);
+    approx(filled.cw, fw, 1e-9);
+    approx(filled.ch, fh, 1e-9);
+    approx(filled.cx, contain.cx, 1e-9);
+    approx(filled.cy, contain.cy, 1e-9);
+  }
+});
+
+test('a wider screen is filled edge to edge by widening the design space', () => {
+  for (const [fw, fh] of [[2560, 1080], [3840, 1080], [3440, 1440]]) {
+    const { s, cw, ch, cx, cy, stretch } = designCanvasFilled(fw, fh);
+    // The band IS the frame: no bars, and nothing hangs off it.
+    approx(cw, fw, 1e-9);
+    approx(ch, fh, 1e-9);
+    approx(cx, 0, 1e-9);
+    approx(cy, 0, 1e-9);
+    // Height always maps 1:1 to the design, so type never changes size…
+    approx(s, fh / SLIDE_HEIGHT, 1e-9);
+    // …and the extra width arrives as extra LAYOUT space, not bigger boxes.
+    approx(stretch, (fw / fh) / (SLIDE_WIDTH / SLIDE_HEIGHT), 1e-9);
+    assert.ok(stretch >= 1, `stretch ${stretch} < 1`);
+  }
+});
+
+test('a narrower screen letterboxes instead of spreading or cropping', () => {
+  for (const [fw, fh] of [[1024, 768], [1080, 1920], [800, 1200]]) {
+    const { s, cw, ch, cx, cy, stretch } = designCanvasFilled(fw, fh);
+    const contain = designCanvasInFrame(fw, fh);
+    approx(stretch, 1, 1e-9);
+    approx(s, contain.s, 1e-9);
+    approx(cw, contain.cw, 1e-9);
+    approx(ch, contain.ch, 1e-9);
+    approx(cx, contain.cx, 1e-9);
+    approx(cy, contain.cy, 1e-9);
+    // Never either axis past the frame — a word is never cut off.
+    assert.ok(cw <= fw + 1e-9 && ch <= fh + 1e-9, `${cw}x${ch} exceeds ${fw}x${fh}`);
+  }
+});
+
+test('an unmeasured frame stays finite with no spread', () => {
+  const { s, cw, ch, cx, cy, stretch } = designCanvasFilled(0, 0);
+  assert.equal(s, 0);
+  assert.equal(stretch, 1);
+  for (const v of [cw, ch, cx, cy]) assert.ok(Number.isFinite(v), `${v} is not finite`);
+});
+
+// THE ASPECT-RATIO STATE — Fill / Auto / Native must take the whole screen
+// (no bars, ever), a named ratio must become a centred bounding box of exactly
+// that shape. Either way it only SIZES the stage; it never re-forms it.
+test('Fill fills the viewport; a named ratio is a centred exact-ratio box', () => {
+  const viewports = [[1920, 1080], [2560, 1080], [1024, 768], [768, 1024], [3440, 1440]];
+  for (const [vw, vh] of viewports) {
+    const f = aspectFrameInViewport(vw, vh, 16 / 9, true);
+    approx(f.fw, vw, 1e-9);
+    approx(f.fh, vh, 1e-9);
+    approx(f.fx, 0, 1e-9);
+    approx(f.fy, 0, 1e-9);
+  }
+  for (const [vw, vh, ar] of [
+    [2560, 1080, 16 / 9],
+    [1024, 768, 16 / 9],
+    [1920, 1080, 4 / 3],
+    [1080, 1920, 16 / 9],
+    [3440, 1440, 21 / 9],
+  ]) {
+    const f = aspectFrameInViewport(vw, vh, ar, false);
+    approx(f.fw / f.fh, ar, 1e-9); // exact ratio, whatever the screen is
+    assert.ok(f.fw <= vw + 1e-9 && f.fh <= vh + 1e-9, `frame exceeds viewport ${vw}x${vh}`);
+    approx(f.fx, (vw - f.fw) / 2, 1e-9); // centred in the viewport
+    approx(f.fy, (vh - f.fh) / 2, 1e-9);
+  }
+  // A garbage ratio falls back to the design ratio instead of dividing by 0.
+  approx(aspectFrameInViewport(1920, 1080, 0, false).fw / aspectFrameInViewport(1920, 1080, 0, false).fh, 16 / 9, 1e-9);
+  approx(aspectFrameInViewport(1920, 1080, NaN, false).fh, 1080, 1e-9);
+});
+
+// THE NO-CLIP CHAIN — band ⊆ frame ⊆ viewport, for every screen shape and
+// every aspect setting. This is the promise that the live output can fill the
+// screen while the typography/layout inside it always fits entirely on screen:
+// the design is scaled and centred, never cut by the frame or the screen.
+test('the design band can never be clipped by the frame or the viewport', () => {
+  const viewports = [[1920, 1080], [2560, 1080], [1024, 768], [1080, 1920], [800, 1200], [3440, 1440]];
+  const ratios = [4 / 3, 16 / 9, 16 / 10, 21 / 9, 32 / 9];
+  for (const [vw, vh] of viewports) {
+    for (const fill of [true, false]) {
+      for (const ar of (fill ? [16 / 9] : ratios)) {
+        const fr = aspectFrameInViewport(vw, vh, ar, fill);
+        // Frame inside the viewport — no setting sizes a stage off-screen.
+        assert.ok(fr.fx >= -1e-9 && fr.fy >= -1e-9, `frame off-screen at ${vw}x${vh} ar=${ar} fill=${fill}`);
+        assert.ok(fr.fx + fr.fw <= vw + 1e-9 && fr.fy + fr.fh <= vh + 1e-9, `frame cropped at ${vw}x${vh} ar=${ar} fill=${fill}`);
+        // Band inside the frame — the contained design never overflows.
+        const band = designCanvasInFrame(fr.fw, fr.fh, fr.fx, fr.fy);
+        assert.ok(band.cw <= fr.fw + 1e-9 && band.ch <= fr.fh + 1e-9, `band exceeds frame at ${vw}x${vh} ar=${ar} fill=${fill}`);
+        assert.ok(band.cx >= fr.fx - 1e-9 && band.cy >= fr.fy - 1e-9, `band off-frame at ${vw}x${vh}`);
+        assert.ok(band.cx + band.cw <= fr.fx + fr.fw + 1e-9 && band.cy + band.ch <= fr.fy + fr.fh + 1e-9, `band clipped at ${vw}x${vh} ar=${ar} fill=${fill}`);
+        // And the picture keeps its own proportions while doing so.
+        approx(band.cw / band.ch, SLIDE_WIDTH / SLIDE_HEIGHT, 1e-9);
+      }
+    }
+  }
 });
 
 test('a drag commits the same logical box at every viewport zoom', () => {

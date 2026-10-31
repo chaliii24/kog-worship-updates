@@ -2,32 +2,39 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { Stage, Layer, Group, Rect, Transformer } from 'react-konva';
 import { renderLyricsLayout, cueLyricStyle, LyricsBlock, computeLyricsFontSize, lyricsLayoutMetrics, FONT_SIZE_MIN, FONT_SIZE_MAX, LINE_SCALE_PRESETS, ingestSpans, emitSpans, remapSpans, applySpanPatch, rangeAttrs, spanCovers, lineSpanRange, lineIndexAt } from '../lib/lyrics';
 import { transitionAnimation, FONT_OPTIONS } from '../lib/constants';
+import { bgFitCss } from '../lib/backgrounds';
 import AnimatedBg from './AnimatedBg';
 import { CinematicBackdrop, CinematicOverlay, CinematicText } from './CinematicLayer';
 import TitleCardChrome from './TitleCardChrome';
 import {
   SLIDE_WIDTH,
   SLIDE_HEIGHT,
+  MIN_BOX_W,
+  MIN_BOX_H,
   DEFAULT_BOX as CANONICAL_DEFAULT_BOX,
   normalizeBox,
   boxToCss,
-  clampCenterToCanvas,
-  clampBoxCenter,
-  boundBoxToCanvas,
+  boxFitsCanvas,
   boxFromKonvaNode,
   applyBoxToKonvaNode,
   clientToSlide,
   topBoxAt as topBoxIndexAt,
-  containScale,
+  // THE fit — the very same helper the projector output runs (see the stage
+  // contain-fit below), so the editor preview and the live wall can never
+  // scale the design differently.
+  designCanvasInFrame,
 } from '../lib/slideGeometry';
 import { useSongEditorStore } from '../store/useSongEditorStore';
 
 const CANVAS_W = SLIDE_WIDTH;
 const CANVAS_H = SLIDE_HEIGHT;
 const ACCENT = '#00aaff';
-// A text box always stays WHOLE on the design canvas: a box hanging over the
-// edge cuts its words in half on the wall, and the operator only finds that
-// out when the slide is live. (Enforced by dragBound / boundBox below.)
+// A text box goes wherever the operator puts it — including past the edge of
+// the slide. There used to be two walls (a live clamp while dragging, and a
+// Transformer bound that refused to grow a box off-canvas); both punished
+// deliberate placement, so they are gone. What protects the operator now is
+// the OFF-SLIDE badge below, which says out loud that whatever hangs over the
+// edge will be clipped on the wall.
 
 const DEFAULT_BOX = CANONICAL_DEFAULT_BOX;
 
@@ -356,7 +363,13 @@ export default function LyricsCanvasEditor({
   // editor canvas is a true picture of the wall.
   fx = null,
   bgFx = null,
+  bgDim = 0,
+  bgFit = 'cover',
   ghost = null,
+  // The cue's own style, straight from cueLyricStyle — see the merge on
+  // `lyricSt` below. Optional, so any caller that does not pass it renders
+  // from the individual props exactly as before.
+  lyricStyle = null,
   // Title-card framing (rules + artist/event/venue lines) for the song's
   // opening slide. Drawn under the words on the same 1280x720 canvas the wall
   // uses, so the operator sees the finished card while editing it.
@@ -792,7 +805,7 @@ export default function LyricsCanvasEditor({
 
   const previewing = !!previewAnim && previewAnim !== 'none';
 
-  const lyricSt = {
+  const propSt = {
     font: fontFamily,
     size: fontSize,
     lineHeight,
@@ -831,6 +844,17 @@ export default function LyricsCanvasEditor({
     tickerDir,
   };
 
+  // THE CUE'S OWN STYLE — `cueLyricStyle(c)`, the ONE mapping the projector,
+  // the stage and every thumbnail already render from. It is merged over the
+  // individual props above so this canvas draws exactly what the wall draws:
+  // hollow type (strokeOnly), box opacity, blend mode, fixedSize, the padding /
+  // fill bounds and the colour default all travel here instead of being
+  // re-typed prop by prop — that re-typing is how the two surfaces drifted
+  // apart (a cue the wall drew hollow came out filled on the canvas, a
+  // translucent box looked opaque here). Optional: a caller that passes nothing
+  // keeps rendering from the props, exactly as before.
+  const lyricSt = lyricStyle ? { ...propSt, ...lyricStyle } : propSt;
+
   // ---- stage contain-fit + canvas <-> viewport scale ----------------------
   // The stage takes the LARGEST 16:9 that fits its parent's content box —
   // width-limited on wide columns, height-limited (availH × 16/9) when the
@@ -847,11 +871,15 @@ export default function LyricsCanvasEditor({
       const availW = parent.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
       const availH = parent.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
       if (!(availW > 0) || !(availH > 0)) return;
-      const s = containScale(availW, availH, CANVAS_W, CANVAS_H);
-      if (!(s > 0)) return;
-      el.style.width = `${CANVAS_W * s}px`;
-      el.style.height = `${CANVAS_H * s}px`;
-      setScale((prev) => (Math.abs(prev - s) < 0.0002 ? prev : s));
+      // EXACTLY the projector's fit: designCanvasInFrame (contain the design
+      // canvas in the available box, uniform scale, centred) — the same
+      // function ProjectorDisplay uses for its content band, so this preview
+      // is scaled by the same logic as the live output at every window size.
+      const fit = designCanvasInFrame(availW, availH);
+      if (!(fit.s > 0)) return;
+      el.style.width = `${fit.cw}px`;
+      el.style.height = `${fit.ch}px`;
+      setScale((prev) => (Math.abs(prev - fit.s) < 0.0002 ? prev : fit.s));
     };
     apply();
     const ro = new ResizeObserver(apply);
@@ -878,6 +906,15 @@ export default function LyricsCanvasEditor({
     if (groupRef.current) applyBoxToKonvaNode(groupRef.current, box);
   });
 
+  // Keeps the OFF-SLIDE badge honest when geometry changes WITHOUT a gesture:
+  // undo/redo, switching slides, a text refit, Apply-to-all. Skipped mid-
+  // gesture on purpose — the prop there is the stale committed rectangle and
+  // paintGuides is already reporting the live one.
+  useLayoutEffect(() => {
+    if (gestureRef.current) return;
+    setOffSlide(!boxFitsCanvas(box) || otherOff(actIdx));
+  });
+
   const trNodes = useMemo(() => (trNode ? [trNode] : []), [trNode]);
 
   // Callback ref so the Transformer gets the Group node however react-konva
@@ -892,16 +929,18 @@ export default function LyricsCanvasEditor({
   const anchorSize = Math.max(6, Math.round(11 / uiScale));
   const borderWidth = Math.max(1, 2 / uiScale);
 
-  const boundBox = useCallback((oldBox, newBox) => (
-    boundBoxToCanvas(oldBox, newBox, CANVAS_W, CANVAS_H)
-  ), []);
-
-  // A text box stays WHOLE on the canvas. A box hanging over the edge cuts
-  // its words in half on the wall — and the operator only finds out when the
-  // slide is live. Rotation-aware: the clamp uses the box's rotated footprint.
-  const dragBound = useCallback((pos) => (
-    clampCenterToCanvas(startBoxRef.current, pos, CANVAS_W, CANVAS_H)
-  ), []);
+  // Resize keeps ONLY the minimum box size (Konva's contract: same rect
+  // shape in, same rect shape out, rotation in RADIANS). No canvas fit any
+  // more — a handle may push the box off the slide, exactly like a drag.
+  const boundBox = useCallback((oldBox, newBox) => {
+    if (!newBox) return oldBox;
+    const rawW = newBox.width !== undefined ? newBox.width : newBox.w;
+    const rawH = newBox.height !== undefined ? newBox.height : newBox.h;
+    const wNum = Number(rawW);
+    const hNum = Number(rawH);
+    if (!Number.isFinite(wNum) || !Number.isFinite(hNum) || wNum < MIN_BOX_W || hNum < MIN_BOX_H) return oldBox;
+    return newBox;
+  }, []);
 
   // Reconstructs the logical box from the node's current transform. Used live
   // during a gesture (to move the DOM lyrics under the cursor) and on end (to
@@ -1004,21 +1043,85 @@ export default function LyricsCanvasEditor({
   const beginEditorGesture = () => useSongEditorStore.getState().beginGesture();
   const endEditorGesture = () => useSongEditorStore.getState().endGesture();
 
+  // ---- DRAG ALIGNMENT GRID ------------------------------------------------
+  // While a text box is being dragged, a grid appears over the slide: thirds
+  // plus the centre cross, and a cross riding the box's own centre. Lines the
+  // box actually sits on light up gold and a chip says CENTERED — so "is this
+  // centred?" is answered by looking, not by guessing. Nothing is dragged, it
+  // is not rendered at all (the layer starts display:none and is only ever
+  // shown between dragstart and dragend).
+  // Every update is a direct style write: a React state set here would
+  // re-render the whole canvas subtree on every mousemove, which is exactly
+  // what the imperative node/DOM moves below exist to avoid.
+  const guidesRef = useRef(null);
+  const vRef = useRef(null);
+  const hRef = useRef(null);
+  const crossVRef = useRef(null);
+  const crossHRef = useRef(null);
+  const chipRef = useRef(null);
+  const GUIDE_TOL = 6; // design px — within this, the box counts as centred
+
+  // ---- OFF-SLIDE warning (the replacement for the edge wall) -------------
+  // A box may now rest past the edge on purpose, so the old guarantee had to
+  // become information instead of force: this badge lights while any box on
+  // the slide hangs over — live during a drag, from the committed geometry
+  // when idle. Direct style writes again: a state set per mousemove would
+  // re-render the whole canvas subtree.
+  const offRef = useRef(null);
+  const setOffSlide = (out) => { const el = offRef.current; if (el) el.style.display = out ? 'inline-flex' : 'none'; };
+  // Everything ELSE on this slide that hangs over. The box the caller is
+  // moving (srcIdx) is excluded: mid-gesture its prop is still the stale
+  // committed rectangle, so counting it would report last frame's answer.
+  const otherOff = (srcIdx) => (objects || []).some((o, i) => i !== srcIdx && o && o.box && !boxFitsCanvas(o.box));
+
+  const showGuides = () => { const el = guidesRef.current; if (el) el.style.display = 'block'; };
+  const hideGuides = () => { const el = guidesRef.current; if (el) el.style.display = 'none'; };
+  const paintGuides = (b, srcIdx = actIdx) => {
+    setOffSlide(!boxFitsCanvas(b) || otherOff(srcIdx));
+    if (!guidesRef.current) return;
+    const cx = (Number(b && b.x) || 0) + (Number(b && b.w) || 0) / 2;
+    const cy = (Number(b && b.y) || 0) + (Number(b && b.h) || 0) / 2;
+    const onX = Math.abs(cx - CANVAS_W / 2) <= GUIDE_TOL;
+    const onY = Math.abs(cy - CANVAS_H / 2) <= GUIDE_TOL;
+    if (crossVRef.current) crossVRef.current.style.left = `${cx}px`;
+    if (crossHRef.current) crossHRef.current.style.top = `${cy}px`;
+    const axis = (el, on) => {
+      if (!el) return;
+      el.style.background = on ? '#FFC72C' : 'rgba(255,255,255,0.4)';
+      el.style.boxShadow = on ? '0 0 8px rgba(255,199,44,0.9)' : 'none';
+    };
+    axis(vRef.current, onX);
+    axis(hRef.current, onY);
+    if (chipRef.current) {
+      chipRef.current.style.opacity = onX && onY ? '1' : '0';
+      chipRef.current.style.transform = onX && onY ? 'translate(-50%, 0) scale(1)' : 'translate(-50%, 0) scale(0.94)';
+    }
+  };
+
   const handleDragStart = () => {
     startBoxRef.current = committedRef.current;
     gestureRef.current = true;
     beginEditorGesture();
+    showGuides();
+    paintGuides(committedRef.current);
   };
 
   const handleDragMove = () => {
     if (!groupRef.current) return;
-    applyBoxToDom(boxFromNode());
+    const b = boxFromNode();
+    applyBoxToDom(b);
+    paintGuides(b);
   };
 
   const handleDragEnd = () => {
     const g = groupRef.current;
+    hideGuides();
     if (!g) { gestureRef.current = false; endEditorGesture(); return; }
+    // Commit exactly what was dragged — no settle, no clamp. If it hangs over
+    // the edge that is the operator's placement; the OFF-SLIDE badge is the
+    // only response (paintGuides already lit it during the drag).
     const next = boxFromNode();
+    setOffSlide(!boxFitsCanvas(next) || otherOff(actIdx));
     gestureRef.current = false;
     // Collapse any node transform into the committed geometry BEFORE React
     // repaints, so the node and the incoming props describe one rectangle.
@@ -1119,16 +1222,21 @@ export default function LyricsCanvasEditor({
             <div style={{ position: 'absolute', inset: 0, backgroundColor: bgValue || '#000000' }} />
           )}
           {bgType === 'image' && bgValue && (
-            <img src={bgValue} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} draggable={false} />
+            <img src={bgValue} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: bgFitCss(bgFit), backgroundColor: '#000' }} draggable={false} />
           )}
           {bgType === 'video' && bgValue && (
-            <video key={`bg-${bgValue}`} src={bgValue} autoPlay loop muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            <video key={`bg-${bgValue}`} src={bgValue} autoPlay loop muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: bgFitCss(bgFit), backgroundColor: '#000' }} />
           )}
           {bgType === 'gradient' && !!bgValue && (
             <div style={{ position: 'absolute', inset: 0, background: bgValue }} />
           )}
           {bgType === 'animated' && (
             <AnimatedBg value={bgValue} k={1} />
+          )}
+          {/* Same dimmer the wall applies — the canvas is the picture the
+              operator is judging, so it must wash identically. */}
+          {Number(bgDim) > 0 && (
+            <div style={{ position: 'absolute', inset: 0, background: '#000', opacity: Math.min(1, Number(bgDim) / 100), pointerEvents: 'none' }} />
           )}
         </CinematicBackdrop>
       </div>
@@ -1225,7 +1333,6 @@ export default function LyricsCanvasEditor({
             rotation={angle}
             zIndex={actIdx}
             draggable={!cueLocked}
-            dragBoundFunc={dragBound}
             onDragStart={handleDragStart}
             onDragMove={handleDragMove}
             onDragEnd={handleDragEnd}
@@ -1262,23 +1369,24 @@ export default function LyricsCanvasEditor({
                 rotation={ob.angle}
                 zIndex={i}
                 draggable={!cueLocked}
-                // Same rotation-aware canvas bounds as the main box: a text
-                // box can never hang over the edge, even rotated.
-                dragBoundFunc={(pos) => clampCenterToCanvas(ob, pos, CANVAS_W, CANVAS_H)}
+                // Same rule as the main box: place it anywhere, it stays.
                 onClick={() => selectObj(i)}
                 onTap={() => selectObj(i)}
                 onDblClick={() => { selectObj(i); startEdit(); }}
                 onDblTap={() => { selectObj(i); startEdit(); }}
-                onDragStart={beginEditorGesture}
+                onDragStart={() => { beginEditorGesture(); showGuides(); paintGuides(ob, i); }}
                 onDragMove={(e) => {
                   const nb = boxFromKonvaNode(e.target, ob);
                   moveExtraDom(i, nb);
+                  paintGuides(nb, i);
                 }}
                 onDragEnd={(e) => {
                   const g = e.target;
-                  // Clamp once, in logical units, then collapse the node back
-                  // onto the committed box so no transient transform survives.
-                  const nb = clampBoxCenter(boxFromKonvaNode(g, ob), CANVAS_W, CANVAS_H);
+                  hideGuides();
+                  // Commit as placed (no settle), then collapse the node back
+                  // onto that box so no transient transform survives.
+                  const nb = boxFromKonvaNode(g, ob);
+                  setOffSlide(!boxFitsCanvas(nb) || otherOff(i));
                   applyBoxToKonvaNode(g, nb);
                   moveExtraDom(i, nb);
                   sendTa();
@@ -1311,6 +1419,34 @@ export default function LyricsCanvasEditor({
           />
         </Layer>
       </Stage>
+
+      {/* ALIGNMENT GRID — only exists between dragstart and dragend of a text
+          box (display:none the rest of the time). Thirds + the centre cross,
+          with a cross riding the box's own centre: when the two cross hairs
+          land on the centre line it lights gold and the chip says CENTERED.
+          Sits above the Konva hit layer and never takes pointer events, so it
+          cannot swallow the drag it is measuring. */}
+      <div
+        ref={guidesRef}
+        style={{ position: 'absolute', left: 0, top: 0, width: CANVAS_W, height: CANVAS_H, zIndex: 4, pointerEvents: 'none', transformOrigin: 'top left', transform: `scale(${scale})`, display: 'none' }}
+      >
+        {[CANVAS_W / 3, (CANVAS_W * 2) / 3].map((x) => (
+          <div key={`gv${x}`} style={{ position: 'absolute', left: x, top: 0, width: 1, height: '100%', background: 'rgba(255,255,255,0.13)' }} />
+        ))}
+        {[CANVAS_H / 3, (CANVAS_H * 2) / 3].map((y) => (
+          <div key={`gh${y}`} style={{ position: 'absolute', top: y, left: 0, height: 1, width: '100%', background: 'rgba(255,255,255,0.13)' }} />
+        ))}
+        {/* the slide's own centre — the target */}
+        <div ref={vRef} style={{ position: 'absolute', left: CANVAS_W / 2, top: 0, width: 1, height: '100%', background: 'rgba(255,255,255,0.4)' }} />
+        <div ref={hRef} style={{ position: 'absolute', top: CANVAS_H / 2, left: 0, height: 1, width: '100%', background: 'rgba(255,255,255,0.4)' }} />
+        {/* the box's centre — moves with it (drawn last, so it reads on top) */}
+        <div ref={crossVRef} style={{ position: 'absolute', left: CANVAS_W / 2, top: 0, width: 1, height: '100%', background: 'rgba(255,199,44,0.75)' }} />
+        <div ref={crossHRef} style={{ position: 'absolute', top: CANVAS_H / 2, left: 0, height: 1, width: '100%', background: 'rgba(255,199,44,0.75)' }} />
+        <div
+          ref={chipRef}
+          style={{ position: 'absolute', left: '50%', top: 12, transform: 'translate(-50%, 0)', opacity: 0, background: 'rgba(9,10,15,0.92)', border: `1px solid ${ACCENT}`, color: '#FFC72C', borderRadius: 999, padding: '3px 11px', fontSize: 12, fontWeight: 800, letterSpacing: 1.2, whiteSpace: 'nowrap', boxShadow: '0 2px 10px rgba(0,0,0,0.5)', transition: 'opacity 120ms ease, transform 120ms ease' }}
+        >CENTERED</div>
+      </div>
 
       {/* z3 — native textarea, only while typing */}
       {editing && (
@@ -1468,14 +1604,15 @@ export default function LyricsCanvasEditor({
         </div>
       )}
 
-      {/* z4 — mode badges + edit affordance */}
-      {(fill || layoutMode === 'ticker' || resizeMode === 'scale') && (
-        <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 4, display: 'flex', gap: 6, pointerEvents: 'none' }}>
-          {fill && <span style={badgeStyle.green}>FILL</span>}
-          {layoutMode === 'ticker' && <span style={badgeStyle.cyan}>TICKER</span>}
-          {resizeMode === 'scale' && <span style={badgeStyle.amber}>SCALE TEXT</span>}
-        </div>
-      )}
+      {/* z4 — mode badges + edit affordance. OFF-SLIDE lives in this row too:
+          it is the warning that replaced the edge wall, so it rides with the
+          other state flags instead of being tied to a mode being on. */}
+      <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 4, display: 'flex', gap: 6, pointerEvents: 'none' }}>
+        <span ref={offRef} style={{ ...badgeStyle.red, display: 'none' }}>OFF-SLIDE</span>
+        {fill && <span style={badgeStyle.green}>FILL</span>}
+        {layoutMode === 'ticker' && <span style={badgeStyle.cyan}>TICKER</span>}
+        {resizeMode === 'scale' && <span style={badgeStyle.amber}>SCALE TEXT</span>}
+      </div>
       {/* Line-scale chips. Only exist while editing, because they need a caret
           to say which line they mean — and they sit at top-right, where the
           FILL/TICKER badges (left) can never collide with them. */}
@@ -1578,6 +1715,7 @@ export default function LyricsCanvasEditor({
 }
 
 const badgeStyle = {
+  red: { fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: '3px 8px', borderRadius: 999, background: 'rgba(255,69,69,0.16)', color: '#FF8A8A', border: '1px solid rgba(255,69,69,0.45)' },
   green: { fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: '3px 8px', borderRadius: 999, background: 'rgba(255,184,0,0.16)', color: '#FFB800', border: '1px solid rgba(255,184,0,0.45)' },
   cyan: { fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: '3px 8px', borderRadius: 999, background: 'rgba(161,161,170,0.16)', color: '#d4d4d8', border: '1px solid rgba(161,161,170,0.45)' },
   amber: { fontSize: 9, fontWeight: 800, letterSpacing: 1, padding: '3px 8px', borderRadius: 999, background: 'rgba(245,158,11,0.16)', color: '#fcd34d', border: '1px solid rgba(245,158,11,0.45)' },

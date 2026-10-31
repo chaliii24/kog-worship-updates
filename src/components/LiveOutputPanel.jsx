@@ -303,10 +303,17 @@ export default function LiveOutputPanel({
             /* THE LIVE CARD IS THE PROJECTOR. Not a copy of it: this is the
                same component the wall runs, in framed mode, so the picture
                can never drift from the actual output — same background, same
-               text boxes, same fit, same fill. The card itself is a fixed
-               16:9 window (it never changes size with the output aspect). */
-            <div className="kog-live-preview" data-live={wallLive ? '1' : '0'} style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9' }}>
-              <ProjectorDisplay framed frameAspect={wallFrameAspect} currentSlide={monitorContent} config={{ aspect: 'fill' }} />
+               text boxes, same fit, same fill. Sized 16:9 to match the
+               Up Next card, so the two preview cards stay the same height. */
+            <div className="kog-live-preview" data-live={wallLive ? '1' : '0'} style={{ position: 'relative', width: '100%', height: 'auto', aspectRatio: '16 / 9' }}>
+              <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+                {/* The card shows the WALL's own shape, not a fixed 16:9 —
+                    since the wall now fills a screen wider than 16:9 by
+                    widening its layout space, a hardcoded 16:9 here would make
+                    this monitor disagree with the projector on exactly the
+                    screens that need it most. */}
+                <ProjectorDisplay framed frameAspect={wallFrameAspect || '16 / 9'} currentSlide={monitorContent} config={{ aspect: 'fill' }} />
+              </div>
             </div>
           )}
           {/* TELESTRATOR SURFACE — mirrors what is on the wall at all times

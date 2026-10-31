@@ -368,7 +368,7 @@ export function TileVideo({ src, animate, style, ...rest }) {
 // useIsPresent only *reads* the AnimatePresence context — it does not
 // register, so it can never block the exit from completing (usePresence()
 // would, and the layer would never unmount).
-export function BackgroundVideo({ src, style, ...rest }) {
+export function BackgroundVideo({ src, style, loop = true, muted = true, rate = 1, ...rest }) {
   const ref = useRef(null);
   const isPresent = useIsPresent();
 
@@ -471,9 +471,21 @@ export function BackgroundVideo({ src, style, ...rest }) {
     };
   }, [isPresent, src]);
 
+  // Playback rate is a property, not an attribute — re-apply on every render
+  // that could have changed it (the slide's media drawer) and again on the
+  // element's own loadstart, because load()/heal() resets it to 1.
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return undefined;
+    const apply = () => { try { v.playbackRate = Number(rate) || 1; } catch {} };
+    apply();
+    v.addEventListener('loadstart', apply);
+    return () => v.removeEventListener('loadstart', apply);
+  }, [src, rate]);
+
   // preload="auto": the swap has no lead time (Go -> standby is the trigger),
   // so the incoming file must be ready to paint on its first frame.
-  return <video ref={ref} src={src} autoPlay loop muted playsInline preload="auto" style={style} {...rest} />;
+  return <video ref={ref} src={src} autoPlay loop={loop} muted={muted} playsInline preload="auto" style={style} {...rest} />;
 }
 
 // An overlay is "on air" with words, a media bug, or both — every gate

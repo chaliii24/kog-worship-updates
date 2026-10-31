@@ -854,6 +854,39 @@ export const DEFAULT_LYRIC_SIZE = 120;
 export const autoPadForSize = (size) =>
   Math.round(Math.max(4, Math.min(80, (Number(size) || DEFAULT_LYRIC_SIZE) * 0.1)));
 
+// A buffer can never swallow the box it lives in. Past ~40% of the box's own
+// short side there is nothing left to set the words IN — they used to be
+// squeezed into a zero-width strip and clipped instead of getting breathing
+// room. Every surface resolves padding through this ceiling, so the number
+// the sidebar shows is the number that actually draws.
+export const padCeilingForBox = (box) => {
+  const b = box || {};
+  const w = Math.max(1, Number(b.w) || 1280);
+  const h = Math.max(1, Number(b.h) || 640);
+  return Math.max(0, Math.floor(Math.min(w, h) * 0.4));
+};
+
+export const clampPad = (pad, box) =>
+  Math.max(0, Math.min(Math.round(Number(pad) || 0), padCeilingForBox(box)));
+
+/**
+ * THE padding a cue draws with — one answer for the renderer, the fitter and
+ * the sidebar slider, so they can never disagree:
+ *   • an EXPLICIT pad always wins, in every resize mode. Fill used to throw
+ *     it away and hard-code 6px, which is why the slider did nothing the
+ *     moment Resize was set to Fill.
+ *   • no pad set → auto: it tracks the font size (so the gutter grows with
+ *     the type), or a tight 6px in fill mode where the box drives the size.
+ *   • whatever is asked for is then capped by the box (clampPad above).
+ */
+export const resolvePad = (st = {}, box = null) => {
+  const b = box || {};
+  const size = Math.max(FONT_SIZE_MIN, Math.min(Number(st.size) || DEFAULT_LYRIC_SIZE, FONT_SIZE_MAX));
+  const asked = st.pad != null && st.pad !== '' && Number.isFinite(Number(st.pad)) ? Number(st.pad) : null;
+  const want = asked != null ? asked : (st.fill ? 6 : autoPadForSize(size));
+  return clampPad(want, { w: Number(b.w) || 1280, h: Number(b.h) || 640 });
+};
+
 // Box metrics shared by the renderer and by the editor's textarea, so the box
 // you type into and the box that lands on the projector are sized identically.
 // Null/zero boxes (bad drag, corrupt cue) fall back to stock instead of
@@ -861,12 +894,14 @@ export const autoPadForSize = (size) =>
 export const lyricsLayoutMetrics = (st, box) => {
   const b = box || {};
   const baseSize = Math.max(FONT_SIZE_MIN, Math.min(Number(st.size) || DEFAULT_LYRIC_SIZE, FONT_SIZE_MAX));
-  const pad = st.fill
-    ? 6
-    : Math.max(0, st.pad != null && st.pad !== '' ? Number(st.pad) || 0 : autoPadForSize(baseSize));
-  const boxW = Math.max(200, (Number(b.w) || 1280) - pad * 2 - (st.highlight ? 24 : 0));
+  const pad = resolvePad(st, box);
+  // The REAL inner width. The old 200px floor could hand the fitter a row
+  // WIDER than the padded area: at a big pad the words were measured as if
+  // the buffer did not exist, wrapped as if it did not exist, and painted
+  // straight over the padding. 1 keeps the wrap solver's divide safe.
+  const boxW = Math.max(1, (Number(b.w) || 1280) - pad * 2 - (st.highlight ? 24 : 0));
   const boxH = Number(b.h) || 640;
-  const maxH = Math.max(40, Math.min(boxH - pad * 2, 700));
+  const maxH = Math.max(1, Math.min(boxH - pad * 2, 700));
   return { pad, boxW, boxH, baseSize, maxH };
 };
 
@@ -1092,9 +1127,12 @@ export const fitBoxToText = (text, st = {}, box) => {
   if (!shapes.some(s => s.plain.trim())) return cur;
   const base = Math.max(FONT_SIZE_MIN, Math.min(Number(st.size) || DEFAULT_LYRIC_SIZE, FONT_SIZE_MAX));
   const lh = st.lineHeight || 1.05;
-  const pad = st.pad != null && st.pad !== '' ? Math.max(0, Number(st.pad) || 0) : autoPadForSize(base);
+  // Same padding the renderer will use (explicit → auto → box-capped), and the
+  // same real inner width — otherwise the fitted height was measured against a
+  // box the words never actually get, and the bottom line came up clipped.
+  const pad = resolvePad(st, cur);
   const w = Number(cur.w) || 1120;
-  const boxW = Math.max(200, w - pad * 2 - (st.highlight ? 24 : 0));
+  const boxW = Math.max(1, w - pad * 2 - (st.highlight ? 24 : 0));
   const need = blockHeightAt(shapes, boxW, lh, base, st) * 1.06 + pad * 2;
   const h = Math.round(Math.max(96, Math.min(700, need)));
   const centerY = (Number(cur.y) || 0) + (Number(cur.h) || 480) / 2;
