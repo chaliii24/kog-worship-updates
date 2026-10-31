@@ -772,6 +772,35 @@ function onDisplayTopologyChanged() {
   }, 300);
 }
 
+// A display-bound pixel region lives in the DISPLAY'S pixel space: it may be
+// SMALLER than the screen (a real LED sub-region) but must never EXCEED it.
+// The renderer fills the window it is handed, so a window wider than its
+// display gets cropped by the screen itself and the projection appears to be
+// cut off at the sides — the geometry inside can be perfect and still look
+// wrong, because the missing pixels are lost below us.
+//
+// Stale regions are the common case: a virtual / capture display (spacedesk,
+// NDI, an LED processor) renegotiates its resolution every time its client
+// reconnects, while the stored region keeps the size it was captured at.
+// Clamping at create AND refit keeps the window on screen through any of
+// those changes. Region x/y stay relative to the display origin; only the
+// overflow is trimmed. Returns display-absolute bounds.
+function regionInDisplay(base, vp) {
+  const wantW = Math.max(64, Math.round(Number(vp.w) || base.width));
+  const wantH = Math.max(64, Math.round(Number(vp.h) || base.height));
+  const w = Math.min(wantW, base.width);
+  const h = Math.min(wantH, base.height);
+  const offX = Math.round(Number(vp.x) || 0);
+  const offY = Math.round(Number(vp.y) || 0);
+  const x = base.x + Math.max(0, Math.min(offX, base.width - w));
+  const y = base.y + Math.max(0, Math.min(offY, base.height - h));
+  return {
+    x, y, w, h,
+    clamped: w !== wantW || h !== wantH || x !== base.x + offX || y !== base.y + offY,
+    want: `${wantW}x${wantH}@${offX},${offY}`,
+  };
+}
+
 // Snap ONE output window back onto its display's real bounds. Native outputs
 // take the whole screen; windowed outputs (pixel preset / LED region) keep
 // their exact size but re-center within that screen. Never resizes a preview
@@ -800,10 +829,11 @@ function refitOutputWindow(id, entry) {
   const vp = def.viewport && def.viewport.enabled ? def.viewport : null;
   let w; let h; let x; let y;
   if (vp) {
-    w = Math.max(64, Math.round(Number(vp.w) || base.width));
-    h = Math.max(64, Math.round(Number(vp.h) || base.height));
-    x = base.x + Math.round(Number(vp.x) || 0);
-    y = base.y + Math.round(Number(vp.y) || 0);
+    const fit = regionInDisplay(base, vp);
+    w = fit.w; h = fit.h; x = fit.x; y = fit.y;
+    if (fit.clamped) {
+      electronLog.warn(`[output] ${id} pixel region ${fit.want} no longer fits display ${base.width}x${base.height} - clamped to ${w}x${h}`);
+    }
   } else if (preset) {
     w = preset[0];
     h = preset[1];
@@ -1064,15 +1094,30 @@ function createOutputWindow(output) {
     const vw = Math.max(64, Math.round(Number(vp.w) || base.width));
     const vh = Math.max(64, Math.round(Number(vp.h) || base.height));
     // Bound display: X/Y are relative to the display's origin, exactly like
-    // an LED processor's pixel region. Dev preview: centered on the screen;
-    // X/Y nudge it from that center (0,0 = centered).
-    const wx = target ? base.x + vx : base.x + Math.round((base.width - vw) / 2) + vx;
-    const wy = target ? base.y + vy : base.y + Math.round((base.height - vh) / 2) + vy;
+    // an LED processor's pixel region — and the region is CLAMPED into that
+    // display (regionInDisplay). The renderer fills whatever window it gets,
+    // so a region wider than the screen it landed on would be cropped by the
+    // display itself and the projection would look hard-cut at the sides,
+    // no matter how correct the layout math is. Virtual displays renegotiate
+    // their resolution on every client reconnect; the stored region does not.
+    // Dev preview: centered on the screen; X/Y nudge it from that center
+    // (0,0 = centered).
+    let wx; let wy; let ww = vw; let wh = vh;
+    if (target) {
+      const fit = regionInDisplay(base, vp);
+      wx = fit.x; wy = fit.y; ww = fit.w; wh = fit.h;
+      if (fit.clamped) {
+        electronLog.warn(`[output] ${output.id} pixel region ${fit.want} exceeds display ${base.width}x${base.height} - clamped to ${ww}x${wh}`);
+      }
+    } else {
+      wx = base.x + Math.round((base.width - vw) / 2) + vx;
+      wy = base.y + Math.round((base.height - vh) / 2) + vy;
+    }
     win = new BrowserWindow({
       x: wx,
       y: wy,
-      width: vw,
-      height: vh,
+      width: ww,
+      height: wh,
       frame: false,
       resizable: false,
       movable: false,
@@ -1088,8 +1133,10 @@ function createOutputWindow(output) {
       webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false }
     });
     // The constructor clamps to the work area; a pixel region may deliberately
-    // sit outside it (LED wall spanning displays) and must keep its exact size.
-    try { win.setBounds({ x: wx, y: wy, width: vw, height: vh }, false); } catch {}
+    // sit outside it (taskbar, multi-display wall) and must keep its exact
+    // size. It is already clamped into the bound display above, so re-applying
+    // can never push anything off-screen.
+    try { win.setBounds({ x: wx, y: wy, width: ww, height: wh }, false); } catch {}
   } else if (preset || previewOnly) {
     // Exact pixel resolution for a preset; a no-preset dev preview fills the
     // work area (a real window, not a fullscreen surface). A dev preview is

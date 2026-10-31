@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { LyricsBlock, liftBox, DEFAULT_LYRIC_SIZE, SlideTextLayers } from '../lib/lyrics';
+import { DEFAULT_LYRIC_SIZE, SlideTextLayers } from '../lib/lyrics';
+import { aspectFrameInViewport, designCanvasFilled } from '../lib/slideGeometry';
 import { cssSpeed } from '../lib/constants';
 import PresentationSlide from './PresentationSlide';
 import { TimerFace } from './CountdownFace';
@@ -9,6 +10,7 @@ import { DrawOverlay } from './DrawOverlay.jsx';
 import ScriptureRef from './ScriptureRef.jsx';
 import TitleCardChrome from './TitleCardChrome.jsx';
 import { stripScriptureRef, scriptureRefPos } from '../lib/scriptureTemplates';
+import { bgFitCss } from '../lib/backgrounds';
 import { titleCardIsClassic } from '../lib/titleCardTemplates';
 import { CinematicBackdrop, CinematicOverlay } from './CinematicLayer';
 import { AnimatePresence, motion } from 'motion/react';
@@ -19,10 +21,24 @@ import { AnimatePresence, motion } from 'motion/react';
 // slide, render IPC count, JS heap, playing-video state and GPU flags —
 // everything the stability spec asks to watch, with zero cost when disabled
 // (no rAF loop, no polling, not even mounted).
-function OutputPerfHud({ slideKey }) {
+function OutputPerfHud({ slideKey, fit }) {
   const [fps, setFps] = useState(0);
   const [stats, setStats] = useState({ slides: 0, lastMs: 0, maxMs: 0, ipc: 0, mem: 0, video: '—', gpu: '' });
   const sRef = useRef({ frames: 0, last: 0, slides: 0, maxMs: 0, ipc: 0 });
+  // FIT DIAGNOSTICS — one line describing exactly how this output scales the
+  // design right now (measured viewport → aspect frame → scale → band), plus
+  // the environment values that can desync a measurement from what is actually
+  // painted (device pixel ratio, window zoom, visualViewport scale). With the
+  // numbers in hand, "the wall cuts the design" is answerable from a paste
+  // instead of a guess: band > viewport = a stale/oversized measurement;
+  // band ≤ viewport with visible cuts = the window extends past the physical
+  // screen (resolution preset / LED region bigger than the display).
+  const fitLine = fit
+    ? `fit ${Math.round(fit.vw)}x${Math.round(fit.vh)} → frame ${Math.round(fit.fw)}x${Math.round(fit.fh)} → s ${fit.s.toFixed(4)} band ${Math.round(fit.cw)}x${Math.round(fit.ch)} @ ${Math.round(fit.cx)},${Math.round(fit.cy)}\n`
+    : '';
+  const envLine = typeof window !== 'undefined'
+    ? `env dpr ${window.devicePixelRatio} outer ${window.outerWidth} inner ${window.innerWidth} visual ${window.visualViewport ? window.visualViewport.scale : '-'} screen ${window.screen ? `${window.screen.width}x${window.screen.height}` : '-'}\n`
+    : '';
   // Slide commit → first painted frame. slideKey changes once per fired
   // slide, so this runs once per transition — never a standing loop.
   useEffect(() => {
@@ -79,7 +95,7 @@ function OutputPerfHud({ slideKey }) {
   }, []);
   return (
     <div style={{ position: 'fixed', left: 8, top: 8, zIndex: 9999, pointerEvents: 'none', fontFamily: 'monospace', fontSize: 11, lineHeight: 1.5, color: '#00ff88', background: 'rgba(0,0,0,0.65)', padding: '6px 8px', borderRadius: 6, whiteSpace: 'pre' }}>
-      {`fps ${fps}  slides ${stats.slides}\ncommit→paint ${stats.lastMs.toFixed(1)}ms max ${stats.maxMs.toFixed(1)}ms\nipc~${stats.ipc}  mem ${stats.mem}MB\n${stats.video}\n${stats.gpu}`}
+      {`${fitLine}${envLine}fps ${fps}  slides ${stats.slides}\ncommit→paint ${stats.lastMs.toFixed(1)}ms max ${stats.maxMs.toFixed(1)}ms\nipc~${stats.ipc}  mem ${stats.mem}MB\n${stats.video}\n${stats.gpu}`}
     </div>
   );
 }
@@ -108,6 +124,11 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
       let raf = 0;
       const read = () => {
         const de = typeof document !== 'undefined' ? document.documentElement : null;
+        // innerWidth/innerHeight are the real wall viewport in CSS pixels — the
+        // same unit as the root's 100vw/100vh box, so the design canvas maps
+        // 1:1 onto it. Do NOT multiply by devicePixelRatio here: the design
+        // math is ratio-based, and scaling by DPR would make the canvas larger
+        // than the CSS viewport, clipping it into the top-left corner.
         const iw = Math.round(Number(window.innerWidth) || 0);
         const ih = Math.round(Number(window.innerHeight) || 0);
         const cw = de ? Math.round(Number(de.clientWidth) || 0) : 0;
@@ -237,9 +258,9 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
 
   // Keyframe animation OR CSS transition on transform/opacity — never both.
   // Running them together double-drives the same properties and looks glitchy.
-  let animStyle = { transition: `opacity ${transitionSpeed} ease-in-out, transform ${transitionSpeed} ease-in-out` };
+  let animStyle = { transition: `opacity ${transitionSpeed} ease-in-out, transform ${transitionSpeed} ease-in-out`, willChange: 'transform, opacity' };
   if (transitionMap[trans]) {
-    animStyle = { animation: transitionMap[trans] };
+    animStyle = { animation: transitionMap[trans], willChange: 'transform, opacity' };
   }
   const bgType = slideStyle.backgroundType || 'color';
   const bgValue = slideStyle.backgroundValue || '#000';
@@ -254,11 +275,13 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
     try { return typeof localStorage !== 'undefined' && localStorage.getItem('kog_perf') === '1'; } catch { return false; }
   });
 
-  // 1:1 projection: the 1280x720 design canvas (background + lyrics together)
-  // is scaled uniformly to CONTAIN the aspect frame (see VIEW SHAPE below)
-  // and centered. Letterbox bars fall OUTSIDE the canvas, so text/box/
-  // background proportions always match the editor canvas regardless of the
-  // physical display resolution or aspect.
+  // 1:1 projection: the 1280x720 design canvas — the exact picture the song
+  // editor draws — is scaled uniformly to CONTAIN the frame and centred (see
+  // VIEW SHAPE below). The BACKGROUND is a separate layer that covers the
+  // whole viewport, cover-fit, so it fills every margin the contained design
+  // leaves behind. Text and box proportions therefore always match the editor
+  // canvas regardless of the physical display resolution or aspect: aspect
+  // and resolution only resize the picture, never re-form it.
   //
   // Screen hardware (`config`, pushed per output window by main): 90°/270°
   // rotation swaps the LOGICAL viewport and rotates it back into the physical
@@ -287,34 +310,62 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
     return m && Number(m[2]) ? Number(m[1]) / Number(m[2]) : 0;
   };
   const rawAspect = String(framed ? (frameAspect || '16:9') : (cfg.aspect || aspect) || '').toLowerCase();
-  // AUTO = fit whatever device this window landed on. "auto", "fill" and
-  // "native" all mean the design space takes the entire physical frame, so a
+  // AUTO = this window IS the frame: it takes the whole physical screen, so a
   // 4:3 projector, a 16:10 secondary monitor, a 21:9 LED wall and a rotated
-  // portrait screen are all filled edge-to-edge with no bars and no stretch
-  // of the type itself (the boxes widen, glyphs keep their size).
+  // portrait screen all get their full surface. A named ratio builds a frame
+  // of exactly that shape — the picture's bounding box, NOT a visible letterbox:
+  // the background still covers the whole window, so no bars can appear.
+  // Either way this only decides the SIZE of the frame — never what is drawn
+  // inside it (see VIEW SHAPE).
   const fill = !framed && (rawAspect === 'fill' || rawAspect === 'auto' || rawAspect === 'native' || rawAspect === '');
   const ar = ratioOf(framed ? (frameAspect || '16:9') : (cfg.aspect || aspect)) || 16 / 9;
-  const fw = fill ? vw : Math.min(vw, vh * ar);
-  const fh = fill ? vh : Math.min(vh, vw / ar);
-  const fx = (vw - fw) / 2;
-  const fy = (vh - fh) / 2;
+  // THE FRAME — one helper owns the SIZE of the stage (aspectFrameInViewport):
+  // Fill / Auto / Native takes the whole viewport, a named ratio (16:9, 4:3,
+  // 21:9 …) becomes a centred bounding box of exactly that shape. This decides
+  // how LARGE the picture gets and NOTHING else — what is drawn inside never
+  // changes with it (see VIEW SHAPE), and on the real output the background
+  // ignores the frame entirely and covers the viewport, so no aspect or
+  // resolution setting can produce black bars around the picture.
+  const { fw, fh, fx, fy } = aspectFrameInViewport(vw, vh, ar, fill);
 
-  // The design space takes the WHOLE frame (the wall in Fill, the card when
-  // it is rendering the wall's shape): the boxes spread sideways while their
-  // type keeps its size, so the picture fills the frame, no word is cropped
-  // and no letter is distorted. A named ratio keeps the 16:9 composition
-  // inside a frame of that ratio.
-  // Framed cards start at 0x0 until ResizeObserver measures them; a bare
-  // fw / fh would be 0 / 0 = NaN, and React rejects NaN in `width`. Until the
-  // box has a real size, keep the design canvas at its native ratio with a
-  // zero scale — the card is empty for one frame, never invalid.
-  const hasSize = fw > 0 && fh > 0;
-  const kx = (fill || framed) ? (hasSize ? (fw / fh) / (16 / 9) : 1) : 1;
-  const s = (fill || framed) ? (fh > 0 ? fh / 720 : 0) : (hasSize ? Math.min(fw / 1280, fh / 720) : 0);
-  const cw = 1280 * kx * s;
-  const ch = 720 * s;
-  const cx = fx + (fw - cw) / 2;
-  const cy = fy + (fh - ch) / 2;
+  // VIEW SHAPE — ONE 1280x720 DESIGN CANVAS, ALWAYS. This is the exact picture
+  // the song editor's canvas draws: same boxes, same fonts, same rules. The
+  // frame may only SCALE that design and, on a screen wider than 16:9, widen
+  // the space it is laid out in — the type is never stretched and nothing is
+  // ever cropped. designCanvasInFrame stays the editor stage's fit
+  // (LyricsCanvasEditor calls it verbatim), so the canvas is the 16:9
+  // reference and the wall is that reference filling the whole screen.
+  //
+  // The wrapper below is an aspect-ratio BOUNDING BOX (cw x ch — the design's
+  // own 16:9, sized in px and scaled with transform: scale) placed inside the
+  // frame. Because the fit CONTAINS the frame and the frame never exceeds the
+  // viewport (band ⊆ frame ⊆ viewport, locked by unit tests), the text layer
+  // always fits entirely on screen — it can never be cropped by the screen at
+  // any aspect ratio or resolution, only scaled and centred.
+  //
+  // Changing the output aspect ratio or the screen resolution therefore
+  // changes the size of that picture and NOTHING else — no box is widened, no
+  // rule moves, no font size is re-solved, no inner CSS is rewritten.
+  //
+  // It did not used to be this way: on any frame wider than 16:9 the canvas
+  // was stretched sideways (kx) and every text box was widened with it. That
+  // mutated the very numbers the font fitter runs on, so a cue in Fill resize
+  // mode came out a fifth bigger on the wall than on the canvas, while the
+  // title-card rules — fixed design px — never moved and no longer lined up
+  // with the right-anchored slots beside them. The editor canvas is the
+  // reference, so the canvas is now fixed and only `s` moves.
+  //
+  // Unmeasured framed cards (0x0 until ResizeObserver fires) come back with a
+  // zero scale, so the card is empty for one frame — never NaN dimensions,
+  // which React rejects in `width`.
+  //
+  // FILL, NOT LETTERBOX: on a frame wider than 16:9 the design SPACE widens
+  // (designCanvasFilled → `stretch`) and every box spreads with it, so the
+  // picture covers the whole screen — no hard bars at the sides, nothing
+  // cropped off the corners of a title card, and no distorted letters. At 16:9
+  // or narrower, stretch is exactly 1 and this is the same contain fit the
+  // song editor's canvas uses, so the two surfaces still match 1:1.
+  const { s, cw, ch, cx, cy, stretch } = designCanvasFilled(fw, fh, fx, fy);
 
   // Edge blending for multi-projector / LED walls: per-edge soft feather
   // (alpha ramp into the seam), per-edge overlap darkening (kills the hot
@@ -356,7 +407,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
       style={{
         // FRAMED: a picture of the wall inside a card (the console's Live
         // Output card). Unframed: the wall itself, owning its whole window.
-        position: framed ? 'relative' : 'fixed',
+        position: framed ? 'relative' : 'absolute',
         ...(framed ? { width: '100%', height: '100%' } : { inset: 0, width: '100vw', height: '100vh' }),
         margin: 0,
         padding: 0,
@@ -367,10 +418,16 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
         cursor: 'none',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center'
+        justifyContent: 'center',
+        // Only the REAL output becomes a size container (its cqi/cqb media
+        // layers need it). A framed preview card must NOT be size-contained —
+        // size containment would let it collapse and letterbox.
+        ...(framed ? {} : { containerType: 'size' }),
+        textRendering: 'optimizeLegibility',
+        WebkitFontSmoothing: 'antialiased'
       }}
     >
-      {!framed && perfOn && <OutputPerfHud slideKey={cs.timestamp} />}
+      {!framed && perfOn && <OutputPerfHud slideKey={cs.timestamp} fit={{ vw, vh, fw, fh, s, cw, ch, cx, cy }} />}
       {/* Reset root margins & hide window scrollbars — the WALL's own
           document. Never emitted in framed mode, or the card's rules would
           reach up into the console's own layout. */}
@@ -432,9 +489,15 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
         {/* Soft-edge feathering: one wrapper per edge, nested so edges
             intersect. No feather set = no mask applied = no cost. */}
         <div style={fL}><div style={fR}><div style={fT}><div style={fB}>
-          {/* Background: fills the ASPECT FRAME (fx/fy/fw/fh), not the raw
-          window — a 4:3 projection on a 16:9 display gets black pillarbox
-          bars, mirroring the preview's aspect wrapper 1:1. */}
+          {/* BACKGROUND — on the WALL this covers the ENTIRE logical viewport,
+          never just the aspect frame: object-fit: cover by default (bgFitCss;
+          an explicit per-slide fit still wins), so the media bleeds edge to
+          edge and fills whatever margin the contained design leaves behind —
+          a 16:9 selection on a 21:9 LED wall, Fill on an odd-shaped screen.
+          Black bars are impossible around the live picture; only the DESIGN
+          below letterboxes. A FRAMED card is different: it is a letterboxed
+          PICTURE of the wall inside the console, so its background stays in
+          the picture's frame (the card keeps its own chrome outside it). */}
       <AnimatePresence>
         <motion.div
           key={bgKey}
@@ -442,17 +505,33 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: bgFade }}
-          style={{ position: 'absolute', left: fx, top: fy, width: fw, height: fh, overflow: 'hidden', zIndex: 0 }}
+          style={{
+            position: 'absolute',
+            ...(framed ? { left: fx, top: fy, width: fw, height: fh } : { inset: 0 }),
+            overflow: 'hidden',
+            zIndex: 0
+          }}
         >
           {/* The background media stays MOUNTED inside this wrapper: grading
               (mono / contrast / blur / zoom / tint) only changes the wrapper's
               CSS, so a looping background video is never restarted by a cue. */}
           <CinematicBackdrop bgFx={slideStyle.bg_fx}>
+            {/* bgFit / bgDim come from the slide's media drawer in the song
+                editor. Absent fields fall back to the historic look (cover,
+                no wash), so old songs render exactly as before. */}
             {slideStyle.backgroundType === 'image' && (
-              <div style={{ position: 'absolute', inset: 0, background: `url("${String(slideStyle.backgroundValue || '').replace(/"/g, '%22')}") center/cover no-repeat` }} />
+              <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', background: `url("${String(slideStyle.backgroundValue || '').replace(/"/g, '%22')}") center / ${bgFitCss(slideStyle.bgFit)} no-repeat`, backgroundColor: '#000' }} />
             )}
             {slideStyle.backgroundType === 'video' && (
-              <BackgroundVideo src={slideStyle.backgroundValue} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+              <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', transform: 'translateZ(0)' }}>
+                <BackgroundVideo
+                  src={slideStyle.backgroundValue}
+                  loop={slideStyle.bgLoop !== false}
+                  muted={slideStyle.bgMuted !== false}
+                  rate={Number(slideStyle.bgRate) || 1}
+                  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: bgFitCss(slideStyle.bgFit) }}
+                />
+              </div>
             )}
             {slideStyle.backgroundType === 'gradient' && !!slideStyle.backgroundValue && (
               <div style={{ position: 'absolute', inset: 0, background: slideStyle.backgroundValue }} />
@@ -463,17 +542,30 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
             {slideStyle.backgroundType === 'color' && (
               <div style={{ position: 'absolute', inset: 0, background: slideStyle.backgroundValue || '#000' }} />
             )}
+            {/* Dimmer sits ABOVE the graded media and BELOW the lyrics — it
+                darkens the picture only, never the words. */}
+            {Number(slideStyle.bgDim) > 0 && (
+              <div style={{ position: 'absolute', inset: 0, background: '#000', opacity: Math.min(1, Number(slideStyle.bgDim) / 100), pointerEvents: 'none' }} />
+            )}
           </CinematicBackdrop>
         </motion.div>
       </AnimatePresence>
 
-      {/* Design canvas scaled to CONTAIN the window — text stays uncropped.
-          Scale lives on the OUTER div; transition animation on the INNER div.
-          Keyframes that animate `transform` must not share an element with
-          the viewport scale, or every transition wipes the scale mid-flight. */}
+      {/* The design canvas, scaled to FILL the frame — the same picture, the
+          same proportions and the same box geometry the song editor's canvas
+          draws, with the layout space widened (never the type) when the screen
+          is wider than 16:9, so the picture reaches the screen edges with no
+          bars and no crop. Scale lives on the OUTER div; transition animation
+          on the INNER div. Keyframes that animate `transform` must not share an
+          element with the viewport scale, or every transition wipes the scale
+          mid-flight. */}
       <div style={{ position: 'absolute', left: cx, top: cy, width: cw, height: ch, zIndex: 1, overflow: 'hidden' }}>
         <div style={{
-          width: 1280 * kx,
+          // 1280 x stretch: the design space the boxes are laid out in. On a
+          // 16:9 or narrower screen stretch is 1 and this is the plain 1280
+          // canvas; on a wider screen the boxes get the extra width as spread,
+          // never as bigger type.
+          width: 1280 * stretch,
           height: 720,
           position: 'relative',
           transform: `scale(${s})`,
@@ -499,11 +591,16 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
                   // Booth video live: same aspect-frame fill as the countdown
                   // (edge-to-edge on ultrawide, identity on 16:9), muted —
                   // the booth carries the sound.
-                  <div style={{ position: 'absolute', left: (fx - cx) / (s || 1), top: (fy - cy) / (s || 1), width: fw / (s || 1), height: fh / (s || 1), overflow: 'hidden', background: '#000' }}>
+                  <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', overflow: 'hidden', background: '#000', transform: 'translateZ(0)' }}>
                     <LiveVideo video={cs.video} />
                   </div>
                 ) : cs.presentation && cs.presentation.slide ? (
-                  <PresentationSlide slide={cs.presentation.slide} keepAlive />
+                  // A deck is a 1280x720 document of its own — on a widened
+                  // wall it stays centred at its own size instead of being
+                  // dragged to the left edge of the extra space.
+                  <div style={{ position: 'absolute', left: (1280 * (stretch - 1)) / 2, top: 0, width: 1280, height: 720 }}>
+                    <PresentationSlide slide={cs.presentation.slide} keepAlive />
+                  </div>
                 ) : (cs.text || (slideStyle.texts && slideStyle.texts.length)) ? (
                   (() => {
                     const isTitleSlide = cs.label === 'Song Title';
@@ -521,33 +618,39 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
                       : cs.text;
                     // LED-WALL LIFT: the operator can raise every lyric box at
                     // once so a band standing in front of the bottom of the wall
-                    // never covers the words. A per-slide edit of the box's own
-                    // y still wins, because the lift is applied on top of it.
-                    const box = liftBox(st.box || { x: 80, y: isTitleSlide ? 140 : 100, w: 1120, h: isTitleSlide ? 440 : 480 }, lift);
+                    // never covers the words (default 0 = the wall sits exactly
+                    // where the editor canvas puts it). SlideTextLayers applies
+                    // it, on top of the box's own y — there is no second box
+                    // computed here, so the wall and the canvas read the SAME
+                    // rectangle off the SAME style.
                     const artist = cs.artist || '';
                     return (
                       <>
-                        {/* The slide's text: the main lyric box plus every
-                            extra text box on it — ONE renderer, shared with
-                            the console's live-output preview, so the monitor
-                            is a true picture of the wall. */}
-                        <SlideTextLayers style={slideStyle} text={body} st={st} lift={lift} stretch={kx} animate animKey={cs.timestamp} />
-                        {isBible && (
-                          <ScriptureRef meta={cs.meta} title={cs.title} color={st.color} font={st.font} templateId={cs.meta && cs.meta.template} />
-                        )}
-                        {/* TITLE CARD: the chosen card draws its own rules and
-                            artist/event/venue lines. Classic has no chrome, so
-                            it keeps the legacy "Song By" corner line exactly
-                            as it always looked. */}
+                        {/* TITLE CARD FIRST — the chosen card's rules and
+                            artist/event/venue lines are drawn UNDER the words,
+                            exactly where the song editor's canvas puts them (a
+                            rule crossing a headline must read as a rule behind
+                            it, never a line struck through it). Classic has no
+                            chrome, so it keeps the legacy "Song By" corner line
+                            exactly as it always looked. */}
                         {isTitleSlide && (
                           <>
-                            <TitleCardChrome card={st.card} artist={artist} event={st.cardEvent} venue={st.cardVenue} />
+                            <TitleCardChrome card={st.card} artist={artist} event={st.cardEvent} venue={st.cardVenue} stretch={stretch} />
                             {titleCardIsClassic(st.card) && artist && (
-                              <div style={{ position: 'absolute', bottom: 20, right: 24, fontFamily: st.font, fontSize: 24, fontWeight: 600, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.03em', textShadow: '0 2px 8px rgba(0,0,0,0.8)', whiteSpace: 'nowrap' }}>
+                              <div style={{ position: 'absolute', bottom: 20, right: 24 * stretch, fontFamily: st.font, fontSize: 24, fontWeight: 600, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.03em', textShadow: '0 2px 8px rgba(0,0,0,0.8)', whiteSpace: 'nowrap' }}>
                                 Song By: {artist}
                               </div>
                             )}
                           </>
+                        )}
+                        {/* The slide's text: the main lyric box plus every
+                            extra text box on it — ONE renderer, at the SAME
+                            box coordinates the editor canvas uses (no aspect
+                            stretch, see VIEW SHAPE), so the wall is a true
+                            picture of the canvas. */}
+                        <SlideTextLayers style={slideStyle} text={body} st={st} lift={lift} stretch={stretch} animate animKey={cs.timestamp} />
+                        {isBible && (
+                          <ScriptureRef meta={cs.meta} title={cs.title} color={st.color} font={st.font} templateId={cs.meta && cs.meta.template} stretch={stretch} />
                         )}
                       </>
                     );

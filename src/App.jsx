@@ -28,7 +28,7 @@ import PresentationModal from './components/PresentationModal';
 import PresentationSlide from './components/PresentationSlide';
 import ShowBuilderModal from './components/ShowBuilderModal';
 import { parseMedleyDef, flattenMedley, medleySongIds, medleyTitleId, basePartLabel } from './lib/medley';
-import { mediaLabel } from './lib/backgrounds';
+import { mediaLabel, bgMediaFields } from './lib/backgrounds';
 import { audioEngine } from './lib/audioEngine';
 import { resolveArrangementFlow } from './lib/arrangement';
 import { DEFAULT_STAGE_CFG } from './lib/stageLayout';
@@ -236,6 +236,10 @@ export default function App() {
   const [songCategories, setSongCategories] = useState([]);
   const [activeSong, setActiveSong] = useState(null);
   const [activeCue, setActiveCue] = useState(null);
+  // Mirror for the song-editor live-sync below: it runs from a debounce timer,
+  // where a render-time read would hold yesterday's cue.
+  const activeCueRef = useRef(activeCue);
+  activeCueRef.current = activeCue;
 
   // Panel visibility lives in the UI store: it is interaction state, never part
   // of a song/service document, and separate subscriptions keep a panel toggle
@@ -593,6 +597,10 @@ export default function App() {
     { id: 2, name: 'Side Projectors', content: null }
   ]);
   const [targetedDisplays, setTargetedDisplays] = useState([1, 2]); 
+  // Mirror of the display payloads: the live-sync reads what is actually on
+  // the wall from a timer, and setState closures go stale between fires.
+  const displaysRef = useRef(displays);
+  displaysRef.current = displays;
   const [outputDisplays, setOutputDisplays] = useState([]);
   const [outputs, setOutputs] = useState(DEFAULT_OUTPUTS);
   const outputsReadyRef = useRef(false);
@@ -670,9 +678,20 @@ export default function App() {
   useEffect(() => {
     if (isOutputWindow || !window.require) return;
     const { ipcRenderer } = window.require('electron');
-    ipcRenderer.invoke('outputs-load')
-      .then((saved) => {
-        if (!Array.isArray(saved) || !saved.length) return;
+    Promise.all([ipcRenderer.invoke('outputs-load'), ipcRenderer.invoke('list-displays')])
+      .then(([saved, displaysRaw]) => {
+        const displays = Array.isArray(displaysRaw) ? displaysRaw : [];
+        if (!Array.isArray(saved) || !saved.length) {
+          if (displays.length > 1) {
+            const newOutputs = DEFAULT_OUTPUTS.map(o => o.id === 'projector'
+              ? { ...o, displayId: displays[1].id, resolution: 'native', aspect: 'auto', enabled: true }
+              : o);
+            setOutputs(newOutputs);
+            ipcRenderer.send('outputs-save', newOutputs);
+            ipcRenderer.send('outputs-sync', newOutputs);
+          }
+          return;
+        }
         // Run the one-time auto-fit migration OUTSIDE the state updater (the
         // updater must stay pure — React may invoke it twice in dev).
         let rows = saved;
@@ -683,6 +702,21 @@ export default function App() {
           }
         } catch { /* storage unavailable: keep the saved rows as-is */ }
         const normalized = rows.map(o => ({ ...o, resolution: o.resolution || 'native', aspect: o.aspect || 'auto', enabled: false }));
+        const projector = normalized.find(o => o.id === 'projector');
+        const unconfigured = !!projector && (projector.displayId === null || projector.displayId === undefined || projector.displayId === '') && !projector.enabled;
+        if (unconfigured && displays.length > 1) {
+          const newOutputs = normalized.map(o => o.id === 'projector'
+            ? { ...o, displayId: displays[1].id, resolution: 'native', aspect: 'auto', enabled: true }
+            : o);
+          setOutputs((prev) => {
+            const touched = prev.some(o => o.enabled || (o.displayId !== null && o.displayId !== undefined && o.displayId !== ''));
+            if (touched) return prev;
+            return dedupeOutputDisplays(newOutputs);
+          });
+          ipcRenderer.send('outputs-save', newOutputs);
+          ipcRenderer.send('outputs-sync', newOutputs);
+          return;
+        }
         setOutputs((prev) => {
           const touched = prev.some(o => o.enabled || (o.displayId !== null && o.displayId !== undefined && o.displayId !== ''));
           if (touched) return prev;
@@ -831,7 +865,7 @@ export default function App() {
   const isSongDraftDirty = () => songSnapRef.current !== null && songSnapOf(editingSongRef.current) !== songSnapRef.current;
   // Dropping the draft only when it belongs to the song being closed: opening
   // song B must never delete a recovery draft still waiting on song A.
-  const clearSongDraft = () => {
+  const clearSongDraft = (keepLiveWall = false) => {
     songDraftGenRef.current += 1; // kill any mirror write already scheduled
     try {
       const raw = localStorage.getItem(SONG_DRAFT_KEY);
@@ -844,6 +878,17 @@ export default function App() {
     // would otherwise still see a dirty song and write the draft straight back
     // after this removed it.
     songSnapRef.current = songSnapOf(editingSongRef.current);
+    // LAST CALL FOR THE WALL. The editor is closing with this draft either
+    // saved or discarded — keepLiveWall tells the two apart:
+    //   true  (Save)     → the synced picture IS the saved design now: keep it.
+    //   false (Discard)  → put back the payload that was actually fired.
+    if (keepLiveWall) {
+      if (liveSyncTimerRef.current) { clearTimeout(liveSyncTimerRef.current); liveSyncTimerRef.current = null; }
+      liveSyncPreRef.current = null;
+      liveSyncLastRef.current = null;
+    } else {
+      restoreLivePayload();
+    }
   };
 
   // Baseline on close (null = nothing to compare) and as a fallback for any
@@ -2089,9 +2134,11 @@ export default function App() {
     if (cue && cue.id === 'clear') {
       return { ...stageStyle, backgroundType: 'color', backgroundValue: '#000000', transition: 'fade', speed: '600ms' };
     }
+    // bgMediaFields rides with whichever background wins, so the wall applies
+    // the slide's dimmer / fit / video settings to a song background too.
     const base = cueHasBackground(cue)
-      ? { ...stageStyle, backgroundType: cue.bg_type || 'color', backgroundValue: cue.bg_value || '#000000' }
-      : songBackgroundStyle(song);
+      ? { ...stageStyle, backgroundType: cue.bg_type || 'color', backgroundValue: cue.bg_value || '#000000', ...bgMediaFields(cue) }
+      : { ...songBackgroundStyle(song), ...bgMediaFields(cue) };
     if (cue && cue.id !== 'clear') {
       return {
         ...base,
@@ -2108,6 +2155,115 @@ export default function App() {
     }
     return base;
   };
+
+  // ---------------------------------------------------------------------------
+  // SONG EDITOR → LIVE OUTPUT SYNC
+  //
+  // The song modal edits a DRAFT — nothing but Save ever writes the library —
+  // so the wall used to keep the old design until the slide was saved AND
+  // re-fired. What the modal shows has to be what the output shows, so:
+  //
+  //   • while the modal is open on the song that is ON AIR, display 1's
+  //     payload is rebuilt from the draft (debounced 250ms — a push per
+  //     keystroke would flood the output window's IPC) and pushed to the
+  //     projector + the console's Live Output card + the stage feed;
+  //   • the rebuild keeps the fired payload's `timestamp`, which is the key
+  //     the wall's transition runs on — so the slide repaints IN PLACE. No
+  //     cue transition replay, no slide-timer reset, no BGM auto-take: an edit
+  //     changes the words, nothing else;
+  //   • when the modal closes, clearSongDraft decides: a SAVED draft keeps
+  //     the synced picture (it is now what the library holds), a DISCARDED
+  //     one restores the payload that was actually fired.
+  //
+  // Nothing here runs with the editor shut: that is the job of clearSongDraft.
+  const liveSongIdRef = useRef(null); // song the wall is showing a slide of
+  const liveSyncPreRef = useRef(null); // { content, cue } as fired, before edits
+  const liveSyncLastRef = useRef(null); // last payload this sync pushed
+  const liveSyncTimerRef = useRef(null);
+
+  const commitLivePayload = (p) => {
+    setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: p } : d)));
+    if (window.require && targetedDisplays.includes(1)) {
+      try { window.require('electron').ipcRenderer.send('update-live-slide', p); } catch { /* output unreachable = already black */ }
+    }
+    liveSyncLastRef.current = p;
+  };
+
+  const rebuildLiveFromDraft = () => {
+    const draft = editingSongRef.current;
+    const liveId = liveSongIdRef.current;
+    // Only the song being edited, and only when it is the one on air.
+    if (!draft || draft.id == null || liveId == null || !sameSongId(draft.id, liveId)) return;
+    const cur = (displaysRef.current || []).find((d) => d.id === 1)?.content;
+    // Anything else may own the wall right now — scripture, countdown, sermon
+    // deck, media, blackout. A song edit must never take those over.
+    if (!cur || !cur.style || !cur.style.lyric || cur.lyric === false || cur.media === true
+      || cur.timer || cur.presentation || cur.video || (cur.meta && cur.meta.kind)) return;
+    const live = activeCueRef.current;
+    if (!live || live.id === 'clear') return;
+    const isTitle = cur.label === 'Song Title' || live.id === 'title-card';
+    const next = isTitle
+      ? (draft.title_cue || { id: 'title-card', label: 'Song Title', text: draft.title || '', box: { x: 80, y: 140, w: 1120, h: 440 }, size: DEFAULT_LYRIC_SIZE, align: 'center', color: '#ffffff' })
+      : (draft.cues || []).find((c) => c.id === live.id);
+    // The live slide no longer exists in the draft (deleted mid-edit): leave
+    // the wall showing what is on it rather than blanking it.
+    if (!next) return;
+    const style = resolutionStyle(next, draft);
+    // Titles dissolve in, exactly as fireTitleLive publishes them.
+    if (isTitle) style.transition = next.anim || 'fade';
+    const payload = {
+      ...cur, // audio / meta / media flags ride along untouched
+      title: draft.title || '',
+      artist: draft.artist || '',
+      text: isTitle ? (next.text || draft.title || '') : (next.text || ''),
+      style,
+      timestamp: cur.timestamp, // SAME key → in-place repaint, no transition
+    };
+    if (!liveSyncPreRef.current) liveSyncPreRef.current = { content: cur, cue: live };
+    commitLivePayload(payload);
+    if (activeCueRef.current !== next) setActiveCue(next);
+    // Stage / phone singer screen follows the same words. "Next" is whatever
+    // the last fire announced — a sync never reorders the flow.
+    try {
+      const snap = stageSnapshotRef.current;
+      sendStageData(
+        { title: payload.title, label: payload.label, text: payload.text, timestamp: payload.timestamp },
+        snap && snap.next ? snap.next : null
+      );
+    } catch { /* the stage is a mirror — never fail the wall over it */ }
+  };
+
+  // Called from clearSongDraft — the one place both close paths (Save and
+  // Discard) go through. Restores the fired payload only when a sync payload
+  // is still what the wall shows; if something else fired in between, that
+  // fire owns the screen and is left alone.
+  const restoreLivePayload = () => {
+    if (liveSyncTimerRef.current) { clearTimeout(liveSyncTimerRef.current); liveSyncTimerRef.current = null; }
+    const pre = liveSyncPreRef.current;
+    const mine = liveSyncLastRef.current;
+    liveSyncPreRef.current = null;
+    liveSyncLastRef.current = null;
+    if (!pre || !mine) return;
+    const cur = (displaysRef.current || []).find((d) => d.id === 1)?.content;
+    if (cur !== mine) return;
+    commitLivePayload(pre.content);
+    if (activeCueRef.current !== pre.cue) setActiveCue(pre.cue);
+  };
+
+  // The live follow itself. Debounced so a burst of keystrokes is one push;
+  // the cleanup cancels a pending push the moment the draft changes again or
+  // the editor closes (close is handled by clearSongDraft instead).
+  useEffect(() => {
+    if (!isEditorOpen || !editingSong) return undefined;
+    if (liveSyncTimerRef.current) { clearTimeout(liveSyncTimerRef.current); liveSyncTimerRef.current = null; }
+    liveSyncTimerRef.current = setTimeout(() => {
+      liveSyncTimerRef.current = null;
+      rebuildLiveFromDraft();
+    }, 250);
+    return () => {
+      if (liveSyncTimerRef.current) { clearTimeout(liveSyncTimerRef.current); liveSyncTimerRef.current = null; }
+    };
+  }, [editingSong, isEditorOpen]);
 
   // --- NEW SHOW BUILDER ---
   const defaultShowSections = () => [
@@ -2335,7 +2491,7 @@ export default function App() {
           artist: song.artist || '',
           text: titleCue.text || song.title,
           label: 'Song Title',
-          style: { ...stageStyle, ...titleBg, lyric: cueLyricStyle(titleCue), ...cinematicStyleFields(titleCue), transition: titleCue.anim || 'fade', speed: cssSpeed(titleCue.transDuration || titleCue.speed) },
+          style: { ...stageStyle, ...titleBg, ...bgMediaFields(titleCue), lyric: cueLyricStyle(titleCue), ...cinematicStyleFields(titleCue), transition: titleCue.anim || 'fade', speed: cssSpeed(titleCue.transDuration || titleCue.speed) },
           audio: song.audio_url || null,
           timestamp: liveStamp()
         };
@@ -2356,7 +2512,7 @@ export default function App() {
             : songHasBackground(song)
               ? { ...stageStyle, backgroundType: song.bg_type || 'color', backgroundValue: song.bg_value || '#000000' }
               : { ...stageStyle };
-          return { ...base, lyric: cueLyricStyle(cue), texts: textObjectLayers(cue), ...cinematicStyleFields(cue), transition: cue.anim || 'none', speed: cssSpeed(cue.transDuration || cue.speed) };
+          return { ...base, ...bgMediaFields(cue), lyric: cueLyricStyle(cue), texts: textObjectLayers(cue), ...cinematicStyleFields(cue), transition: cue.anim || 'none', speed: cssSpeed(cue.transDuration || cue.speed) };
         })();
         const slidePayload = { title: song.title, artist: song.artist || '', text: cue.text, label: cue.label || '', style: effectiveStyle, audio: song.audio_url || null, timestamp: liveStamp() };
         setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
@@ -2472,6 +2628,13 @@ export default function App() {
     }
     liveBibleRef.current = null;
     liveBibleSrcRef.current = null;
+    // Remember which song the wall is now showing — the editor's live-sync
+    // keys off this, and blackout clears it so an edit can never land on a
+    // black screen. A fresh fire also owns the wall outright: any armed
+    // editor-sync restore is dropped.
+    liveSongIdRef.current = cue && cue.id !== 'clear' && song && song.id != null ? song.id : null;
+    liveSyncPreRef.current = null;
+    liveSyncLastRef.current = null;
     setActiveCue(cue);
     if (cue?.id === 'clear') {
       setSlideTimer({ start: null, elapsed: 0, duration: 0 });
@@ -2817,6 +2980,11 @@ export default function App() {
     if (!song) return;
     liveBibleRef.current = null;
     liveBibleSrcRef.current = null;
+    // Title slide = a slide OF this song: the editor's live-sync follows it
+    // the same way it follows a lyric slide (see rebuildLiveFromDraft).
+    liveSongIdRef.current = song && song.id != null ? song.id : null;
+    liveSyncPreRef.current = null;
+    liveSyncLastRef.current = null;
     // cueOverride lets medley titles carry their synthetic tracking id
     // (medley-title-<songId>) instead of the shared 'title-card'.
     const titleCue = cueOverride || song.title_cue || { id: 'title-card', label: 'Song Title', text: song.title, box: { x: 80, y: 140, w: 1120, h: 440 }, size: DEFAULT_LYRIC_SIZE, align: 'center', color: '#ffffff' };
@@ -4459,14 +4627,15 @@ export default function App() {
     return () => ro.disconnect();
   }, [editorMode, isEditorOpen]);
 
-  const handleSaveSong = async () => {
+  const handleSaveSong = async (songOverride) => {
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
+      const song = songOverride || editingSong;
       // A slider released <120ms ago still has its final value sitting in the
       // throttle — merge it into the snapshot or the DB keeps the pre-drag one.
       const pending = flushCueThrottle();
-      const wasNew = editingSong.id == null;
-      const snap = normalizeSongGeometry(pending ? applyPatchToSnapshot(editingSong, pending.idx, pending.patch, pending.objIdx) : editingSong);
+      const wasNew = song.id == null;
+      const snap = normalizeSongGeometry(pending ? applyPatchToSnapshot(song, pending.idx, pending.patch, pending.objIdx) : song);
       if (pending) runThrottledPatch(pending.idx, pending.objIdx, pending.patch);
       const editor = useSongEditorStore.getState();
       editor.markSaving();
@@ -4482,7 +4651,8 @@ export default function App() {
       fetchSongs();
       // The work is safe now — drop the recovery copy so the next open of this
       // song starts clean instead of offering back what was just written.
-      clearSongDraft();
+      // true = the wall KEEPS the synced picture (it is what just saved).
+      clearSongDraft(true);
       if (wasNew && savedId) {
         // New-song smart-paste flow: saving lands straight into the editor on
         // the manual canvas (full details reloaded so boxes/styles are exact),
@@ -4501,7 +4671,7 @@ export default function App() {
         }
       }
       setIsEditorOpen(false);
-      if (editingSong.id) selectSong(editingSong.id);
+      if (song.id) selectSong(song.id);
     }
   };
 
@@ -6102,6 +6272,20 @@ export default function App() {
   const leftContent = dockTab;
 
   const monitorContent = displays.find(d => d.id === 1)?.content || null;
+
+  // Keep the spawned output window in sync with the Live Output preview card:
+  // the preview is the source of truth, so whenever display 1's content changes
+  // (a fired cue, a targeting change, etc.) push it to the output window too.
+  // This guarantees the preview and the actual display show the same slide.
+  useEffect(() => {
+    if (isOutputWindow || !window.require) return;
+    if (!monitorContent) return;
+    if (!targetedDisplays.includes(1)) return;
+    try {
+      const { ipcRenderer } = window.require('electron');
+      ipcRenderer.send('update-live-slide', monitorContent);
+    } catch { /* output unreachable */ }
+  }, [monitorContent, targetedDisplays, isOutputWindow]);
 
   // Wall actually on: the projector output started (dock Outputs button or a
   // chosen display). Firing cues with no output running lights nothing, so

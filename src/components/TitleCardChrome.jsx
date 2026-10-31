@@ -15,14 +15,19 @@ import { titleCardChrome } from '../lib/titleCardTemplates';
 // and must never swallow a click meant for the text underneath.
 // =====================================================================
 
-const slotBox = (s) => {
-  if (s.align === 'right') return { right: s.x, textAlign: 'right', alignItems: 'flex-end' };
+const slotBox = (s, k = 1) => {
+  if (s.align === 'right') return { right: s.x * k, textAlign: 'right', alignItems: 'flex-end' };
   if (s.align === 'center') return { left: 0, right: 0, textAlign: 'center', alignItems: 'center' };
-  return { left: s.x, textAlign: 'left', alignItems: 'flex-start' };
+  return { left: s.x * k, textAlign: 'left', alignItems: 'flex-start' };
 };
 
-const TitleCardChrome = ({ card, artist = '', event = '', venue = '' }) => {
+// `stretch` is the wall's widened design space (see designCanvasFilled): the
+// wall fills a screen wider than 16:9 by growing the layout space, so the rules
+// and corner lines have to grow with it — otherwise the chrome would stay
+// bunched in the middle of the screen while the words spread out.
+const TitleCardChrome = ({ card, artist = '', event = '', venue = '', stretch = 1 }) => {
   const chrome = titleCardChrome(card, { artist, event, venue });
+  const k = Number(stretch) > 0 ? Number(stretch) : 1;
   if (!chrome) return null;
   return (
     <div
@@ -40,9 +45,9 @@ const TitleCardChrome = ({ card, artist = '', event = '', venue = '' }) => {
           key={`rule-${i}`}
           style={{
             position: 'absolute',
-            left: r.x,
+            left: r.x * k,
             top: r.y,
-            width: r.w,
+            width: r.w * k,
             height: r.h || 2,
             background: 'currentColor',
             opacity: r.opacity != null ? r.opacity : 0.55,
@@ -55,7 +60,7 @@ const TitleCardChrome = ({ card, artist = '', event = '', venue = '' }) => {
           style={{
             position: 'absolute',
             top: s.y,
-            ...slotBox(s),
+            ...slotBox(s, k),
             display: 'flex',
             flexDirection: 'column',
             maxWidth: s.align === 'center' ? '86%' : '58%',

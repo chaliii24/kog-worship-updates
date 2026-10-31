@@ -245,6 +245,92 @@ export const containScale = (availW, availH, canvasW = SLIDE_WIDTH, canvasH = SL
 };
 
 /**
+ * THE OUTPUT PICTURE — one fixed SLIDE_WIDTH x SLIDE_HEIGHT design canvas,
+ * uniformly contain-fit and centred inside a physical frame of any size.
+ *
+ * This is the whole contract between the song editor's canvas and the
+ * projector: the frame may only SCALE the picture. Changing the output aspect
+ * ratio or the screen resolution changes `s` (and therefore where the canvas
+ * sits) and NOTHING else — no box is widened, no rule moves, no font size is
+ * re-solved, no inner CSS is rewritten. It returns frame-absolute px so a
+ * caller can drop it straight into `left`/`top`/`width`/`height`.
+ *
+ * Unmeasured frames (0x0, before a ResizeObserver fires) yield scale 0, so a
+ * caller renders an empty frame for one tick instead of NaN dimensions.
+ */
+export const designCanvasInFrame = (frameW, frameH, frameX = 0, frameY = 0) => {
+  const s = containScale(frameW, frameH);
+  return {
+    s,
+    cw: SLIDE_WIDTH * s,
+    ch: SLIDE_HEIGHT * s,
+    cx: frameX + (frameW - SLIDE_WIDTH * s) / 2,
+    cy: frameY + (frameH - SLIDE_HEIGHT * s) / 2,
+  };
+};
+
+/**
+ * THE FILLED PICTURE — the wall's version of designCanvasInFrame.
+ *
+ * A frame WIDER than the 16:9 design can be filled two ways, and both are
+ * wrong on a real wall: crop the design (the corners of a title card walk off
+ * the screen) or letterbox it (hard black edges at the sides and a picture
+ * that does not cover the screen). The third way — the one this helper takes —
+ * is to widen the DESIGN SPACE: the design keeps its full height, every box
+ * keeps its type size, and the space the boxes are laid out in grows to the
+ * frame's width. `stretch` is that growth factor, and the caller hands it to
+ * the text/chrome/scripture layers (SlideTextLayers `stretch`), so the whole
+ * composition spreads with the screen instead of being squeezed into a 16:9
+ * island in the middle of it.
+ *
+ * On a frame at or narrower than 16:9, stretch is 1 and this IS the contain
+ * fit, so a 4:3 or portrait screen still shows every word (letterboxed, never
+ * cropped). On a wider frame the returned band is the frame itself
+ * (cw = frameW, ch = frameH): the picture fills it edge to edge.
+ */
+export const designCanvasFilled = (frameW, frameH, frameX = 0, frameY = 0) => {
+  const contain = designCanvasInFrame(frameW, frameH, frameX, frameY);
+  if (!(frameW > 0) || !(frameH > 0)) return { ...contain, stretch: 1 };
+  // Only a WIDER frame widens the design space; a narrower one keeps the
+  // contain fit, because stretching vertically would re-flow every line.
+  const stretch = Math.max(1, (frameW / frameH) / SLIDE_ASPECT);
+  const s = Math.min(frameW / (SLIDE_WIDTH * stretch), frameH / SLIDE_HEIGHT);
+  const cw = SLIDE_WIDTH * stretch * s;
+  const ch = SLIDE_HEIGHT * s;
+  return {
+    s,
+    cw,
+    ch,
+    cx: frameX + (frameW - cw) / 2,
+    cy: frameY + (frameH - ch) / 2,
+    stretch,
+  };
+};
+
+/**
+ * THE FRAME — how the physical viewport is cut for the selected aspect-ratio
+ * state, before anything is drawn inside it:
+ *
+ *   fill (Fill / Auto / Native) → the frame IS the viewport: the output takes
+ *   the whole screen edge to edge, whatever shape the screen is;
+ *   a named ratio (16:9, 4:3, 21:9 …) → a frame of EXACTLY that ratio,
+ *   centred in the viewport — the bounding box the design scales inside, so
+ *   the selected ratio still governs how large the picture gets.
+ *
+ * Sizing only — this helper never touches what is drawn. The design canvas
+ * inside it comes from designCanvasInFrame, which contains it: band ⊆ frame
+ * ⊆ viewport by construction, so content can never be clipped by the screen.
+ * Returns viewport-absolute px (x/y are the frame's offset, for a caller that
+ * centres content in frame coordinates).
+ */
+export const aspectFrameInViewport = (vw, vh, ar, fill = false) => {
+  const ratio = Number(ar) > 0 ? Number(ar) : SLIDE_ASPECT;
+  const fw = fill ? vw : Math.min(vw, vh * ratio);
+  const fh = fill ? vh : Math.min(vh, vw / ratio);
+  return { fw, fh, fx: (vw - fw) / 2, fy: (vh - fh) / 2 };
+};
+
+/**
  * Client (CSS) pixels -> logical slide units, using the stage content's real
  * bounding rect. This is deliberately independent of React's `scale` state:
  * a ResizeObserver value can lag one frame, and using it here was a source of

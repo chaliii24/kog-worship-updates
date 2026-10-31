@@ -13,6 +13,35 @@ export const GRADIENT_PACK = [
   { id: 'g-violet', name: 'Violet Haze', css: 'radial-gradient(circle at 30% 20%, #2A313A 0%, #2C2C2E 60%)' }
 ];
 
+/* ---------------------------------------------------------------- media tuning
+   A slide that uses an image or video carries five extra fields beside
+   bg_type/bg_value. They live on the cue (so they save with the song) and are
+   copied onto the payload style, which is what the wall reads.
+
+     bg_dim    0-100  black wash between the media and the lyrics
+     bg_fit    cover | contain | stretch
+     bg_loop   video only
+     bg_muted  video only — background audio never rides the program mix
+     bg_rate   0.5-2.0 playback speed for background video
+
+   Normalised in one place so a hand-edited song file, an old slide with no
+   fields, and a fresh pick all reach the renderer with the same shape. */
+export const BG_FIT_MODES = [
+  { k: 'cover', label: 'Cover / Fill' },
+  { k: 'contain', label: 'Contain' },
+  { k: 'stretch', label: 'Stretch' },
+];
+
+export const bgFitCss = (fit) => (fit === 'contain' ? 'contain' : fit === 'stretch' ? 'fill' : 'cover');
+
+export const bgMediaFields = (cue) => ({
+  bgDim: Math.max(0, Math.min(100, Number(cue?.bg_dim) || 0)),
+  bgFit: BG_FIT_MODES.some((m) => m.k === cue?.bg_fit) ? cue.bg_fit : 'cover',
+  bgLoop: cue?.bg_loop !== false,
+  bgMuted: cue?.bg_muted !== false,
+  bgRate: Math.max(0.5, Math.min(2, Number(cue?.bg_rate) || 1)),
+});
+
 export const PRESENTATION_LAYOUTS = [
   { id: 'title', name: 'Title', icon: 'T' },
   { id: 'title-bullets', name: 'Title + Bullets', icon: '☰' },
