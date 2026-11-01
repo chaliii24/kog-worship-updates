@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DEFAULT_LYRIC_SIZE, SlideTextLayers } from '../lib/lyrics';
+import { slideMotionCss, slideMotionOn } from '../lib/slideMotion';
 import { aspectFrameInViewport, designCanvasFilled } from '../lib/slideGeometry';
 import { cssSpeed } from '../lib/constants';
 import PresentationSlide from './PresentationSlide';
@@ -262,6 +263,12 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
   if (transitionMap[trans]) {
     animStyle = { animation: transitionMap[trans], willChange: 'transform, opacity' };
   }
+  // SLIDE ENTRANCE — the cue's own animation, applied to the whole picture
+  // inside the design canvas rather than to one text box. The background layer
+  // is deliberately NOT part of it: that layer stays mounted across cues so a
+  // looping video is never restarted and the background keeps crossfading.
+  const sceneCss = slideMotionCss(slideStyle);
+  const sceneOn = slideMotionOn(slideStyle);
   const bgType = slideStyle.backgroundType || 'color';
   const bgValue = slideStyle.backgroundValue || '#000';
   const bgKey = `${bgType}:${bgValue}`;
@@ -586,7 +593,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
               variants={{ out: (fadeOut) => ({ opacity: 0, transition: { duration: fadeOut ? 0.6 : 0 } }) }}
               style={{ position: 'absolute', inset: 0 }}
             >
-              <div style={{ width: '100%', height: '100%', position: 'relative', ...(cs.presentation ? animStyle : null) }}>
+              <div style={{ width: '100%', height: '100%', position: 'relative', ...(cs.presentation && !sceneCss ? animStyle : null), ...(sceneCss ? { animation: sceneCss, willChange: 'transform, opacity' } : null) }}>
                 {!cs.timer && cs.video && cs.video.url && cs.video.action !== 'stop' ? (
                   // Booth video live: same aspect-frame fill as the countdown
                   // (edge-to-edge on ultrawide, identity on 16:9), muted —
@@ -648,7 +655,10 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
                             box coordinates the editor canvas uses (no aspect
                             stretch, see VIEW SHAPE), so the wall is a true
                             picture of the canvas. */}
-                        <SlideTextLayers style={slideStyle} text={body} st={st} lift={lift} stretch={stretch} animate animKey={cs.timestamp} />
+                        {/* A slide entrance already moves every box as one —
+                            letting each box run its own too would animate
+                            twice, so the boxes stand down while it is on. */}
+                        <SlideTextLayers style={slideStyle} text={body} st={st} lift={lift} stretch={stretch} animate={!sceneOn} animKey={cs.timestamp} />
                         {isBible && (
                           <ScriptureRef meta={cs.meta} title={cs.title} color={st.color} font={st.font} templateId={cs.meta && cs.meta.template} stretch={stretch} />
                         )}

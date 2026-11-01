@@ -2151,6 +2151,11 @@ export default function App() {
         transition: cue.anim || 'none',
         // Per-slide duration override wins over the speed preset.
         speed: cssSpeed(cue.transDuration || cue.speed),
+        // SLIDE-LEVEL entrance: the whole picture (title chrome, every text
+        // box, watermark, scripture reference) as ONE animation, chosen per
+        // slide. 'none' leaves the historic per-box behaviour untouched.
+        slideAnim: cue.slideAnim || 'none',
+        slideSpeed: cue.slideSpeed,
       };
     }
     return base;

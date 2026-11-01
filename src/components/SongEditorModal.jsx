@@ -18,6 +18,7 @@ import { titleCardCue, titleCardOf } from '../lib/titleCardTemplates';
 import CinematicPanel from './CinematicPanel';
 import BackgroundPicker, { mediaCategory } from './BackgroundPicker';
 import { BG_FIT_MODES, bgMediaFields, bgFitCss } from '../lib/backgrounds';
+import { SLIDE_MOTIONS, slideMotionOf } from '../lib/slideMotion';
 import { allCinematicPresets, cinematicCuePatch, cinematicTextPatch, cinematicTransitionPatch, presetFromCue, saveCustomCinematicPreset, deleteCustomCinematicPreset, normalizeGhost, TEXT_LOOK_KEYS } from '../lib/cinematic';
 import { allSongThemes, songThemeCuePatch, themeStyleFromCue, saveCustomSongTheme, updateCustomSongTheme, deleteCustomSongTheme, lastSongThemeId, rememberSongTheme, DEFAULT_TITLE_BOX } from '../lib/songThemes';
 import ColorPicker from '../untitledui/components/application/color-picker/color-picker';
@@ -464,6 +465,49 @@ export default function SongEditorModal() {
     () => (mediaLibrary || []).filter((a) => a.kind === 'image' || a.kind === 'video'),
     [mediaLibrary],
   );
+
+  // ── Background scope ────────────────────────────────────────────────
+  // A background can live on ONE slide (an override) or on the song (the
+  // default every slide without its own inherits). The picker used to write
+  // silently to whichever block you happened to click in, so "did that land
+  // on this slide or the whole song?" was a guess made after the fact. The
+  // scope is armed BEFORE the pick now, and every route below — colour,
+  // motion, recent, gallery, upload, clear — reads and writes that one layer.
+  const [bgScope, setBgScope] = useState('slide');
+  const slideOverrideCount = (editingSong?.cues || []).filter((c) => cueHasBackground(c)).length;
+
+  const applyBg = (type, value) => (
+    bgScope === 'slide'
+      ? setCueBackground(editorCueIdx, type, value)
+      : setSongBackground(type, value)
+  );
+  const applyBgFile = (kind, file) => (
+    bgScope === 'slide'
+      ? cueFileToBackground(editorCueIdx, kind, file)
+      : songBgFileToBackground(kind, file)
+  );
+  const clearBg = () => (
+    bgScope === 'slide'
+      ? clearCueBackground(editorCueIdx)
+      : setSongBackground('color', '#000000')
+  );
+  // The one destructive step is always the operator's call: set the song
+  // background, then optionally retire the per-slide overrides that would
+  // otherwise keep winning over it.
+  const resetSlideOverrides = async () => {
+    if (!slideOverrideCount) return;
+    const ok = await appConfirm(
+      `Clear the background on ${slideOverrideCount} slide${slideOverrideCount === 1 ? '' : 's'} so every slide follows the song background?`,
+      { title: 'Reset slide backgrounds', confirmLabel: 'Reset them', cancelLabel: 'Keep them' },
+    );
+    if (!ok) return;
+    setEditingSong((prev) => ({
+      ...prev,
+      cues: (prev.cues || []).map((c) => (
+        cueHasBackground(c) ? { ...c, bg_type: 'color', bg_value: '#000000' } : c
+      )),
+    }));
+  };
 
   const [renameIdx, setRenameIdx] = useState(null);
   const [renameFrom, setRenameFrom] = useState('strip');
@@ -1858,6 +1902,60 @@ export default function SongEditorModal() {
               </TabPanel>
               <TabPanel id="motion" className="box-border flex min-h-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto p-3">
                 <motion.div {...PANE_MOTION} style={PANE_STYLE}>
+                {/* SLIDE ANIMATION — the slide's OWN entrance, stored on the
+                    cue so each slide can carry a different one. The card below
+                    is typography (one text box at a time); this one moves the
+                    whole picture. */}
+                {editorCue && (() => {
+                  const sm = slideMotionOf(editorCue);
+                  const setSlideAnim = (key) => updateCue(editorCueIdx, { slideAnim: key });
+                  return (
+                    <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Slide animation</div>
+                        <span title="Stored on this slide — every slide can have its own" style={{ fontSize: 9.5, fontWeight: 800, color: ACCENT, background: 'rgba(255,184,0,0.12)', border: '1px solid rgba(255,184,0,0.35)', borderRadius: 999, padding: '2px 7px', whiteSpace: 'nowrap' }}>Whole slide</span>
+                      </div>
+                      <div style={{ fontSize: 9.5, lineHeight: 1.45, color: C.faint, marginBottom: 8 }}>
+                        Moves the entire picture in as one — the title card's rules, every text box, the watermark and the scripture reference — instead of animating a single text box.
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {[{ key: 'none', label: 'None' }, ...SLIDE_MOTIONS].map((m) => {
+                          const on = sm.anim === m.key;
+                          return (
+                            <button
+                              key={m.key}
+                              onClick={() => setSlideAnim(m.key)}
+                              title={m.key === 'none' ? 'No slide entrance — each text box animates on its own (Transition, below)' : `${m.label} — the whole slide, as one picture`}
+                              style={{ background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#0D1014' : C.muted, borderRadius: 999, padding: '4px 9px', fontSize: 10, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.12s ease' }}
+                            >{m.label}</button>
+                          );
+                        })}
+                      </div>
+                      {sm.anim !== 'none' && (
+                        <>
+                          <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, margin: '10px 0 6px 0' }}>Slide speed</div>
+                          <div style={{ display: 'flex', gap: 3 }}>
+                            {SPEED_OPTIONS.map((s) => {
+                              const on = Number(sm.speed) === s.v;
+                              return (
+                                <button
+                                  key={s.v}
+                                  onClick={() => updateCue(editorCueIdx, { slideSpeed: s.v })}
+                                  title={`${s.label} — the whole slide`}
+                                  style={{ flex: 1, background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#0D1014' : C.muted, borderRadius: 5, padding: '6px 0', fontSize: 9.5, fontWeight: 700, cursor: 'pointer' }}
+                                >{s.v}s</button>
+                              );
+                            })}
+                          </div>
+                          <div style={{ fontSize: 9, color: C.faint, marginTop: 6, lineHeight: 1.4 }}>
+                            While this is on, the per-box Transition below stands down — one animation, not two.
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* TRANSITIONS — scoped to the TEXT BOX the sidebar is styling,
                     never to the slide as a whole. The main lyric keeps its values
                     on the cue (so old songs behave unchanged); every extra box
@@ -2450,31 +2548,23 @@ export default function SongEditorModal() {
               </TabPanel>
               <TabPanel id="setup" className="box-border flex min-h-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto p-3">
                 <motion.div {...PANE_MOTION} style={PANE_STYLE}>
-                {/* SONG BACKGROUND */}
-                <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Song Background</div>
-                <BackgroundPicker
-                  C={C}
-                  ACCENT={ACCENT}
-                  activeType={editingSong.bg_type || 'color'}
-                  activeValue={editingSong.bg_value}
-                  onPick={setSongBackground}
-                  onClear={() => setSongBackground('color', '#000000')}
-                  onUpload={songBgFileToBackground}
-                  hasBackground={songHasBackground(editingSong)}
-                  mediaLibrary={mediaLibrary}
-                />
-                </div>
-
                 {/* SLIDE PROPERTIES — identity first, then media. The 30-tile
                     library grid that used to live here is now a sheet behind one
                     button: the rail shows what is APPLIED and how it is tuned,
                     not every asset you could apply. */}
-                {showSlideProps && editorCue && (() => {
-                  const tune = bgMediaFields(editorCue);
-                  const bgType = editorCue.bg_type || 'color';
-                  const bgValue = editorCue.bg_value || '#000000';
-                  const hasBg = cueHasBackground(editorCue);
+                {editorCue && (() => {
+                  // The card is not gated on the Properties toggle any more: the
+                  // background (and the scope switch that decides its layer)
+                  // has to be reachable with the rail closed, which is how a
+                  // song usually gets its look set before any slide is tuned.
+                  // Everything below resolves against the ARMED layer, so the
+                  // preview, the tick marks and the name can never describe a
+                  // different background from the one a click would replace.
+                  const slideScope = bgScope === 'slide';
+                  const tune = slideScope ? bgMediaFields(editorCue) : bgMediaFields(null);
+                  const bgType = slideScope ? (editorCue.bg_type || 'color') : (editingSong.bg_type || 'color');
+                  const bgValue = slideScope ? (editorCue.bg_value || '#000000') : (editingSong.bg_value || '#000000');
+                  const hasBg = slideScope ? cueHasBackground(editorCue) : songHasBackground(editingSong);
                   const bgName = bgType === 'image' || bgType === 'video'
                     ? mediaName(bgValue, mediaLibrary)
                     : bgType === 'gradient'
@@ -2509,8 +2599,11 @@ export default function SongEditorModal() {
                   });
                   return (
                     <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
-                      <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Slide Properties</div>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Slide Setup</div>
 
+                      {/* Identity is the optional half — it only appears with the
+                          Properties toggle on. */}
+                      {showSlideProps && (<>
                       <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Label</label>
                       <input
                         type="text"
@@ -2543,6 +2636,57 @@ export default function SongEditorModal() {
                         style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px 7px', fontSize: 11, lineHeight: 1.4, outline: 'none', resize: 'vertical', marginBottom: 10, boxSizing: 'border-box' }}
                       />
 
+                      </>)}
+
+                      {/* THE SCOPE SWITCH — the question, asked before the pick
+                          instead of discovered after it. */}
+                      <span style={subLabel}>Apply background to</span>
+                      <div style={{ display: 'flex', gap: 2, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: 2, marginBottom: 5 }}>
+                        {[['slide', 'This slide', 'Only the slide open on the canvas'], ['song', 'All slides', 'The whole song: every slide without its own background follows it']].map(([k, label, tip]) => {
+                          const on = bgScope === k;
+                          return (
+                            <button
+                              key={k}
+                              type="button"
+                              onClick={() => setBgScope(k)}
+                              title={tip}
+                              style={{
+                                flex: 1,
+                                background: on ? ACCENT : 'transparent',
+                                border: 'none',
+                                color: on ? '#0D1014' : C.muted,
+                                borderRadius: 999,
+                                padding: '5px 6px',
+                                fontSize: 10.5,
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                                transition: 'background 120ms ease, color 120ms ease',
+                              }}
+                            >{label}</button>
+                          );
+                        })}
+                      </div>
+                      <div style={{ fontSize: 9.5, lineHeight: 1.5, color: C.faint, marginBottom: 9 }}>
+                        {slideScope
+                          ? (hasBg
+                            ? 'Only this slide changes — every other slide keeps what it had.'
+                            : 'This slide follows the song background until you pick one here.')
+                          : (slideOverrideCount > 0
+                            ? (
+                              <>
+                                The whole song. <b style={{ color: C.text2 }}>{slideOverrideCount} slide{slideOverrideCount === 1 ? '' : 's'}</b>
+                                {' '}{slideOverrideCount === 1 ? 'has its own background and keeps it' : 'have their own background and keep it'}.{' '}
+                                <button
+                                  onClick={resetSlideOverrides}
+                                  title="Clear every per-slide background so all of them follow the song"
+                                  style={{ background: 'transparent', border: 'none', padding: 0, color: ACCENT, fontSize: 9.5, fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' }}
+                                >Reset {slideOverrideCount}</button>
+                              </>
+                            )
+                            : 'The whole song — every slide inherits it.')}
+                      </div>
+
                       <span style={subLabel}>Active background</span>
                       {/* Compact 16:9 truth-teller: exactly the media, fit and
                           dimmer the wall will use. */}
@@ -2564,19 +2708,19 @@ export default function SongEditorModal() {
                           <div style={{ position: 'absolute', inset: 0, background: '#000', opacity: tune.bgDim / 100, pointerEvents: 'none' }} />
                         )}
                         {!hasBg && (
-                          <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>Song background</span>
+                          <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>{slideScope ? 'Song background' : 'Black'}</span>
                         )}
                         {hasBg && (
                           <button
-                            onClick={() => clearCueBackground(editorCueIdx)}
-                            title="Clear this slide's background (it falls back to the song background)"
+                            onClick={clearBg}
+                            title={slideScope ? "Clear this slide's background (it falls back to the song background)" : 'Clear the song background (every slide inherits black)'}
                             style={{ position: 'absolute', top: 5, right: 5, zIndex: 3, width: 22, height: 22, borderRadius: 6, background: 'rgba(0,0,0,0.62)', border: '1px solid rgba(255,255,255,0.28)', color: '#FF4545', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0 }}
                           ><Trash2 size={11} /></button>
                         )}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, minWidth: 0 }}>
-                        <span title={hasBg ? bgName : 'No background on this slide'} style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 700, color: hasBg ? C.text2 : C.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {hasBg ? bgName : 'Inherits the song background'}
+                        <span title={hasBg ? bgName : (slideScope ? 'No background on this slide' : 'No background on this song')} style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 700, color: hasBg ? C.text2 : C.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {hasBg ? bgName : (slideScope ? 'Inherits the song background' : 'Black — nothing applied')}
                         </span>
                         {hasBg && (
                           <span style={{ flexShrink: 0, fontSize: 8.5, fontWeight: 800, letterSpacing: 0.6, color: C.faint, border: '1px solid var(--ui-border2)', borderRadius: 999, padding: '1px 6px', textTransform: 'uppercase' }}>{bgType}</span>
@@ -2590,8 +2734,8 @@ export default function SongEditorModal() {
                           {(mediaLibrary || []).filter((a) => a.kind === 'image' || a.kind === 'video').slice(0, 5).map((a) => (
                             <button
                               key={a.url}
-                              onClick={() => setCueBackground(editorCueIdx, a.kind, a.url)}
-                              title={mediaName(a.url, mediaLibrary)}
+                              onClick={() => applyBg(a.kind, a.url)}
+                              title={`${mediaName(a.url, mediaLibrary)} → ${slideScope ? 'this slide' : 'all slides'}`}
                               style={{ flex: 1, aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', padding: 0, background: '#000', border: '1px solid var(--ui-border2)', position: 'relative' }}
                             >
                               {a.kind === 'video'
@@ -2613,7 +2757,12 @@ export default function SongEditorModal() {
 
                       {/* Fine tuning only exists when there is MEDIA to tune —
                           a solid colour has nothing to fit, loop or dim. */}
-                      {(bgType === 'image' || bgType === 'video') && (
+                      {!slideScope && (bgType === 'image' || bgType === 'video') && (
+                        <div style={{ fontSize: 9.5, lineHeight: 1.45, color: C.faint, border: '1px dashed var(--ui-border2)', borderRadius: 7, padding: '6px 8px', marginBottom: 8 }}>
+                          Dimming, fit and loop are per slide — switch to <b style={{ color: C.text2 }}>This slide</b> to tune them.
+                        </div>
+                      )}
+                      {slideScope && (bgType === 'image' || bgType === 'video') && (
                         <div style={{ border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '8px 9px', background: C.input, marginBottom: 8 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 7 }}>
                             <SlidersHorizontal size={11} color={C.faint} />
@@ -2668,10 +2817,10 @@ export default function SongEditorModal() {
                         C={C}
                         ACCENT={ACCENT}
                         activeType={bgType}
-                        activeValue={editorCue.bg_value}
-                        onPick={(type, value) => setCueBackground(editorCueIdx, type, value)}
-                        onClear={() => clearCueBackground(editorCueIdx)}
-                        onUpload={(kind, file) => cueFileToBackground(editorCueIdx, kind, file)}
+                        activeValue={bgValue}
+                        onPick={applyBg}
+                        onClear={clearBg}
+                        onUpload={applyBgFile}
                         hasBackground={hasBg}
                         mediaLibrary={mediaLibrary}
                         hideMedia
@@ -2731,14 +2880,18 @@ export default function SongEditorModal() {
               <ImageIcon size={14} color={ACCENT} />
               <span style={{ fontSize: 12.5, fontWeight: 800, color: C.text }}>Media Gallery</span>
               <span style={{ fontSize: 10, color: C.faint }}>{mediaAssets.length} in library</span>
+              <span
+                title="Where a pick will land — set on the Slide Setup tab"
+                style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.6, textTransform: 'uppercase', color: ACCENT, border: '1px solid ' + ACCENT, borderRadius: 999, padding: '2px 7px', whiteSpace: 'nowrap' }}
+              >→ {bgScope === 'slide' ? 'this slide' : 'all slides'}</span>
               <span style={{ flex: 1 }} />
               <label style={{ background: C.input, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 6, padding: '5px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Upload an image">
                 <ImageIcon size={10} /> Image
-                <input type="file" accept="image/*" onChange={(e) => { if (e.target.files[0]) cueFileToBackground(editorCueIdx, 'image', e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+                <input type="file" accept="image/*" onChange={(e) => { if (e.target.files[0]) applyBgFile('image', e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
               </label>
               <label style={{ background: C.input, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 6, padding: '5px 8px', fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Upload a video">
                 <Play size={10} /> Video
-                <input type="file" accept="video/mp4,video/webm" onChange={(e) => { if (e.target.files[0]) cueFileToBackground(editorCueIdx, 'video', e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+                <input type="file" accept="video/mp4,video/webm" onChange={(e) => { if (e.target.files[0]) applyBgFile('video', e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
               </label>
               <button onClick={() => setGalleryOpen(false)} title="Close" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0 }}><X size={13} /></button>
             </div>
@@ -2769,11 +2922,12 @@ export default function SongEditorModal() {
                 return (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8 }}>
                     {shown.map((a) => {
-                      const on = (editorCue.bg_type === a.kind) && editorCue.bg_value === a.url;
+                      const armed = bgScope === 'slide' ? editorCue : editingSong;
+                      const on = (armed.bg_type === a.kind) && armed.bg_value === a.url;
                       return (
                         <button
                           key={a.url}
-                          onClick={() => { setCueBackground(editorCueIdx, a.kind, a.url); setGalleryOpen(false); }}
+                          onClick={() => { applyBg(a.kind, a.url); setGalleryOpen(false); }}
                           title={mediaName(a.url, mediaLibrary)}
                           style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 8, overflow: 'hidden', cursor: 'pointer', padding: 0, background: '#000', border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), boxShadow: on ? `0 0 0 2px ${ACCENT}55` : 'none' }}
                         >
