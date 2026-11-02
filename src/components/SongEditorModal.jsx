@@ -25,7 +25,7 @@ import ColorPicker from '../untitledui/components/application/color-picker/color
 import { TileVideo, TileCanvas } from '../lib/perf';
 import { useSongEditorStore } from '../store/useSongEditorStore';
 import FlowEditor from './FlowEditor';
-import { sequenceToFlow, songSectionRuns } from '../lib/arrangement';
+import { sequenceToFlow, songSectionRuns, sectionRank } from '../lib/arrangement';
 
 let sysFontCache = null;
 
@@ -178,8 +178,25 @@ const PANE_STYLE = { display: 'flex', flexDirection: 'column', gap: 12, flex: 1,
 
 // One-click section tags for the slide you have open. Typing "Verse 1" by
 // hand for every added slide is the slow path; a chip is one click and the
-// filmstrip regroups instantly.
-const SECTION_PILLS = ['Intro', 'Verse 1', 'Verse 2', 'Pre-Chorus', 'Chorus', 'Bridge', 'Tag', 'Outro', 'Blank'];
+// filmstrip regroups instantly. Numbered the way songs are actually built —
+// Verse 1-3 and Chorus 1-3 are distinct sections (a medley or sequence can
+// pick "Chorus 2" alone), with Pre-Chorus between them.
+const SECTION_PILLS = ['Intro', 'Verse 1', 'Verse 2', 'Verse 3', 'Pre-Chorus', 'Chorus 1', 'Chorus 2', 'Chorus 3', 'Bridge', 'Tag', 'Outro', 'Blank'];
+
+// Which pill is lit for a slide? Exact match first; then a family match with
+// the number defaulted to 1, so a song that still says plain "Chorus" or
+// "Verse" (parsed charts usually have no number) lights "Chorus 1" / "Verse 1"
+// instead of going dark — but "Chorus" never lights "Chorus 2".
+const tagMatches = (base, tag) => {
+  if (base === tag) return true;
+  const parse = (s) => {
+    const m = /^(.*?)\s+(\d+)$/.exec(s);
+    return m ? [m[1].toLowerCase(), m[2]] : [String(s).toLowerCase(), '1'];
+  };
+  const [bf, bn] = parse(base);
+  const [tf, tn] = parse(tag);
+  return bf === tf && bn === tn;
+};
 
 // Library assets only carry a url (and sometimes a name). The active-media card
 // needs something human to print under the preview.
@@ -2249,12 +2266,17 @@ export default function SongEditorModal() {
                     · the slide is spliced in directly AFTER the one you are
                       editing — the words you are about to type stay where the
                       thought is;
-                    · nothing opens, so the canvas is ready for typing. */}
+                    · nothing opens, so the canvas is ready for typing.
+                  One exception: with the TITLE slide selected there is no cue
+                  to anchor to (editorCueIdx is -1), and "-1 + 1" is 0 — which
+                  used to splice the new slide in FIRST, ahead of every section,
+                  so a fresh "Pre-Chorus" jumped above Verse 1 in the filmstrip
+                  and Quick Jump. No anchor → append to the end instead. */}
               <ToolbarBtn onClick={() => {
                 const list = editingSong.cues || [];
                 const anchor = editorCueIdx >= 0 ? list[editorCueIdx] : null;
                 const base = (anchor && baseGroupLabel(anchor.label || '')) || 'Verse 1';
-                const at = Math.max(0, Math.min(list.length, editorCueIdx + 1));
+                const at = editorCueIdx >= 0 ? Math.min(list.length, editorCueIdx + 1) : list.length;
                 const cues = [...list];
                 cues.splice(at, 0, { label: base, text: '', box: DEFAULT_BOX });
                 setEditingSong({ ...editingSong, cues });
@@ -2427,6 +2449,14 @@ export default function SongEditorModal() {
                         if (!g) { g = { base, items: [] }; groups.push(g); }
                         g.items.push({ c, i, li: g.items.length + 1 });
                       });
+                      // Canonical section order — Verse → Pre-Chorus → Chorus.
+                      // First-appearance order is what put a freshly tagged
+                      // Pre-Chorus above Verse 1 (and kept it there after the
+                      // insert-at-0 bug was fixed on old songs). The groups
+                      // are a logical view (same-label cues already merge
+                      // across gaps), so sorting them never touches cue order:
+                      // each tile still carries its real cue index `i`.
+                      groups.sort((a, b) => sectionRank(a.base) - sectionRank(b.base));
                       return groups.map((g, gi) => (
                         <div key={gi} onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropHint(h => (h ? null : h)); }} onDrop={(e) => { e.preventDefault(); e.stopPropagation(); const first = g.items[0]; if (first) dropCue(dragFrom, first.i, 'before'); }}>
                           {/* NEW: clickable group header with collapse chevron + Select Block button */}
@@ -2627,7 +2657,7 @@ export default function SongEditorModal() {
                             key={tag}
                             onClick={() => updateCue(editorCueIdx, { label: tag })}
                             title={`Tag this slide as ${tag}`}
-                            style={pill(baseGroupLabel(editorCue.label || '') === tag)}
+                            style={pill(tagMatches(baseGroupLabel(editorCue.label || ''), tag))}
                           >{tag}</button>
                         ))}
                       </div>

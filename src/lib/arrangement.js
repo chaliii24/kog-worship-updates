@@ -360,6 +360,69 @@ export function abbrevSection(label) {
   }
 }
 
+// CANONICAL SECTION ORDER — Intro → Verse → Pre-Chorus → Chorus → …
+//
+// The filmstrip's section groups and the Quick Jump chips read sections in
+// FIRST-APPEARANCE order, so a song whose slides were built out of sequence
+// (the New Slide button used to splice at position 0 when the title slide was
+// selected) listed Pre-Chorus ABOVE Verse 1 — wrong in both lists even though
+// the cues themselves were fine. These two lists now sort by sectionRank;
+// this NEVER reorders cues — playback order stays exactly what the operator
+// sees in the slide list.
+//
+// Ranks are spaced by 100 per family so a numbered section ("Verse 10") can't
+// cross into the next family, and Pre-Chorus (4xx) sits strictly between Verse
+// (1xx) and Chorus (5xx). Anything unrecognised ranks last and keeps its
+// first-appearance order (the sorts below are stable).
+const SECTION_RANKS = {
+  intro: 0,
+  verse: 1,
+  prechorus: 4,
+  chorus: 5,
+  refrain: 5, // a refrain is the chorus by another name
+  hook: 5,
+  postchorus: 6,
+  interlude: 6,   // glue sections share the 6xx band with post-chorus:
+  instrumental: 6, // they sit between chorus and bridge in a real chart,
+  solo: 6,        // and ties fall back to first-appearance order.
+  breakdown: 6,
+  vamp: 6,
+  turnaround: 6,
+  link: 6,
+  build: 6,
+  bridge: 7,
+  tag: 8,
+  outro: 9,
+  end: 9,
+  ending: 9,
+  coda: 9,
+};
+
+export function sectionRank(label) {
+  // "Chorus (Part 2)" and "Verse 1a" fold onto their section — the same
+  // normalization songSectionRuns and the sequence resolver use.
+  const base = basePartLabel(label)
+    .replace(/(?<=[\s0-9])[A-Za-z]$/, '')
+    .trim()
+    .toLowerCase();
+  const m = /^(intro|verse|pre[-\s]?chorus|post[-\s]?chorus|chorus|refrain|hook|interlude|instrumental|solo|breakdown|vamp|turnaround|link|build|bridge|tag|outro|end(?:ing)?|coda)\b\s*(\d+)?/.exec(base);
+  if (!m) return 1000;
+  const fam = SECTION_RANKS[m[1].replace(/[-\s]/g, '')];
+  if (fam == null) return 1000;
+  const n = m[2] ? parseInt(m[2], 10) : 1;
+  return fam * 100 + n;
+}
+
+// Sort a list of section labels into canonical song order. Stable: labels
+// with the same rank (two "Chorus" chips, or two unknown labels) keep the
+// order they were handed in.
+export function sortSectionLabels(labels) {
+  return labels
+    .map((label, i) => ({ label, i }))
+    .sort((a, b) => sectionRank(a.label) - sectionRank(b.label) || a.i - b.i)
+    .map((x) => x.label);
+}
+
 // Row subtitle: "V1 · C · V2 · C · B · C +2" — capped so a 40-slide flow
 // doesn't blow out the service row.
 export function summarizeArrangement(order, song, max = 7) {

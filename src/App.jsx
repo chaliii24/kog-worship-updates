@@ -30,7 +30,7 @@ import ShowBuilderModal from './components/ShowBuilderModal';
 import { parseMedleyDef, flattenMedley, medleySongIds, medleyTitleId, basePartLabel } from './lib/medley';
 import { mediaLabel, bgMediaFields } from './lib/backgrounds';
 import { audioEngine } from './lib/audioEngine';
-import { resolveArrangementFlow, songSequenceCues, songSequenceIds, songSlideTotal, songFlowCues, arrangedSongSlideTotal, arrangedSongCues, summarizeFlow } from './lib/arrangement';
+import { resolveArrangementFlow, songSequenceCues, songSequenceIds, songSlideTotal, songFlowCues, arrangedSongSlideTotal, arrangedSongCues, summarizeFlow, sortSectionLabels } from './lib/arrangement';
 import { DEFAULT_STAGE_CFG } from './lib/stageLayout';
 import { SONG_DRAFT_KEY, SERVICE_DRAFT_KEY, detectFirstRunBoot } from './lib/firstRun';
 import { clampBpm, normalizeTimeSignature, MIN_BPM, MAX_BPM } from './lib/metronome';
@@ -5405,7 +5405,11 @@ export default function App() {
   const groupLabels = (() => {
     const seen = [];
     (activeSong?.cues || []).forEach(c => { if (c.label && !seen.includes(c.label)) seen.push(c.label); });
-    return seen;
+    // Canonical section order (Verse → Pre-Chorus → Chorus), not first
+    // appearance: a song whose slides were built out of sequence listed
+    // Pre-Chorus above Verse 1 here. Chips still jump to the section's FIRST
+    // cue — sorting only decides the chip order.
+    return sortSectionLabels(seen);
   })();
 
   // Song-flow tracker for the stage ("Intro › V1 › Chorus …"): part labels

@@ -8,6 +8,8 @@ import {
   songSlideTotal,
   sequenceToFlow,
   songSequenceCues,
+  sectionRank,
+  sortSectionLabels,
 } from '../../src/lib/arrangement.js';
 import { flattenMedley } from '../../src/lib/medley.js';
 
@@ -143,4 +145,34 @@ test('a medley anchor arrangement plays exactly the saved order', () => {
   // Verse 2 is deliberately omitted — flattening must not append it back.
   const slides = flattenMedley(def, songs, { 1: [1, 2, 4] });
   assert.deepEqual(slides.filter((s) => s.kind === 'cue').map((s) => s.cue.id), [1, 2, 4]);
+});
+
+test('sections rank verse before pre-chorus before chorus', () => {
+  assert.ok(sectionRank('Verse 1') < sectionRank('Pre-Chorus'), 'verse < pre-chorus');
+  assert.ok(sectionRank('Pre-Chorus') < sectionRank('Chorus 1'), 'pre-chorus < chorus');
+  assert.ok(sectionRank('Intro') < sectionRank('Verse 1'), 'intro first');
+  assert.ok(sectionRank('Chorus 3') < sectionRank('Bridge'), 'chorus < bridge');
+  assert.ok(sectionRank('Bridge') < sectionRank('Outro'), 'bridge < outro');
+  // Numbered sections stay inside their family: Verse 10 must not read as
+  // after Pre-Chorus just because "10" > "1".
+  assert.ok(sectionRank('Verse 10') < sectionRank('Pre-Chorus'));
+  // Part suffixes and trailing letters fold onto the section.
+  assert.equal(sectionRank('Chorus (Part 2)'), sectionRank('Chorus'));
+  assert.equal(sectionRank('Verse 1a'), sectionRank('Verse 1'));
+  // Unrecognised labels rank last rather than crashing or landing first.
+  assert.ok(sectionRank('My Custom Bit') > sectionRank('Outro'));
+});
+
+test('section lists sort into canonical song order, stably', () => {
+  assert.deepEqual(
+    sortSectionLabels(['Chorus 1', 'Pre-Chorus', 'Verse 1', 'Bridge', 'Intro']),
+    ['Intro', 'Verse 1', 'Pre-Chorus', 'Chorus 1', 'Bridge'],
+  );
+  // Ties keep first-appearance order (two unlabelled-unknown chips, or a
+  // plain "Chorus" next to "Chorus 1" they don't collide — see below).
+  assert.deepEqual(sortSectionLabels(['Chorus 2', 'Chorus 1']), ['Chorus 1', 'Chorus 2']);
+  assert.deepEqual(sortSectionLabels(['Zebra', 'Apple']), ['Zebra', 'Apple']);
+  // The reported bug: a Pre-Chorus slide tagged before Verse 1 must still
+  // list after it in Quick Jump and the filmstrip groups.
+  assert.deepEqual(sortSectionLabels(['Pre-Chorus', 'Verse 1', 'Chorus 1']), ['Verse 1', 'Pre-Chorus', 'Chorus 1']);
 });
