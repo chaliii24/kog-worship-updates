@@ -31,6 +31,7 @@ import {
   updateLastUsed, 
   setSongBackground,
   setSongAudio,
+  setSongArrangement,
   setSongChords,
   setSongBpm,
   getMediaLibrary,
@@ -136,6 +137,9 @@ const lanInfoWithQr = async () => {
 
 // Local Font Access API (window.queryLocalFonts) — must be enabled before ready.
 app.commandLine.appendSwitch('enable-local-font-access');
+// Trackpad pinch / Ctrl+wheel visual zoom have no place in a console whose
+// scale is decided by the window fit. Must be set before app is ready.
+app.commandLine.appendSwitch('disable-pinch');
 
 // ---------------------------------------------------------------------------
 // Hardware acceleration — explicitly requested, before app.whenReady().
@@ -492,6 +496,51 @@ function scheduleOperatorFit() {
   }, 120);
 }
 
+// =====================================================================
+// ZOOM LOCK — the window fit is the only thing allowed to set the scale.
+//
+// Chromium has three other levers, and all of them used to be live: the
+// default menu's zoomIn/zoomOut/resetZoom accelerators (Ctrl+=, Ctrl+-, Ctrl+0
+// — that is why Ctrl+0 'fixed' a zoomed console until the next resize), the
+// Ctrl+wheel gesture (surfaced as 'zoom-changed'), and visual zoom from a
+// trackpad pinch. Each is closed below, and any surviving nudge is snapped
+// back to the FIT TARGET rather than to a hardcoded 1.0 — a hard 1.0 would
+// drag the 1366 laptop's 0.80 fit up to 100% and start clipping it.
+// =====================================================================
+function operatorTargetZoom() {
+  if (!operatorWindow || operatorWindow.isDestroyed()) return 1;
+  return operatorZoomFor(operatorWindow.getBounds());
+}
+
+function pinWindowZoom(win) {
+  if (!win || win.isDestroyed()) return;
+  const wc = win.webContents;
+  // Returns a promise: an unhandled rejection here would surface as a console
+  // error on every launch, so it is swallowed explicitly.
+  try { Promise.resolve(wc.setVisualZoomLevelLimits(1, 1)).catch(() => {}); } catch {}
+
+  // Ctrl+wheel and pinch gestures land here, after Chromium already moved the
+  // zoom. Put it back — this is the only hook that sees them.
+  wc.on('zoom-changed', () => {
+    if (win.isDestroyed()) return;
+    const target = operatorTargetZoom();
+    if (Math.abs(wc.getZoomFactor() - target) > 0.001) {
+      try { wc.setZoomFactor(target); } catch {}
+    }
+  });
+
+  // Keyboard: the menu roles are dropped at startup, so this only catches
+  // what reaches the page directly (DevTools zoom, a stray accelerator).
+  wc.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    if (!(input.control || input.meta) || input.alt) return;
+    const key = String(input.key || '');
+    const zoomKey = key === '0' || key === '=' || key === '+' || key === '-'
+      || key === '_' || input.code === 'NumpadAdd' || input.code === 'NumpadSubtract';
+    if (zoomKey) event.preventDefault();
+  });
+}
+
 function createWindow() {
   // Clamp to something workable, but never to a size bigger than the screen
   // we are booting on — a min larger than the work area leaves the window
@@ -512,6 +561,15 @@ function createWindow() {
   });
 
   operatorWindow.loadURL(getAppStartUrl());
+
+  // Pin the scale before anything else: a fresh window inherits whatever
+  // zoom this origin was left at in the previous session, so Chromium can
+  // paint one frame at the old value before did-finish-load corrects it.
+  pinWindowZoom(operatorWindow);
+  operatorWindow.webContents.on('dom-ready', () => {
+    if (!operatorWindow || operatorWindow.isDestroyed()) return;
+    try { operatorWindow.webContents.setZoomFactor(operatorTargetZoom()); } catch {}
+  });
 
   // Fit the design to this screen on EVERY resolution — 1366x728 included —
   // not only to the 1080p band the old code recognised.
@@ -624,6 +682,10 @@ app.whenReady().then(() => {
       const drop = new Set(['CommandOrControl+Z', 'Control+Y', 'CommandOrControl+Shift+Z']);
       const toTemplate = (mi) => {
         if (mi.type === 'separator') return { type: 'separator' };
+        // Zoom is owned by the window fit (see pinWindowZoom). A menu
+        // accelerator that changes it fights setZoomFactor and briefly wins,
+        // so the roles are dropped rather than remapped.
+        if (mi.role === 'zoomIn' || mi.role === 'zoomOut' || mi.role === 'resetZoom') return null;
         if (mi.accelerator && drop.has(mi.accelerator)) return null;
         const t = mi.role ? { role: mi.role } : { label: mi.label };
         if (mi.accelerator) t.accelerator = mi.accelerator;
@@ -2337,6 +2399,10 @@ ipcMain.handle('db-delete-song', (event, id) => deleteSong(id));
 ipcMain.handle('db-toggle-favorite', (event, id) => toggleFavorite(id));
 ipcMain.handle('db-set-song-bg', (event, id, bgType, bgValue) => setSongBackground(id, bgType, bgValue));
 ipcMain.handle('db-set-song-audio', (event, id, audioUrl) => setSongAudio(id, audioUrl));
+// Song-level default order (the Arrangement modal's "This song" scope): one
+// narrow UPDATE so changing a running order never re-issues cue ids out from
+// under a live arrangement session.
+ipcMain.handle('db-set-song-arrangement', (event, id, arrangement) => setSongArrangement(id, arrangement));
 // Stage chord chart (Stage tab): narrow UPDATE, never rewrites cues.
 ipcMain.handle('db-set-song-chords', (event, id, chart, key) => setSongChords(id, chart, key));
 // Per-song stage tempo (Stage tab popup): narrow UPDATE, never rewrites cues.

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Image as ImageIcon, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, KeyRound, Timer, Clock3, Save, Copy, Eye, EyeOff, Lock, Unlock, ChevronLeft, ChevronRight, ChevronDown, Type, PenLine, BringToFront, SendToBack, Undo2, Redo2, Sparkles, Palette as PaletteIcon, CheckSquare, X, Play, SlidersHorizontal, Search } from 'lucide-react';
+import { Plus, Trash2, Image as ImageIcon, AlignLeft, AlignCenter, AlignRight, AlignHorizontalJustifyCenter, AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, Bold, Italic, Underline, Strikethrough, Wand2, KeyRound, Timer, Clock3, Save, Copy, Eye, EyeOff, Lock, Unlock, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Type, PenLine, BringToFront, SendToBack, Undo2, Redo2, Sparkles, Palette as PaletteIcon, CheckSquare, X, Play, SlidersHorizontal, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, FALLBACK_SYSTEM_FONTS } from '../lib/constants';
 import { renderLyricsLayout, cueLyricStyle, stripMarkup, ghostLayerOf, FONT_SIZE_MIN, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, autoPadForSize, padCeilingForBox, fitBoxToText, growBoxToText, restyleLineScales } from '../lib/lyrics';
@@ -24,6 +24,8 @@ import { allSongThemes, songThemeCuePatch, themeStyleFromCue, saveCustomSongThem
 import ColorPicker from '../untitledui/components/application/color-picker/color-picker';
 import { TileVideo, TileCanvas } from '../lib/perf';
 import { useSongEditorStore } from '../store/useSongEditorStore';
+import FlowEditor from './FlowEditor';
+import { sequenceToFlow, songSectionRuns } from '../lib/arrangement';
 
 let sysFontCache = null;
 
@@ -285,10 +287,21 @@ export default function SongEditorModal() {
   // and right rails never grow a page-long scroll of their own.
   const [leftTab, setLeftTab] = useState('style');
   const [rightTab, setRightTab] = useState('slides');
-  // NEW: collapsed slide groups + search + interactive sequence arrangement
+  // NEW: collapsed slide groups + slide search
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
   const [slideSearch, setSlideSearch] = useState('');
-  const [sequenceArrangement, setSequenceArrangement] = useState([]);
+  // SEQUENCE — the SONG's own default play order, stored as the SAME
+  // {part, occurrence} flow a service row stores (songs.arrangement_json),
+  // so both scopes speak one vocabulary and a repeat is an explicit block
+  // rather than "the Nth mention of this label". Editing here never touches
+  // `cues`: the filmstrip, the canvas selection and every slide's styling
+  // stay exactly where they were.
+  const sequenceFlow = useMemo(() => {
+    const saved = sequenceToFlow(editingSong);
+    const base = saved.length ? saved : songSectionRuns(editingSong).map((r) => ({ part: r.part, occurrence: r.occurrence }));
+    return base.map((e, i) => ({ ...e, key: `seq-${i}-${e.part}-${e.occurrence}` }));
+  }, [editingSong.cues, editingSong.arrangement]);
+  const sequenceIsDefault = !(Array.isArray(editingSong.arrangement) && editingSong.arrangement.length);
   const [previewTick, setPreviewTick] = useState(0);
   const hoverTimeoutRef = useRef(null);
   // Live view of what the canvas textarea has highlighted. With a highlight,
@@ -2504,46 +2517,38 @@ export default function SongEditorModal() {
               </TabPanel>
               <TabPanel id="sequence" className="box-border flex min-h-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto p-3">
                 <motion.div {...PANE_MOTION} style={PANE_STYLE}>
-                {/* NEW: Interactive Sequence Builder (local state only) */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, minHeight: 0 }}>
-                  <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Available Sections</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      {[...new Set((editingSong.cues || []).map((c) => baseGroupLabel(c.label)))].map((sec) => (
-                        <button
-                          key={sec}
-                          onClick={() => setSequenceArrangement((prev) => [...prev, sec])}
-                          title={`Add ${sec} to arrangement`}
-                          style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 6, padding: '6px 8px', fontSize: 11, fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}
-                        >+ {sec}</button>
-                      ))}
-                      {(editingSong.cues || []).length === 0 && (
-                        <div style={{ fontSize: 10, color: C.faint }}>No slides yet.</div>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {/* SEQUENCE — the song-level default order. Same editor as the
+                    per-row arrangement, so a row opens on exactly this and can
+                    override it. Slides are never reordered here; only the
+                    running order is saved with the song. */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                      <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Current Arrangement</div>
-                      {sequenceArrangement.length > 0 && (
-                        <button onClick={() => setSequenceArrangement([])} title="Clear arrangement" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.faint, borderRadius: 5, padding: '2px 6px', fontSize: 9, fontWeight: 800, cursor: 'pointer' }}>Clear</button>
-                      )}
+                      <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Song Sequence</div>
+                      <span
+                        title={sequenceIsDefault ? 'No custom sequence yet — these blocks mirror the order of the slides' : 'Saved on this song — every service row opens with this order'}
+                        style={{ fontSize: 9, fontWeight: 800, whiteSpace: 'nowrap', borderRadius: 999, padding: '2px 7px', color: sequenceIsDefault ? C.faint : '#0D1014', background: sequenceIsDefault ? 'transparent' : ACCENT, border: '1px solid ' + (sequenceIsDefault ? 'var(--ui-border2)' : ACCENT) }}
+                      >{sequenceIsDefault ? 'Song order' : 'Custom sequence'}</span>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minHeight: 40 }}>
-                      {sequenceArrangement.length === 0 && (
-                        <div style={{ fontSize: 10, color: C.faint }}>Click a section to append it.</div>
-                      )}
-                      {sequenceArrangement.map((sec, idx) => (
-                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px 8px' }}>
-                          <span style={{ fontSize: 10, fontWeight: 800, color: C.accLine }}>{idx + 1}</span>
-                          <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: C.text2 }}>{sec}</span>
-                          <button onClick={() => setSequenceArrangement((prev) => prev.filter((_, j) => j !== idx))} title="Remove" style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', padding: 0, display: 'flex' }}><X size={11} /></button>
-                        </div>
-                      ))}
+                    <div style={{ fontSize: 9.5, lineHeight: 1.45, color: C.faint }}>
+                      The song&rsquo;s default order. Every service row opens with it until that row saves its own arrangement. Tap a section to append it, drag to reorder — slides are never moved.
                     </div>
+                    <FlowEditor
+                      song={editingSong}
+                      flow={sequenceFlow}
+                      onChange={(next) => setEditingSong({ ...editingSong, arrangement: next.map(({ part, occurrence }) => ({ part, occurrence })) })}
+                      layout="stacked"
+                      emptyText="No sections yet — add a slide first."
+                    />
+                    {!sequenceIsDefault && (
+                      <button
+                        onClick={() => setEditingSong({ ...editingSong, arrangement: [] })}
+                        title="Forget the custom sequence — the song follows its slides again"
+                        style={{ alignSelf: 'flex-start', background: 'transparent', border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 6, padding: '4px 8px', fontSize: 10, fontWeight: 800, cursor: 'pointer' }}
+                      >&larr; Mirror slide order</button>
+                    )}
                   </div>
                 </div>
-
                 </motion.div>
               </TabPanel>
               <TabPanel id="setup" className="box-border flex min-h-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto p-3">
@@ -3045,31 +3050,7 @@ export default function SongEditorModal() {
       </div>
       )}
       <motion.button {...stubTap} onClick={attemptClose} style={{ background: C.border, border: 'none', color: C.text, padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</motion.button>
-      <motion.button {...stubTap} onClick={() => {
-        // NEW: apply the Sequence tab arrangement to the saved cue order.
-        let songToSave = editingSong;
-        if (sequenceArrangement && sequenceArrangement.length) {
-          const cues = editingSong.cues || [];
-          const bySection = {};
-          cues.forEach((c) => {
-            const base = baseGroupLabel(c.label);
-            (bySection[base] = bySection[base] || []).push(c);
-          });
-          const newCues = [];
-          sequenceArrangement.forEach((sec) => {
-            (bySection[sec] || []).forEach((c) => {
-              const copy = { ...c };
-              delete copy.id;
-              newCues.push(copy);
-            });
-          });
-          if (newCues.length) {
-            songToSave = { ...editingSong, cues: newCues };
-            setEditingSong(songToSave);
-          }
-        }
-        handleSaveSong(songToSave);
-      }} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Save Song</motion.button>
+      <motion.button {...stubTap} onClick={() => handleSaveSong(editingSong)} style={{ background: ACCENT, border: 'none', color: '#0D1014', padding: '9px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Save Song</motion.button>
     </div>
 
     {/* Apply confirmations go through the shared Untitled UI toast stack

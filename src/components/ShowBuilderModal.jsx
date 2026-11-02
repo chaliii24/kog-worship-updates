@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Plus, Search, Trash2, Video, Monitor, LayoutGrid, ChevronDown, ChevronLeft, ChevronRight, Music, FileText, Image as ImageIcon } from 'lucide-react';
+import { Plus, Search, Trash2, Video, Monitor, LayoutGrid, ChevronDown, ChevronLeft, ChevronRight, Music, FileText, Image as ImageIcon, ListMusic } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatCountdown } from '../lib/constants';
 import { stripMarkup } from '../lib/lyrics';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 import { LazyVideo } from '../lib/lazyVideo';
+import { arrangedSongSlideTotal, arrangedSongCues, sequenceToFlow, summarizeFlow } from '../lib/arrangement';
 
 export default function ShowBuilderModal() {
   const app = useApp();
@@ -31,6 +32,7 @@ export default function ShowBuilderModal() {
     setBuilderRehearse,
     builderActiveSong,
     builderSongDetails,
+    openArrangementForBuilderItem,
     serviceAddMenu,
     setServiceAddMenu,
     closeShowModal,
@@ -58,9 +60,21 @@ export default function ShowBuilderModal() {
   // of it, so sharing one flag would leave the other one open afterwards.
   const [builderMediaPicker, setBuilderMediaPicker] = useState(false);
 
+const songOf = (item) => (item?.songId ? (builderSongDetails[item.songId] || songs.find(x => x.id === item.songId)) : null);
 const slideCount = (item) => {
-  if (item?.songId) { const s = builderSongDetails[item.songId] || songs.find(x => x.id === item.songId); return s ? (s.cues || []).length + 1 : 1; }
+  if (item?.songId) { const s = songOf(item); return s ? arrangedSongSlideTotal(s, item.arrangement) : 1; }
   return 1;
+};
+// What this item will actually play, and where that order comes from. A
+// builder item can carry its own arrangement now — until Create Show turns it
+// into a service row's meta.arrangement — so the tile strip, the counter and
+// Go all read the same source.
+const orderOf = (item) => {
+  const overridden = !!(item?.arrangement && ((item.arrangement.flow || []).length || (item.arrangement.order || []).length));
+  const song = songOf(item);
+  if (!song) return { summary: '', overridden, hasSong: false };
+  const flow = overridden ? (item.arrangement.flow || []) : sequenceToFlow(song);
+  return { summary: flow.length ? summarizeFlow(flow) : '', overridden, hasSong: true };
 };
 const flat = []; let running = 0;
 (showBuilder.sections || []).forEach((sec, si) => {
@@ -83,7 +97,10 @@ const itemSlides = (it) => {
   if (it?.songId) {
     const s = builderActiveSong?.id === it.songId ? builderActiveSong : (builderSongDetails[it.songId] || songs.find(x => x.id === it.songId));
     if (!s) return [];
-    return [{ type: 'title', text: s.title || '', sub: s.artist || '' }, ...(s.cues || []).map((c, i) => ({ type: 'cue', cue: c, num: i + 1, text: stripMarkup(c.text || ''), sub: c.label || '' }))];
+    // Order-first: the item's own arrangement when it has one, else the Song
+    // Editor's sequence — never raw library order, so the grid, the count and
+    // Go agree.
+    return [{ type: 'title', text: s.title || '', sub: s.artist || '' }, ...arrangedSongCues(s, it.arrangement).map((c, i) => ({ type: 'cue', cue: c, num: i + 1, text: stripMarkup(c.text || ''), sub: c.label || '' }))];
   }
   if (it?.media_url) return [{ type: 'media', text: it.title || 'Media', sub: it.media_type || 'image', url: it.media_url, dur: it.duration }];
   return [{ type: 'slide', text: it?.content || '', sub: it?.title || 'Slide', dur: it?.duration }];
@@ -218,12 +235,31 @@ return (
                   for (let x = 0; x < si; x++) globalNum += showBuilder.sections[x].items.length;
                   globalNum += ii + 1;
                   const ItemIcon = it.songId ? Music : it.media_url ? ImageIcon : FileText;
+                  const order = it.songId ? orderOf(it) : null;
                   return (
-                    <div key={ii} onClick={() => { selectBuilderItem(si, ii); setBuilderTargetSecId(sec.id); }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px 5px 28px', cursor: 'pointer', background: isSelected ? 'rgba(54,201,130,0.12)' : 'transparent', borderLeft: isSelected ? '3px solid #36C982' : '3px solid transparent', fontSize: 11, transition: 'background 0.15s' }}>
+                    <div key={ii} onClick={() => { selectBuilderItem(si, ii); setBuilderTargetSecId(sec.id); }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px 5px 28px', cursor: 'pointer', background: isSelected ? 'rgba(54,201,130,0.12)' : 'transparent', borderLeft: isSelected ? '3px solid #36C982' : '3px solid transparent', fontSize: 11, transition: 'background 0.15s' }}>
                       <span style={{ fontSize: 10, fontWeight: 800, color: isSelected ? '#36C982' : C.faint, minWidth: 18 }}>{globalNum}</span>
                       <span style={{ fontSize: 10, color: C.muted, display: 'flex' }}><ItemIcon size={10} /></span>
-                      <span style={{ flex: 1, fontWeight: isSelected ? 700 : 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.title}</span>
-                      <span style={{ fontSize: 9, color: C.muted }}>{slideCount(it)}s</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: isSelected ? 700 : 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.title}</div>
+                        {order && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 1, minWidth: 0 }}>
+                            <span
+                              title={order.overridden ? 'This item has its own play order' : 'This item follows the song’s order'}
+                              style={{ fontSize: 8, fontWeight: 800, letterSpacing: 0.4, borderRadius: 3, padding: '0 4px', whiteSpace: 'nowrap', flexShrink: 0, color: order.overridden ? '#FFB800' : C.faint, background: order.overridden ? 'rgba(255,184,0,0.16)' : 'transparent', border: '1px solid ' + (order.overridden ? 'rgba(255,184,0,0.45)' : 'var(--ui-border2)') }}
+                            >{order.overridden ? 'ROW ORDER' : 'SONG ORDER'}</span>
+                            <span style={{ fontSize: 9, color: C.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{order.summary || 'slide order'}</span>
+                          </div>
+                        )}
+                      </div>
+                      {it.songId && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openArrangementForBuilderItem(si, ii); }}
+                          title={`Play order for this item — ${order?.summary || 'song order'}`}
+                          style={{ background: order?.overridden ? 'rgba(255,184,0,0.16)' : 'transparent', border: '1px solid ' + (order?.overridden ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), color: order?.overridden ? '#FFC72C' : C.faint, borderRadius: 4, padding: 2, cursor: 'pointer', display: 'flex', flexShrink: 0 }}
+                        ><ListMusic size={10} /></button>
+                      )}
+                      <span style={{ fontSize: 9, color: C.muted, flexShrink: 0 }}>{slideCount(it)}s</span>
                     </div>
                   );
                 })}
@@ -259,6 +295,28 @@ return (
             </div>
           </div>
         )}
+        {/* ORDER BAR — where this item's running order comes from, and the one
+            click that changes it. Sits with the tiles because that is what it
+            describes. */}
+        {cur && cur.item.songId && (() => {
+          const o = orderOf(cur.item);
+          return (
+            <div style={{ padding: '6px 14px', borderBottom: '1px solid var(--ui-border)', display: 'flex', alignItems: 'center', gap: 8, background: C.panel, flexShrink: 0 }}>
+              <ListMusic size={12} color={o.overridden ? '#FFB800' : C.faint} />
+              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: 0.5, borderRadius: 3, padding: '1px 5px', whiteSpace: 'nowrap', color: o.overridden ? '#FFB800' : C.faint, background: o.overridden ? 'rgba(255,184,0,0.16)' : 'transparent', border: '1px solid ' + (o.overridden ? 'rgba(255,184,0,0.45)' : 'var(--ui-border2)') }}>
+                {o.overridden ? 'ROW ORDER' : 'SONG ORDER'}
+              </span>
+              <span style={{ fontSize: 10.5, color: o.summary ? C.text2 : C.faint, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: o.summary ? 700 : 400 }} title={o.summary}>
+                {o.summary || 'Follows the slide order'}
+              </span>
+              <button
+                onClick={() => openArrangementForBuilderItem(cur.si, cur.ii)}
+                title="Open the section-flow editor for this item"
+                style={{ background: o.overridden ? 'rgba(255,184,0,0.18)' : C.elevated2, border: '1px solid ' + (o.overridden ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), color: o.overridden ? '#FFC72C' : C.text2, borderRadius: 6, padding: '3px 8px', fontSize: 10, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
+              >Edit order</button>
+            </div>
+          );
+        })()}
         {/* Tile Grid */}
         <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
           {slides.length > 0 ? (

@@ -30,7 +30,7 @@ import ShowBuilderModal from './components/ShowBuilderModal';
 import { parseMedleyDef, flattenMedley, medleySongIds, medleyTitleId, basePartLabel } from './lib/medley';
 import { mediaLabel, bgMediaFields } from './lib/backgrounds';
 import { audioEngine } from './lib/audioEngine';
-import { resolveArrangementFlow } from './lib/arrangement';
+import { resolveArrangementFlow, songSequenceCues, songSequenceIds, songSlideTotal, songFlowCues, arrangedSongSlideTotal, arrangedSongCues, summarizeFlow } from './lib/arrangement';
 import { DEFAULT_STAGE_CFG } from './lib/stageLayout';
 import { SONG_DRAFT_KEY, SERVICE_DRAFT_KEY, detectFirstRunBoot } from './lib/firstRun';
 import { clampBpm, normalizeTimeSignature, MIN_BPM, MAX_BPM } from './lib/metronome';
@@ -454,6 +454,11 @@ export default function App() {
   const [builderRehearse, setBuilderRehearse] = useState(false);
   const [builderActiveSong, setBuilderActiveSong] = useState(null);
   const [builderSongDetails, setBuilderSongDetails] = useState({});
+  // Details for the songs currently sitting in the SERVICE ORDER. The library
+  // list (`songs`) is a bare `SELECT * FROM songs` — no cues — so anything that
+  // needs a song's real slide list (the row's count, its own sequence) has to
+  // come from here. Batched by id set, so reordering a plan costs one query.
+  const [serviceSongDetails, setServiceSongDetails] = useState({});
   const selectedServiceId = useServiceStore((s) => s.selectedServiceId);
   const setSelectedServiceId = useServiceStore((s) => s.setSelectedServiceId);
   const [slideTimer, setSlideTimer] = useState({ start: null, elapsed: 0, duration: 0 });
@@ -976,6 +981,28 @@ export default function App() {
       if (Array.isArray(cats)) setSongCategories(cats);
     }
   };
+
+  // Hydrate the service order's songs. The library list is a bare `SELECT *
+  // FROM songs` with NO cues, so a row's slide count and the song's own
+  // editor sequence can only come from here. Keyed on the id SET (not the
+  // items array) so reordering a plan never re-queries.
+  const serviceSongIdsKey = [...new Set((activeService?.items || [])
+    .filter((i) => i && i.item_type === 'song' && i.content != null && String(i.content).trim() !== '')
+    .map((i) => String(i.content)))].sort().join(',');
+  useEffect(() => {
+    if (!serviceSongIdsKey || !window.require) return;
+    let alive = true;
+    (async () => {
+      const { ipcRenderer } = window.require('electron');
+      const ids = serviceSongIdsKey.split(',');
+      const list = await Promise.all(ids.map((id) => ipcRenderer.invoke('db-get-song-details', id).catch(() => null)));
+      if (!alive) return;
+      const map = {};
+      list.forEach((d, i) => { if (d) map[ids[i]] = repairSongBoxes(d); });
+      setServiceSongDetails((prev) => ({ ...prev, ...map }));
+    })();
+    return () => { alive = false; };
+  }, [serviceSongIdsKey]);
 
   const fetchServices = async () => {
     if (window.require) {
@@ -1611,14 +1638,21 @@ export default function App() {
   const loadMedleyFlow = async (item, def) => {
     const songs = await loadMedleySongs(medleySongIds(def));
     applyMedleyAnchorBg(songs, def);
-    // Anchor arrangement (v3 exact runs, v2 flows, or legacy order) resolves
-    // against the LOADED anchor song, then rides in as a plain id list.
+    // Each participant's OWN sequence rides in as a plain cue-id list, so a
+    // song arranged in the song editor plays that order inside the medley too.
     let orders = null;
+    for (const [id, s] of songs) {
+      const ids = songSequenceIds(s);
+      if (ids.length) (orders = orders || {})[String(id)] = ids;
+    }
+    // Anchor arrangement (v3 exact runs, v2 flows, or legacy order) resolves
+    // against the LOADED anchor song, then rides in as a plain id list. It wins
+    // over that song's own sequence, exactly like it wins everywhere else.
     const arr = item?.meta?.arrangement;
     if (arr && ((Array.isArray(arr.flow) && arr.flow.length) || (Array.isArray(arr.order) && arr.order.length))) {
       const pick = (id) => songs.get(id) ?? songs.get(String(id)) ?? songs.get(Number(id)) ?? null;
       const anchorSong = pick(def.anchor.songId);
-      if (anchorSong) orders = { [String(def.anchor.songId)]: resolveArrangementFlow(anchorSong, arr) };
+      if (anchorSong) orders = { ...(orders || {}), [String(def.anchor.songId)]: resolveArrangementFlow(anchorSong, arr) };
     }
     return { songs, slides: flattenMedley(def, songs, orders) };
   };
@@ -1705,21 +1739,33 @@ export default function App() {
   };
   const arrangementForSong = (song) => {
     const a = arrangeRef.current;
-    if (!a || !song || !sameSongId(a.songId, song.id)) return null;
-    const ordered = resolvedArrangementCues(song, a.arr);
-    return ordered.length ? ordered : null;
+    if (a && song && sameSongId(a.songId, song.id)) {
+      const ordered = resolvedArrangementCues(song, a.arr);
+      if (ordered.length) return ordered;
+    }
+    // The song's OWN sequence (Song editor → Sequence) plays next: it is a
+    // property of the song, not of the service row, so every consumer here
+    // (arrows, section jumps, grid, up-next, stage flow) follows it without a
+    // session having to be started by a row that happens to carry one.
+    const own = songSequenceCues(song);
+    return own.length ? own : null;
   };
 
   // Fire one exact step of the live arrangement. Repeats share a cue id, so
   // the session carries the POSITION as well — otherwise Next/Previous and
   // the live grid would always restart from the first occurrence.
   const fireArrangementAt = (index) => {
-    const a = arrangeRef.current;
-    if (!a) return false;
-    const ordered = resolvedArrangementCues(activeSong, a.arr);
-    const cue = ordered[index];
+    const ordered = arrangementForSong(activeSong);
+    const cue = ordered?.[index];
     if (!cue) return false;
-    arrangeRef.current = { ...a, index, cueId: cue.id };
+    const a = arrangeRef.current;
+    // A row session keeps its own object; a song-own sequence gets a position
+    // session built from the SAME order, so repeats of a section step one at a
+    // time instead of both lighting up the first matching cue id.
+    const base = a && sameSongId(a.songId, activeSong?.id)
+      ? a
+      : { itemId: null, songId: activeSong?.id, arr: { order: ordered.map((c) => c.id) }, index: null, cueId: null };
+    arrangeRef.current = { ...base, index, cueId: cue.id };
     fireCueLive(cue, null, index);
     return true;
   };
@@ -1732,6 +1778,26 @@ export default function App() {
     if (a && Number.isInteger(a.index) && ordered[a.index]?.id === a.cueId) return a.index;
     return ordered.findIndex((c) => c.id === activeCue?.id);
   };
+
+  // A song that carries its own sequence needs a live POSITION, not just an
+  // order: repeated sections share cue ids, so Next/Previous would always jump
+  // back to the first occurrence. Seeded here (and re-seeded after anything
+  // clears the session) whenever that song is the one open on the wall.
+  useEffect(() => {
+    const song = activeSong;
+    if (!song || !Array.isArray(song.arrangement) || !song.arrangement.length) return;
+    const a = arrangeRef.current;
+    if (a && sameSongId(a.songId, song.id)) return; // already has a session
+    const own = songSequenceCues(song);
+    if (!own.length) return;
+    arrangeRef.current = {
+      itemId: null,
+      songId: song.id,
+      arr: { order: own.map((c) => c.id) },
+      index: null,
+      cueId: null,
+    };
+  }, [activeSong, activeCue]);
 
   const [arrangementModal, setArrangementModal] = useState(null); // { songId, title, itemIdx, existing }
   // Declared here (not in the medley section below): the keyboard effect
@@ -1754,6 +1820,9 @@ export default function App() {
         songId: def.anchor.songId,
         title: item.title,
         itemIdx: idx,
+        // Save addresses the row by its persisted id: an index captured here
+        // goes stale the moment the order is rearranged behind the modal.
+        itemId: item.id ?? null,
         existing: arrangementOf(item),
         forAnchor: true,
       });
@@ -1764,26 +1833,125 @@ export default function App() {
       songId: item.content,
       title: item.title,
       itemIdx: idx,
+      itemId: item.id ?? null,
       existing: arrangementOf(item),
+    });
+  };
+
+  // SHOWS BUILDER rows are not service rows: a builder item is a draft, and
+  // its order rides on the item itself until Create Show turns it into a real
+  // service row. Same editor, same flow — a different destination.
+  const openArrangementForBuilderItem = (secIdx, itemIdx) => {
+    const item = showBuilder?.sections?.[secIdx]?.items?.[itemIdx];
+    if (!item?.songId) return;
+    const s = builderSongDetails[item.songId] || (songs || []).find(x => sameSongId(x.id, item.songId));
+    setArrangementModal({
+      songId: item.songId,
+      title: item.title || s?.title,
+      builder: { secIdx, itemIdx },
+      existing: item.arrangement || null,
     });
   };
 
   // arr: v3 { flow:[{part, occurrence}], known, slideCount } | v2 flow |
   // legacy { order:[ids] } | null. The modal always saves v3; old rows keep
   // working untouched.
-  const saveArrangement = ({ arr, summary }) => {
+  const saveArrangement = async ({ arr, summary, scope, flow: flowEntries }) => {
     const m = arrangementModal;
     if (!m) return;
-    const rowId = activeService?.items?.[m.itemIdx]?.id ?? null;
+    // SONG scope: the Arrangement modal's "This song" switch writes the song's
+    // own default order (songs.arrangement_json) through a narrow UPDATE, so
+    // every service that follows the song picks it up while no cue id is
+    // re-issued out from under a live session.
+    if (scope === 'song') {
+      const entries = (Array.isArray(flowEntries) ? flowEntries : [])
+        .map((e) => ({ part: String(e?.part || '').trim(), occurrence: Math.max(1, Math.floor(Number(e?.occurrence) || 1)) }))
+        .filter((e) => e.part);
+      const n = Number(m.songId);
+      const target = m.songId != null && String(m.songId).trim() !== '' && Number.isFinite(n) && Number.isInteger(n) ? n : m.songId;
+      setArrangementModal(null);
+      try {
+        await window.require('electron').ipcRenderer.invoke('db-set-song-arrangement', target, entries);
+        await fetchSongs();
+        try {
+          toast.add({
+            title: entries.length ? 'Song order saved' : 'Song order cleared',
+            description: entries.length
+              ? `${entries.length} section${entries.length === 1 ? '' : 's'} — every service row that follows the song plays this order.`
+              : 'The song follows its own slide order again.',
+            type: 'success',
+            duration: 4500,
+          });
+        } catch {}
+      } catch (err) {
+        try { toast.add({ type: 'error', title: 'Could not save the song order', description: err?.message || 'The song was not changed.' }); } catch {}
+      }
+      return;
+    }
+    // Resolve the row by ID, not by the index the modal opened on. Dragging a
+    // row, deleting one above it, or re-picking the service used to land the
+    // arrangement on whichever row now occupied that slot. Rows with no id
+    // yet (never persisted) keep the index fallback.
+    const resolveIdx = (items) => {
+      const list = items || [];
+      if (m.itemId != null) {
+        const at = list.findIndex((it) => it && it.id != null && String(it.id) === String(m.itemId));
+        return at;
+      }
+      return Number.isInteger(m.itemIdx) ? m.itemIdx : -1;
+    };
     const hasArr = arr && ((Array.isArray(arr.flow) && arr.flow.length) || (Array.isArray(arr.order) && arr.order.length));
     const slideN = arr && Number(arr.slideCount) > 0 ? Number(arr.slideCount)
       : (Array.isArray(arr?.order) ? arr.order.length : (Array.isArray(arr?.flow) ? arr.flow.length : 0));
+    // BUILDER scope: write the order onto the draft item. It becomes a real
+    // service row's meta.arrangement at Create Show.
+    if (m.builder && scope !== 'song') {
+      const { secIdx, itemIdx } = m.builder;
+      setShowBuilder(prev => ({
+        ...prev,
+        sections: (prev?.sections || []).map((s, si) => si !== secIdx ? s : ({
+          ...s,
+          items: s.items.map((it, ii) => {
+            if (ii !== itemIdx) return it;
+            if (!hasArr) {
+              const { arrangement: _drop, ...rest } = it;
+              return rest;
+            }
+            return { ...it, arrangement: arr };
+          }),
+        })),
+      }));
+      setArrangementModal(null);
+      try {
+        toast.add({
+          title: hasArr ? 'Show item order saved' : 'Item follows the song order',
+          description: hasArr ? `${slideN} slides — Create Show carries this order into the service.` : 'The song’s own order applies again.',
+          type: 'success',
+          duration: 4000,
+        });
+      } catch {}
+      return;
+    }
+
+    const rowAt = resolveIdx(activeService?.items);
+    const rowSnap = rowAt > -1 ? (activeService?.items?.[rowAt] || {}) : {};
+    const rowId = rowSnap.id ?? null;
+    if (rowAt < 0) {
+      // The row this arrangement was opened for is gone (deleted, or the
+      // service changed underneath). Say so instead of reporting a save.
+      setArrangementModal(null);
+      try {
+        toast.add({ title: 'Row no longer in this service', description: 'Nothing was saved — reopen the arrangement from the row.', type: 'error', duration: 4500 });
+      } catch {}
+      return;
+    }
     // UNIFIED medley branch needs the row's next meta for the live rebuild.
     let nextMeta = null;
     setActiveService((prev) => {
       const items = [...(prev?.items || [])];
-      if (m.itemIdx == null || m.itemIdx < 0 || m.itemIdx >= items.length) return prev;
-      const cur = items[m.itemIdx] || {};
+      const at = resolveIdx(items);
+      if (at < 0 || at >= items.length) return prev;
+      const cur = items[at] || {};
       const keepId = cur.id != null ? { id: cur.id } : {};
       const keepMeta = { ...(cur.meta || {}) };
       if (!hasArr) delete keepMeta.arrangement;
@@ -1792,22 +1960,22 @@ export default function App() {
       if (m.forAnchor) {
         // Medley anchor: the flow (links, subtitle, count) is untouched —
         // only the anchor's play order changes.
-        items[m.itemIdx] = {
+        items[at] = {
           ...cur, ...keepId, item_type: 'medley',
           ...(Object.keys(keepMeta).length ? { meta: keepMeta } : {}),
         };
-        if (!Object.keys(keepMeta).length) delete items[m.itemIdx].meta;
+        if (!Object.keys(keepMeta).length) delete items[at].meta;
       } else if (!hasArr) {
         // Removed: back to the song's own order.
         const s = (songs || []).find(x => sameSongId(x.id, m.songId));
-        items[m.itemIdx] = {
+        items[at] = {
           ...keepId, item_type: 'song', title: m.title,
           subtitle: `${s?.artist || 'Worship'} • Song`, content: m.songId,
           ...(Object.keys(keepMeta).length ? { meta: keepMeta } : {}),
         };
       } else {
         // Row subtitle previews the flow verbatim — what you see is what Go walks.
-        items[m.itemIdx] = {
+        items[at] = {
           ...keepId, item_type: 'song', title: m.title,
           subtitle: summary ? `Arranged · ${summary}` : 'Arranged song',
           content: m.songId, meta: keepMeta,
@@ -1825,8 +1993,7 @@ export default function App() {
     // UNIFIED live refresh: this medley's flow is on air — rebuild it with
     // the new anchor order (no refire, position preserved).
     if (m.forAnchor && rowId != null && medleyRef.current && String(medleyRef.current.itemId) === String(rowId)) {
-      const cur = activeService?.items?.[m.itemIdx] || {};
-      refreshLiveMedleyFlow(rowId, { ...cur, id: rowId, meta: nextMeta || {} });
+      refreshLiveMedleyFlow(rowId, { ...rowSnap, id: rowId, meta: nextMeta || {} });
     }
     try {
       toast.add({
@@ -2377,7 +2544,20 @@ export default function App() {
       sec.items.forEach(it => {
         if (it.songId) {
           const song = songs.find(s => s.id === it.songId);
-          if (song) items.push({ item_type: 'song', title: song.title, subtitle: `${song.artist || 'Worship'} • Song`, content: song.id, duration: 0 });
+          // The builder item's own order (if the operator set one) becomes the
+          // row's arrangement, or the whole feature would be a preview that
+          // evaporates the moment the show is created.
+          const hasItemArr = !!(it.arrangement && ((Array.isArray(it.arrangement.flow) && it.arrangement.flow.length) || (Array.isArray(it.arrangement.order) && it.arrangement.order.length)));
+          if (song) items.push({
+            item_type: 'song',
+            title: song.title,
+            subtitle: hasItemArr
+              ? (() => { const s = summarizeFlow(it.arrangement.flow || []); return s ? `Arranged · ${s}` : 'Arranged song'; })()
+              : `${song.artist || 'Worship'} • Song`,
+            content: song.id,
+            duration: 0,
+            ...(hasItemArr ? { meta: { arrangement: it.arrangement } } : {}),
+          });
         } else if (it.media_url) {
           items.push({ item_type: 'media', title: it.title || 'Media', subtitle: sec.title, content: '', media_type: it.media_type || 'image', media_url: it.media_url, duration: Number(it.duration) || 0 });
         } else {
@@ -2444,7 +2624,9 @@ export default function App() {
     if (!item) return 0;
     if (item.songId) {
       const s = builderSongDetails[item.songId] || songs.find(x => x.id === item.songId);
-      return s ? (s.cues || []).length + 1 : 1;
+      // Order-aware: the item's own arrangement if it has one, else the song's
+      // sequence — the builder's tiles and total then agree with the wall.
+      return s ? arrangedSongSlideTotal(s, item.arrangement) : 1;
     }
     return 1;
   };
@@ -2502,10 +2684,15 @@ export default function App() {
         };
         setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
         if (window.require && targetedDisplays.includes(1)) { window.require('electron').ipcRenderer.send('update-live-slide', slidePayload); }
-        const nextCue = (song.cues || [])[0];
+        // "Up next" follows the song's own sequence when it has one, so the
+        // stage never announces a slide the flow will not reach next.
+        const nextCue = arrangedSongCues(song, item.arrangement)[0];
         sendStageData({ title: slidePayload.title, label: 'Song Title', text: song.title, timestamp: slidePayload.timestamp }, nextCue ? { title: song.title, label: nextCue.label, text: nextCue.text } : null);
       } else {
-        const cue = (song.cues || [])[tileIdx - 1];
+        // Sequence-first: tile N is the Nth slide of the arranged order, so the
+        // builder's tiles, its count and the wall can never disagree.
+        const flow = arrangedSongCues(song, item.arrangement);
+        const cue = flow[tileIdx - 1];
         if (!cue) return;
         setActiveSong(song);
         setActiveCue(cue);
@@ -2522,9 +2709,8 @@ export default function App() {
         const slidePayload = { title: song.title, artist: song.artist || '', text: cue.text, label: cue.label || '', style: effectiveStyle, audio: song.audio_url || null, timestamp: liveStamp() };
         setDisplays((prev) => prev.map((d) => (targetedDisplays.includes(d.id) ? { ...d, content: slidePayload } : d)));
         if (window.require && targetedDisplays.includes(1)) { window.require('electron').ipcRenderer.send('update-live-slide', slidePayload); }
-        const cueList = song.cues || [];
-        const idx = cueList.findIndex(c => c.id === cue.id);
-        const nextCue = idx > -1 ? cueList[idx + 1] : cueList[0];
+        const idx = flow.findIndex(c => c.id === cue.id);
+        const nextCue = idx > -1 ? flow[idx + 1] : flow[0];
         sendStageData({ title: song.title, label: cue.label || '', text: cue.text, timestamp: slidePayload.timestamp }, nextCue ? { title: song.title, label: nextCue.label, text: nextCue.text } : null);
       }
     } else if (item.media_url) {
@@ -3784,6 +3970,14 @@ export default function App() {
 
   // --- SERVICE ORDER (G-Presenter style) ---
   const serviceOrderCount = () => (activeService?.items || []).filter(i => i.item_type !== 'section_header').length;
+  // A row's full song: hydrated details first (cues + editor sequence), then
+  // the bare library entry as a last resort.
+  const serviceSongFor = (item) => {
+    if (!item || item.content == null) return null;
+    const key = Object.keys(serviceSongDetails).find((k) => sameSongId(k, item.content));
+    if (key) return serviceSongDetails[key];
+    return songs.find((s) => sameSongId(s.id, item.content)) || null;
+  };
   const serviceSlideCount = (item) => {
     // Medleys carry their flattened count from link time (refreshed on Go);
     // songs count title + cues, matching the grid and builder.
@@ -3799,10 +3993,11 @@ export default function App() {
       }
       // Numeric-aware match (see sameSongId): reloaded plans hold "42.0"
       // where the library holds 42.
-      const song = songs.find(s => sameSongId(s.id, item.content));
-      // +1 for the title card: firing starts there (fireTitleLive), and the
-      // grid/builder both count it — the badge used to read one short.
-      return song ? (song.cues || []).length + 1 : 0;
+      const song = serviceSongFor(item);
+      // songSlideTotal counts the title card the row fires first AND the
+      // song's own sequence, so a sequenced song no longer reads short of the
+      // slides Go actually walks.
+      return songSlideTotal(song);
     }
     if (item.item_type === 'presentation') {
       try { const d = JSON.parse(item.content); return (d.slides || []).length; } catch (_) { return 0; }
@@ -6471,9 +6666,9 @@ export default function App() {
     removeShowSection, moveShowSection, showTotalSeconds, createShow, selectBuilderItem, builderItemSlideCount,
     builderFlatItems, builderTotalSlides, builderCurrentEntry, builderGoLive, builderAdvance, builderUpNext,
     addShowBuilderMedia, addShowBuilderExistingMedia, addShowBuilderPlaceholder, fireCueLive, fireTitleLive, fireServiceItemLive,
-    openMedleyForRow, saveMedley, fireMedleySlideAt, openArrangementForRow, arrangementStatus,
+    openMedleyForRow, saveMedley, fireMedleySlideAt, openArrangementForRow, openArrangementForBuilderItem, arrangementStatus,
     toggleDevProjectorWindow, toggleStageWindow, addSongToService, addHeaderToService, renameServiceHeader, addCustomSlideToService,
-    reorderServiceItem, moveServiceBlock, moveServiceItem, removeServiceItem, serviceOrderCount, serviceSlideCount,
+    reorderServiceItem, moveServiceBlock, moveServiceItem, removeServiceItem, serviceOrderCount, serviceSlideCount, serviceSongFor,
     serviceStatusIcon, serviceItemIsLive, toggleServiceCollapse, expandAllServiceSections, collapseAllServiceSections,
     clearServiceOrder, addMediaItemToService, addExistingMediaToService, fireServiceMediaLive, stopServiceItemLive, saveCurrentService, loadService, queueShowIntoService,
     presentations, setPresentations, fetchPresentations, isPresentationOpen, editingDeck, setEditingDeck,
@@ -6725,6 +6920,7 @@ export default function App() {
           onSave={saveArrangement}
           onClose={() => setArrangementModal(null)}
           forAnchor={arrangementModal.forAnchor}
+          forBuilder={!!arrangementModal.builder}
         />
       )}
       </AnimatePresence>

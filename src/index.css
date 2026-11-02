@@ -1112,7 +1112,28 @@ textarea {
   color: var(--ui-faint);
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+/* Slide total: pinned after the truncated subtitle so a long song name eats
+   the artist line, never the count. */
+.svc-item .svc-count {
+  flex: 0 0 auto;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: var(--ui-muted);
+  background: var(--ui-hover-bg);
+  border: 1px solid var(--ui-border);
+}
+.svc-item[data-selected='1'] .svc-count {
+  color: var(--kog-accent-hover);
+  border-color: rgba(255, 184, 0, 0.45);
+  background: rgba(255, 184, 0, 0.14);
 }
 .svc-actions {
   position: absolute;

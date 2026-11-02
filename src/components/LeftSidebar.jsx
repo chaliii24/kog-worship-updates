@@ -143,6 +143,8 @@ export default function LeftSidebar() {
     queueShowIntoService,
     deleteSavedService,
     serviceOrderCount,
+    serviceSlideCount,
+    serviceSongFor,
     serviceItemIsLive,
     collapseAllServiceSections,
     expandAllServiceSections,
@@ -951,6 +953,25 @@ export default function LeftSidebar() {
                   const rowIconColor = iconTheme === 'prism' && rowKind ? iconHue(rowKind, C) : iconColor;
                   const selectedRow = (row.item.item_type === 'song' && sameSongId(row.item.content, activeSong?.id)) || (row.item.item_type === 'custom_slide' && activeCue?.id === row.item.id);
                   const meta = row.item.subtitle || (row.item.item_type === 'song' ? 'Song' : row.item.item_type === 'media' ? 'Media' : row.item.item_type === 'presentation' ? 'Presentation' : 'Slide');
+                  // Slide total for the row, counted the way Go walks it:
+                  // arrangement → the song's own sequence → plain cue order,
+                  // plus the title card. It used to read short on a sequenced
+                  // song because it only counted the library cue list.
+                  const slideTotal = serviceSlideCount(row.item);
+                  // What the arrangement button reflects: the row's own
+                  // override, else the sequence saved in the Song Editor.
+                  const rowSong = row.item.item_type === 'song' ? serviceSongFor(row.item) : null;
+                  const rowSeq = Array.isArray(rowSong?.arrangement) ? rowSong.arrangement : [];
+                  const rowArr = row.item.meta?.arrangement;
+                  const hasRowArr = !!(rowArr && ((rowArr.flow || []).length || (rowArr.order || []).length));
+                  const arrOn = hasRowArr || rowSeq.length > 0;
+                  const arrTitle = row.item.item_type === 'medley'
+                    ? 'Custom play order for the anchor song'
+                    : hasRowArr
+                      ? 'This row has its own play order — click to edit'
+                      : rowSeq.length
+                        ? `Following the song editor's sequence (${rowSeq.length} section${rowSeq.length === 1 ? '' : 's'}) — click to override it for this row`
+                        : 'Custom play order for this song';
                   return (
                     <div key={`i-${ri}`} className="row svc-item" data-drop-idx={row.idx} data-selected={selectedRow ? '1' : '0'} data-live={isLive ? '1' : '0'} draggable onDragStart={(e) => { internalDrag.current = true; e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'reorder', from: row.idx })); e.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => { internalDrag.current = false; setDrop(null, null); }} onClick={() => { if (row.item.item_type === 'song') selectSong(row.item.content); else if (isLive) return; else fireServiceItemLive(row.item); }} title="Drag to reorder · click to go live" style={{ boxShadow: dropRow === row.idx ? '0 0 0 2px rgba(255,184,0,0.6)' : 'none' }}>
                       {isLive && <div style={{ position: 'absolute', left: 0, top: 4, bottom: 4, width: 3, borderRadius: 3, background: 'var(--kog-success)' }} />}
@@ -958,7 +979,10 @@ export default function LeftSidebar() {
                       <span className="svc-kind" style={{ color: rowIconColor }}>{icon}</span>
                       <div className="svc-body">
                         <div className="svc-title" title={row.item.title}>{row.item.title}</div>
-                        <div className="svc-meta" title={meta}>{meta}</div>
+                        <div className="svc-meta" title={`${meta} • ${slideTotal} slide${slideTotal === 1 ? '' : 's'}`}>
+                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{meta}</span>
+                          {slideTotal > 0 ? <span className="svc-count">{slideTotal} slide{slideTotal === 1 ? '' : 's'}</span> : null}
+                        </div>
                       </div>
                       <div className="svc-actions">
                         {isLive ? (
@@ -970,7 +994,7 @@ export default function LeftSidebar() {
                           <button onClick={(e) => { e.stopPropagation(); openMedleyForRow(row.item, row.idx); }} title={row.item.item_type === 'medley' ? 'Edit medley links' : 'Link songs into a medley'} style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: row.item.item_type === 'medley' ? '#FFC72C' : C.faint, padding: '2px 5px', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Link2 size={11} /></button>
                         )}
                         {(row.item.item_type === 'song' || row.item.item_type === 'medley') && (
-                          <button onClick={(e) => { e.stopPropagation(); openArrangementForRow(row.item, row.idx); }} title={row.item.item_type === 'medley' ? 'Custom play order for the anchor song' : (row.item.meta?.arrangement?.order?.length ? 'Edit song arrangement' : 'Custom play order for this song')} style={{ background: row.item.meta?.arrangement?.order?.length ? 'rgba(255,184,0,0.16)' : 'transparent', border: '1px solid ' + (row.item.meta?.arrangement?.order?.length ? 'rgba(255,184,0,0.5)' : 'var(--ui-border)'), color: row.item.meta?.arrangement?.order?.length ? '#FFC72C' : C.faint, padding: '2px 5px', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><ListMusic size={11} /></button>
+                          <button onClick={(e) => { e.stopPropagation(); openArrangementForRow(row.item, row.idx); }} title={arrTitle} style={{ background: arrOn ? 'rgba(255,184,0,0.16)' : 'transparent', border: '1px solid ' + (arrOn ? 'rgba(255,184,0,0.5)' : 'var(--ui-border)'), color: arrOn ? '#FFC72C' : C.faint, padding: '2px 5px', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><ListMusic size={11} /></button>
                         )}
                         {row.item.item_type === 'custom_slide' && (
                           <button onClick={(e) => { e.stopPropagation(); openCustomSlideEditor(row.idx); }} title="Edit slide — text, font, colour, background, transition" style={{ background: 'transparent', border: '1px solid var(--ui-border)', color: C.faint, padding: '2px 5px', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center' }}><Pencil size={11} /></button>

@@ -127,6 +127,11 @@ try { db.exec(`ALTER TABLE songs ADD COLUMN chord_key TEXT DEFAULT 'C';`); } cat
 // CCLI song number — drives the usage report (Settings → CCLI Report). NULL
 // means "not on file": the report flags the song rather than guessing.
 try { db.exec(`ALTER TABLE songs ADD COLUMN ccli TEXT;`); } catch (_) {}
+// Per-song custom sequence: an ordered list of SECTION LABELS
+// (["Verse 1","Chorus","Verse 1"]). The song editor's Sequence tab writes
+// here and never reorders `cues`, so a configured flow survives save/reopen
+// while the slides keep their own order in the filmstrip.
+try { db.exec(`ALTER TABLE songs ADD COLUMN arrangement_json TEXT;`); } catch (_) {}
 // Per-song tempo for the stage metronome + phone drummer view. NULL = unset
 // (falls back to the stage config tempo). Saved only through the narrow
 // setSongBpm IPC — song-editor saves never touch it.
@@ -240,12 +245,18 @@ export function getSongDetails(songId) {
   const song = db.prepare('SELECT * FROM songs WHERE id = ?').get(songId);
   if (!song) return null;
   const cues = db.prepare('SELECT * FROM cues WHERE song_id = ? ORDER BY sequence_order ASC').all(songId);
-  const { title_cue_json, ...songRest } = song;
+  const { title_cue_json, arrangement_json, ...songRest } = song;
   const parsedCues = cues.map((row) => {
     const { style_json, ...rest } = row;
     return { ...(safeParse(style_json) || {}), ...rest };
   });
-  return { ...songRest, title_cue: safeParse(title_cue_json) || undefined, cues: parsedCues };
+  const arrangement = safeParse(arrangement_json);
+  return {
+    ...songRest,
+    title_cue: safeParse(title_cue_json) || undefined,
+    arrangement: Array.isArray(arrangement) ? arrangement : undefined,
+    cues: parsedCues,
+  };
 }
 
 // Batch twin of getSongDetails for medleys: ONE songs query + ONE cues query
@@ -264,14 +275,24 @@ export function getSongDetailsMany(ids) {
     bySong.get(row.song_id).push(cue);
   }
   return songs.map((song) => {
-    const { title_cue_json, ...songRest } = song;
-    return { ...songRest, title_cue: safeParse(title_cue_json) || undefined, cues: bySong.get(song.id) || [] };
+    const { title_cue_json, arrangement_json, ...songRest } = song;
+    const arrangement = safeParse(arrangement_json);
+    return {
+      ...songRest,
+      title_cue: safeParse(title_cue_json) || undefined,
+      arrangement: Array.isArray(arrangement) ? arrangement : undefined,
+      cues: bySong.get(song.id) || [],
+    };
   });
 }
 
 export function saveSong(songData) {
-  const { id, title, artist, category, cues, bg_type, bg_value, audio_url, title_cue, ccli } = songData;
+  const { id, title, artist, category, cues, bg_type, bg_value, audio_url, title_cue, ccli, arrangement } = songData;
   const titleCueJson = title_cue ? JSON.stringify(title_cue) : null;
+  // Sequence tab output. Stored verbatim; null when the song has no custom
+  // sequence, which is what the editor treats as "follow the slides". Cue
+  // order is written from `cues` alone — this never reorders it.
+  const arrangementJson = arrangementToJson(arrangement);
   // CCLI number: the editor field wins. `undefined` (a caller that predates
   // the field) falls back to scanning the cues for a "CCLI #…" footer line —
   // hand-pasted lyrics keep it. An explicit '' means the operator cleared the
@@ -288,12 +309,12 @@ export function saveSong(songData) {
   // song saved with zero slides. A transaction rolls everything back instead.
   const tx = db.transaction((songId) => {
     if (songId) {
-      db.prepare('UPDATE songs SET title = ?, artist = ?, category = ?, bg_type = ?, bg_value = ?, audio_url = ?, title_cue_json = ?, ccli = ? WHERE id = ?').run(title, artist, category, bg_type || 'color', bg_value || '#000000', audio_url || null, titleCueJson, ccliValue, songId);
+      db.prepare('UPDATE songs SET title = ?, artist = ?, category = ?, bg_type = ?, bg_value = ?, audio_url = ?, title_cue_json = ?, ccli = ?, arrangement_json = ? WHERE id = ?').run(title, artist, category, bg_type || 'color', bg_value || '#000000', audio_url || null, titleCueJson, ccliValue, arrangementJson, songId);
       db.prepare('DELETE FROM cues WHERE song_id = ?').run(songId);
       runCues(songId);
       return songId;
     }
-    const result = db.prepare('INSERT INTO songs (title, artist, category, bg_type, bg_value, audio_url, title_cue_json, ccli) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(title, artist, category || 'Worship', bg_type || 'color', bg_value || '#000000', audio_url || null, titleCueJson, ccliValue);
+    const result = db.prepare('INSERT INTO songs (title, artist, category, bg_type, bg_value, audio_url, title_cue_json, ccli, arrangement_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(title, artist, category || 'Worship', bg_type || 'color', bg_value || '#000000', audio_url || null, titleCueJson, ccliValue, arrangementJson);
     runCues(result.lastInsertRowid);
     return result.lastInsertRowid;
   });
@@ -319,6 +340,31 @@ export function setSongBackground(songId, bgType, bgValue) {
 
 export function setSongAudio(songId, audioUrl) {
   db.prepare('UPDATE songs SET audio_url = ? WHERE id = ?').run(audioUrl || null, songId);
+}
+
+// Shape a saved sequence for arrangement_json: the current FLOW
+// ([{part, occurrence}]) or a legacy label list, dropping blanks. Coercing
+// objects through String() — what this used to do — wrote "[object Object]"
+// and erased the order on the next save.
+function arrangementToJson(arrangement) {
+  if (!Array.isArray(arrangement) || !arrangement.length) return null;
+  return JSON.stringify(
+    arrangement
+      .map((s) => (
+        s && typeof s === 'object'
+          ? { part: String(s.part == null ? '' : s.part).trim(), occurrence: Math.max(1, Math.floor(Number(s.occurrence) || 1)) }
+          : String(s).trim()
+      ))
+      .filter((s) => (typeof s === 'string' ? s !== '' : s.part !== ''))
+  );
+}
+
+// Song-level default order (own IPC: db-set-song-arrangement). Deliberately
+// NOT saveSong: rewriting cues to change a running order would re-issue every
+// cue id, and every live arrangement session points at those ids. This is one
+// narrow UPDATE that touches arrangement_json and nothing else.
+export function setSongArrangement(songId, arrangement) {
+  db.prepare('UPDATE songs SET arrangement_json = ? WHERE id = ?').run(arrangementToJson(arrangement), songId);
 }
 
 // Stage chord chart (own IPC: db-set-song-chords). Deliberately NOT part of
@@ -574,10 +620,12 @@ export function exportLibrary() {
 // media bytes are not embedded (a 44MB video has no business in JSON).
 function songToExport(song) {
   if (!song) return null;
-  const { title_cue_json, ...songRest } = song;
+  const { title_cue_json, arrangement_json, ...songRest } = song;
+  const arrangement = safeParse(arrangement_json);
   return {
     ...songRest,
     title_cue: safeParse(title_cue_json) || undefined,
+    arrangement: Array.isArray(arrangement) ? arrangement : undefined,
     cues: db.prepare('SELECT label, text, sequence_order, bg_type, bg_value, duration, style_json FROM cues WHERE song_id = ? ORDER BY sequence_order ASC').all(song.id).map((row) => {
       const { style_json, ...rest } = row;
       return { ...(safeParse(style_json) || {}), ...rest };
@@ -604,7 +652,7 @@ export function exportSongs(ids) {
 export function importLibrary(jsonData) {
   try {
     const library = JSON.parse(jsonData);
-    const insertSong = db.prepare('INSERT INTO songs (title, artist, category, is_favorite, bg_type, bg_value, audio_url, title_cue_json, chord_chart, chord_key, ccli) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const insertSong = db.prepare('INSERT INTO songs (title, artist, category, is_favorite, bg_type, bg_value, audio_url, title_cue_json, chord_chart, chord_key, ccli, arrangement_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const insertCue = db.prepare('INSERT INTO cues (song_id, label, text, sequence_order, bg_type, bg_value, duration, style_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
 
     db.transaction(() => {
@@ -614,7 +662,7 @@ export function importLibrary(jsonData) {
         // backup JSON has no field — extract from cues as a fallback, same
         // rule as saveSong.
         const ccliValue = song.ccli == null ? (extractCcliFromCues(song.cues) || null) : (String(song.ccli).trim() || null);
-        const res = insertSong.run(song.title, song.artist || 'Unknown', song.category || 'Worship', song.is_favorite || 0, song.bg_type || 'color', song.bg_value || '#000000', song.audio_url || null, song.title_cue ? JSON.stringify(song.title_cue) : null, song.chord_chart || null, song.chord_key || 'C', ccliValue);
+        const res = insertSong.run(song.title, song.artist || 'Unknown', song.category || 'Worship', song.is_favorite || 0, song.bg_type || 'color', song.bg_value || '#000000', song.audio_url || null, song.title_cue ? JSON.stringify(song.title_cue) : null, song.chord_chart || null, song.chord_key || 'C', ccliValue, arrangementToJson(song.arrangement));
         const songId = res.lastInsertRowid;
         if (song.cues) {
           song.cues.forEach((cue, idx) => {

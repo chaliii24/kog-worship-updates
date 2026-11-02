@@ -6,7 +6,8 @@
 //   1. FIT  — the CSS viewport is never smaller than the design, so no
 //      component is pushed off the edge of the window (that was the bug).
 //   2. LOOK — proportions track the resolution: every screen shows the same
-//      design, scaled to fill its own panel.
+//      design. The fit only ever SHRINKS it, so no panel ever boots enlarged
+//      past 100% (the desktop "looks zoomed in" bug).
 import { operatorZoomFor, cssViewportFor, UI_DESIGN_WIDTH, UI_DESIGN_HEIGHT } from './electron/uiScale.js';
 
 // [label, window width, window height] — maximized sizes assume a 48px taskbar.
@@ -26,7 +27,7 @@ const CASES = [
 let failures = 0;
 const fail = (msg) => { failures += 1; console.error(`  FAIL  ${msg}`); };
 
-console.log(`design: ${UI_DESIGN_WIDTH} x ${UI_DESIGN_HEIGHT} CSS px (1920x1080 maximized @ 1.15)\n`);
+console.log(`design: ${UI_DESIGN_WIDTH} x ${UI_DESIGN_HEIGHT} CSS px (1920x1080 maximized, capped at 1.00)\n`);
 console.log('viewport                       window    zoom   css viewport    fits design');
 console.log('-'.repeat(88));
 
@@ -42,9 +43,16 @@ for (const [label, width, height] of CASES) {
   if (zoom !== operatorZoomFor({ width, height })) fail(`${label}: operatorZoomFor/cssViewportFor disagree`);
 }
 
-// The reference look must not move: 1920x1080 maximized still boots at 1.15.
+// THE CAP: 1920x1080 maximized must boot at exactly 100%, not the old 1.15.
+// That 15% is what read as "zoomed in" next to the 1366 laptop's 0.80.
 const ref = operatorZoomFor({ width: 1920, height: 1040 });
-if (Math.abs(ref - 1.15) > 0.001) fail(`1920x1080 zoom drifted to ${ref}, expected 1.15`);
+if (Math.abs(ref - 1) > 0.001) fail(`1920x1080 boots at ${ref}, expected 1.00 (cap)`);
+
+// No window size may ever scale the console UP past the design.
+for (const [label, width, height] of CASES) {
+  const z = operatorZoomFor({ width, height });
+  if (z > 1.0001) fail(`${label}: zoom ${z} exceeds the 1.00 ceiling`);
+}
 
 // The reported bug: 1366x728 must fit the design, not be zoomed up into it.
 const small = cssViewportFor({ width: 1366, height: 728 });

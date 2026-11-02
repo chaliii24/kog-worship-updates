@@ -1,38 +1,70 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ListMusic, X, ChevronUp, ChevronDown, Trash2, RotateCcw, GripVertical, Sparkles } from 'lucide-react';
+import { ListMusic, X, RotateCcw, Sparkles, Undo2, AlertTriangle } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useApp } from '../context/AppContext';
 import { toast } from '../untitledui/components/ui/toast';
+import FlowEditor from './FlowEditor';
 import {
   orderToFlow, summarizeFlow, splitCuesToLineChunks,
-  abbrevSection, songSectionRuns,
+  abbrevSection, songSectionRuns, sequenceToFlow,
 } from '../lib/arrangement';
 
-// Song Arrangement modal v2 — MENU on the left, FLOW on the right.
+// Song Arrangement modal — the SERVICE ROW's play order for one song.
 //
-// Left (Master Parts): exactly ONE block per section ([Verse 1], [Chorus]…).
-// Drag a block (or click it) to append it to the flow; drag again for a
-// repeat. Ordering happens at SECTION granularity, so a volunteer can never
-// put line 4 before line 2 — every block brings all its slides along.
+// The body is the shared <FlowEditor>, the same editor the Song Editor's
+// Sequence tab uses: one vocabulary (section runs with an explicit
+// occurrence), one behaviour, whichever scope you are in.
 //
-// Right (Service Flow): the play order. Entries drag to reorder (with ↑↓
-// fallback buttons) and × to drop. Each entry previews its slides as chips.
+// SCOPE is stated, not implied. This modal edits the row; the song editor is
+// the song-level default. The banner keeps that visible the whole time (a
+// banner that only greets you on open cannot answer "what am I changing?" two
+// edits later) and carries the two ways out: "Use song order" (load the
+// default, unsaved) and "Remove override" (forget this row's order entirely).
 //
 // The library song is never touched by arranging — the flow is stored on the
 // service row. The optional "Tidy slides" tool DOES rewrite the song (with
 // confirmation): it re-chunks long sections into N-line slides so the
 // congregation gets singable 2–4-line projection.
 let flowKey = 1;
-const samePart = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 
-export default function ArrangementModal({ songId, title, existing, onSave, onClose, forAnchor }) {
+export default function ArrangementModal({ songId, title, existing, onSave, onClose, forAnchor, forBuilder }) {
   const { C, ACCENT, appConfirm } = useApp();
   const [details, setDetails] = useState(null);
   const [flow, setFlow] = useState(null); // [{ key, part, occurrence }]
   const [linesPer, setLinesPer] = useState(4);
   const [tidying, setTidying] = useState(false);
-  const [dropAt, setDropAt] = useState(null); // index | 'end' | null
-  const lastDragAtRef = useRef(0);
+  const [loadError, setLoadError] = useState(null);
+  const [loadTick, setLoadTick] = useState(0);
+  // WHICH order the button below saves. 'row' is this service item (the
+  // override); 'song' is the song's own default, i.e. every service that
+  // follows it. Same editor, same flow — only the destination changes.
+  const [saveScope, setSaveScope] = useState('row');
+
+  // Undo: every mutation pushes the PREVIOUS flow. flowRef mirrors the state
+  // so edits compute from the current list without impure setState updaters
+  // (StrictMode double-invokes those, which would double history).
+  const flowRef = useRef(null);
+  flowRef.current = flow;
+  const historyRef = useRef([]);
+  const applyFlow = (next) => {
+    if (!Array.isArray(next)) return;
+    historyRef.current = [...historyRef.current.slice(-49), flowRef.current || []];
+    flowRef.current = next;
+    setFlow(next);
+  };
+  const resetFlow = (next) => {
+    historyRef.current = [];
+    flowRef.current = next;
+    setFlow(next);
+  };
+  const undo = () => {
+    const stack = historyRef.current;
+    if (!stack.length) return;
+    const prev = stack[stack.length - 1];
+    historyRef.current = stack.slice(0, -1);
+    flowRef.current = prev;
+    setFlow(prev);
+  };
 
   // Service rows round-trip song ids through a TEXT column ("42.0" for 42) —
   // coerce numeric-likes back to integers for the details lookup.
@@ -44,6 +76,7 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
   const initFlow = (arr, song) => {
     const runs = songSectionRuns(song);
     if (!runs.length) return [];
+    const samePart = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
     const pick = (part, occurrence) => {
       const list = runs.filter((r) => samePart(r.part, part));
       if (!list.length) return null;
@@ -75,45 +108,58 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
       const conv = orderToFlow(legacy, song);
       if (conv.length) return conv.map((entry) => ({ key: flowKey++, ...entry }));
     }
-    // No arrangement: mirror the song's real sequence, every run once.
+    // No service-row arrangement: START FROM THE SONG'S OWN SEQUENCE (Song
+    // editor → Sequence). The row is the override, not the baseline — opening
+    // the arrangement on a sequenced song used to show plain library order, so
+    // the two panels disagreed about the same song. Every run once remains the
+    // fallback for a song with no sequence saved.
+    const own = sequenceToFlow(song);
+    if (own.length) return own.map((entry) => ({ key: flowKey++, ...entry }));
     return runs.map((run) => ({ key: flowKey++, part: run.part, occurrence: run.occurrence }));
   };
 
   useEffect(() => {
-    if (!window.require) return;
+    if (!window.require) {
+      setLoadError('Section order needs the desktop app.');
+      return;
+    }
     let dead = false;
+    setLoadError(null);
+    setFlow(null);
     window.require('electron').ipcRenderer.invoke('db-get-song-details', idArg)
       .then((d) => {
-        if (!d || dead) return;
+        if (dead) return;
+        if (!d) { setLoadError('This song is no longer in the library.'); setFlow([]); return; }
         setDetails(d);
-        setFlow(initFlow(existing, d));
+        // resetFlow, not setFlow: a fresh load is not an undoable edit.
+        resetFlow(initFlow(existing, d));
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (dead) return;
+        setFlow([]);
+        setLoadError(String(err?.message || 'Could not load this song.'));
+      });
     return () => { dead = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadTick]);
 
   const runs = songSectionRuns(details);
   const runOf = (entry) => {
-    const list = runs.filter((r) => samePart(r.part, entry?.part));
+    const list = runs.filter((r) => String(r.part || '').trim().toLowerCase() === String(entry?.part || '').trim().toLowerCase());
     if (!list.length) return null;
     const n = Number.isInteger(entry?.occurrence) && entry.occurrence > 0 ? entry.occurrence : 1;
     return list[Math.min(n - 1, list.length - 1)];
   };
-  const cuesOf = (entry) => runOf(entry)?.cues || [];
-  const expandedCount = (flow || []).reduce((n, entry) => n + cuesOf(entry).length, 0);
-  const partOccurrences = (part) => runs.filter((r) => samePart(r.part, part)).length;
-  const entryLabel = (entry) => {
-    const occ = partOccurrences(entry.part) > 1 ? ` #${entry.occurrence}` : '';
-    return `${abbrevSection(entry.part)}${occ} · ${entry.part}`;
-  };
+  const expandedCount = (flow || []).reduce((n, entry) => n + (runOf(entry)?.cues || []).length, 0);
 
   // Dirty guard: X, backdrop-click and Cancel funnel through here.
   const openedSnapRef = useRef(null);
   if (openedSnapRef.current === null && flow !== null) {
     openedSnapRef.current = JSON.stringify((flow || []).map((e) => `${e.part}|${e.occurrence}`));
   }
-  const isDirty = () => openedSnapRef.current !== null && JSON.stringify((flow || []).map((e) => `${e.part}|${e.occurrence}`)) !== openedSnapRef.current;
+  const snap = () => JSON.stringify((flow || []).map((e) => `${e.part}|${e.occurrence}`));
+  const isDirty = () => openedSnapRef.current !== null && snap() !== openedSnapRef.current;
+  const dirty = flow !== null && isDirty();
   const maybeClose = async () => {
     if (!isDirty()) { onClose(); return; }
     const ok = appConfirm
@@ -122,77 +168,46 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
     if (ok) onClose();
   };
 
-  // --- Flow edits -------------------------------------------------------
-  const appendPart = (part, occurrence) => setFlow((prev) => [...(prev || []), { key: flowKey++, part, occurrence }]);
-  const appendRun = (run) => { if (run) appendPart(run.part, run.occurrence); };
-  const move = (idx, dir) => {
-    setFlow((prev) => {
-      if (!prev) return prev;
-      const j = idx + dir;
-      if (idx < 0 || j < 0 || idx >= prev.length || j >= prev.length) return prev;
-      const next = [...prev];
-      [next[idx], next[j]] = [next[j], next[idx]];
-      return next;
-    });
-  };
-  const removeAt = (idx) => setFlow((prev) => (prev ? prev.filter((_, i) => i !== idx) : prev));
-  const insertAt = (idx, part, occurrence) => {
-    setFlow((prev) => {
-      const next = [...(prev || [])];
-      next.splice(Math.max(0, Math.min(idx, next.length)), 0, { key: flowKey++, part, occurrence });
-      return next;
-    });
-  };
-  const relocate = (from, to) => {
-    setFlow((prev) => {
-      if (!prev || from === to) return prev;
-      const next = [...prev];
-      const [entry] = next.splice(from, 1);
-      next.splice(Math.max(0, Math.min(to, next.length)), 0, entry);
-      return next;
-    });
-  };
-  const reset = () => {
-    if (details) setFlow(songSectionRuns(details).map((run) => ({ key: flowKey++, part: run.part, occurrence: run.occurrence })));
-  };
+  // Ctrl/Cmd+Z walks back through this session's edits. Scoped to the modal
+  // (it is mounted only while open) and skipped while typing, so it cannot
+  // fight a text field inside the dialog.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || String(e.key).toLowerCase() !== 'z') return;
+      const el = e.target;
+      const tag = String(el?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || el?.isContentEditable) return;
+      if (!historyRef.current.length) return;
+      e.preventDefault();
+      undo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // --- HTML5 drag and drop (no new deps): left blocks COPY in, right
-  // entries MOVE. Click/↑↓ remain full fallbacks (touch + precision).
-  const readDrop = (e) => {
-    try {
-      const raw = e.dataTransfer.getData('application/x-kog-arr');
-      if (raw) return JSON.parse(raw);
-    } catch {}
-    return null;
+  // The two defaults this modal can offer, kept distinct:
+  //   Library order — every section once, top to bottom (the song as stored).
+  //   Song order    — the Song Editor's sequence (the song-level default).
+  const toLibraryOrder = () => songSectionRuns(details).map((run) => ({ key: flowKey++, part: run.part, occurrence: run.occurrence }));
+  const reset = () => { if (details) applyFlow(toLibraryOrder()); };
+  const useSongOrder = () => {
+    const own = sequenceToFlow(details);
+    if (own.length) applyFlow(own.map((entry) => ({ key: flowKey++, ...entry })));
   };
-  const startAdd = (e, run) => {
-    lastDragAtRef.current = Date.now();
-    e.dataTransfer.setData('application/x-kog-arr', JSON.stringify({ mode: 'add', part: run.part, occurrence: run.occurrence }));
-    e.dataTransfer.setData('text/plain', run.part);
-    e.dataTransfer.effectAllowed = 'copy';
-  };
-  const startMove = (e, index) => {
-    lastDragAtRef.current = Date.now();
-    e.dataTransfer.setData('application/x-kog-arr', JSON.stringify({ mode: 'move', index }));
-    e.dataTransfer.setData('text/plain', String(index));
-    e.dataTransfer.effectAllowed = 'move';
-  };
-  const dropOnEntry = (e, index) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const d = readDrop(e);
-    setDropAt(null);
-    if (!d) return;
-    if (d.mode === 'move') relocate(d.index, index);
-    else if (d.mode === 'add' && d.part) insertAt(index, d.part, d.occurrence);
-  };
-  const dropAtEnd = (e) => {
-    e.preventDefault();
-    const d = readDrop(e);
-    setDropAt(null);
-    if (!d) return;
-    if (d.mode === 'move') relocate(d.index, (flow || []).length);
-    else if (d.mode === 'add' && d.part) appendPart(d.part, d.occurrence);
+  // Switching scope LOADS that scope's order, so what you see is what you are
+  // about to overwrite. It is navigation, not an edit: the undo stack and the
+  // dirty snapshot reset with it, otherwise merely peeking at the song default
+  // would make Cancel ask you to discard nothing.
+  const switchScope = (next) => {
+    if (next === saveScope || !details) { setSaveScope(next); return; }
+    const own = sequenceToFlow(details);
+    const base = next === 'song'
+      ? (own.length ? own.map((entry) => ({ key: flowKey++, ...entry })) : toLibraryOrder())
+      : initFlow(existing, details);
+    resetFlow(base);
+    openedSnapRef.current = JSON.stringify(base.map((e) => `${e.part}|${e.occurrence}`));
+    setSaveScope(next);
   };
 
   // --- Tidy slides: re-chunk the LIBRARY song into N-line slides ---------
@@ -223,9 +238,16 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
   };
 
   const save = (clear = false) => {
+    const parts = (flow || []).map((e) => ({ part: e.part, occurrence: e.occurrence }));
+    if (saveScope === 'song') {
+      // "This song": the flow becomes the song's default order. Clearing is
+      // explicit ([]), never an accidental empty edit.
+      if (!clear && !parts.length) return;
+      onSave({ scope: 'song', flow: clear ? [] : parts, summary: summarizeFlow(parts) });
+      return;
+    }
     if (clear) { onSave({ arr: null }); return; }
-    if (!flow || !flow.length) return;
-    const parts = flow.map((e) => ({ part: e.part, occurrence: e.occurrence }));
+    if (!parts.length) return;
     // `known` records every run the song had at save time: an omitted run
     // stays omitted, while a section added later still appends on playback.
     const known = runs.map((run) => ({ part: run.part, occurrence: run.occurrence }));
@@ -235,7 +257,33 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
     });
   };
 
-  const btn = { background: 'transparent', border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 6, cursor: 'pointer', display: 'flex', padding: 4, alignItems: 'center' };
+  const scopeBtn = { background: 'transparent', border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 6, padding: '4px 8px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' };
+
+  // SCOPE. The row's own order wins over the song's sequence, which wins over
+  // library order. Which of those three you are looking at — and what saving
+  // here will change — is the banner's whole job.
+  const songFlow = sequenceToFlow(details);
+  const rowHasArr = !!(existing && ((existing.flow || []).length || (existing.order || []).length));
+  const songOrderSummary = songFlow.map((e) => abbrevSection(e.part)).join(' · ');
+  const scopeText = saveScope === 'song'
+    ? 'Saving writes the song’s default order. Every service row that has no override of its own plays this — in this service and every future one.'
+    : rowHasArr
+      ? (forBuilder
+        ? 'This show item has its own order. Saving changes it here only — the song and every other item keep theirs. Create Show carries it into the service.'
+        : 'This row has its own order. Saving changes this service row only — the song and every other row keep theirs.')
+      : songFlow.length
+        ? `Starting from the Song Editor's sequence (${songFlow.length} section${songFlow.length === 1 ? '' : 's'}). Saving here overrides it for this ${forBuilder ? 'show item' : 'row'} only.`
+        : `This song has no saved sequence, so saving here becomes this ${forBuilder ? 'show item’s' : 'row’s'} own order.`;
+  const segBtn = (on) => ({
+    background: on ? ACCENT : 'transparent',
+    border: 'none',
+    color: on ? '#1C1C1E' : C.muted,
+    padding: '4px 9px',
+    fontSize: 10.5,
+    fontWeight: 800,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  });
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10001 }} onClick={maybeClose}>
@@ -255,94 +303,72 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
           Build <b style={{ color: C.text }}>{title || details?.title || 'this song'}</b> from sections — drag a part in (or click it), drag again to repeat. Each block is one exact section occurrence, so repeated choruses stay in the right place. The library song stays untouched.
         </div>
 
-        {flow === null ? (
+        {/* SCOPE BANNER — persistent, because "which order am I editing?" is
+            still the question at edit five, not just when the dialog opens. */}
+        <div style={{ padding: '8px 10px', borderRadius: 9, marginBottom: 12, background: rowHasArr ? 'rgba(255,184,0,0.10)' : 'rgba(255,255,255,0.035)', border: '1px solid ' + (rowHasArr ? 'rgba(255,184,0,0.35)' : 'var(--ui-border2)') }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: saveScope === 'song' ? '#8AB4F8' : (rowHasArr ? ACCENT : C.faint), flexShrink: 0 }}>
+              {saveScope === 'song' ? 'Song default' : (rowHasArr ? (forBuilder ? 'Item override' : 'Row override') : (forBuilder ? 'Item only' : 'Row only'))}
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }} />
+            {/* THE SCOPE SWITCH — the whole point of the merged editor. */}
+            <div style={{ display: 'flex', border: '1px solid var(--ui-border2)', borderRadius: 7, overflow: 'hidden', flexShrink: 0 }}>
+              <button onClick={() => switchScope('song')} title="Edit the song's own order — every service follows it" style={segBtn(saveScope === 'song')}>This song</button>
+              <button onClick={() => switchScope('row')} title="Edit this service row only" style={segBtn(saveScope === 'row')}>This row</button>
+            </div>
+          </div>
+          <div style={{ fontSize: 11.5, color: C.text2, lineHeight: 1.5, marginTop: 4 }}>{scopeText}</div>
+          <div style={{ fontSize: 10.5, color: C.faint, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={songOrderSummary}>
+            Song order: {songOrderSummary || 'none saved'}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+            {saveScope === 'row' && songFlow.length > 0 && (
+              <button onClick={useSongOrder} title="Load the song's order into the flow (nothing is saved until Save)" style={scopeBtn}>Use song order</button>
+            )}
+            {saveScope === 'row' && rowHasArr && (
+              <button onClick={() => save(true)} title="Forget this row's custom order — it follows the song again" style={{ ...scopeBtn, border: '1px solid rgba(255,69,69,0.5)', color: '#FF4545' }}>Remove override</button>
+            )}
+            {saveScope === 'song' && songFlow.length > 0 && (
+              <button onClick={() => save(true)} title="Forget the song's custom order — it follows its slides again, everywhere" style={{ ...scopeBtn, border: '1px solid rgba(255,69,69,0.5)', color: '#FF4545' }}>Clear song order</button>
+            )}
+          </div>
+        </div>
+
+        {loadError ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#FF4545', background: 'rgba(255,69,69,0.08)', border: '1px solid rgba(255,69,69,0.35)', borderRadius: 9, padding: '12px 12px', marginBottom: 12 }}>
+            <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, minWidth: 0, lineHeight: 1.5 }}>{loadError}</span>
+            <button onClick={() => setLoadTick((n) => n + 1)} style={{ ...scopeBtn, border: '1px solid rgba(255,69,69,0.5)', color: '#FF4545' }}>Retry</button>
+            <button onClick={onClose} style={{ ...scopeBtn, color: C.muted }}>Close</button>
+          </div>
+        ) : flow === null ? (
           <div style={{ fontSize: 12, color: C.muted, padding: '18px 0', textAlign: 'center' }}>Loading sections…</div>
         ) : (
           <>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', marginBottom: 12 }}>
-              {/* LEFT — Master Parts menu */}
-              <div style={{ flex: '0 0 38%', minWidth: 0 }}>
-                <div style={{ fontSize: 10, color: C.faint, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>Master parts — click or drag in</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {runs.map((run) => {
-                    const list = run.cues;
-                    const firstLine = String(list[0]?.text || '').split('\n').find((l) => l.trim()) || '';
-                    const occ = run.total > 1 ? ` #${run.occurrence}` : '';
-                    return (
-                      <div
-                        key={run.key}
-                        draggable
-                        onDragStart={(e) => startAdd(e, run)}
-                        onDragEnd={() => setDropAt(null)}
-                        onClick={() => { if (Date.now() - lastDragAtRef.current > 350) appendRun(run); }}
-                        title="Click to append · drag into the flow"
-                        style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 9, padding: '8px 10px', cursor: 'grab', display: 'flex', alignItems: 'center', gap: 8 }}
-                      >
-                        <GripVertical size={13} color={C.faint} style={{ flexShrink: 0 }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12.5, fontWeight: 800, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            <span style={{ color: ACCENT }}>{abbrevSection(run.part)}{occ}</span> · {run.part}
-                          </div>
-                          <div style={{ fontSize: 10.5, color: C.muted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{list.length} slide{list.length === 1 ? '' : 's'} · {firstLine}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {!runs.length && <div style={{ fontSize: 11.5, color: C.faint2 }}>No sections found.</div>}
-                </div>
-              </div>
-
-              {/* RIGHT — Service Flow timeline */}
-              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                <div style={{ fontSize: 10, color: C.faint, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>
-                  Service flow — {flow.length} block{flow.length === 1 ? '' : 's'} · {expandedCount} slide{expandedCount === 1 ? '' : 's'}
-                </div>
-                <div
-                  onDragOver={(e) => { e.preventDefault(); if (dropAt !== 'end') setDropAt('end'); }}
-                  onDragLeave={() => setDropAt((d) => (d === 'end' ? null : d))}
-                  onDrop={dropAtEnd}
-                  style={{ flex: 1, minHeight: 180, background: dropAt === 'end' ? 'rgba(255,184,0,0.10)' : C.elevated, border: '1px dashed ' + (dropAt === 'end' ? ACCENT : 'var(--ui-border2)'), borderRadius: 10, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, overflowY: 'auto', maxHeight: 340 }}
-                >
-                  {flow.map((entry, i) => {
-                    const list = cuesOf(entry);
-                    return (
-                      <div key={entry.key}>
-                        {dropAt === i && <div style={{ height: 3, borderRadius: 3, background: ACCENT, margin: '1px 2px' }} />}
-                        <div
-                          data-flow-entry={i}
-                          draggable
-                          onDragStart={(e) => startMove(e, i)}
-                          onDragEnd={() => setDropAt(null)}
-                          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (dropAt !== i) setDropAt(i); }}
-                          onDrop={(e) => dropOnEntry(e, i)}
-                          style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '7px 8px', cursor: 'grab' }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontSize: 11, fontWeight: 800, color: ACCENT, width: 18, textAlign: 'right', flexShrink: 0 }}>{i + 1}.</span>
-                            <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 800, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {entryLabel(entry)}
-                            </div>
-                            <button onClick={() => move(i, -1)} title="Move up" style={btn}><ChevronUp size={13} /></button>
-                            <button onClick={() => move(i, 1)} title="Move down" style={btn}><ChevronDown size={13} /></button>
-                            <button onClick={() => removeAt(i)} title="Drop from the flow" style={{ ...btn, color: '#FF4545' }}><Trash2 size={13} /></button>
-                          </div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6, paddingLeft: 24 }}>
-                            {list.map((c, si) => (
-                              <span key={c.id ?? `${entry.key}-${si}`} title={String(c.text || '').split('\n')[0] || ''} style={{ fontSize: 10, fontWeight: 700, color: C.muted, background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 5, padding: '1px 7px' }}>
-                                {si + 1}
-                              </span>
-                            ))}
-                            {!list.length && <span style={{ fontSize: 10.5, color: '#FF4545' }}>section gone from song — re-pick below</span>}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {!flow.length && (
-                    <div style={{ fontSize: 12, color: C.muted, padding: '26px 10px', textAlign: 'center' }}>Drag sections here — or click them on the left.</div>
-                  )}
-                </div>
-              </div>
+            <FlowEditor
+              song={details}
+              flow={flow}
+              onChange={applyFlow}
+              layout="split"
+              emptyText="Drag sections here — or click them on the left."
+              headerExtra={(
+                <>
+                  {dirty && <span style={{ fontSize: 9, fontWeight: 800, color: ACCENT, background: 'rgba(255,184,0,0.14)', border: '1px solid rgba(255,184,0,0.4)', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>UNSAVED</span>}
+                  <button
+                    onClick={undo}
+                    disabled={!historyRef.current.length}
+                    title="Undo the last change (Ctrl/Cmd+Z)"
+                    style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: historyRef.current.length ? C.text2 : C.faint, borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 3, opacity: historyRef.current.length ? 1 : 0.5, cursor: historyRef.current.length ? 'pointer' : 'default', flexShrink: 0 }}
+                  >
+                    <Undo2 size={11} /> Undo
+                  </button>
+                </>
+              )}
+            />
+            <div style={{ fontSize: 10.5, color: C.muted, margin: '8px 0 12px', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <span>{flow.length} block{flow.length === 1 ? '' : 's'}</span>
+              <span>·</span>
+              <span>{expandedCount} slide{expandedCount === 1 ? '' : 's'} on screen</span>
             </div>
 
             {/* Tidy slides: re-chunk the library song into singable slides */}
@@ -357,20 +383,19 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
                   style={{ background: linesPer === n ? ACCENT : C.elevated2, border: '1px solid ' + (linesPer === n ? ACCENT : 'var(--ui-border2)'), color: linesPer === n ? '#1C1C1E' : C.muted, borderRadius: 6, padding: '4px 11px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer' }}
                 >{n}</button>
               ))}
-              <span style={{ fontSize: 10.5, color: C.muted, flex: 1, minWidth: 0 }}>lines per slide — rebuilds the song</span>
+              <span style={{ fontSize: 10.5, color: C.muted, flex: 1, minWidth: 0 }}>lines per slide — rebuilds the library song, not this arrangement</span>
               <button onClick={tidy} disabled={tidying} style={{ background: tidying ? C.elevated2 : ACCENT, border: 'none', color: tidying ? C.muted: '#1C1C1E', borderRadius: 7, padding: '7px 14px', fontSize: 11.5, fontWeight: 800, cursor: tidying ? 'default' : 'pointer' }}>
                 {tidying ? 'Rebuilding…' : 'Apply'}
               </button>
             </div>
 
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={reset} title="Each section once, song order" style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, padding: '10px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><RotateCcw size={13} /> Reset</button>
-              {existing != null && (
-                <button onClick={() => save(true)} title="Forget the custom flow — plain song again" style={{ background: 'transparent', border: '1px solid rgba(255,69,69,0.5)', color: '#FF4545', borderRadius: 8, padding: '10px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>Remove</button>
-              )}
+              <button onClick={reset} title="Library order — every section once, top to bottom. Not the Song Editor's sequence." style={{ background: 'transparent', border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, padding: '10px 12px', fontSize: 12, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}><RotateCcw size={13} /> Library order</button>
               <span style={{ flex: 1 }} />
               <button onClick={maybeClose} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, padding: '10px 18px', fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={() => save(false)} disabled={!flow.length} style={{ background: flow.length ? ACCENT : C.elevated2, border: 'none', color: flow.length ? '#1C1C1E' : C.muted, borderRadius: 8, padding: '10px 18px', fontSize: 12.5, fontWeight: 800, cursor: flow.length ? 'pointer' : 'default' }}>Save Arrangement</button>
+              <button onClick={() => save(false)} disabled={!flow.length} style={{ background: flow.length ? ACCENT : C.elevated2, border: 'none', color: flow.length ? '#1C1C1E' : C.muted, borderRadius: 8, padding: '10px 18px', fontSize: 12.5, fontWeight: 800, cursor: flow.length ? 'pointer' : 'default' }}>
+                {saveScope === 'song' ? 'Save Song Order' : 'Save Arrangement'}
+              </button>
             </div>
           </>
         )}

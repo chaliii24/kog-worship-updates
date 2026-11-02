@@ -14,6 +14,7 @@ export function defaultArrangement(song) {
 }
 
 const normPart = (part) => String(part || '').trim().toLowerCase();
+const occurrenceOf = (entry) => (Number.isInteger(entry?.occurrence) && entry.occurrence > 0 ? entry.occurrence : 1);
 
 // A song can contain the SAME section more than once (Chorus before and
 // after Verse 2, a repeated Bridge, …). Matching blocks by section name alone
@@ -56,6 +57,167 @@ export function songSectionRuns(song) {
 export function normalizeArrangement(order, song) {
   const have = new Set((song?.cues || []).map((c) => c.id).filter((id) => id != null));
   return (Array.isArray(order) ? order : []).filter((id) => have.has(id));
+}
+
+// SONG-LEVEL SEQUENCE — the song editor's Sequence tab stores an ordered list
+// of SECTION LABELS on the song itself (songs.arrangement_json). Unlike a
+// service-row arrangement it belongs to the song, so it has to resolve here
+// too or the wall would keep playing library order.
+//
+// Same run rule as songSectionRuns, and the same label normalization the editor
+// uses ("Chorus (Part 2)" and "Verse 1a" fold onto their section): the Nth
+// mention of a section plays the Nth RUN of it, so V1 · C · V1 repeats the two
+// real verse runs instead of expanding every verse twice. A label that no
+// longer exists is skipped, never fatal. No sequence → [] so callers fall back
+// to the song's own cue order.
+const normSection = (label) => String(label == null ? '' : label)
+  .replace(/\s*\(Part\s+\d+\)\s*$/i, '')
+  .replace(/(?<=[\s0-9])[A-Za-z]$/, '')
+  .trim()
+  .toLowerCase();
+
+export function songSequenceCues(song) {
+  const raw = Array.isArray(song?.arrangement) ? song.arrangement : [];
+  if (!raw.length) return [];
+  // New shape: the song stores the SAME {part, occurrence} flow the row
+  // arrangements store, so "Chorus #2" is an explicit block instead of the
+  // Nth mention of a label. Resolve it through the real section runs.
+  if (raw.some((e) => e && typeof e === 'object')) {
+    // Walk in FLOW order, not run order: a sequence that plays the chorus
+    // before the first verse must not come back sorted by the library.
+    const byRun = new Map();
+    for (const run of songSectionRuns(song)) {
+      const k = normPart(run.part);
+      if (!byRun.has(k)) byRun.set(k, []);
+      byRun.get(k).push(run);
+    }
+    const ordered = [];
+    for (const e of raw) {
+      const list = byRun.get(normPart(e?.part));
+      if (!list || !list.length) continue;
+      const idx = Math.max(0, Math.min(occurrenceOf(e) - 1, list.length - 1));
+      ordered.push(...list[idx].cues);
+    }
+    return ordered;
+  }
+  const labels = raw;
+  const runs = [];
+  for (const cue of song?.cues || []) {
+    const k = normSection(cue?.label);
+    const last = runs[runs.length - 1];
+    if (last && last.k === k) last.cues.push(cue);
+    else runs.push({ k, cues: [cue] });
+  }
+  if (!runs.length) return [];
+  const byPart = new Map();
+  for (const run of runs) {
+    if (!byPart.has(run.k)) byPart.set(run.k, []);
+    byPart.get(run.k).push(run);
+  }
+  const used = new Map();
+  const out = [];
+  for (const label of labels) {
+    const k = normSection(label);
+    const list = byPart.get(k);
+    if (!list || !list.length) continue;
+    const n = used.get(k) || 0;
+    used.set(k, n + 1);
+    out.push(...list[Math.min(n, list.length - 1)].cues);
+  }
+  return out;
+}
+
+// The slides a song plays, sequence first, library cue order as the fallback.
+// Every surface that lists or counts a song's slides goes through this so the
+// tiles, the totals and the wall can never disagree.
+export function songFlowCues(song) {
+  const own = songSequenceCues(song);
+  return own.length ? own : (song?.cues || []);
+}
+
+// The song editor's Sequence tab as a section flow — the same shape the
+// arrangement modal edits and saves ("starting from the song's own order").
+// Nth mention of a section resolves to the Nth run of it, exactly like
+// songSequenceCues, so a label list becomes occurrence-exact blocks.
+export function sequenceToFlow(song) {
+  const raw = Array.isArray(song?.arrangement) ? song.arrangement : [];
+  if (!raw.length) return [];
+  // Already a flow (the shape the editor writes now): validate it against the
+  // song as it is today and keep the stored order + occurrence.
+  if (raw.some((e) => e && typeof e === 'object')) {
+    const runs = songSectionRuns(song);
+    const byPart = new Map();
+    for (const run of runs) {
+      const k = normPart(run.part);
+      if (!byPart.has(k)) byPart.set(k, []);
+      byPart.get(k).push(run);
+    }
+    const out = [];
+    for (const e of raw) {
+      const part = String(e?.part || '').trim();
+      if (!part) continue;
+      const list = byPart.get(normPart(part));
+      if (!list || !list.length) continue; // section gone from the song
+      const run = list[Math.max(0, Math.min(occurrenceOf(e) - 1, list.length - 1))];
+      out.push({ part: run.part, occurrence: run.occurrence });
+    }
+    return out;
+  }
+  const labels = raw;
+  const runs = songSectionRuns(song);
+  if (!runs.length) return [];
+  const byPart = new Map();
+  for (const run of runs) {
+    const k = normPart(run.part);
+    if (!byPart.has(k)) byPart.set(k, []);
+    byPart.get(k).push(run);
+  }
+  const used = new Map();
+  const out = [];
+  for (const label of labels) {
+    const k = normSection(label);
+    const list = byPart.get(k);
+    if (!list || !list.length) continue;
+    const n = used.get(k) || 0;
+    used.set(k, n + 1);
+    const run = list[Math.min(n, list.length - 1)];
+    out.push({ part: run.part, occurrence: run.occurrence });
+  }
+  return out;
+}
+
+// Cue ids of the song's own sequence — what flattenMedley wants for a song
+// that carries a custom order into a medley.
+export function songSequenceIds(song) {
+  return songSequenceCues(song).map((c) => c.id).filter((id) => id != null);
+}
+
+// How many slides this song puts on the wall: its title card plus every slide
+// in its own sequence, or the plain cue list when no sequence is saved. Every
+// counter (service row, builder totals, plan readouts) must go through this —
+// counting `cues.length` made a sequenced song read short by the repeats the
+// operator added, and the two numbers then disagreed about the same song.
+export function songSlideTotal(song) {
+  if (!song) return 0;
+  return songFlowCues(song).length + 1;
+}
+
+// The slides a song plays under a SPECIFIC saved arrangement (a service row's,
+// or a Shows-builder item's), title card excluded. Without one it is the
+// song's own order. Tiles, counters and Go all go through these two so the
+// builder can never preview one order and play another.
+const hasArrangement = (arr) => !!(arr && ((Array.isArray(arr.flow) && arr.flow.length) || (Array.isArray(arr.order) && arr.order.length)));
+
+export function arrangedSongCues(song, arr) {
+  if (!song) return [];
+  if (!hasArrangement(arr)) return songFlowCues(song);
+  const byId = new Map((song.cues || []).map((c) => [c.id, c]));
+  return resolveArrangementFlow(song, arr).map((id) => byId.get(id)).filter(Boolean);
+}
+
+export function arrangedSongSlideTotal(song, arr) {
+  if (!song) return 0;
+  return arrangedSongCues(song, arr).length + 1;
 }
 
 // Resolve ANY saved arrangement shape to a cue-id play order:

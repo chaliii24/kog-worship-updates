@@ -583,7 +583,7 @@ export default function CenterWorkspace() {
             {arrangementStatus && !slideGrid[0]?.medTitle ? (
               <>
                 <span aria-hidden="true">·</span>
-                <span title="Custom play order from the service row">Arrangement {arrangementStatus.pos != null ? `${arrangementStatus.pos}/${arrangementStatus.total}` : `${arrangementStatus.total} steps`}</span>
+                <span title="Custom play order — the song's own sequence, or this service row's arrangement">Arrangement {arrangementStatus.pos != null ? `${arrangementStatus.pos}/${arrangementStatus.total}` : `${arrangementStatus.total} steps`}</span>
               </>
             ) : null}
             {activeCue && activeCue.id !== 'clear' && activeSlideIndex >= 0 ? (

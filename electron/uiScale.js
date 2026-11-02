@@ -19,11 +19,22 @@
 //     zoom = min(windowW / 1669, windowH / 904)
 //
 // Every screen then renders THE SAME design, scaled to fit its panel:
-//   • 1920x1080  -> 1.15  (unchanged — the reference look)
+//   • 1920x1080  -> 1.00  (capped — see below)
 //   • 1366x728   -> 0.80  -> 1708 x 910 CSS px: full design, nothing clipped
-//   • 2560x1440  -> 1.53  -> same design, physically larger on a bigger panel
+//   • 2560x1440  -> 1.00  (capped — the panel simply has more room to give)
 // The min() across BOTH axes is what guarantees nothing is cut off: a
 // resolution never gets to fill one axis at the expense of the other.
+//
+// WHY THE CEILING IS 1.00 AND NOT 1.15
+// The fit used to scale UP on big panels (1920x1080 booted at 1.15), which
+// read as "the app is zoomed in" on the operator's desktop while the 1366
+// laptop — running at 0.80 — looked correct. Above 100% the fit only ever
+// makes things bigger than they are designed to be, and it costs layout
+// room instead of gaining it. So the rule now shrinks to fit and never
+// enlarges: every screen boots at 100% or smaller, and a panel bigger than
+// the design just gets surrounding room. Below 100% nothing changed — the
+// 1366 laptop keeps its 0.80 fit, because 1.00 there is exactly the clipping
+// this file was written to fix.
 //
 // WHY NO devicePixelRatio
 // Electron window bounds are already DIP (physical / scaleFactor), and CSS
@@ -40,7 +51,10 @@ export const UI_DESIGN_HEIGHT = 904;
 // (1024x640) still fits the design above this, so the floor only ever bites
 // for sizes the window itself refuses to go to.
 export const UI_ZOOM_FLOOR = 0.55;
-export const UI_ZOOM_CEILING = 3;
+// 1.00, not 3: the operator console is designed at 100% — the fit may shrink
+// it to fit a small panel, but it must never blow it up past the design.
+// Verified for 1920x1080 and 1366x768 by test-responsive-scale.mjs.
+export const UI_ZOOM_CEILING = 1;
 
 /**
  * Zoom factor that fits the console's design into a window of this size.
