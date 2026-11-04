@@ -29,6 +29,15 @@ export default function MessageCenter({
     }
   }, [activeConv, loadConversationMessages, markConversationRead]);
 
+  // Real-time read receipts: mark incoming messages read as they arrive while
+  // the conversation is open, without requiring the chat to be reopened.
+  useEffect(() => {
+    if (!activeConv) return;
+    const msgs = messagesByConv ? (messagesByConv[activeConv] || []) : [];
+    const hasUnreadIncoming = msgs.some((m) => m.senderId !== 'operator' && m.status !== 'read' && m.status !== 'acknowledged');
+    if (hasUnreadIncoming) markConversationRead(activeConv);
+  }, [activeConv, messagesByConv, markConversationRead]);
+
   const convList = Array.isArray(conversations) ? conversations : [];
   const deviceFor = (convId) => (connectedDevices || []).find((d) => d.deviceId === convId);
   const msgs = activeConv ? (messagesByConv[activeConv] || []) : [];

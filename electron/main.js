@@ -62,6 +62,7 @@ import {
   getQuickReplies,
   saveQuickReply,
   deleteQuickReply,
+  cleanupOldMessages,
 } from './database.js';
 import { createLanServer } from './lanServer.js';
 import { status as decklinkStatus, listDevices as decklinkListDevices, start as decklinkStart, stop as decklinkStop } from './decklink.js';
@@ -695,6 +696,10 @@ app.whenReady().then(() => {
   serveMediaProtocol();
   createWindow();
 
+  // Auto-delete remote messages older than 3 hours, including after restart.
+  try { cleanupOldMessages(); } catch {}
+  setInterval(() => { try { cleanupOldMessages(); } catch {} }, 15 * 60 * 1000);
+
   // Electron ships a default application menu whose Edit section binds Undo
   // to CmdOrCtrl+Z and Redo to Ctrl+Y — the exact keys the Song Editor now
   // owns for its own whole-song history. Native undo touches only the focused
@@ -737,6 +742,7 @@ app.whenReady().then(() => {
     else electronLog.warn('[lan] not running (port', i.port, 'unavailable)');
   }).catch(() => {});
 
+  app.on('before-quit', () => { try { cleanupOldMessages(); } catch {} });
   app.on('before-quit', () => { try { lan.stop(); } catch { /* noop */ } });
   // Kill a running DeckLink SDI mirror (child ffmpeg) with the app.
   app.on('before-quit', () => { try { decklinkStop(); } catch { /* noop */ } });

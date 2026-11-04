@@ -839,3 +839,9 @@ export function saveQuickReply(owner, label, text) {
 export function deleteQuickReply(id) {
   db.prepare('DELETE FROM quick_replies WHERE id = ?').run(id);
 }
+
+// Auto-cleanup: remove messages older than maxAgeMs (default 3 hours).
+export function cleanupOldMessages(maxAgeMs = 3 * 60 * 60 * 1000) {
+  const cutoff = Date.now() - maxAgeMs;
+  try { db.prepare('DELETE FROM messages WHERE timestamp < ?').run(cutoff); } catch (e) { /* noop */ }
+}
