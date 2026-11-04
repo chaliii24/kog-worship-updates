@@ -308,6 +308,7 @@ export default function App() {
   const [messageCenterOpen, setMessageCenterOpen] = useState(false);
   const [unreadTotal, setUnreadTotal] = useState(0);
   const [urgentBanner, setUrgentBanner] = useState(null); // {message, conversationId}
+  const [normalBanner, setNormalBanner] = useState(null); // {message, conversationId}
   const messagesRef = useRef({ conversations, messagesByConv });
   messagesRef.current = { conversations, messagesByConv };
   // Mirror for the song-editor live-sync below: it runs from a debounce timer,
@@ -5434,7 +5435,9 @@ export default function App() {
             setTimeout(() => { try { ctx.close(); } catch {} }, 300);
           } catch {}
         } else {
-          try { toast.add({ type: 'info', title: `Message from ${m.senderName || 'Remote'}`, description: String(m.content).slice(0, 80) }); } catch {}
+          // Normal/important: green banner that fades after 3 seconds.
+          setNormalBanner({ message: m, conversationId: m.conversationId });
+          setTimeout(() => setNormalBanner(null), 3000);
         }
       } else if (ev.type === 'msg-out') {
         const m = ev.message;
@@ -7461,6 +7464,20 @@ export default function App() {
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{urgentBanner.message.content}</span>
           <button onClick={() => { setMessageCenterOpen(true); setUrgentBanner(null); }} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>Reply</button>
           <button onClick={() => setUrgentBanner(null)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}>✕</button>
+        </motion.div>
+      )}
+      </AnimatePresence>
+
+      {/* Normal/important message banner (green, fades after 3s) */}
+      <AnimatePresence>
+      {normalBanner && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+          style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 99998, background: '#22c55e', color: '#0a1a0f', padding: '10px 18px', borderRadius: 10, boxShadow: '0 8px 30px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', gap: 12, maxWidth: '80vw' }}
+        >
+          <span style={{ fontWeight: 800 }}>Message:</span>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{normalBanner.message.content}</span>
+          <button onClick={() => { setMessageCenterOpen(true); setNormalBanner(null); }} style={{ background: 'rgba(0,0,0,0.15)', border: 'none', color: '#0a1a0f', padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>Reply</button>
         </motion.div>
       )}
       </AnimatePresence>
