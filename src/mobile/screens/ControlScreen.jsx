@@ -4,6 +4,7 @@ import { SkipBack, SkipForward, Type, Square, RotateCcw, Music, Image, MonitorPl
 import { stubTap } from '../../lib/anim.js';
 import { computeCountdown, DEFAULT_COUNTDOWN } from '../../components/CountdownFace.jsx';
 import MiniSlide from './MiniSlide.jsx';
+import ProjectorDisplay from '../../components/ProjectorDisplay.jsx';
 import BibleScreen from './BibleScreen.jsx';
 import DrawScreen from './DrawScreen.jsx';
 
@@ -178,17 +179,18 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
         <div style={{ background: C.elevated, border: `1px solid ${onAir ? 'rgba(54,201,130,0.4)' : C.border2}`, borderRadius: 16, padding: 14, position: 'relative', overflow: 'hidden' }}>
           {onAir && <div style={{ position: 'absolute', left: 0, top: 12, bottom: 12, width: 3, borderRadius: 3, background: '#36C982' }} />}
           {hasPicture || live?.timer ? (
-            <MiniSlide
-              C={C}
-              text={live?.text || ''}
-              style={live?.style || null}
-              timer={live?.timer || null}
-              presentation={deckOnAir ? live.presentation : null}
-              aspect={outCssAspect}
-              aspectBadge={outAspect}
-              badge={`Current${live?.label ? ` · ${live.label}` : ''}`}
-              draw={state?.draw?.strokes || null}
-            />
+            <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', overflow: 'hidden', borderRadius: 10, background: '#000' }}>
+              <ProjectorDisplay
+                currentSlide={live}
+                C={C}
+                aspect={outAspect}
+                framed={true}
+                frameAspect="16:9"
+                overlay={state?.overlay || null}
+                draw={state?.draw || null}
+                lift={0}
+              />
+            </div>
           ) : (
             <div style={{ marginLeft: 8, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
               <span style={{ fontSize: 15, fontWeight: 800, color: C.muted }}>{onAir ? 'Background only — no lyrics' : 'Output is cleared'}</span>
@@ -204,7 +206,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
         </div>
 
         {/* ── NEXT : miniature of the coming slide ─────────────────────── */}
-        <div style={{ background: C.panel, border: `1px solid ${C.border2}`, borderRadius: 16, padding: 13 }}>
+        <div style={{ background: '#0f172a', border: `1px solid #334155`, borderRadius: 16, padding: 13 }}>
           {nextCue ? (
             <>
               <MiniSlide
@@ -558,7 +560,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
             <RotateCcw size={16} /> Back
           </motion.button>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.35fr', gap: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 8, alignItems: 'stretch' }}>
           <motion.button {...stubTap} onClick={() => send('prev')} style={{ ...bigBtn(C), background: C.elevated2, color: C.text, border: `1px solid ${C.border2}` }}>
             <SkipBack size={22} /> Prev
           </motion.button>
