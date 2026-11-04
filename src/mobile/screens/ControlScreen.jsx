@@ -5,6 +5,7 @@ import { stubTap } from '../../lib/anim.js';
 import { computeCountdown, DEFAULT_COUNTDOWN } from '../../components/CountdownFace.jsx';
 import MiniSlide from './MiniSlide.jsx';
 import ProjectorDisplay from '../../components/ProjectorDisplay.jsx';
+import { mediaUrl } from '../link.js';
 import BibleScreen from './BibleScreen.jsx';
 import DrawScreen from './DrawScreen.jsx';
 
@@ -60,6 +61,12 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
   }, [timerRunning, cdTicking]);
 
   const live = state?.live || null;
+  // Convert media:// backgrounds to LAN URLs so the projector preview renders
+  // them on the phone (ProjectorDisplay can't resolve media:// on its own).
+  const mobileLive = live ? { ...live, style: live.style ? { ...live.style, backgroundValue:
+    (live.style.backgroundType === 'image' || live.style.backgroundType === 'video')
+      ? (mediaUrl(live.style.backgroundValue) || live.style.backgroundValue)
+      : live.style.backgroundValue } : live.style } : null;
   const cues = state?.song?.cues || [];
   const activeIdx = cues.findIndex(c => c.id === state?.activeCueId);
   const activeCue = activeIdx >= 0 ? cues[activeIdx] : null;
@@ -182,7 +189,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
             <MiniSlide
               C={C}
               text={live?.text || ''}
-              style={live?.style || null}
+              style={live?.style || (state?.song ? { backgroundType: state.song.bg_type || 'color', backgroundValue: state.song.bg_value || '#000000', lyric: live?.style?.lyric } : null)}
               timer={live?.timer || null}
               presentation={deckOnAir ? live.presentation : null}
               aspect={outCssAspect}
@@ -211,7 +218,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
               <MiniSlide
                 C={C}
                 text={nextCue.text || ''}
-                style={live?.style || null}
+                style={live?.style || (state?.song ? { backgroundType: state.song.bg_type || 'color', backgroundValue: state.song.bg_value || '#000000', lyric: live?.style?.lyric } : null)}
                 timer={null}
                 presentation={null}
                 aspect={outCssAspect}
@@ -442,7 +449,7 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
             <MiniSlide
               C={C}
               text={live?.text || ''}
-              style={live?.style || null}
+              style={live?.style || (state?.song ? { backgroundType: state.song.bg_type || 'color', backgroundValue: state.song.bg_value || '#000000', lyric: live?.style?.lyric } : null)}
               timer={live?.timer || null}
               presentation={deckOnAir ? live.presentation : null}
               aspect={outCssAspect}
