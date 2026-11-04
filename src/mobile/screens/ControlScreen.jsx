@@ -155,8 +155,8 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
       {/* STAGE ROLE ROW: mirrors the chip row on the Stage screen (shared
           localStorage key). Handy on shared Control phones — switch role
           here, then hop to Singer view already set. */}
-      <div style={{ padding: '0 14px 10px', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1, textTransform: 'uppercase', color: C.muted, flexShrink: 0 }}>Stage role</span>
+      <div style={{ display: 'none' }}>
+        <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1, textTransform: 'uppercase', color: C.muted, flexShrink: 0 }}>Stage role (hidden)</span>
         <div style={{ display: 'flex', gap: 5, flex: 1, minWidth: 0 }}>
           {[['follow', 'Follow'], ['pastor', 'Pastor'], ['worship', 'Worship'], ['drummer', 'Drummer']].map(([id, lbl]) => {
             const on = stageRole === id;
@@ -179,18 +179,17 @@ export default function ControlScreen({ C, T, state, status, send, onSwitchRole 
         <div style={{ background: C.elevated, border: `1px solid ${onAir ? 'rgba(54,201,130,0.4)' : C.border2}`, borderRadius: 16, padding: 14, position: 'relative', overflow: 'hidden' }}>
           {onAir && <div style={{ position: 'absolute', left: 0, top: 12, bottom: 12, width: 3, borderRadius: 3, background: '#36C982' }} />}
           {hasPicture || live?.timer ? (
-            <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', overflow: 'hidden', borderRadius: 10, background: '#000' }}>
-              <ProjectorDisplay
-                currentSlide={live}
-                C={C}
-                aspect={outAspect}
-                framed={true}
-                frameAspect="16:9"
-                overlay={state?.overlay || null}
-                draw={state?.draw || null}
-                lift={0}
-              />
-            </div>
+            <MiniSlide
+              C={C}
+              text={live?.text || ''}
+              style={live?.style || null}
+              timer={live?.timer || null}
+              presentation={deckOnAir ? live.presentation : null}
+              aspect={outCssAspect}
+              aspectBadge={outAspect}
+              badge={`Current${live?.label ? ` · ${live.label}` : ''}`}
+              draw={state?.draw?.strokes || null}
+            />
           ) : (
             <div style={{ marginLeft: 8, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
               <span style={{ fontSize: 15, fontWeight: 800, color: C.muted }}>{onAir ? 'Background only — no lyrics' : 'Output is cleared'}</span>
