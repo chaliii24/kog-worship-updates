@@ -49,7 +49,24 @@ function writeToken(token) {
   } catch { /* private mode */ }
 }
 
-export function createLink({ role, onState, onStatus }) {
+const DEVICE_ID_KEY = 'kog-device-id';
+const DEVICE_NAME_KEY = 'kog-device-name';
+function getDeviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) { id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : ('dev-' + Math.random().toString(36).slice(2)); localStorage.setItem(DEVICE_ID_KEY, id); }
+    return id;
+  } catch { return 'dev-' + Math.random().toString(36).slice(2); }
+}
+function getDeviceName() {
+  try {
+    let n = localStorage.getItem(DEVICE_NAME_KEY);
+    if (!n) { n = 'Remote ' + getDeviceId().slice(0, 4); localStorage.setItem(DEVICE_NAME_KEY, n); }
+    return n;
+  } catch { return 'Remote'; }
+}
+
+export function createLink({ role, onState, onStatus, onMessage }) {
   let ws = null;
   let wantOpen = true;
   let attempt = 0;
@@ -142,6 +159,12 @@ export function createLink({ role, onState, onStatus }) {
           authed = true;
           if (msg.token) writeToken(msg.token);
           setStatus('online');
+          // Announce device identity for messaging.
+          try {
+            const devId = getDeviceId();
+            const devName = getDeviceName();
+            send({ t: 'hello', deviceId: devId, deviceName: devName });
+          } catch {}
         } else {
           authed = false;
           if (msg.reason === 'pin' || !msg.reason) setStatus('need-pin');
@@ -153,6 +176,9 @@ export function createLink({ role, onState, onStatus }) {
       }
       if (msg.t === 'state') {
         try { onState(msg.data); } catch { /* noop */ }
+      }
+      if (msg.t === 'msg' || msg.t === 'msg-ack' || msg.t === 'msg-status' || msg.t === 'hello-ack') {
+        try { onMessage && onMessage(msg); } catch { /* noop */ }
       }
     };
 
@@ -189,6 +215,9 @@ export function createLink({ role, onState, onStatus }) {
 
   return {
     send: (cmd, payload) => send({ t: 'cmd', cmd, payload }),
+    sendMessage: (msg) => send({ t: 'msg', ...msg }),
+    sendStatus: (id, status, extra = {}) => send({ t: 'msg-status', id, status, ...extra }),
+    sendAck: (id) => send({ t: 'msg-ack', id }),
     submitPin: (pin) => send({ t: 'pin', pin: String(pin || '').trim() }),
     retry: () => {
       clearTimeout(reconnectTimer);

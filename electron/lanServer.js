@@ -95,6 +95,9 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
   let lastState = null;
   let onCommand = null;
   let commandPort = null; // forwards a phone command to the renderer
+  let onMessage = null;   // forwards a phone message to the renderer
+  let onDeviceConnect = null;
+  let onDeviceDisconnect = null;
 
   const pairing = { secret: '', tokens: [] };
   let pin = '000000';
@@ -415,6 +418,46 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
       return;
     }
 
+    // Device identity: paired phones announce themselves so the operator can
+    // address replies to the right person and keep conversations separate.
+    if (msg.t === 'hello') {
+      sock.kogDeviceId = String(msg.deviceId || '').slice(0, 64);
+      sock.kogDeviceName = String(msg.deviceName || 'Remote').slice(0, 64);
+      if (sock.kogDeviceId) {
+        try { onDeviceConnect && onDeviceConnect({ deviceId: sock.kogDeviceId, deviceName: sock.kogDeviceName, role: sock.kogRole }); } catch {}
+      }
+      try { sock.send(JSON.stringify({ t: 'hello-ack', deviceId: sock.kogDeviceId })); } catch {}
+      return;
+    }
+
+    // Two-way messaging: a phone submits a message to the operator.
+    if (msg.t === 'msg') {
+      if (!sock.kogAuthed || sock.kogRole !== 'control') {
+        try { sock.send(JSON.stringify({ t: 'ack', cmd: 'msg', ok: false, reason: 'forbidden' })); } catch {}
+        return;
+      }
+      const m = {
+        id: String(msg.id || crypto.randomUUID()),
+        conversationId: String(msg.conversationId || sock.kogDeviceId || 'unknown'),
+        senderId: sock.kogDeviceId || 'unknown',
+        senderName: sock.kogDeviceName || 'Remote',
+        recipientId: 'operator',
+        content: String(msg.content || '').slice(0, 4000),
+        priority: ['normal','important','urgent'].includes(msg.priority) ? msg.priority : 'normal',
+        timestamp: Number(msg.timestamp) || Date.now(),
+      };
+      try { onMessage && onMessage({ type: 'msg', device: { deviceId: sock.kogDeviceId, deviceName: sock.kogDeviceName }, message: m }); } catch (e) { log.error('[lan] onMessage failed:', e.message); }
+      return;
+    }
+
+    // Phone acknowledges / updates status of an operator message.
+    if (msg.t === 'msg-ack' || msg.t === 'msg-status') {
+      const id = String(msg.id || '');
+      if (!id) return;
+      try { onMessage && onMessage({ type: msg.t === 'msg-ack' ? 'msg-ack' : 'msg-status', device: { deviceId: sock.kogDeviceId, deviceName: sock.kogDeviceName }, id, status: msg.status, deliveredAt: msg.deliveredAt, readAt: msg.readAt, ackAt: msg.ackAt }); } catch {}
+      return;
+    }
+
     if (msg.t === 'pin') {
       if (Date.now() < pinLockedUntil) {
         try { sock.send(JSON.stringify({ t: 'auth', ok: false, reason: 'locked' })); } catch { /* noop */ }
@@ -465,11 +508,14 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
     }
   };
 
-  const start = ({ onCommand: cmdHandler } = {}) => {
+  const start = ({ onCommand: cmdHandler, onMessage: msgHandler, onDeviceConnect: devConn, onDeviceDisconnect: devDisc } = {}) => {
     // Always return a promise — callers chain .then/.catch on it.
     if (server) return Promise.resolve(info());
     onCommand = cmdHandler || null;
     commandPort = cmdHandler || null;
+    onMessage = msgHandler || null;
+    onDeviceConnect = devConn || null;
+    onDeviceDisconnect = devDisc || null;
     loadPairing();
     newPin();
 
@@ -489,7 +535,12 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
       sock.kogRole = 'none';
       sock.kogControl = false;
       sock.on('message', (raw) => handleMessage(sock, raw.toString()));
-      sock.on('close', () => { sockets.delete(sock); });
+      sock.on('close', () => {
+        sockets.delete(sock);
+        if (sock.kogDeviceId) {
+          try { onDeviceDisconnect && onDeviceDisconnect({ deviceId: sock.kogDeviceId, deviceName: sock.kogDeviceName }); } catch {}
+        }
+      });
       sock.on('error', () => { sockets.delete(sock); });
     });
 
@@ -557,6 +608,36 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
     firewallHint: `netsh advfirewall firewall add rule name="KOG Worship Remote" dir=in action=allow protocol=TCP localport=${PORT}`,
   });
 
+  const sendToDevice = (deviceId, obj) => {
+    const raw = JSON.stringify(obj);
+    let sent = 0;
+    for (const s of sockets) {
+      if (s.readyState === 1 && s.kogDeviceId === deviceId) {
+        try { s.send(raw); sent++; } catch {}
+      }
+    }
+    return sent > 0;
+  };
+  const sendToAllDevices = (obj) => {
+    const raw = JSON.stringify(obj);
+    let sent = 0;
+    for (const s of sockets) {
+      if (s.readyState === 1 && s.kogRole === 'control' && s.kogAuthed) {
+        try { s.send(raw); sent++; } catch {}
+      }
+    }
+    return sent;
+  };
+  const getDevices = () => {
+    const seen = new Map();
+    for (const s of sockets) {
+      if (s.kogRole === 'control' && s.kogAuthed && s.kogDeviceId) {
+        seen.set(s.kogDeviceId, { deviceId: s.kogDeviceId, deviceName: s.kogDeviceName || 'Remote', connected: s.readyState === 1 });
+      }
+    }
+    return [...seen.values()];
+  };
+
   return {
     start,
     stop,
@@ -566,5 +647,8 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
     regeneratePin: () => newPin(),
     revokeAll,
     isRunning: () => !!server,
+    sendToDevice,
+    sendToAllDevices,
+    getDevices,
   };
 }

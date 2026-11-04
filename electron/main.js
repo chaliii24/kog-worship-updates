@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, dialog, protocol, shell, session, Menu, globalShortcut } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, dialog, protocol, shell, session, Menu, globalShortcut, Notification } from 'electron';
 import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import electronLog from 'electron-log';
@@ -55,6 +55,13 @@ import {
   deletePresentation,
   getBuiltinVideoAssets,
   getBuiltinPhotoAssets,
+  getMessages,
+  getAllConversations,
+  saveMessage,
+  updateMessageStatus,
+  getQuickReplies,
+  saveQuickReply,
+  deleteQuickReply,
 } from './database.js';
 import { createLanServer } from './lanServer.js';
 import { status as decklinkStatus, listDevices as decklinkListDevices, start as decklinkStart, stop as decklinkStop } from './decklink.js';
@@ -645,7 +652,28 @@ const lanCommandPort = ({ cmd, payload }) => {
 const startLan = async () => {
   let info = null;
   try {
-    info = await lan.start({ onCommand: lanCommandPort });
+    info = await lan.start({
+      onCommand: lanCommandPort,
+      onMessage: (ev) => {
+        if (ev && ev.type === 'msg') {
+          try {
+            const n = new Notification({ title: `Message from ${ev.message?.senderName || 'Remote'}`, body: String(ev.message?.content || '').slice(0, 200), urgency: ev.message?.priority === 'urgent' ? 'critical' : 'normal' });
+            n.on('click', () => { if (operatorWindow && !operatorWindow.isDestroyed()) { operatorWindow.restore(); operatorWindow.focus(); operatorWindow.webContents.send('mobile-message-open'); } });
+            n.show();
+          } catch {}
+        }
+        if (!operatorWindow || operatorWindow.isDestroyed()) return;
+        operatorWindow.webContents.send('mobile-message', ev);
+      },
+      onDeviceConnect: (d) => {
+        if (!operatorWindow || operatorWindow.isDestroyed()) return;
+        operatorWindow.webContents.send('mobile-device', { type: 'connect', ...d });
+      },
+      onDeviceDisconnect: (d) => {
+        if (!operatorWindow || operatorWindow.isDestroyed()) return;
+        operatorWindow.webContents.send('mobile-device', { type: 'disconnect', ...d });
+      },
+    });
   } catch (e) {
     electronLog.warn('[lan] start failed:', e.message);
     return null;
@@ -1901,6 +1929,120 @@ ipcMain.on('update-live-slide', (event, slideData) => {
 // change; main only stores it and fans it out to sockets.
 ipcMain.on('mobile-state', (event, snap) => {
   lan.setState(snap);
+});
+
+// ---------------------------------------------------------------------------
+// REMOTE MESSAGING IPC (desktop side)
+// ---------------------------------------------------------------------------
+ipcMain.handle('messages-get-conversations', () => {
+  try { return getAllConversations(); } catch (e) { electronLog.warn('[msg] get convs failed:', e.message); return []; }
+});
+ipcMain.handle('messages-get', (event, conversationId) => {
+  try { return getMessages(conversationId); } catch (e) { electronLog.warn('[msg] get failed:', e.message); return []; }
+});
+ipcMain.handle('messages-get-all', () => {
+  try { return getMessages(); } catch (e) { electronLog.warn('[msg] get all failed:', e.message); return []; }
+});
+ipcMain.handle('messages-save', (event, m) => {
+  try {
+    // normalize field names (db uses snake_case columns but saveMessage expects camelCase)
+    const nm = {
+      id: m.id,
+      conversationId: m.conversationId || m.conversation_id,
+      senderId: m.senderId || m.sender_id,
+      senderName: m.senderName || m.sender_name,
+      recipientId: m.recipientId || m.recipient_id,
+      content: m.content,
+      priority: m.priority,
+      status: m.status,
+      timestamp: m.timestamp,
+      deliveredAt: m.deliveredAt || m.delivered_at,
+      readAt: m.readAt || m.read_at,
+      ackAt: m.ackAt || m.ack_at,
+    };
+    saveMessage(nm);
+    return true;
+  } catch (e) { electronLog.warn('[msg] save failed:', e.message); return false; }
+});
+ipcMain.handle('messages-send', (event, payload) => {
+  // Desktop operator → a specific phone. Persist + forward.
+  try {
+    const m = {
+      id: payload.id || crypto.randomUUID(),
+      conversationId: payload.conversationId || payload.deviceId,
+      senderId: 'operator',
+      senderName: payload.senderName || 'Operator',
+      recipientId: payload.deviceId,
+      content: String(payload.content || '').slice(0, 4000),
+      priority: ['normal','important','urgent'].includes(payload.priority) ? payload.priority : 'normal',
+      status: 'sent',
+      timestamp: Date.now(),
+    };
+    saveMessage(m);
+    const sent = lan.sendToDevice(payload.deviceId, { t: 'msg', ...m });
+    if (!sent) { updateMessageStatus(m.id, 'failed'); m.status = 'failed'; }
+    // Notify renderer of the new outgoing message (already in DB).
+    if (operatorWindow && !operatorWindow.isDestroyed()) operatorWindow.webContents.send('mobile-message', { type: 'msg-out', message: m });
+    return m;
+  } catch (e) { electronLog.warn('[msg] send failed:', e.message); return null; }
+});
+ipcMain.handle('messages-mark-read', (event, { conversationId, reader } = {}) => {
+  try {
+    // Mark incoming messages in a conversation as read.
+    const msgs = getMessages(conversationId);
+    const now = Date.now();
+    for (const m of msgs) {
+      if (m.recipient_id === 'operator' && m.status !== 'read' && m.status !== 'acknowledged') {
+        updateMessageStatus(m.id, 'read', { readAt: now });
+        // notify originating device
+        // find device from conversationId
+        lan.sendToDevice(conversationId, { t: 'msg-status', id: m.id, status: 'read', readAt: now });
+      }
+    }
+    return true;
+  } catch (e) { electronLog.warn('[msg] mark-read failed:', e.message); return false; }
+});
+ipcMain.handle('messages-ack', (event, { id, status, extra } = {}) => {
+  try {
+    updateMessageStatus(id, status, extra || {});
+    return true;
+  } catch (e) { electronLog.warn('[msg] ack failed:', e.message); return false; }
+});
+ipcMain.handle('messages-get-devices', () => {
+  try { return lan.getDevices(); } catch (e) { return []; }
+});
+ipcMain.handle('mobile-send-status', (event, { deviceId, id, status, deliveredAt, readAt, ackAt }) => {
+  try {
+    lan.sendToDevice(deviceId, { t: 'msg-status', id, status, deliveredAt, readAt, ackAt });
+    return true;
+  } catch (e) { return false; }
+});
+ipcMain.handle('mobile-send-sync', (event, { deviceId }) => {
+  try {
+    const msgs = getMessages(deviceId);
+    const normalized = (Array.isArray(msgs) ? msgs : []).map((r) => ({
+      id: r.id,
+      conversationId: r.conversation_id,
+      senderId: r.sender_id,
+      senderName: r.sender_name,
+      recipientId: r.recipient_id,
+      content: r.content,
+      priority: r.priority,
+      status: r.status,
+      timestamp: r.timestamp,
+    }));
+    lan.sendToDevice(deviceId, { t: 'msg-sync', messages: normalized });
+    return true;
+  } catch (e) { return false; }
+});
+ipcMain.handle('quick-replies-get', (event, owner) => {
+  try { return getQuickReplies(owner); } catch (e) { return []; }
+});
+ipcMain.handle('quick-replies-add', (event, { owner, label, text }) => {
+  try { return saveQuickReply(owner, label, text); } catch (e) { return null; }
+});
+ipcMain.handle('quick-replies-delete', (event, id) => {
+  try { deleteQuickReply(id); return true; } catch (e) { return false; }
 });
 
 ipcMain.on('update-live-stage', (event, stageData) => {

@@ -729,3 +729,113 @@ export function savePresentation(deck) {
 export function deletePresentation(id) {
   db.prepare('DELETE FROM presentations WHERE id = ?').run(id);
 }
+
+// ---------------------------------------------------------------------------
+// REMOTE MESSAGING (two-way chat between phone remotes and the operator)
+// ---------------------------------------------------------------------------
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    sender_id TEXT NOT NULL,
+    sender_name TEXT,
+    recipient_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    priority TEXT NOT NULL DEFAULT 'normal',
+    status TEXT NOT NULL DEFAULT 'sent',
+    timestamp INTEGER NOT NULL,
+    delivered_at INTEGER,
+    read_at INTEGER,
+    ack_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id);
+  CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(timestamp);
+
+  CREATE TABLE IF NOT EXISTS quick_replies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner TEXT NOT NULL,
+    label TEXT NOT NULL,
+    text TEXT NOT NULL,
+    sort_order INTEGER DEFAULT 0
+  );
+`); } catch (e) { /* noop */ }
+
+try {
+  const c = db.prepare('SELECT COUNT(*) AS n FROM quick_replies').get().n;
+  if (!c) {
+    const ins = db.prepare('INSERT INTO quick_replies (owner, label, text, sort_order) VALUES (?,?,?,?)');
+    const op = [
+      ['Received.', 'Received.'],
+      ['Preparing now.', 'Preparing now.'],
+      ['Done.', 'Done.'],
+      ['Please standby.', 'Please standby.'],
+      ['Please clarify.', 'Please clarify.'],
+      ['Projector checked.', 'Projector checked.'],
+    ];
+    op.forEach((r, i) => ins.run('operator', r[0], r[1], i));
+    const rm = [
+      ['Thank you.', 'Thank you.'],
+      ['Go ahead.', 'Go ahead.'],
+      ['Standby.', 'Standby.'],
+      ['Please repeat.', 'Please repeat.'],
+      ['Understood.', 'Understood.'],
+    ];
+    rm.forEach((r, i) => ins.run('remote', r[0], r[1], i));
+  }
+} catch (e) { /* noop */ }
+
+export function getMessages(conversationId) {
+  if (conversationId) {
+    return db.prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC').all(conversationId);
+  }
+  return db.prepare('SELECT * FROM messages ORDER BY timestamp ASC').all();
+}
+
+export function getAllConversations() {
+  const rows = db.prepare(`
+    SELECT conversation_id, MAX(timestamp) AS last_ts
+    FROM messages GROUP BY conversation_id ORDER BY last_ts DESC
+  `).all();
+  return rows.map((r) => {
+    const last = db.prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp DESC LIMIT 1').get(r.conversation_id);
+    const unread = db.prepare("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND recipient_id = 'operator' AND status IN ('sent','delivered')").get(r.conversation_id).n;
+    return { conversationId: r.conversation_id, lastMessage: last, unread };
+  });
+}
+
+export function saveMessage(m) {
+  const existing = db.prepare('SELECT id FROM messages WHERE id = ?').get(m.id);
+  if (existing) {
+    db.prepare(`UPDATE messages SET status=?, delivered_at=?, read_at=?, ack_at=?, content=? WHERE id=?`)
+      .run(m.status || 'sent', m.deliveredAt || null, m.readAt || null, m.ackAt || null, m.content, m.id);
+    return m.id;
+  }
+  db.prepare(`INSERT INTO messages (id, conversation_id, sender_id, sender_name, recipient_id, content, priority, status, timestamp, delivered_at, read_at, ack_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(m.id, m.conversationId, m.senderId, m.senderName || null, m.recipientId, m.content, m.priority || 'normal', m.status || 'sent', m.timestamp || Date.now(), m.deliveredAt || null, m.readAt || null, m.ackAt || null);
+  return m.id;
+}
+
+export function updateMessageStatus(id, status, extra = {}) {
+  const sets = ['status = ?'];
+  const params = [status];
+  if (extra.deliveredAt !== undefined) { sets.push('delivered_at = ?'); params.push(extra.deliveredAt); }
+  if (extra.readAt !== undefined) { sets.push('read_at = ?'); params.push(extra.readAt); }
+  if (extra.ackAt !== undefined) { sets.push('ack_at = ?'); params.push(extra.ackAt); }
+  params.push(id);
+  db.prepare(`UPDATE messages SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+}
+
+export function getQuickReplies(owner) {
+  if (owner) return db.prepare('SELECT * FROM quick_replies WHERE owner = ? ORDER BY sort_order ASC, id ASC').all(owner);
+  return db.prepare('SELECT * FROM quick_replies ORDER BY owner ASC, sort_order ASC, id ASC').all();
+}
+
+export function saveQuickReply(owner, label, text) {
+  const res = db.prepare('INSERT INTO quick_replies (owner, label, text, sort_order) VALUES (?,?,?, (SELECT COALESCE(MAX(sort_order),0)+1 FROM quick_replies WHERE owner=?))').run(owner, label, text, owner);
+  return res.lastInsertRowid;
+}
+
+export function deleteQuickReply(id) {
+  db.prepare('DELETE FROM quick_replies WHERE id = ?').run(id);
+}

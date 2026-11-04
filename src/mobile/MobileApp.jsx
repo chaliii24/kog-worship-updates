@@ -6,6 +6,7 @@ import { createLink } from './link.js';
 import PinPad from './screens/PinPad.jsx';
 import ControlScreen from './screens/ControlScreen.jsx';
 import StageScreen from './screens/StageScreen.jsx';
+import MessagesScreen from './screens/MessagesScreen.jsx';
 
 // Role routing lives in two places because the same build serves every surface:
 //   * `?role=drummer` (or pastor / worship / follow) deep-links a phone straight
@@ -47,11 +48,68 @@ export default function MobileApp() {
   const [pinValue, setPinValue] = useState('');
   const [pinError, setPinError] = useState('');
   const linkRef = useRef(null);
+  const [messages, setMessages] = useState([]);
+  const [unread, setUnread] = useState(0);
+  const [showMessages, setShowMessages] = useState(false);
+  const [msgBanner, setMsgBanner] = useState(null);
+  useEffect(() => { if (!msgBanner) return; const t = setTimeout(() => setMsgBanner(null), 5000); return () => clearTimeout(t); }, [msgBanner]);
 
   useEffect(() => {
     const link = createLink({
       role,
       onState: (s) => setState(s),
+      onMessage: (m) => {
+        if (m.t === 'msg') {
+          // acknowledge receipt to desktop
+          try { linkRef.current?.sendAck?.(m.id); } catch {}
+          setMessages((prev) => {
+            if (prev.some((x) => x.id === m.id)) return prev;
+            return [...prev, {
+              id: m.id,
+              conversationId: 'self',
+              senderId: 'operator',
+              senderName: m.senderName || 'Operator',
+              recipientId: 'self',
+              content: m.content,
+              priority: m.priority || 'normal',
+              status: 'delivered',
+              timestamp: m.timestamp,
+            }];
+          });
+          setUnread((u) => u + 1);
+          if (!showMessages) setMsgBanner({ text: m.content, sender: m.senderName || 'Operator' });
+          // mark read after a short delay? Leave as delivered; read on open.
+        } else if (m.t === 'msg-ack') {
+          setMessages((prev) => prev.map((x) => x.id === m.id ? { ...x, status: 'delivered' } : x));
+        } else if (m.t === 'msg-status') {
+          setMessages((prev) => prev.map((x) => x.id === m.id ? { ...x, status: m.status || x.status } : x));
+        } else if (m.t === 'msg-sync') {
+          const incoming = Array.isArray(m.messages) ? m.messages : [];
+          setMessages((prev) => {
+            const map = new Map(prev.map((x) => [x.id, x]));
+            for (const im of incoming) {
+              if (!map.has(im.id)) {
+                map.set(im.id, {
+                  id: im.id,
+                  conversationId: 'self',
+                  senderId: im.senderId === 'operator' ? 'operator' : im.senderId,
+                  senderName: im.senderName,
+                  recipientId: im.recipientId,
+                  content: im.content,
+                  priority: im.priority || 'normal',
+                  status: im.status || 'sent',
+                  timestamp: im.timestamp,
+                });
+              } else {
+                // update status
+                const existing = map.get(im.id);
+                map.set(im.id, { ...existing, status: im.status || existing.status });
+              }
+            }
+            return [...map.values()].sort((a, b) => a.timestamp - b.timestamp);
+          });
+        }
+      },
       onStatus: (s, why) => {
         setStatus(s);
         setReason(why || '');
@@ -148,6 +206,39 @@ export default function MobileApp() {
         <StageScreen C={C} state={state} status={status} send={send} onSwitchRole={switchRole} lockedRole={route.lockedRole} />
       ) : (
         <ControlScreen C={C} T={T} state={state} status={status} send={send} onSwitchRole={switchRole} />
+      )}
+      {msgBanner && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+          onClick={() => { setShowMessages(true); setUnread(0); setMsgBanner(null); }}
+          style={{ position: 'fixed', top: 'calc(12px + env(safe-area-inset-top))', left: 12, right: 12, zIndex: 9998, background: '#ef4444', color: '#fff', padding: '10px 14px', borderRadius: 10, boxShadow: '0 6px 20px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+        >
+          <span style={{ fontWeight: 800 }}>New message</span>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>{msgBanner.text}</span>
+        </motion.div>
+      )}
+      {status === 'online' && (
+        <>
+          <button
+            onClick={() => { setShowMessages(true); setUnread(0); }}
+            style={{ position: 'fixed', bottom: 'calc(16px + env(safe-area-inset-bottom))', right: 16, zIndex: 9000, width: 52, height: 52, borderRadius: '50%', background: T.ACCENT, color: '#1C1C1E', border: 'none', cursor: 'pointer', boxShadow: '0 6px 20px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 20 }}
+          >
+            💬
+            {unread > 0 && (
+              <span style={{ position: 'absolute', top: -4, right: -4, background: '#FF4545', color: '#fff', fontSize: 11, fontWeight: 900, borderRadius: 9, padding: '1px 6px', minWidth: 18, textAlign: 'center' }}>{unread}</span>
+            )}
+          </button>
+          <AnimatePresence>
+            {showMessages && (
+              <MessagesScreen
+                C={C} T={T} linkRef={linkRef}
+                messages={messages} setMessages={setMessages}
+                unread={unread} setUnread={setUnread}
+                onClose={() => setShowMessages(false)}
+              />
+            )}
+          </AnimatePresence>
+        </>
       )}
     </div>
   );

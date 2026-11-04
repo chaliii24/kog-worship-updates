@@ -43,6 +43,7 @@ import ArrangementModal from './components/ArrangementModal';
 import TemplateNameModal from './components/modals/TemplateNameModal';
 import HotkeysModal from './components/modals/HotkeysModal';
 import OutputsMonitorModal from './components/modals/OutputsMonitorModal';
+import MessageCenter from './components/MessageCenter';
 import ConfirmModal from './components/modals/ConfirmModal';
 import ScriptureSectionModal from './components/modals/ScriptureSectionModal';import { DEFAULT_COUNTDOWN, nextTargetTime, animatedPresetOf } from './components/CountdownFace';
 import CountdownPreview, { countdownProof } from './components/CountdownPreview';
@@ -236,6 +237,16 @@ export default function App() {
   const [songCategories, setSongCategories] = useState([]);
   const [activeSong, setActiveSong] = useState(null);
   const [activeCue, setActiveCue] = useState(null);
+
+  // --- REMOTE MESSAGING STATE ---
+  const [conversations, setConversations] = useState([]); // [{conversationId, lastMessage, unread}]
+  const [messagesByConv, setMessagesByConv] = useState({}); // convId -> message[]
+  const [connectedDevices, setConnectedDevices] = useState([]); // [{deviceId, deviceName, connected}]
+  const [messageCenterOpen, setMessageCenterOpen] = useState(false);
+  const [unreadTotal, setUnreadTotal] = useState(0);
+  const [urgentBanner, setUrgentBanner] = useState(null); // {message, conversationId}
+  const messagesRef = useRef({ conversations, messagesByConv });
+  messagesRef.current = { conversations, messagesByConv };
   // Mirror for the song-editor live-sync below: it runs from a debounce timer,
   // where a render-time read would hold yesterday's cue.
   const activeCueRef = useRef(activeCue);
@@ -553,6 +564,19 @@ export default function App() {
   const [serviceCollapsed, setServiceCollapsed] = useState([]);
   const [serviceAddMenu, setServiceAddMenu] = useState(null); // null | 'song' | 'media' | 'local'
   const [serviceTargetTitle, setServiceTargetTitle] = useState(null); // section header title that Add* inserts into
+  // Which saved shows already live in this order. Only the LOADED plan carries
+  // its id on activeService; "+ Plan" appends into the plan you already had and
+  // leaves that id alone, so a set is the only way to refuse the SAME show
+  // twice. Reset wherever the order gets replaced (load, clear, template, new).
+  const serviceShowIdsRef = useRef(new Set());
+  // Render mirror of the ref: memberships change from async handlers, and the
+  // Shows list needs to re-render to badge a show as already queued.
+  const [serviceShowIds, setServiceShowIds] = useState([]);
+  const resetServiceShowIds = (id) => {
+    const next = new Set(id == null || id === '' ? [] : [String(id)]);
+    serviceShowIdsRef.current = next;
+    setServiceShowIds([...next]);
+  };
   const [serviceSongQuery, setServiceSongQuery] = useState('');
   const [serviceMediaPicker, setServiceMediaPicker] = useState(false); // browse media already in the app instead of re-uploading
   const canvasWrapRef = useRef(null);
@@ -1142,6 +1166,9 @@ export default function App() {
     let items = [];
     try { items = JSON.parse(tpl.items_json || '[]'); } catch (_) { items = []; }
     setActiveService({ ...activeService, name: (tpl.name || '').replace(/ Template$/, ''), items: Array.isArray(items) ? items : [] });
+    // A template replaces every row, so the shows merged into the old ones went
+    // with them — only the plan's own id may still block a reload.
+    resetServiceShowIds(activeService?.id);
   };
 
   const saveCurrentTemplate = () => {
@@ -2558,6 +2585,11 @@ export default function App() {
             duration: 0,
             ...(hasItemArr ? { meta: { arrangement: it.arrangement } } : {}),
           });
+        } else if (it.scripture) {
+          // Already a finished scripture row — the builder kept the payload the
+          // Service Order picker builds, so it lands with its meta and
+          // background intact rather than being flattened into a text slide.
+          items.push({ ...it.scripture, duration: Number(it.duration) || 0 });
         } else if (it.media_url) {
           items.push({ item_type: 'media', title: it.title || 'Media', subtitle: sec.title, content: '', media_type: it.media_type || 'image', media_url: it.media_url, duration: Number(it.duration) || 0 });
         } else {
@@ -2569,7 +2601,7 @@ export default function App() {
       const { ipcRenderer } = window.require('electron');
       const savedId = await ipcRenderer.invoke('db-save-service', { id: null, name: showBuilder.name, date: showBuilder.date, category: showBuilder.category || 'Worship', ratio: showBuilder.ratio || '16:9', resolution: showBuilder.resolution || '1920x1080', items });
       const details = await ipcRenderer.invoke('db-get-service-details', savedId);
-      if (details) setActiveService(details);
+      if (details) { setActiveService(details); resetServiceShowIds(details.id); }
       fetchServices();
       setShowModalOpen(false);
       setActiveTab('service');
@@ -2622,6 +2654,12 @@ export default function App() {
 
   const builderItemSlideCount = (item) => {
     if (!item) return 0;
+    // A scripture item is the reference card plus one tile per verse, matching
+    // the payload's own slide count once it becomes a service row.
+    if (item.scripture) {
+      const vs = (item.scripture.meta && item.scripture.meta.source && item.scripture.meta.source.verses) || [];
+      return 1 + Math.max(1, Array.isArray(vs) ? vs.length : 0);
+    }
     if (item.songId) {
       const s = builderSongDetails[item.songId] || songs.find(x => x.id === item.songId);
       // Order-aware: the item's own arrangement if it has one, else the song's
@@ -2712,6 +2750,25 @@ export default function App() {
         const idx = flow.findIndex(c => c.id === cue.id);
         const nextCue = idx > -1 ? flow[idx + 1] : flow[0];
         sendStageData({ title: song.title, label: cue.label || '', text: cue.text, timestamp: slidePayload.timestamp }, nextCue ? { title: song.title, label: nextCue.label, text: nextCue.text } : null);
+      }
+    } else if (item.scripture) {
+      // A scripture item carries a finished Service Order payload: tile 0 is
+      // the passage itself, every other tile fires just its verse, so what the
+      // output shows is the tile that was clicked.
+      const base = item.scripture;
+      const src = (base.meta && base.meta.source) || {};
+      const verse = tileIdx > 0 && Array.isArray(src.verses) ? src.verses[tileIdx - 1] : null;
+      if (!verse) {
+        fireServiceItemLive({ ...base, id: 'b-' + Date.now() });
+      } else {
+        const ref = `${src.book || (base.meta && base.meta.book) || ''} ${src.chapter || (base.meta && base.meta.chapter) || ''}:${verse.verse}`.trim();
+        fireServiceItemLive({
+          ...base,
+          id: 'b-' + Date.now(),
+          title: ref,
+          content: `${ref}\n\n${verse.text || ''}`,
+          meta: { ...base.meta, verse: verse.verse, ref, source: { ...src, verses: [verse] } },
+        });
       }
     } else if (item.media_url) {
       fireServiceItemLive({ id: 'b-' + Date.now(), item_type: 'media', title: item.title, subtitle: entry.sec.title, content: '', media_type: item.media_type, media_url: item.media_url, duration: item.duration || 0 });
@@ -4068,6 +4125,9 @@ export default function App() {
     if (!(await appConfirm('Clear the entire service order?', { confirmLabel: 'Clear' }))) return;
     setServiceCollapsed([]);
     setActiveService({ ...activeService, items: [] });
+    // The rows the queued shows contributed left with them; only the plan's own
+    // id may still block a reload.
+    resetServiceShowIds(activeService?.id);
   };
   const addMediaItemToService = async (e) => {
     const file = e.target.files && e.target.files[0];
@@ -4301,7 +4361,37 @@ export default function App() {
     }
   };
 
+  // A show's rows start with the SECTION HEADERS the Show Builder wrote
+  // ("PAW"). Queueing used to also prepend a header titled with the show's own
+  // NAME, so loading one show produced a stray "OCEMA FELLOWSHIP" section in
+  // the middle of the order plus a second PAW next to the operator's
+  // pre-created one. The name belongs in the header bar beside the date; the
+  // only sections that should exist are the ones the order already has.
+  //
+  // Plans saved while that stray header existed still carry it, so the leading
+  // header is dropped whenever it just repeats the plan's own name. Only the
+  // LEADING one: a real section that happens to share the show's name further
+  // down stays.
+  const stripShowTitleHeader = (items, planName) => {
+    const name = String(planName || '').trim().toLowerCase();
+    const first = (items || [])[0];
+    if (!name || !first || first.item_type !== 'section_header') return items || [];
+    return String(first.title || '').trim().toLowerCase() === name ? items.slice(1) : items;
+  };
+
   const loadService = async (serviceId) => {
+    // The show that is ALREADY the open order: re-reading it from disk silently
+    // threw away everything edited since the load, and pressing it by accident
+    // is exactly the mistake this refuses. An EMPTY order is exempt — clearing
+    // it is how an operator deliberately asks for the saved copy again.
+    const orderHasRows = (activeService?.items || []).length > 0;
+    if (serviceId != null && orderHasRows && String(serviceId) === String(activeService?.id ?? '')) {
+      await appAlert(
+        `"${activeService?.name || 'This show'}" is already in the service order — nothing was loaded again. Clear order first if you want it rebuilt from what was saved.`,
+        { title: 'Already in the service order' }
+      );
+      return;
+    }
     // Unsaved work guard: loading a show REPLACES the working order — even
     // when it is the show already loaded, because that re-read overwrites every
     // edit made since. The `serviceId !== activeService?.id` exception that
@@ -4321,8 +4411,12 @@ export default function App() {
       const { ipcRenderer } = window.require('electron');
       const details = await ipcRenderer.invoke('db-get-service-details', serviceId);
       if (details) {
-        setActiveService(details);
-        markServicePlanSaved(details);
+        // Clean the stray name header BEFORE marking it saved, or the sanitized
+        // order would be tagged dirty the moment it loads.
+        const loaded = { ...details, items: stripShowTitleHeader(details.items, details.name) };
+        setActiveService(loaded);
+        resetServiceShowIds(loaded.id);
+        markServicePlanSaved(loaded);
       }
     }
   };
@@ -4378,20 +4472,67 @@ export default function App() {
   }, [isOutputWindow, serviceDirty, activeService, appChoice, appConfirm, saveCurrentService]);
 
   // Step 5 (FreeShow flow): queue a saved show into the active Service Plan
-  const queueShowIntoService = async (showId, insertAtEnd = true) => {
-    if (window.require) {
-      const { ipcRenderer } = window.require('electron');
-      const details = await ipcRenderer.invoke('db-get-service-details', showId);
-      if (!details) return;
-      const toAdd = (prevItems) => [...(prevItems.length ? [{ item_type: 'section_header', title: details.name, subtitle: 'Show', content: '', duration: 0 }] : []), ...(details.items || [])];
-      // Functional: rows the operator added while details were loading merge
-      // with the queued show instead of being overwritten by this closure's
-      // stale copy.
-      setActiveService((prev) => {
-        const target = prev?.items || [];
-        return { ...(prev || { id: null, name: '', date: '' }), items: insertAtEnd ? [...target, ...toAdd(target)] : [...toAdd(target), ...target] };
-      });
+  const queueShowIntoService = async (showId) => {
+    if (!window.require) return;
+    const key = String(showId);
+    // Already the open order, or queued into it earlier in this session: adding
+    // it again would repeat every song, so it is refused here instead.
+    if (String(activeService?.id ?? '') === key || serviceShowIdsRef.current.has(key)) {
+      const name = (services || []).find((s) => String(s.id) === key)?.name || 'That show';
+      await appAlert(`"${name}" is already in the service order — it was not added again.`, { title: 'Already in the service order' });
+      return;
     }
+    const { ipcRenderer } = window.require('electron');
+    const details = await ipcRenderer.invoke('db-get-service-details', showId);
+    if (!details) return;
+    serviceShowIdsRef.current.add(key);
+    setServiceShowIds([...serviceShowIdsRef.current]);
+    const incoming = stripShowTitleHeader(details.items, details.name);
+    // Functional: rows the operator added while details were loading merge
+    // with the queued show instead of being overwritten by this closure's
+    // stale copy.
+    setActiveService((prev) => {
+      const items = [...((prev && prev.items) || [])];
+      const sectionAt = (title) => items.findIndex((i) => i && i.item_type === 'section_header'
+        && String(i.title || '').trim().toLowerCase() === title);
+      // Insert at the END of a section — after its last item, before the next
+      // header — so queued music joins the section it was filed under instead
+      // of landing below whatever header happens to come last.
+      const insertIntoSection = (row, sectionIdx) => {
+        if (sectionIdx === -1) { items.push(row); return; }
+        let stop = items.length;
+        for (let i = sectionIdx + 1; i < items.length; i++) {
+          if (items[i] && items[i].item_type === 'section_header') { stop = i; break; }
+        }
+        items.splice(stop, 0, row);
+      };
+      let current = -1;             // section the incoming rows belong to
+      (incoming || []).forEach((row) => {
+        if (!row) return;
+        if (row.item_type === 'section_header') {
+          const title = String(row.title || '').trim().toLowerCase();
+          const existing = sectionAt(title);
+          if (existing !== -1) {
+            // The order already has this section (the pre-created one): reuse
+            // it rather than laying down a duplicate header.
+            current = existing;
+            return;
+          }
+          items.push({ ...row, subtitle: row.subtitle || 'Section Flow' });
+          current = items.length - 1;
+          return;
+        }
+        insertIntoSection(row, current);
+      });
+      return {
+        ...(prev || { id: null, name: '', date: '' }),
+        // The show's own identity is the header bar's business — name beside
+        // the date — not a section in the running order.
+        name: details.name || (prev && prev.name) || '',
+        date: details.date || (prev && prev.date) || '',
+        items,
+      };
+    });
   };
 
   // --- HYBRID AI / FALLBACK SMART AUTO-PASTE PARSER ---
@@ -5185,6 +5326,151 @@ export default function App() {
     ipcRenderer.on('mobile-command', onCommand);
     return () => ipcRenderer.removeListener('mobile-command', onCommand);
   }, [isOutputWindow]);
+
+  // Remote messaging bridge: receive phone messages + device connect/disconnect.
+  useEffect(() => {
+    if (isOutputWindow || !window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    const reloadConversations = async () => {
+      try {
+        const convs = await ipcRenderer.invoke('messages-get-conversations');
+        setConversations(Array.isArray(convs) ? convs : []);
+        const total = (Array.isArray(convs) ? convs : []).reduce((a, c) => a + (c.unread || 0), 0);
+        setUnreadTotal(total);
+      } catch {}
+    };
+    const onMsg = (event, ev) => {
+      if (!ev) return;
+      if (ev.type === 'msg') {
+        const m = ev.message;
+        // persist incoming
+        if (window.require) {
+          const { ipcRenderer } = window.require('electron');
+          ipcRenderer.invoke('messages-save', m).catch(() => {});
+          // ack delivered to phone
+          const devId = ev.device?.deviceId || m.senderId;
+          ipcRenderer.invoke('messages-ack', { id: m.id, status: 'delivered', extra: { deliveredAt: Date.now() } }).catch(() => {});
+          // send delivered status to phone via a direct lan call? Use messages-mark? We'll send via a new IPC.
+          ipcRenderer.invoke('mobile-send-status', { deviceId: devId, id: m.id, status: 'delivered', deliveredAt: Date.now() }).catch(() => {});
+        }
+        setMessagesByConv((prev) => {
+          const list = prev[m.conversationId] || [];
+          if (list.some((x) => x.id === m.id)) return prev;
+          return { ...prev, [m.conversationId]: [...list, { ...m, status: 'delivered' }] };
+        });
+        reloadConversations();
+        if (m.priority === 'urgent') {
+          setUrgentBanner({ message: m, conversationId: m.conversationId });
+          // notification beep
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator(); const gain = ctx.createGain();
+            osc.connect(gain); gain.connect(ctx.destination);
+            osc.frequency.value = 880; gain.gain.value = 0.15;
+            osc.start(); osc.stop(ctx.currentTime + 0.18);
+            setTimeout(() => { try { ctx.close(); } catch {} }, 300);
+          } catch {}
+        } else {
+          try { toast.add({ type: 'info', title: `Message from ${m.senderName || 'Remote'}`, description: String(m.content).slice(0, 80) }); } catch {}
+        }
+      } else if (ev.type === 'msg-out') {
+        const m = ev.message;
+        setMessagesByConv((prev) => {
+          const list = prev[m.conversationId] || [];
+          if (list.some((x) => x.id === m.id)) return prev;
+          return { ...prev, [m.conversationId]: [...list, m] };
+        });
+        reloadConversations();
+      } else if (ev.type === 'msg-ack' || ev.type === 'msg-status') {
+        const { id, status, readAt, deliveredAt, ackAt } = ev;
+        if (window.require) {
+          const { ipcRenderer } = window.require('electron');
+          const st = ev.type === 'msg-ack' ? 'delivered' : (status || 'delivered');
+          ipcRenderer.invoke('messages-ack', { id, status: st, extra: { deliveredAt: deliveredAt || Date.now(), readAt, ackAt } }).catch(() => {});
+          // propagate status back to originating phone if needed
+        }
+        setMessagesByConv((prev) => {
+          const next = { ...prev };
+          for (const k of Object.keys(next)) {
+            next[k] = next[k].map((m) => m.id === id ? { ...m, status: status || m.status, readAt: readAt || m.readAt, deliveredAt: deliveredAt || m.deliveredAt, ackAt: ackAt || m.ackAt } : m);
+          }
+          return next;
+        });
+        reloadConversations();
+      }
+    };
+    const onDevice = (event, ev) => {
+      if (!ev) return;
+      if (ev.type === 'connect') {
+        setConnectedDevices((prev) => {
+          const filtered = prev.filter((d) => d.deviceId !== ev.deviceId);
+          return [...filtered, { deviceId: ev.deviceId, deviceName: ev.deviceName, connected: true }];
+        });
+        // sync history to the (re)connected device
+        if (window.require) {
+          const { ipcRenderer } = window.require('electron');
+          ipcRenderer.invoke('mobile-send-sync', { deviceId: ev.deviceId }).catch(() => {});
+        }
+      } else if (ev.type === 'disconnect') {
+        setConnectedDevices((prev) => prev.map((d) => d.deviceId === ev.deviceId ? { ...d, connected: false } : d));
+      }
+    };
+    ipcRenderer.on('mobile-message', onMsg);
+    ipcRenderer.on('mobile-device', onDevice);
+    // initial load
+    reloadConversations();
+    (async () => { try { const devs = await ipcRenderer.invoke('messages-get-devices'); setConnectedDevices(Array.isArray(devs) ? devs.map((d) => ({ ...d, connected: true })) : []); } catch {} })();
+    return () => {
+      ipcRenderer.removeListener('mobile-message', onMsg);
+      ipcRenderer.removeListener('mobile-device', onDevice);
+    };
+  }, [isOutputWindow]);
+
+  // helper to load messages for a conversation
+  const loadConversationMessages = useCallback(async (convId) => {
+    if (!window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    try {
+      const msgs = await ipcRenderer.invoke('messages-get', convId);
+      const normalized = (Array.isArray(msgs) ? msgs : []).map((r) => ({
+        id: r.id,
+        conversationId: r.conversation_id,
+        senderId: r.sender_id,
+        senderName: r.sender_name,
+        recipientId: r.recipient_id,
+        content: r.content,
+        priority: r.priority,
+        status: r.status,
+        timestamp: r.timestamp,
+        deliveredAt: r.delivered_at,
+        readAt: r.read_at,
+        ackAt: r.ack_at,
+      }));
+      setMessagesByConv((prev) => ({ ...prev, [convId]: normalized }));
+    } catch {}
+  }, []);
+
+  const sendMessageToRemote = useCallback(async ({ deviceId, content, priority }) => {
+    if (!window.require || !content.trim()) return null;
+    const { ipcRenderer } = window.require('electron');
+    try {
+      const m = await ipcRenderer.invoke('messages-send', { deviceId, conversationId: deviceId, content, priority });
+      return m;
+    } catch { return null; }
+  }, []);
+
+  const markConversationRead = useCallback(async (convId) => {
+    if (!window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    try { await ipcRenderer.invoke('messages-mark-read', { conversationId: convId }); } catch {}
+    // reload conversations to update unread counts
+    try {
+      const convs = await ipcRenderer.invoke('messages-get-conversations');
+      setConversations(Array.isArray(convs) ? convs : []);
+      const total = (Array.isArray(convs) ? convs : []).reduce((a, c) => a + (c.unread || 0), 0);
+      setUnreadTotal(total);
+    } catch {}
+  }, []);
 
   // Publish what phones render. Sent only when a control-relevant value
   // changes; main.js stores the last one and hands it to any socket that
@@ -6018,6 +6304,55 @@ export default function App() {
     };
   };
 
+  // Scripture straight into the SHOW BUILDER, with the same book → chapter →
+  // verse flow as the Service Order picker. The payload buildBiblePayload makes
+  // for the order is kept whole on the builder item, so Create Show writes a
+  // real scripture row (reference, template, raw source and the assigned
+  // background) instead of a text slide that only looks like a passage.
+  const addScriptureToBuilderSection = async ({ sectionId, bookIndex, bookName, chapter, verseRange, abbrev }) => {
+    if (!window.require) return { error: 'Not running inside the app.' };
+    const { ipcRenderer } = window.require('electron');
+    const useTrans = abbrev || bibleTrans;
+    let res;
+    try {
+      res = await ipcRenderer.invoke('scripture-chapter', useTrans, Number(bookIndex), Number(chapter));
+    } catch (e) {
+      return { error: 'Could not read that chapter.' };
+    }
+    if (!res || res.error || !Array.isArray(res.verses) || !res.verses.length) {
+      return { error: (res && res.error) || 'That chapter could not be loaded.' };
+    }
+    let verses = res.verses.map(v => ({ verse: v.verse, text: v.text }));
+    const range = String(verseRange || '').trim();
+    if (range) {
+      const m = range.match(/^(\d+)\s*(?:[-\u2013\u2014]\s*(\d+))?$/);
+      if (!m) return { error: 'Use a verse range like 16 or 16-18.' };
+      const lo = Number(m[1]);
+      const hi = Number(m[2] || m[1]);
+      verses = verses.filter(v => v.verse >= Math.min(lo, hi) && v.verse <= Math.max(lo, hi));
+      if (!verses.length) return { error: `No verses ${lo}${hi !== lo ? '-' + hi : ''} in ${res.book || bookName} ${res.chapter || chapter}.` };
+    }
+    const payload = buildBiblePayload({
+      book: res.book || bookName,
+      chapter: res.chapter || chapter,
+      verses,
+    });
+    setShowBuilder(prev => ({
+      ...prev,
+      sections: (prev.sections || []).map(s => s.id === sectionId
+        ? { ...s, items: [...s.items, { title: payload.title, content: payload.content, duration: 60, scripture: payload }] }
+        : s)
+    }));
+    const first = verses[0].verse;
+    const last = verses[verses.length - 1].verse;
+    return {
+      ok: true,
+      ref: `${res.book || bookName} ${res.chapter || chapter}:${first === last ? first : `${first}-${last}`}`,
+      count: verses.length,
+      target: (showBuilder.sections || []).find(s => s.id === sectionId)?.title,
+    };
+  };
+
   const fireBibleLive = (src) => {
     fireServiceItemLive(buildBiblePayload(src));
   };
@@ -6645,7 +6980,7 @@ export default function App() {
     builderTargetSecId, setBuilderTargetSecId, builderTargetSectionId,
     builderDensity, setBuilderDensity, gridDensity, setGridDensity, builderTileIdx, setBuilderTileIdx, builderCollapsed, setBuilderCollapsed,
     builderRehearse, setBuilderRehearse, builderActiveSong, setBuilderActiveSong, builderSongDetails, setBuilderSongDetails,
-    selectedServiceId, setSelectedServiceId, serviceDirty, slideTimer, setSlideTimer, services, setServices, templates, setTemplates,
+    selectedServiceId, setSelectedServiceId, serviceDirty, serviceShowIds, slideTimer, setSlideTimer, services, setServices, templates, setTemplates,
     selectedTemplateId, setSelectedTemplateId, dragIndex, setDragIndex,
     showTemplateNameModal, setShowTemplateNameModal, templateNameValue, setTemplateNameValue,
     activeService, setActiveService, customSlideModal, setCustomSlideModal, newSlideData, setNewSlideData,
@@ -6689,7 +7024,7 @@ export default function App() {
     handleDeleteSong, handleToggleFavorite, handleExport, handleImport, serviceSections, resolveBg, appConfirm, appAlert,
     activeSlideIndex, groupLabels, slideGrid, renderSlideFace, applyMediaToActiveSong, importMediaAsset, removeMediaAsset,
     toggleAudioPreview, clearSongAudio, refreshBibleLib, formatBibleVerse, buildBiblePayload, queueBibleServiceSlide,
-    addScriptureToPlan,
+    addScriptureToPlan, addScriptureToBuilderSection,
     fireBibleLive, fireBibleSelectionLive, queueBibleSelection, requestBibleQueue, loadBibleBooks, loadBibleChapter, selectBibleBook,
     selectBibleChapter, handleBibleVerseClick, resetBibleToBooks, resetBibleToBook, openBibleTranslation, downloadBible,
     deleteBibleTranslation, resolveBibleReference, searchBibleKeywords, bibleActiveEntry, bibleInstalledLib,
@@ -7027,6 +7362,50 @@ export default function App() {
           onConfirm={() => resolveConfirmDialog(true)}
           onCancel={() => resolveConfirmDialog(false)}
         />
+      )}
+      </AnimatePresence>
+
+      {/* REMOTE MESSAGE CENTER floating inbox */}
+      {!isOutputWindow && (
+        <button
+          onClick={() => setMessageCenterOpen(true)}
+          title="Messages from remote controllers"
+          style={{ position: 'fixed', bottom: 16, left: 16, zIndex: 9000, width: 44, height: 44, borderRadius: '50%', background: ACCENT, color: '#171208', border: 'none', cursor: 'pointer', boxShadow: '0 6px 20px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900 }}
+        >
+          <span style={{ fontSize: 18 }}>💬</span>
+          {unreadTotal > 0 && (
+            <span style={{ position: 'absolute', top: -4, right: -4, background: '#ef4444', color: '#fff', fontSize: 10, fontWeight: 900, borderRadius: 9, padding: '1px 5px', minWidth: 16, textAlign: 'center' }}>{unreadTotal}</span>
+          )}
+        </button>
+      )}
+      <AnimatePresence>
+      {messageCenterOpen && (
+        <MessageCenter
+          C={C} ACCENT={ACCENT}
+          conversations={conversations}
+          messagesByConv={messagesByConv}
+          connectedDevices={connectedDevices}
+          loadConversationMessages={loadConversationMessages}
+          sendMessageToRemote={sendMessageToRemote}
+          markConversationRead={markConversationRead}
+          unreadTotal={unreadTotal}
+          onClose={() => setMessageCenterOpen(false)}
+        />
+      )}
+      </AnimatePresence>
+
+      {/* Urgent message banner */}
+      <AnimatePresence>
+      {urgentBanner && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+          style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 99999, background: '#ef4444', color: '#fff', padding: '10px 18px', borderRadius: 10, boxShadow: '0 8px 30px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: 12, maxWidth: '80vw' }}
+        >
+          <span style={{ fontWeight: 800 }}>URGENT:</span>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{urgentBanner.message.content}</span>
+          <button onClick={() => { setMessageCenterOpen(true); setUrgentBanner(null); }} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>Reply</button>
+          <button onClick={() => setUrgentBanner(null)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}>✕</button>
+        </motion.div>
       )}
       </AnimatePresence>
 
