@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Monitor, Smartphone, HelpCircle, PanelRightClose, PanelRightOpen, Radio } from 'lucide-react';
+import { MessageChatCircle } from '@untitledui/icons';
 import { AnimatePresence } from 'motion/react';
 import RemoteMenu from './modals/RemoteMenu';
 
@@ -47,6 +48,8 @@ export default function TopHeader({
   onToggleOutput,
   rightOpen = true,
   setRightOpen,
+  onOpenMessages,
+  unreadMessages = 0,
 }) {
   const [remoteOpen, setRemoteOpen] = useState(false);
   const active = activeCue != null && activeCue.id !== 'clear';
@@ -158,12 +161,15 @@ export default function TopHeader({
       <button
         type="button"
         className="kog-icon-btn"
-        data-active={rightOpen ? '1' : '0'}
-        onClick={() => setRightOpen && setRightOpen((v) => !v)}
-        title={rightOpen ? 'Collapse the Live Output panel' : 'Open the Live Output panel'}
-        aria-label={rightOpen ? 'Collapse Live Output panel' : 'Open Live Output panel'}
+        onClick={() => onOpenMessages && onOpenMessages()}
+        title="Messages from remote controllers"
+        aria-label="Messages from remote controllers"
+        style={{ position: 'relative' }}
       >
-        {rightOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+        <MessageChatCircle size={15} />
+        {unreadMessages > 0 && (
+          <span style={{ position: 'absolute', top: -2, right: -2, background: '#ef4444', color: '#fff', fontSize: 9, fontWeight: 900, borderRadius: 9, padding: '0 4px', minWidth: 14, textAlign: 'center' }}>{unreadMessages}</span>
+        )}
       </button>
     </header>
   );

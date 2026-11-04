@@ -7154,6 +7154,8 @@ export default function App() {
         onToggleOutput={toggleDevProjectorWindow}
         rightOpen={rightOpen}
         setRightOpen={setRightOpen}
+        onOpenMessages={() => setMessageCenterOpen(true)}
+        unreadMessages={unreadTotal}
       />
 
       {/* ===== MAIN WORKSPACE =====
@@ -7188,6 +7190,8 @@ export default function App() {
         onToggleOutput={toggleDevProjectorWindow}
         rightOpen={rightOpen}
         setRightOpen={setRightOpen}
+        onOpenMessages={() => setMessageCenterOpen(true)}
+        unreadMessages={unreadTotal}
       />
 
       {/* THREE-AREA CONSOLE: persistent navigation · workspace · live output */}
@@ -7429,13 +7433,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* REMOTE MESSAGE CENTER floating inbox */}
-      {!isOutputWindow && (
-        <DraggableInboxButton
-          ACCENT={ACCENT}
-          unreadTotal={unreadTotal}
-          onClick={() => setMessageCenterOpen(true)}
-        />
-      )}
+      {/* (message entry point moved to TopHeader) */}
       <AnimatePresence>
       {messageCenterOpen && (
         <MessageCenter
