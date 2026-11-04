@@ -7,6 +7,7 @@ import PinPad from './screens/PinPad.jsx';
 import ControlScreen from './screens/ControlScreen.jsx';
 import StageScreen from './screens/StageScreen.jsx';
 import MessagesScreen from './screens/MessagesScreen.jsx';
+import { MessageChatCircle } from '@untitledui/icons';
 
 // Role routing lives in two places because the same build serves every surface:
 //   * `?role=drummer` (or pastor / worship / follow) deep-links a phone straight
@@ -223,7 +224,7 @@ export default function MobileApp() {
             onClick={() => { setShowMessages(true); setUnread(0); }}
             style={{ position: 'fixed', bottom: 'calc(16px + env(safe-area-inset-bottom))', right: 16, zIndex: 9000, width: 52, height: 52, borderRadius: '50%', background: T.ACCENT, color: '#1C1C1E', border: 'none', cursor: 'pointer', boxShadow: '0 6px 20px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 20 }}
           >
-            💬
+            <MessageChatCircle size={22} />
             {unread > 0 && (
               <span style={{ position: 'absolute', top: -4, right: -4, background: '#FF4545', color: '#fff', fontSize: 11, fontWeight: 900, borderRadius: 9, padding: '1px 6px', minWidth: 18, textAlign: 'center' }}>{unread}</span>
             )}
