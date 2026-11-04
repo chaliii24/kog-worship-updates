@@ -845,3 +845,8 @@ export function cleanupOldMessages(maxAgeMs = 3 * 60 * 60 * 1000) {
   const cutoff = Date.now() - maxAgeMs;
   try { db.prepare('DELETE FROM messages WHERE timestamp < ?').run(cutoff); } catch (e) { /* noop */ }
 }
+
+// Delete every message (used on app close/restart per operator preference).
+export function deleteAllMessages() {
+  try { db.prepare('DELETE FROM messages').run(); } catch (e) { /* noop */ }
+}

@@ -63,6 +63,7 @@ import {
   saveQuickReply,
   deleteQuickReply,
   cleanupOldMessages,
+  deleteAllMessages,
 } from './database.js';
 import { createLanServer } from './lanServer.js';
 import { status as decklinkStatus, listDevices as decklinkListDevices, start as decklinkStart, stop as decklinkStop } from './decklink.js';
@@ -696,8 +697,9 @@ app.whenReady().then(() => {
   serveMediaProtocol();
   createWindow();
 
-  // Auto-delete remote messages older than 3 hours, including after restart.
-  try { cleanupOldMessages(); } catch {}
+  // Wipe remote messages on every launch (conversations do not survive restarts).
+  try { deleteAllMessages(); } catch {}
+  // Also prune messages older than 3 hours while the app stays open.
   setInterval(() => { try { cleanupOldMessages(); } catch {} }, 15 * 60 * 1000);
 
   // Electron ships a default application menu whose Edit section binds Undo
@@ -742,7 +744,7 @@ app.whenReady().then(() => {
     else electronLog.warn('[lan] not running (port', i.port, 'unavailable)');
   }).catch(() => {});
 
-  app.on('before-quit', () => { try { cleanupOldMessages(); } catch {} });
+  app.on('before-quit', () => { try { deleteAllMessages(); } catch {} });
   app.on('before-quit', () => { try { lan.stop(); } catch { /* noop */ } });
   // Kill a running DeckLink SDI mirror (child ffmpeg) with the app.
   app.on('before-quit', () => { try { decklinkStop(); } catch { /* noop */ } });
