@@ -122,6 +122,59 @@ const blankServicePlan = () => ({
   items: [],
 });
 
+function DraggableInboxButton({ ACCENT, unreadTotal, onClick }) {
+  const KEY = 'kog-inbox-btn-pos';
+  const [pos, setPos] = useState(() => {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) { const p = JSON.parse(raw); if (typeof p.x === 'number' && typeof p.y === 'number') return p; }
+    } catch {}
+    return { x: 16, y: window.innerHeight - 60 };
+  });
+  const dragRef = useRef({ dragging: false, offsetX: 0, offsetY: 0, moved: false });
+
+  useEffect(() => {
+    const onMove = (e) => {
+      const d = dragRef.current;
+      if (!d.dragging) return;
+      d.moved = true;
+      const nx = Math.max(0, Math.min(window.innerWidth - 44, e.clientX - d.offsetX));
+      const ny = Math.max(0, Math.min(window.innerHeight - 44, e.clientY - d.offsetY));
+      setPos({ x: nx, y: ny });
+    };
+    const onUp = () => {
+      const d = dragRef.current;
+      if (!d.dragging) return;
+      d.dragging = false;
+      if (d.moved) {
+        try { localStorage.setItem(KEY, JSON.stringify(pos)); } catch {}
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, [pos]);
+
+  const onMouseDown = (e) => {
+    dragRef.current = { dragging: true, offsetX: e.clientX - pos.x, offsetY: e.clientY - pos.y, moved: false };
+    e.preventDefault();
+  };
+
+  return (
+    <button
+      onMouseDown={onMouseDown}
+      onClick={(e) => { if (dragRef.current.moved) { dragRef.current.moved = false; e.preventDefault(); e.stopPropagation(); return; } onClick(); }}
+      title="Messages from remote controllers (drag to move)"
+      style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 9000, width: 44, height: 44, borderRadius: '50%', background: ACCENT, color: '#171208', border: 'none', cursor: 'grab', boxShadow: '0 6px 20px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, userSelect: 'none' }}
+    >
+      <span style={{ fontSize: 18, pointerEvents: 'none' }}>💬</span>
+      {unreadTotal > 0 && (
+        <span style={{ position: 'absolute', top: -4, right: -4, background: '#ef4444', color: '#fff', fontSize: 10, fontWeight: 900, borderRadius: 9, padding: '1px 5px', minWidth: 16, textAlign: 'center', pointerEvents: 'none' }}>{unreadTotal}</span>
+      )}
+    </button>
+  );
+}
+
 export default function App() {
   const isOutputWindow = typeof window !== 'undefined' && (
     window.location.hash.includes('/output/') ||
@@ -7367,16 +7420,11 @@ export default function App() {
 
       {/* REMOTE MESSAGE CENTER floating inbox */}
       {!isOutputWindow && (
-        <button
+        <DraggableInboxButton
+          ACCENT={ACCENT}
+          unreadTotal={unreadTotal}
           onClick={() => setMessageCenterOpen(true)}
-          title="Messages from remote controllers"
-          style={{ position: 'fixed', bottom: 16, left: 16, zIndex: 9000, width: 44, height: 44, borderRadius: '50%', background: ACCENT, color: '#171208', border: 'none', cursor: 'pointer', boxShadow: '0 6px 20px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900 }}
-        >
-          <span style={{ fontSize: 18 }}>💬</span>
-          {unreadTotal > 0 && (
-            <span style={{ position: 'absolute', top: -4, right: -4, background: '#ef4444', color: '#fff', fontSize: 10, fontWeight: 900, borderRadius: 9, padding: '1px 5px', minWidth: 16, textAlign: 'center' }}>{unreadTotal}</span>
-          )}
-        </button>
+        />
       )}
       <AnimatePresence>
       {messageCenterOpen && (
