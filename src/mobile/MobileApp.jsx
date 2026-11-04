@@ -42,7 +42,7 @@ const PIN_STATUSES = ['need-pin', 'wrong', 'locked'];
 export default function MobileApp() {
   // Parsed once on load: the URL is the provisioner, not a live preference.
   const [route] = useState(parseRoleRoute);
-  const role = route.role;
+  const [role, setRole] = useState(route.role);
   const [state, setState] = useState(null);
   const [status, setStatus] = useState('connecting');
   const [reason, setReason] = useState('');
@@ -148,17 +148,16 @@ export default function MobileApp() {
   };
 
   const switchRole = (to) => {
-    // A manual switch must not bounce back through a locking `?role=` param
-    // on reload, so drop it before changing the hash.
+    const next = to === 'stage' ? 'stage' : 'control';
+    // Locked roles (drummer/pastor/etc.) cannot be switched away.
+    if (route.lockedRole) return;
+    setRole(next);
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('role');
-      url.hash = to;
-      window.location.replace(url.toString());
-    } catch {
-      window.location.hash = to;
-      window.location.reload();
-    }
+      url.hash = next;
+      window.history.replaceState(null, '', url.toString());
+    } catch {}
   };
 
   const needsPin = PIN_STATUSES.includes(status);
