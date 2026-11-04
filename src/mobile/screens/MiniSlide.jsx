@@ -60,6 +60,9 @@ export default function MiniSlide({ C, text, style, timer, presentation, badge, 
     ? (/^https?:\/\//i.test(bgValue || '') ? bgValue : mediaUrl(bgValue))
     : null;
   const isVideoBg = bgType === 'video';
+  const videoSrc = isVideoBg
+    ? (/^https?:\/\//i.test(bgValue || '') ? bgValue : mediaUrl(bgValue))
+    : null;
 
   const lst = style?.lyric || {
     font: style?.fontFamily || 'system-ui, sans-serif',
@@ -105,10 +108,12 @@ export default function MiniSlide({ C, text, style, timer, presentation, badge, 
               <AnimatedBg value={bgValue} k={0.25} />
             ) : imgSrc ? (
               <img src={imgSrc} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : isVideoBg && videoSrc ? (
+              <video src={videoSrc} autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
             ) : (
               <div style={{ position: 'absolute', inset: 0, background: '#0a0a0a' }} />
             )}
-            {isVideoBg && (
+            {isVideoBg && !videoSrc && (
               <span style={{ position: 'absolute', left: 8, top: 8, fontSize: 10, fontWeight: 900, letterSpacing: 1, color: '#FFC72C', background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(192,132,252,0.5)', borderRadius: 5, padding: '2px 6px' }}>VIDEO</span>
             )}
             {timer ? (
