@@ -131,6 +131,8 @@ function DraggableInboxButton({ ACCENT, unreadTotal, onClick }) {
     } catch {}
     return { x: 16, y: window.innerHeight - 60 };
   });
+  const [faded, setFaded] = useState(false);
+  const [hover, setHover] = useState(false);
   const dragRef = useRef({ dragging: false, offsetX: 0, offsetY: 0, moved: false });
 
   useEffect(() => {
@@ -145,9 +147,11 @@ function DraggableInboxButton({ ACCENT, unreadTotal, onClick }) {
     const onUp = () => {
       const d = dragRef.current;
       if (!d.dragging) return;
+      const wasMoved = d.moved;
       d.dragging = false;
-      if (d.moved) {
+      if (wasMoved) {
         try { localStorage.setItem(KEY, JSON.stringify(pos)); } catch {}
+        setFaded(true);
       }
     };
     window.addEventListener('mousemove', onMove);
@@ -157,19 +161,24 @@ function DraggableInboxButton({ ACCENT, unreadTotal, onClick }) {
 
   const onMouseDown = (e) => {
     dragRef.current = { dragging: true, offsetX: e.clientX - pos.x, offsetY: e.clientY - pos.y, moved: false };
+    setFaded(false);
     e.preventDefault();
   };
+
+  const opacity = (hover || !faded) ? 1 : 0.45;
 
   return (
     <button
       onMouseDown={onMouseDown}
-      onClick={(e) => { if (dragRef.current.moved) { dragRef.current.moved = false; e.preventDefault(); e.stopPropagation(); return; } onClick(); }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onClick={(e) => { if (dragRef.current.moved) { dragRef.current.moved = false; e.preventDefault(); e.stopPropagation(); return; } setFaded(false); onClick(); }}
       title="Messages from remote controllers (drag to move)"
-      style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 9000, width: 44, height: 44, borderRadius: '50%', background: ACCENT, color: '#171208', border: 'none', cursor: 'grab', boxShadow: '0 6px 20px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, userSelect: 'none' }}
+      style={{ position: 'fixed', left: pos.x, top: pos.y, zIndex: 9000, width: 44, height: 44, borderRadius: '50%', background: ACCENT, color: '#171208', border: 'none', cursor: 'grab', boxShadow: '0 6px 20px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, userSelect: 'none', opacity, transition: 'opacity 0.25s ease' }}
     >
       <span style={{ fontSize: 18, pointerEvents: 'none' }}>💬</span>
       {unreadTotal > 0 && (
-        <span style={{ position: 'absolute', top: -4, right: -4, background: '#ef4444', color: '#fff', fontSize: 10, fontWeight: 900, borderRadius: 9, padding: '1px 5px', minWidth: 16, textAlign: 'center', pointerEvents: 'none' }}>{unreadTotal}</span>
+        <span style={{ position: 'absolute', top: -4, right: -4, background: '#ef4444', color: '#fff', fontSize: 10, fontWeight: 900, borderRadius: 9, padding: '1px 5px', minWidth: 16, textAlign: 'center', pointerEvents: 'none', opacity: 1 }}>{unreadTotal}</span>
       )}
     </button>
   );
