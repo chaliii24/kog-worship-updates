@@ -141,6 +141,7 @@ export default function LeftSidebar() {
     openNewShow,
     loadService,
     queueShowIntoService,
+    serviceShowIds,
     deleteSavedService,
     serviceOrderCount,
     serviceSlideCount,
@@ -670,9 +671,14 @@ export default function LeftSidebar() {
                       its own tab now, so a show row and the drop target are
                       never on screen together — + Plan on hover does that job. */}
                   {[...(services || [])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).filter(s => !showsQuery.trim() || (s.name || '').toLowerCase().includes(showsQuery.trim().toLowerCase())).map(svc => (
-                    <div key={svc.id} className="row" onClick={() => { loadService(svc.id); setViewTab('order'); }} title="Load this show into the Service Order" style={{ background: activeService?.id === svc.id ? 'rgba(255,184,0,0.15)' : 'var(--ui-elev2)', border: activeService?.id === svc.id ? '1px solid rgba(255,184,0,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '8px 10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                    <div key={svc.id} className="row" onClick={() => { loadService(svc.id); setViewTab('order'); }} title={(serviceShowIds || []).map(String).includes(String(svc.id)) ? 'Already in the Service Order — press + Plan to add it again is blocked' : 'Load this show into the Service Order'} style={{ background: activeService?.id === svc.id ? 'rgba(255,184,0,0.15)' : 'var(--ui-elev2)', border: activeService?.id === svc.id ? '1px solid rgba(255,184,0,0.5)' : '1px solid var(--ui-border)', borderRadius: 10, padding: '8px 10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                       <div style={{ minWidth: 0 }}>
-                        <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--ui-text)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{svc.name}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                          <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--ui-text)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{svc.name}</span>
+                          {(serviceShowIds || []).map(String).includes(String(svc.id)) && (
+                            <span title="This show's songs are already in the Service Order" style={{ flexShrink: 0, fontSize: 8, fontWeight: 800, letterSpacing: 0.4, color: '#36C982', background: 'rgba(54,201,130,0.14)', border: '1px solid rgba(54,201,130,0.4)', borderRadius: 4, padding: '0 4px' }}>IN PLAN</span>
+                          )}
+                        </div>
                         <span style={{ fontSize: 10, fontWeight: 700, color: svc.date ? '#f59e0b' : 'var(--ui-faint)', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fmtShowDate(svc.date) || 'No date'}</span>
                         <span style={{ fontSize: 10, color: 'var(--ui-faint)', display: 'block' }}>{svc.category || 'Worship'} • {svc.ratio || '16:9'} • {showItemCount(svc)} items</span>
                       </div>

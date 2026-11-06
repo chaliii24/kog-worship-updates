@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { Check, Minus, Music, Play, Plus, Smartphone, Square, Volume2, VolumeX } from 'lucide-react';
+import { Check, Minus, Music, Play, Plus, Save, Smartphone, Square, Volume2, VolumeX } from 'lucide-react';
 import { stripMarkup } from '../../lib/lyrics';
 import { stubTap } from '../../lib/anim';
 import { fmtClock, LAYOUT_PRESETS } from '../../lib/stageLayout';
@@ -21,6 +21,16 @@ const CTL_BASE = {
   borderRadius: 14, cursor: 'pointer', fontFamily: 'inherit',
   touchAction: 'none', userSelect: 'none', WebkitTapHighlightColor: 'transparent',
   fontWeight: 900, fontSize: 'clamp(12px, 1.7vh, 15px)', letterSpacing: '0.1em',
+};
+
+// Small stepper used inside the song picker rows: each tap moves that song's
+// tempo by one BPM until the drummer saves it onto the song.
+const ROW_STEP = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  width: 30, height: 30, borderRadius: 9, background: '#1b1b20',
+  border: '1px solid #2a2a30', color: '#f5f5f7', cursor: 'pointer',
+  fontFamily: 'inherit', touchAction: 'manipulation', flexShrink: 0,
+  WebkitTapHighlightColor: 'transparent',
 };
 
 // A phone-sized mirror of the physical stage display: same content, same
@@ -238,6 +248,10 @@ export default function StageScreen({ C, state, status, onSwitchRole, lockedRole
   // so the desk and the phone always end up on the same row.
   const [sheet, setSheet] = useState(false);
   const [picked, setPicked] = useState(null); // { songId, title, at }
+  // Per-song tempo being edited in the picker, keyed by song id. Entries clear
+  // themselves once the console echoes that tempo back as the song's saved BPM,
+  // so an untouched row always shows what the library actually holds.
+  const [drafts, setDrafts] = useState({});
   const orderSongs = useMemo(() => {
     const out = [];
     ((state?.service?.sections) || []).forEach((sec) => {
@@ -271,6 +285,21 @@ export default function StageScreen({ C, state, status, onSwitchRole, lockedRole
     return () => window.removeEventListener('keydown', onKey);
   }, [sheet]);
 
+  // A draft retires as soon as the console reports that tempo as the song's
+  // saved BPM (the save landed, or someone typed the same number on the desk).
+  useEffect(() => {
+    setDrafts((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [sid, val] of Object.entries(prev)) {
+        const row = orderSongs.find((r) => r.songId === sid);
+        if (!row) { delete next[sid]; changed = true; continue; }
+        if (row.bpm != null && clampBpm(row.bpm) === clampBpm(val)) { delete next[sid]; changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [orderSongs]);
+
   // One tempo change = one command. Same clamping as the desktop panel, and a
   // value the console already holds sends nothing.
   const setTempo = (raw) => {
@@ -303,12 +332,43 @@ export default function StageScreen({ C, state, status, onSwitchRole, lockedRole
     send('metronomeSet', { timeSignature: next });
   };
 
+  // Tempo shown on a picker row: the edit in flight, else the saved BPM, else
+  // the tempo running right now (a song with no saved tempo starts from where
+  // the drummer already is).
+  const rowBpm = (row) => {
+    const draft = drafts[row.songId];
+    if (draft != null) return clampBpm(draft, row.bpm ?? bpmRef.current);
+    return row.bpm != null ? clampBpm(row.bpm, bpmRef.current) : clampBpm(bpmRef.current);
+  };
+  const editRowBpm = (row, delta) => {
+    const next = clampBpm(rowBpm(row) + delta, row.bpm ?? bpmRef.current);
+    setDrafts((prev) => ({ ...prev, [row.songId]: next }));
+  };
+  // Saving a row writes the tempo onto the song (the console's db-set-song-bpm
+  // IPC), so the number is there the next time the song is picked.
+  const saveRowBpm = (row) => {
+    const value = rowBpm(row);
+    // `saveOnly` — persist the number, do not load the song and do not move the
+    // click that is already running.
+    send('metronomeSet', { songId: row.songId, title: row.title, bpm: value, saveBpm: true, saveOnly: true });
+    // Saving the row that IS the song on the console is a tempo edit of the
+    // song in hand: echo it straight into the ring so the number lands on this
+    // tap, and the console takes it as the room tempo off the very same command
+    // (no re-picking the song to move the metronome). Every other row stays a
+    // pure library edit — whatever is playing keeps its tempo. Keyed on the
+    // console's own song, not on `picked`, so phone and console always agree.
+    if (consoleSongId != null && String(row.songId) === consoleSongId) {
+      bpmRef.current = value;
+      patchEcho({ bpm: value });
+    }
+  };
+
   // Pick a song from the order: its saved tempo rides in with the pick; a song
   // with no tempo of its own keeps whatever is running (the console's own
   // rule — "songs without a saved tempo leave the metronome untouched"). The
   // console loads the song too (selectSong never touches the projection).
   const pickSong = (row) => {
-    const next = row.bpm != null ? clampBpm(row.bpm, bpmRef.current) : clampBpm(bpmRef.current);
+    const next = rowBpm(row);
     bpmRef.current = next;
     setPicked({ songId: row.songId, title: row.title, at: Date.now() });
     patchEcho({ bpm: next });
@@ -327,14 +387,51 @@ export default function StageScreen({ C, state, status, onSwitchRole, lockedRole
   const drumHasSong = !!drumTitle;
   const showTempo = drumHasSong || transportOn;
 
+  // The song's SAVED tempo. The loaded-song record is authoritative (it is
+  // what the desk's tempo popup reads); the service-order row is the fallback
+  // for consoles that predate `song.bpm` in the snapshot.
+  const savedBpm = (() => {
+    const fromSong = Math.round(Number(state?.song?.bpm));
+    if (Number.isFinite(fromSong) && fromSong >= 40) return fromSong;
+    const row = orderSongs.find((r) => r.songId === activeSongId);
+    const fromRow = row && row.bpm != null ? Math.round(Number(row.bpm)) : NaN;
+    return Number.isFinite(fromRow) && fromRow >= 40 ? fromRow : null;
+  })();
+  // Nudge the tempo away from the song's saved BPM and this pill appears: one
+  // tap writes the number back onto the song (the desk's own save, via IPC).
+  // Only once the console actually holds the song the pill refers to — a pick
+  // still in flight would compare the new tempo against the old song's BPM.
+  const songSynced = activeSongId != null && String(activeSongId) === String(consoleSongId);
+  const canSaveBpm = isDrummer && drumHasSong && songSynced && savedBpm != null && savedBpm !== bpm;
+  const saveCurrentBpm = () => {
+    if (!drumHasSong || activeSongId == null) return;
+    // The tempo itself already went out with the steppers/TAP; this only
+    // writes it onto the song (`saveOnly`), so the console keeps playing what
+    // it is playing.
+    send('metronomeSet', {
+      songId: activeSongId,
+      title: drumTitle,
+      bpm: bpmRef.current,
+      saveBpm: true,
+      saveOnly: true,
+    });
+  };
+
   const offline = status !== 'online';
 
   return (
     <div style={{
+      // Fill the app shell exactly: `minHeight: 100dvh` plus padding added the
+      // safe-area padding ON TOP of the viewport, pushing the hero down and
+      // clipping the Next card. Border-box + height:100% keeps the stage inside
+      // the visible screen so the lyric stays optically centred.
+      height: '100%',
       minHeight: '100dvh',
       maxWidth: fullScreenDrummer ? 'none' : 880,
       width: '100%',
       margin: '0 auto',
+      boxSizing: 'border-box',
+      overflow: 'hidden',
       background: bg,
       color: curColor,
       display: 'flex',
@@ -479,6 +576,30 @@ export default function StageScreen({ C, state, status, onSwitchRole, lockedRole
                     <div style={{ fontSize: 'clamp(13px, 2.2vh, 19px)', fontWeight: 900, color: faint, letterSpacing: 1.5, textTransform: 'uppercase' }}>No song loaded</div>
                     <div style={{ fontSize: 'clamp(10px, 1.7vh, 14px)', fontWeight: 700, color: faint, marginTop: '0.9vh' }}>Tempo and meter come from the console.</div>
                   </div>
+                )}
+                {/* SAVE THE NUDGE: the song has a saved BPM and the drummer has
+                    moved the click away from it. Sits inside the ring so it
+                    costs no layout height on a short phone. */}
+                {canSaveBpm && (
+                  <button
+                    onClick={saveCurrentBpm}
+                    aria-label={`Save ${bpm} BPM to ${drumTitle}`}
+                    title={`Store ${bpm} BPM as the tempo of ${drumTitle} (saved: ${savedBpm})`}
+                    data-testid="drum-save-bpm"
+                    style={{
+                      position: 'absolute', left: '50%', bottom: '9%', transform: 'translateX(-50%)',
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      height: 'clamp(34px, 5.4vh, 44px)', padding: '0 15px', borderRadius: 999,
+                      background: GOLD, border: `1.5px solid ${GOLD}`, color: '#0b0b0c',
+                      fontSize: 'clamp(10px, 1.5vh, 13px)', fontWeight: 900,
+                      letterSpacing: '0.1em', textTransform: 'uppercase',
+                      cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation',
+                      boxShadow: '0 8px 22px rgba(0,0,0,0.55)', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <Save size={13} />
+                    Save {bpm}
+                  </button>
                 )}
               </div>
             </div>
@@ -627,7 +748,12 @@ export default function StageScreen({ C, state, status, onSwitchRole, lockedRole
             ) : null}
             {heroText ? (
               <div ref={heroRef} style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center', overflow: 'hidden' }}>
-                <p style={{ margin: 0, fontSize: `${curSize * fitScale}px`, lineHeight: 1.28, fontWeight: 800, whiteSpace: 'pre-line', overflow: 'hidden', color: curColor, maxWidth: '100%' }}>
+                {/* flexShrink: 0 — as a flex item the lyric used to be squeezed
+                    to the hero box height, so long lines were clipped and the
+                    text sat off-centre. Left at its natural height the hero
+                    reports the real overflow and the fit loop above shrinks it
+                    until the whole slide is visible and optically centred. */}
+                <p style={{ margin: 0, flexShrink: 0, fontSize: `${curSize * fitScale}px`, lineHeight: 1.28, fontWeight: 800, whiteSpace: 'pre-line', overflow: 'hidden', color: curColor, maxWidth: '100%' }}>
                   {heroText}
                 </p>
               </div>
@@ -701,30 +827,80 @@ export default function StageScreen({ C, state, status, onSwitchRole, lockedRole
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {orderSongs.map((row) => {
                   const on = row.songId === activeSongId;
+                  const editing = drafts[row.songId] != null;
+                  const value = rowBpm(row);
+                  const dirty = editing && (row.bpm == null || clampBpm(row.bpm) !== value);
+                  const shown = row.bpm != null || editing ? value : null;
                   return (
-                    <button
+                    <div
                       key={row.rowId}
-                      onClick={() => pickSong(row)}
-                      data-testid="drum-song-row"
                       style={{
-                        display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left',
+                        display: 'flex', alignItems: 'center', gap: 5,
                         background: on ? 'rgba(255,199,44,0.14)' : '#131316',
                         border: `1px solid ${on ? 'rgba(255,199,44,0.55)' : '#232327'}`,
-                        color: '#f5f5f7', borderRadius: 12, padding: '11px 13px',
-                        minHeight: 50, cursor: 'pointer', fontFamily: 'inherit',
-                        touchAction: 'manipulation',
+                        color: '#f5f5f7', borderRadius: 12, padding: '6px 9px 6px 12px',
+                        minHeight: 56,
                       }}
                     >
                       {row.live && <span aria-label="On air" style={{ width: 7, height: 7, borderRadius: '50%', background: '#36C982', boxShadow: '0 0 8px #36C982', flexShrink: 0 }} />}
-                      <span style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ display: 'block', fontSize: 14.5, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.title}</span>
-                        {row.subtitle ? <span style={{ display: 'block', fontSize: 11, fontWeight: 600, color: faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.subtitle}</span> : null}
-                      </span>
-                      <span style={{ fontSize: 12.5, fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: row.bpm != null ? GOLD : faint, flexShrink: 0 }}>
-                        {row.bpm != null ? `${row.bpm} BPM` : '—'}
-                      </span>
-                      {on && <Check size={16} color={GOLD} style={{ flexShrink: 0 }} />}
-                    </button>
+                      {/* The title picks the song (loads it on the console and
+                          applies this row's tempo); the steppers beside it
+                          edit the tempo that gets SAVED onto the song. */}
+                      <button
+                        onClick={() => pickSong(row)}
+                        data-testid="drum-song-row"
+                        aria-label={`Use ${row.title}`}
+                        style={{
+                          flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column',
+                          alignItems: 'flex-start', gap: 1, padding: '7px 0',
+                          background: 'transparent', border: 'none', color: 'inherit',
+                          textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
+                          touchAction: 'manipulation',
+                        }}
+                      >
+                        <span style={{ display: 'block', maxWidth: '100%', fontSize: 14, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.title}</span>
+                        {row.subtitle ? <span style={{ display: 'block', maxWidth: '100%', fontSize: 11, fontWeight: 600, color: faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.subtitle}</span> : null}
+                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+                        <button
+                          onClick={() => editRowBpm(row, -1)}
+                          aria-label={`Decrease the saved tempo of ${row.title}`}
+                          data-testid="drum-row-bpm-down"
+                          style={ROW_STEP}
+                        >
+                          <Minus size={13} />
+                        </button>
+                        <span style={{ minWidth: 52, textAlign: 'center', fontSize: 12.5, fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: shown != null ? GOLD : faint }}>
+                          {shown != null ? shown : '—'}
+                          {shown != null && <span style={{ fontSize: 8, marginLeft: 1, letterSpacing: '0.04em', color: dirty ? GOLD : faint }}>BPM</span>}
+                        </span>
+                        <button
+                          onClick={() => editRowBpm(row, 1)}
+                          aria-label={`Increase the saved tempo of ${row.title}`}
+                          data-testid="drum-row-bpm-up"
+                          style={ROW_STEP}
+                        >
+                          <Plus size={13} />
+                        </button>
+                      </div>
+                      {dirty ? (
+                        <button
+                          onClick={() => saveRowBpm(row)}
+                          aria-label={`Save ${value} BPM for ${row.title}`}
+                          data-testid="drum-row-save"
+                          style={{
+                            flexShrink: 0, height: 34, padding: '0 10px', borderRadius: 999,
+                            background: GOLD, border: `1px solid ${GOLD}`, color: '#0b0b0c',
+                            fontSize: 10, fontWeight: 900, letterSpacing: '0.08em',
+                            cursor: 'pointer', fontFamily: 'inherit', touchAction: 'manipulation',
+                          }}
+                        >
+                          SAVE
+                        </button>
+                      ) : on ? (
+                        <Check size={16} color={GOLD} style={{ flexShrink: 0 }} />
+                      ) : null}
+                    </div>
                   );
                 })}
               </div>
@@ -734,7 +910,7 @@ export default function StageScreen({ C, state, status, onSwitchRole, lockedRole
               </p>
             )}
             <p style={{ margin: '12px 0 0 0', fontSize: 11, color: faint, lineHeight: 1.55 }}>
-              Picking a song loads it on the console (the projection is untouched) and applies its saved tempo. Songs without a saved tempo keep the current BPM.
+              Picking a song loads it on the console (the projection is untouched) and applies its saved tempo. Use − / + to change a song's tempo, then SAVE to store it. Songs without a saved tempo keep the current BPM.
             </p>
           </div>
         </div>

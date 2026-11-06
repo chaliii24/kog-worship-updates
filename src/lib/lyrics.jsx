@@ -1,5 +1,7 @@
 import React from 'react';
 import { FONT_OPTIONS, transitionAnimation } from './constants';
+import { KIN_STYLE_TAG, kinAnimations, kinVars } from './kinetic';
+import { normalizeCascade, ensureCascadeFonts } from './fontCascade';
 import { normalizeGhost, textFxStyle } from './cinematic';
 
 export const applyCaseTransform = (t, mode) => {
@@ -1232,6 +1234,14 @@ export const cueLyricStyle = (cue) => ({
   // 0–100 on the cue (the editor slider's units); 0–1 in the render style.
   opacity: cue?.opacity != null ? Math.min(1, Math.max(0, Number(cue.opacity) / 100)) : 1,
   blendMode: LYRIC_BLEND_MODES.has(cue?.blendMode) ? cue.blendMode : 'normal',
+  // Kinetic timeline, when this box has one. Passed through untouched (the
+  // renderer normalises it) so every surface that already receives a
+  // cueLyricStyle — wall, monitor, thumbnails, editor preview — gets the same
+  // timeline with no extra plumbing.
+  kin: (cue && cue.kin) || null,
+  // Per-slide font cascade (see src/lib/fontCascade.js). Same deal: carried on
+  // the style so the projector and the monitor pick it up with no plumbing.
+  fontCycle: (cue && cue.fontCycle) || null,
   // null = auto: padding derives from the font size in
   // lyricsLayoutMetrics, so the gutter grows with the type.
   pad: cue?.pad != null ? Number(cue.pad) : null,
@@ -1546,12 +1556,57 @@ export const LyricsBlock = ({ text, st, box }) => {
 // of sitting already-finished on the next cue. Static surfaces (tiles, editor
 // thumbs, "up next") leave animate off and never pay for keyframes.
 // ---------------------------------------------------------------------------
+// FONT CASCADE — a slide can re-set the face of its MAIN text on a fast clock
+// instead of holding one. Deliberately a leaf component: the tick re-renders
+// this one block, not the slide, so the wall's background, chrome, scripture
+// and other boxes are untouched by a 150ms interval. It calls the font loader
+// itself because the projector is a SECOND Electron document — a <link> in the
+// console's document does not reach it.
+const CascadingLyrics = ({ text, st, box, cascade }) => {
+  const key = cascade.ids.join(',');
+  const [tick, setTick] = React.useState(0);
+  React.useEffect(() => { ensureCascadeFonts(); }, []);
+  React.useEffect(() => {
+    setTick(0);
+    const id = setInterval(() => {
+      setTick((n) => (n + 1) % cascade.fonts.length);
+    }, cascade.ms);
+    return () => clearInterval(id);
+  }, [key, cascade.ms, cascade.fonts.length]);
+  const font = cascade.fonts[tick % cascade.fonts.length];
+  // ONE size for every face, chosen to fit the WIDEST of them.
+  //
+  // LyricsBlock normally re-fits itself by measuring the rendered block, and
+  // that fit runs in a layout effect on every render. Letting it re-fit at
+  // 150ms made each tick measure, shrink, re-render and measure again — real
+  // layout thrash on the one surface that must hold 60fps. Picking the smallest
+  // auto-fit across the palette up front and opting out of the re-fit
+  // (fixedSize) means a tick only swaps the family: no measuring, no size
+  // pumping, and the line never jumps in size when a wider face comes round.
+  const fitted = React.useMemo(() => {
+    const faces = Array.isArray(cascade.fonts) && cascade.fonts.length ? cascade.fonts : [st.font];
+    let smallest = Infinity;
+    for (const face of faces) {
+      const n = computeLyricsFontSize(text, { ...st, font: face }, box);
+      if (Number.isFinite(n) && n > 0 && n < smallest) smallest = n;
+    }
+    if (Number.isFinite(smallest)) return smallest;
+    return computeLyricsFontSize(text, st, box);
+    // `st` is rebuilt on every render, so depend on the fields the fit reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, box && box.w, box && box.h, cascade.ids.join(','), st.font, st.bold, st.italic, st.lineHeight, st.caseMode, st.letterSpacing, st.pad]);
+  return <LyricsBlock text={text} st={{ ...st, font, fixedSize: true, size: fitted }} box={box} />;
+};
+
 export const SlideTextLayers = ({ style, text, st, lift = 0, stretch = 1, animate = false, animKey = 'slide' }) => {
   const mainSt = st || (style && style.lyric) || null;
   if (!mainSt) return null;
   const k = Number(stretch) || 1;
   const widen = (b) => (k === 1 ? b : { ...b, x: Math.round(b.x * k), w: Math.round(b.w * k) });
   const mainBox = widen(liftBox(mainSt.box || { x: 80, y: 100, w: 1120, h: 480 }, lift));
+  // Static surfaces (tiles, thumbnails, "up next") never cycle: one face, no
+  // timer. Only a surface that is actually showing the slide animates.
+  const mainCascade = animate ? normalizeCascade(mainSt.fontCycle) : null;
   const ghost = style && style.ghost ? style.ghost : null;
   const gb = ghost && ghost.lyric ? widen(liftBox(ghost.lyric.box || { x: 64, y: 170, w: 1152, h: 380 }, lift)) : null;
   const animCss = (tr) => {
@@ -1570,8 +1625,27 @@ export const SlideTextLayers = ({ style, text, st, lift = 0, stretch = 1, animat
       </div>
     ) : node
   );
+  // KINETIC SHELL — a layer with a `kin` timeline gets three nested wrappers
+  // instead of one entrance: outer owns the exit, middle the entrance, inner
+  // the continuous loop. Nesting is what lets "slide up, float forever, blur
+  // out" compose on ONE box; a single element cannot carry three animations
+  // that all own `transform` without them overwriting each other. Static
+  // surfaces (animate=false) never build it, so thumbnails stay cheap.
+  const paint = (key, layerSt, tr, node) => {
+    const kin = animate && layerSt ? layerSt.kin : null;
+    if (!kin) return animated(key, animCss(tr), node);
+    const a = kinAnimations(kin);
+    return (
+      <div key={key} style={{ position: 'absolute', inset: 0, animation: a.exit || undefined, willChange: 'transform, opacity, filter', ...kinVars(kin) }}>
+        <div style={{ width: '100%', height: '100%', animation: a.enter || undefined }}>
+          <div style={{ width: '100%', height: '100%', animation: a.loop || undefined }}>{node}</div>
+        </div>
+      </div>
+    );
+  };
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', ...textFxStyle(style && style.fx) }}>
+      {animate && <style>{KIN_STYLE_TAG}</style>}
       {/* Watermark first: it is the BACKGROUND text layer, behind everything. */}
       {ghost && gb && (
         <div style={{ position: 'absolute', left: gb.x, top: gb.y, width: gb.w, height: gb.h, transform: gb.angle ? `rotate(${gb.angle}deg)` : undefined, transformOrigin: 'center center' }}>
@@ -1579,7 +1653,9 @@ export const SlideTextLayers = ({ style, text, st, lift = 0, stretch = 1, animat
         </div>
       )}
       <div style={{ position: 'absolute', left: mainBox.x, top: mainBox.y, width: mainBox.w, height: mainBox.h, transform: mainBox.angle ? `rotate(${mainBox.angle}deg)` : undefined, transformOrigin: 'center center' }}>
-        {animated(`main-${animKey}`, animCss(slideTr), <LyricsBlock text={text || ''} st={mainSt} box={mainBox} />)}
+        {paint(`main-${animKey}`, mainSt, slideTr, mainCascade
+          ? <CascadingLyrics text={text || ''} st={mainSt} box={mainBox} cascade={mainCascade} />
+          : <LyricsBlock text={text || ''} st={mainSt} box={mainBox} />)}
       </div>
       {((style && style.texts) || []).map((t, i) => {
         const tl = t && t.lyric ? t.lyric : null;
@@ -1588,7 +1664,7 @@ export const SlideTextLayers = ({ style, text, st, lift = 0, stretch = 1, animat
         const tr = (t && t.transition) || slideTr;
         return (
           <div key={`tx-${i}`} style={{ position: 'absolute', left: tb.x, top: tb.y, width: tb.w, height: tb.h, transform: tb.angle ? `rotate(${tb.angle}deg)` : undefined, transformOrigin: 'center center' }}>
-            {animated(`tx-${i}-${animKey}`, animCss(tr), <LyricsBlock text={t.text || ''} st={tl} box={tb} />)}
+            {paint(`tx-${i}-${animKey}`, tl, tr, <LyricsBlock text={t.text || ''} st={tl} box={tb} />)}
           </div>
         );
       })}

@@ -8,18 +8,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="theme-color" content="#0D1014" />
+    <meta name="theme-color" content="#0B0C0E" />
     <meta name="color-scheme" content="dark light" />
     <!-- `ws:` (host-agnostic) is required: in dev this page is served by Vite
          on :5173 while the control socket listens on :8787, so 'self' would
          not cover it. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ws: wss: http: https:; font-src 'self' data:; object-src 'none'; base-uri 'self'" />
+    <!-- media-src/img-src must allow http(s), not just 'self': in dev the page
+         is served by Vite on :5173 while slide backgrounds/countdown media are
+         served by the pairing server on :8787 — a different origin. -->
+    <!-- The Google Fonts origins are here because this page renders the very
+         same slide as the projector (MiniSlide -> ProjectorDisplay): kinetic
+         cascade faces are a <link> to fonts.googleapis.com plus the files on
+         fonts.gstatic.com, so both must be allowed or the cascade silently
+         falls back to system faces. index.html carries the same two origins. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: http: https:; media-src 'self' data: blob: http: https:; connect-src 'self' ws: wss: http: https:; font-src 'self' data: https://fonts.gstatic.com; object-src 'none'; base-uri 'self'" />
     <title>KOG Worship Remote</title>
     <link rel="icon" type="image/png" href="/favicon.png" />
     <style>
       html, body {
         margin: 0; padding: 0; width: 100%; min-height: 100%;
-        background: #0D1014; color: #F1F2F3;
+        background: #0B0C0E; color: #F1F2F3;
         font-family: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
         -webkit-font-smoothing: antialiased;
         -webkit-tap-highlight-color: transparent;

@@ -209,11 +209,28 @@ export default function StagePanel() {
   const selectedSavedBpm = selectedId ? savedBpmOf(selectedId) : null;
   const [popupBpm, setPopupBpm] = useState(96);
   const [popupSavedTick, setPopupSavedTick] = useState(false);
+  // True while the number in the editor is a draft the OPERATOR typed (it no
+  // longer mirrors the saved tempo). Governs the reseed effect below.
+  const popupDirtyRef = useRef(false);
   useEffect(() => {
     if (selectedId == null) return;
+    popupDirtyRef.current = false; // a fresh song picks its own number up front
     setPopupBpm(savedBpmOf(selectedId) ?? Math.round(Number(cfg.bpm) || 96));
     setPopupSavedTick(false);
   }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Keep the editor honest with the LIBRARY: when the saved tempo of the
+  // selected song changes under it (the drummer writes a new BPM from his
+  // phone), an untouched field follows the new number — otherwise Save here
+  // would write the OLD tempo straight back over his edit. A field the
+  // operator has already moved is his own draft: his edit wins and nothing is
+  // reseeded under his hands.
+  useEffect(() => {
+    if (selectedId == null || selectedSavedBpm == null) return;
+    if (popupDirtyRef.current) return; // the operator is mid-edit
+    if (Number(selectedSavedBpm) === Number(popupBpm)) return;
+    setPopupBpm(selectedSavedBpm);
+    setPopupSavedTick(false);
+  }, [selectedSavedBpm, selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
   const savePopupBpm = async () => {
     if (selectedId == null || !window.require) return;
     const bpm = Math.min(220, Math.max(40, Math.round(Number(popupBpm) || 96)));
@@ -225,6 +242,7 @@ export default function StagePanel() {
       // The saved tempo takes the room: stage metronome + drummer phones.
       setStageCfg((prev) => ({ ...prev, bpm }));
       setPopupBpm(bpm);
+      popupDirtyRef.current = false; // the field IS the saved tempo again
       setPopupSavedTick(true);
       setTimeout(() => setPopupSavedTick(false), 1600);
     } catch { /* main not ready */ }
@@ -371,13 +389,13 @@ export default function StagePanel() {
                 {selectedSavedBpm != null ? `Saved: ${selectedSavedBpm} BPM — firing recalls it.` : 'No tempo saved — firing recalls the stage tempo.'}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
-                <input type="range" min={40} max={220} step={1} value={popupBpm} onChange={(e) => setPopupBpm(Number(e.target.value))} style={{ flex: 1, minWidth: 50 }} />
+                <input type="range" min={40} max={220} step={1} value={popupBpm} onChange={(e) => { popupDirtyRef.current = true; setPopupBpm(Number(e.target.value)); }} style={{ flex: 1, minWidth: 50 }} />
                 <input
                   type="number"
                   min={40}
                   max={220}
                   value={popupBpm}
-                  onChange={(e) => setPopupBpm(Math.min(220, Math.max(40, Math.round(Number(e.target.value) || 96))))}
+                  onChange={(e) => { popupDirtyRef.current = true; setPopupBpm(Math.min(220, Math.max(40, Math.round(Number(e.target.value) || 96)))); }}
                   style={{ ...textInput(C), width: 58, padding: '4px 6px', fontSize: 12, textAlign: 'center' }}
                 />
                 <span style={{ fontSize: 10, fontWeight: 800, color: C.muted }}>BPM</span>

@@ -5355,7 +5355,19 @@ export default function App() {
         const wantMeter = Math.round(Number(p.timeSignature));
         const hasMeter = Number.isFinite(wantMeter) && wantMeter >= 1 && wantMeter <= 12;
         if (!rawId && !hasBpm && !hasMeter) return false;
-        if (rawId) {
+        // `saveOnly`: the drummer is writing a tempo ONTO a song (the Save pill
+        // under his ring, or a row in his picker) and is not asking the console
+        // to load that song or to move the running click — an edit on a song
+        // that is not playing must not touch what is playing.
+        const saveOnly = p.saveOnly === true;
+        // The one exception: the song the console is HOLDING. Saving a new BPM
+        // onto the song the click is already running on is a tempo edit of that
+        // very song, so the number must take the main metronome on this same
+        // command (the desk's own tempo popup does exactly that). Otherwise the
+        // saved tempo and the running tempo disagree — the drummer would have
+        // to re-pick the song just to move the click onto his own edit.
+        const isLoadedSong = !!rawId && activeSong != null && String(activeSong.id) === rawId;
+        if (rawId && !saveOnly) {
           const asNum = Number(rawId);
           selectSong(Number.isFinite(asNum) ? asNum : rawId);
           // The tempo panel follows immediately (id-keyed effect below only
@@ -5363,11 +5375,26 @@ export default function App() {
           const rec = (songs || []).find((s) => String(s.id) === rawId);
           setStageBpmPopup({ songId: rawId, title: String(p.title || (rec && rec.title) || 'Song').slice(0, 120) });
         }
-        if (hasBpm || hasMeter) {
+        // `saveBpm` is the drummer asking to persist a tempo. Narrow UPDATE
+        // through the very IPC the desktop tempo popup uses, then refresh the
+        // list so the next snapshot carries the new value and the phone's Save
+        // affordance retires itself.
+        if (p.saveBpm === true && !!rawId && hasBpm && window.require) {
+          const { ipcRenderer } = window.require('electron');
+          const songKey = Number.isFinite(Number(rawId)) ? Number(rawId) : rawId;
+          Promise.resolve(ipcRenderer.invoke('db-set-song-bpm', songKey, wantBpm))
+            .then(() => setSongs((prev) => (prev || []).map((s) => (String(s.id) === rawId ? { ...s, bpm: wantBpm } : s))))
+            .catch((e) => console.warn('[remote] save bpm failed:', e && e.message));
+        }
+        // applyBpm: the tempo moves with a normal (non-saveOnly) tempo push, and
+        // also with a save written onto the song that is currently loaded.
+        const applyBpm = hasBpm && (!saveOnly || isLoadedSong);
+        const applyMeter = hasMeter && !saveOnly;
+        if (applyBpm || applyMeter) {
           setStageCfg((prev) => {
             const next = { ...prev, metronome: true };
-            if (hasBpm) next.bpm = wantBpm;
-            if (hasMeter) next.timeSignature = wantMeter;
+            if (applyBpm) next.bpm = wantBpm;
+            if (applyMeter) next.timeSignature = wantMeter;
             return next.bpm === prev.bpm && next.timeSignature === prev.timeSignature && next.metronome === prev.metronome
               ? prev
               : next;
@@ -5560,6 +5587,9 @@ export default function App() {
       live: live ? {
         title: live.title || '',
         label: live.label || '',
+        // Artist rides the title card ("Song By" / card chrome). Phones draw
+        // the same ProjectorDisplay as the wall, so it needs the same field.
+        artist: live.artist || '',
         // A photo/video slide is not a song: drummer phones use this flag so a
         // media file can never be mistaken for the loaded lyric song.
         media: live.media === true,
@@ -5572,6 +5602,9 @@ export default function App() {
         style: live.style || null,
         timer: live.timer || null,
       } : null,
+      // LED-wall lift: the phone miniature runs the same ProjectorDisplay as
+      // the wall, so it must raise lyric boxes by the same canvas pixels.
+      lyricLift: Number(lyricLift) || 0,
       // Audience message overlay state, so the control phone can show LIVE
       // and offer Clear without a second channel (media bug rides along as
       // a flag — phones stay text-only by scope).
@@ -5593,6 +5626,14 @@ export default function App() {
         id: activeSong.id,
         title: activeSong.title || '',
         artist: activeSong.artist || '',
+        // Saved tempo, read from the song LIST: the drummer saves a new BPM
+        // from his phone, only `songs` is refreshed, and the button that
+        // offered the save has to disappear on the same snapshot.
+        bpm: (() => {
+          const rec = (songs || []).find(s => String(s.id) === String(activeSong.id));
+          const v = Math.round(Number(rec ? rec.bpm : activeSong.bpm));
+          return Number.isFinite(v) && v >= MIN_BPM && v <= MAX_BPM ? v : null;
+        })(),
         cues: (activeSong.cues || []).map(c => ({ id: c.id, label: c.label || '', text: c.text || '' })),
       } : null,
       activeCueId: activeCue ? activeCue.id : null,
@@ -5698,7 +5739,7 @@ export default function App() {
   };
   pushMobileRef.current = pushMobileState;
 
-  useEffect(() => { pushMobileState(); }, [currentSlide, displays, activeSong, activeCue, activeService, slideTimer, themeDark, targetedDisplays, countdown, sermon, outputAspect, outputs, stageCfg, liveOverlay, drawStrokes, bibleRemote, songs]);
+  useEffect(() => { pushMobileState(); }, [currentSlide, displays, activeSong, activeCue, activeService, slideTimer, themeDark, targetedDisplays, countdown, sermon, outputAspect, outputs, stageCfg, liveOverlay, drawStrokes, bibleRemote, songs, lyricLift]);
 
   // Auto-stop: a live non-overtime timer ends itself at zero (blackout +
   // stage clear, same as the Stop button) instead of sitting on 0:00 until

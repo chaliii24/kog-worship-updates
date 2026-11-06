@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, FONT_OPTIONS, FALLBACK_SYSTEM_FONTS } from '../lib/constants';
 import { renderLyricsLayout, cueLyricStyle, stripMarkup, ghostLayerOf, FONT_SIZE_MIN, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, autoPadForSize, padCeilingForBox, fitBoxToText, growBoxToText, restyleLineScales } from '../lib/lyrics';
 import { allTextObjects, newTextObject, textObjectLayers, textTransitionOf } from '../lib/songTextObjects';
+import KineticPanel from './KineticPanel';
 import { useApp } from '../context/AppContext';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import { animatedPresetOf } from './CountdownFace';
@@ -2073,6 +2074,22 @@ export default function SongEditorModal() {
                     <input type="number" min="0" value={editorCue?.autoNext ?? 0} onChange={(e) => updateCue(editorCueIdx, { autoNext: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} style={{ width: 60, background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px', fontSize: 12, textAlign: 'center', outline: 'none' }} />
                   </div>
                 </div>
+
+                {/* KINETIC TYPOGRAPHY — per-box timeline: when each layer of
+                    the slide enters, moves and leaves. Writes through the same
+                    patchText() as the rest of this sidebar, so the selected box
+                    is still the only thing being edited. */}
+                {editorCue && (
+                  <KineticPanel
+                    C={C}
+                    ACCENT={ACCENT}
+                    cue={editorCue}
+                    layerIdx={activeIdx}
+                    onSelectLayer={(i) => setActiveObj(i)}
+                    onPatch={patchText}
+                    onApplyCue={(next) => updateCue(editorCueIdx, next)}
+                  />
+                )}
 
                 {editorCue && (
                   <CinematicPanel

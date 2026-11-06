@@ -9,6 +9,7 @@ build/
 *.blockmap
 # *.yml (allow workflow files)
 KOG_INSTALLER.zip
+/*.tmp.json
 
 # Environment
 .env
@@ -23,6 +24,18 @@ KOG_INSTALLER.zip
 # OS
 .DS_Store
 Thumbs.db
+
+# Agent scratch — imported chat transcripts can contain pasted customer data
+.cloud-attachments/
+
+# Verification screenshots and source backups kept out of the repo; they are
+# not part of the app and must never end up in a release commit.
+/drummer-*.png
+/kinetic-*.png
+/zz-*.png
+/stage-drummer-files/
+/stage-drummer-files.zip
+/nemotron-drummer-backup/
 
 # Logs
 *.log

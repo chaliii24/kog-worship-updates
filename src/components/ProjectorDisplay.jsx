@@ -273,6 +273,31 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
   const bgValue = slideStyle.backgroundValue || '#000';
   const bgKey = `${bgType}:${bgValue}`;
   const bgFade = 0.6;
+  // PHONE-SAFE IMAGE SWAP — a LAN preview can lag the slide push. The
+  // background crossfade unmounts the outgoing layer after 0.6s; if the
+  // incoming image is still downloading, the picture falls through to the
+  // black root and reads as "the background went black after the first
+  // slide". Paint the last decoded image under the incoming one until the
+  // new file is actually ready. On the wall this is invisible (library files
+  // load from disk), so both surfaces keep the same renderer.
+  const bgImage = bgType === 'image' && typeof bgValue === 'string' ? bgValue : '';
+  const [shownImage, setShownImage] = useState(bgImage);
+  useEffect(() => {
+    if (!bgImage) { setShownImage(''); return undefined; }
+    if (bgImage === shownImage) return undefined;
+    let alive = true;
+    const settle = () => { if (alive) setShownImage(bgImage); };
+    const img = new Image();
+    img.onload = settle;
+    // A genuinely broken file must not pin the previous slide forever: swap
+    // to the requested URL and let the slide's own fallback show instead.
+    img.onerror = settle;
+    img.src = bgImage;
+    return () => { alive = false; };
+    // shownImage is intentionally read but not listed: this effect starts a
+    // preload exactly when the URL changes, not on every paint.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bgImage]);
   // Standby / clear: the incoming slide has no lyrics and no deck on it.
   const blankSlide = !cs.text && !cs.presentation;
 
@@ -527,14 +552,18 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
                 editor. Absent fields fall back to the historic look (cover,
                 no wash), so old songs render exactly as before. */}
             {slideStyle.backgroundType === 'image' && (
-              <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', background: `url("${String(slideStyle.backgroundValue || '').replace(/"/g, '%22')}") center / ${bgFitCss(slideStyle.bgFit)} no-repeat`, backgroundColor: '#000' }} />
+              <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', background: `url("${String(shownImage || bgValue || '').replace(/"/g, '%22')}") center / ${bgFitCss(slideStyle.bgFit)} no-repeat`, backgroundColor: '#000' }} />
             )}
             {slideStyle.backgroundType === 'video' && (
               <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', transform: 'translateZ(0)' }}>
                 <BackgroundVideo
                   src={slideStyle.backgroundValue}
                   loop={slideStyle.bgLoop !== false}
-                  muted={slideStyle.bgMuted !== false}
+                  // A framed card is a PICTURE of the wall, never a second
+                  // player: always muted here (same rule as the countdown
+                  // surface), so a phone/browser autoplay policy can never
+                  // refuse the stream and leave the card black.
+                  muted={framed ? true : slideStyle.bgMuted !== false}
                   rate={Number(slideStyle.bgRate) || 1}
                   style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: bgFitCss(slideStyle.bgFit) }}
                 />

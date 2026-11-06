@@ -55,5 +55,19 @@ check('rows show saved tempo', panel.includes('savedBpmOf(s.songId)'));
 check('popup saves via IPC', panel.includes("invoke('db-set-song-bpm'"));
 check('save drives metronome', panel.includes('setStageCfg((prev) => ({ ...prev, bpm }))'));
 
+console.log('--- drummer phone writes tempos ---');
+const stageSrc = fs.readFileSync('./src/mobile/screens/StageScreen.jsx', 'utf8');
+check('save pill under the ring', stageSrc.includes('data-testid="drum-save-bpm"'));
+check('set-list row steppers', stageSrc.includes('data-testid="drum-row-bpm-up"') && stageSrc.includes('data-testid="drum-row-bpm-down"'));
+check('set-list row save', stageSrc.includes('data-testid="drum-row-save"'));
+check('phone sends saveBpm', stageSrc.includes('saveBpm: true') && stageSrc.includes('saveOnly: true'));
+check('console persists a phone save', appSrc.includes("invoke('db-set-song-bpm', songKey, wantBpm)"));
+check('a save never loads the song', appSrc.includes('const saveOnly = p.saveOnly === true;') && appSrc.includes('if (rawId && !saveOnly) {'));
+check('a save onto the loaded song takes the metronome', appSrc.includes('const isLoadedSong =') && appSrc.includes('const applyBpm = hasBpm && (!saveOnly || isLoadedSong);'));
+check('phone echoes that save into the ring', stageSrc.includes('if (consoleSongId != null && String(row.songId) === consoleSongId) {') && stageSrc.includes('patchEcho({ bpm: value });'));
+check('other songs keep the running click', appSrc.includes('const applyMeter = hasMeter && !saveOnly;'));
+check('tempo popup follows an external save', panel.includes('if (popupDirtyRef.current) return;') && panel.includes('setPopupBpm(selectedSavedBpm);'));
+check('snapshot carries the saved bpm', appSrc.includes('bpm: (() => {') && appSrc.includes('Number(rec ? rec.bpm : activeSong.bpm)'));
+
 console.log(fails.length ? `\nRESULT: ${fails.length} FAILED` : '\nRESULT: all passed');
 process.exit(fails.length ? 1 : 0);

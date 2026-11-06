@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { PenLine, Undo2, Trash2 } from 'lucide-react';
 import { stubTap } from '../../lib/anim.js';
+import { T } from '../theme.js';
 import { DRAW_W, DRAW_H, DRAW_COLORS, DRAW_WIDTHS, strokeToPath } from '../../lib/draw.js';
 import MiniSlide from './MiniSlide.jsx';
 
@@ -116,12 +117,12 @@ export default function DrawScreen({ C, ACCENT, state, send }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ background: C.elevated, border: `1px solid ${onAir ? 'rgba(255,184,0,0.5)' : C.border2}`, borderRadius: 16, padding: 14, position: 'relative', overflow: 'hidden' }}>
-        {onAir && <span style={{ position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderRadius: 3, background: '#FFB800' }} />}
+      <div style={{ background: C.elevated, border: `1px solid ${onAir ? T.ACCENT_LINE : C.border2}`, borderRadius: 18, padding: 14, position: 'relative', overflow: 'hidden' }}>
+        {onAir && <span style={{ position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderRadius: 3, background: T.ACCENT }} />}
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
-          <PenLine size={13} color={onAir ? '#FFC72C' : C.faint} />
+          <PenLine size={13} color={onAir ? T.ACCENT : C.faint} />
           <span style={{ fontSize: 10, fontWeight: 900, letterSpacing: 1.6, textTransform: 'uppercase', color: C.faint }}>Draw on output</span>
-          {onAir && <span style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: '#FFC72C', background: 'rgba(255,184,0,0.15)', border: '1px solid rgba(255,184,0,0.4)', padding: '2px 7px', borderRadius: 6 }}>ON WALL</span>}
+          {onAir && <span style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1, color: T.ACCENT, background: T.ACCENT_SOFT, border: `1px solid ${T.ACCENT_LINE}`, padding: '2px 7px', borderRadius: 6 }}>ON WALL</span>}
         </div>
 
         {/* Live miniature underneath (untouchable here), drawing layer above. */}
@@ -136,6 +137,7 @@ export default function DrawScreen({ C, ACCENT, state, send }) {
               aspect={outCssAspect}
               aspectBadge={null}
               badge={null}
+              lift={state?.lyricLift || 0}
             />
           </div>
           <svg
@@ -164,7 +166,7 @@ export default function DrawScreen({ C, ACCENT, state, send }) {
           ))}
           <span style={{ width: 8 }} />
           {DRAW_WIDTHS.map((wd) => (
-            <button key={wd} onClick={() => setWidth(wd)} title={`${wd}px`} style={{ width: 34, height: 34, borderRadius: 9, background: width === wd ? ACCENT : C.elevated2, border: `1px solid ${width === wd ? ACCENT : C.border2}`, color: width === wd ? '#1C1C1E' : C.muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit' }}>
+            <button key={wd} onClick={() => setWidth(wd)} title={`${wd}px`} style={{ width: 34, height: 34, borderRadius: 9, background: width === wd ? ACCENT : C.elevated2, border: `1px solid ${width === wd ? ACCENT : C.border2}`, color: width === wd ? '#191204' : C.muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'inherit' }}>
               <span style={{ width: wd, height: wd, borderRadius: '50%', background: 'currentColor' }} />
             </button>
           ))}

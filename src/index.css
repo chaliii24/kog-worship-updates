@@ -32,6 +32,9 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "./untitledui/styles/theme.css";
 @import "tailwindcss/utilities.css" layer(utilities);
+/* Shared projected-type faces — the same registry the phone remote imports
+   (src/mobile/main.jsx), so lyric/title/deck text matches 1:1 on both. */
+@import "./fonts.css";
 
 /* Untitled UI's plugins + variant vocabulary. Every rule from these is
    emitted only when a component references it — nothing else changes. */
@@ -162,77 +165,6 @@
   --font-sans: 'Inter Variable', 'CMG Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* -- family: CMG Sans (the default UI + lyric face) -- */
-@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-Italic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
-@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-Medium.ttf') format('truetype'); font-weight: 500; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-MediumItalic.ttf') format('truetype'); font-weight: 500; font-style: italic; font-display: swap; }
-@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-SemiBold.ttf') format('truetype'); font-weight: 600; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-SemiBoldItalic.ttf') format('truetype'); font-weight: 600; font-style: italic; font-display: swap; }
-@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans'; src: url('./assets/fonts/cmg/CMGSans-BoldItalic.ttf') format('truetype'); font-weight: 700; font-style: italic; font-display: swap; }
-
-/* -- family: CMG Sans Condensed -- */
-@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSans-RegularCn.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSansCn-Italic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
-@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSans-MediumCn.ttf') format('truetype'); font-weight: 500; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSansMediumCn-Italic.ttf') format('truetype'); font-weight: 500; font-style: italic; font-display: swap; }
-@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSans-SemiBoldCn.ttf') format('truetype'); font-weight: 600; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSansSemiBoldCn-Italic.ttf') format('truetype'); font-weight: 600; font-style: italic; font-display: swap; }
-@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSans-BoldCn.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans Condensed'; src: url('./assets/fonts/cmg/CMGSansCn-BoldItalic.ttf') format('truetype'); font-weight: 700; font-style: italic; font-display: swap; }
-
-/* -- weight showcase families (each pickable in the font list) -- */
-@font-face { font-family: 'CMG Sans Thin'; src: url('./assets/fonts/cmg/CMGSans-Thin.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans Thin'; src: url('./assets/fonts/cmg/CMGSans-ThinItalic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
-@font-face { font-family: 'CMG Sans ExtraLight'; src: url('./assets/fonts/cmg/CMGSans-ExtraLight.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans ExtraLight'; src: url('./assets/fonts/cmg/CMGSans-ExtraLightItalic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
-@font-face { font-family: 'CMG Sans Light'; src: url('./assets/fonts/cmg/CMGSans-Light.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans Light'; src: url('./assets/fonts/cmg/CMGSans-LightItalic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
-@font-face { font-family: 'CMG Sans ExtraBold'; src: url('./assets/fonts/cmg/CMGSans-ExtraBold.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans ExtraBold'; src: url('./assets/fonts/cmg/CMGSans-ExtraBoldItalic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
-@font-face { font-family: 'CMG Sans Black'; src: url('./assets/fonts/cmg/CMGSans-Black.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans Black'; src: url('./assets/fonts/cmg/CMGSans-BlackItalic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
-
-/* -- all-caps display set -- */
-@font-face { font-family: 'CMG Sans CAPS'; src: url('./assets/fonts/cmg/CMGSans-MediumCAPS.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans CAPS'; src: url('./assets/fonts/cmg/CMGSans-SemiBoldCAPS.ttf') format('truetype'); font-weight: 600; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans CAPS'; src: url('./assets/fonts/cmg/CMGSans-BoldCAPS.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans CAPS Condensed'; src: url('./assets/fonts/cmg/CMGSans-MediumCnCAPS.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans CAPS Condensed'; src: url('./assets/fonts/cmg/CMGSans-BoldCnCAPS.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
-
-/* -- speciality set (single cut per family: cover every weight request) -- */
-@font-face { font-family: 'CMG Sans Rounded'; src: url('./assets/fonts/cmg/CMGSans-BoldRounded.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans Slab'; src: url('./assets/fonts/cmg/CMGSans-BoldSlab.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans Outline'; src: url('./assets/fonts/cmg/CMGSans-BoldOutline.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans Wide'; src: url('./assets/fonts/cmg/CMGSans-ExtraBoldWide.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans Wide Outline'; src: url('./assets/fonts/cmg/CMGSans-ExtraBoldWideOutline.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans Mono Digits'; src: url('./assets/fonts/cmg/CMGSans-BoldMonoDigits.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
-@font-face { font-family: 'CMG Sans Backslant'; src: url('./assets/fonts/cmg/CMGSans-BoldBackslant.ttf') format('truetype'); font-weight: 100 900; font-style: normal; font-display: swap; }
-
-/* Cinzel Decorative — user-supplied display font (OFL license ships next to
-   the files: assets/fonts/cinzel/OFL.txt). Three real weights so the
-   editor's bold toggle lands on the Bold/Black face instead of faking it. */
-@font-face { font-family: 'Cinzel Decorative'; src: url('./assets/fonts/cinzel/CinzelDecorative-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'Cinzel Decorative'; src: url('./assets/fonts/cinzel/CinzelDecorative-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
-@font-face { font-family: 'Cinzel Decorative'; src: url('./assets/fonts/cinzel/CinzelDecorative-Black.ttf') format('truetype'); font-weight: 900; font-style: normal; font-display: swap; }
-/* Anton - condensed display face (OFL license ships with it:
-   assets/fonts/anton/OFL.txt). One weight; the lyric bold toggle falls back
-   to the browser's synthetic bold for this face. */
-@font-face { font-family: 'Anton'; src: url('./assets/fonts/anton/Anton-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-/* Cormorant Garamond - bundled serif display face (OFL license ships next to
-   the files: assets/fonts/cormorant/OFL.txt). Its real italic faces are
-   registered here, so the typography panel's Italic toggle draws the
-   punch-cut italic instead of a synthesised slant - a fake oblique on a serif
-   this fine reads as a bug. */
-@font-face { font-family: 'Cormorant Garamond'; src: url('./assets/fonts/cormorant/CormorantGaramond-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: 'Cormorant Garamond'; src: url('./assets/fonts/cormorant/CormorantGaramond-Italic.ttf') format('truetype'); font-weight: 400; font-style: italic; font-display: swap; }
-@font-face { font-family: 'Cormorant Garamond'; src: url('./assets/fonts/cormorant/CormorantGaramond-Bold.ttf') format('truetype'); font-weight: 700; font-style: normal; font-display: swap; }
-@font-face { font-family: 'Cormorant Garamond'; src: url('./assets/fonts/cormorant/CormorantGaramond-BoldItalic.ttf') format('truetype'); font-weight: 700; font-style: italic; font-display: swap; }
-/* Reenie Beanie - bundled handwriting face, one weight (OFL license ships
-   next to it: assets/fonts/reenie/OFL.txt). The browser synthesises its bold
-   and italic, which is what a handwriting face should do. */
-@font-face { font-family: 'Reenie Beanie'; src: url('./assets/fonts/reenie/ReenieBeanie-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
 
 :root {
   color-scheme: dark;

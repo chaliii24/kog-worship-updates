@@ -19,14 +19,21 @@ export function writeRole(role) {
   try { localStorage.setItem(ROLE_KEY, role); } catch { /* private mode */ }
 }
 
+// Keep the paired token in memory too. Some phone browsers (private mode,
+// embedded webviews) throw on localStorage; the socket still pairs for this
+// session and media URLs must keep working without a persisted token.
+let sessionToken = '';
+
 function readToken() {
-  try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
+  if (sessionToken) return sessionToken;
+  try { sessionToken = localStorage.getItem(TOKEN_KEY) || ''; } catch { /* private mode */ }
+  return sessionToken;
 }
 
 // Resolve a slide background for the phone miniature. http(s) passes
-// through; media:// library images become LAN URLs (bearer token attached —
-// same pairing as commands). media:// videos and anything else resolve to
-// null so the miniature falls back to dark + badge instead of streaming.
+// through; media:// library files (images, backgrounds, countdown media)
+// become LAN URLs with the pairing token attached — same auth as commands.
+// Anything else resolves to null so the miniature falls back to black.
 export function mediaUrl(url) {
   if (typeof url !== 'string' || !url) return null;
   if (/^https?:\/\//i.test(url)) return url;
@@ -41,6 +48,7 @@ export function mediaUrl(url) {
 }
 
 function writeToken(token) {
+  sessionToken = token || '';
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token);
     else localStorage.removeItem(TOKEN_KEY);

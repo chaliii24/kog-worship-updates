@@ -204,6 +204,44 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
     res.end('Not found');
   };
 
+  // Media files (phone miniatures): images can be served whole, but a phone's
+  // <video> needs byte ranges to start/seek reliably. Chromium tolerates a
+  // plain 200; iOS Safari often paints the first frame BLACK until the server
+  // advertises Accept-Ranges and answers 206. One helper for both the uploads
+  // folder and the folder-backed (Bible) route keeps that behaviour identical.
+  const sendMediaFile = (req, res, abs, st, immutable) => {
+    const total = st.size;
+    const type = MIME[path.extname(abs).toLowerCase()] || 'application/octet-stream';
+    const headers = {
+      'Content-Type': type,
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
+      'Access-Control-Allow-Origin': '*',
+    };
+    const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
+    if (m && (m[1] !== '' || m[2] !== '')) {
+      let start = m[1] === '' ? null : Number(m[1]);
+      let end = m[2] === '' ? null : Number(m[2]);
+      if (start == null) {
+        // Suffix range: the last N bytes.
+        start = Math.max(0, total - (end || 0));
+        end = total - 1;
+      } else if (end == null || end >= total) {
+        end = total - 1;
+      }
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= total) {
+        res.writeHead(416, { ...headers, 'Content-Range': `bytes */${total}` });
+        res.end();
+        return;
+      }
+      res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${total}`, 'Content-Length': end - start + 1 });
+      fs.createReadStream(abs, { start, end }).on('error', () => { try { res.destroy(); } catch {} }).pipe(res);
+      return;
+    }
+    res.writeHead(200, { ...headers, 'Content-Length': total });
+    fs.createReadStream(abs).on('error', () => { try { res.destroy(); } catch {} }).pipe(res);
+  };
+
   const notBuilt = (res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
     res.end('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#090a0f;color:#cbd5e1;font:600 16px system-ui;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;padding:28px">The app has not been built yet and the dev server is not running.<br>Start <b>npm run dev</b> or build the app, then reload this page.</body></html>');
@@ -334,13 +372,7 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
         if (path.dirname(abs) !== path.resolve(folder)) { notFound(res); return; }
         fs.stat(abs, (err, st) => {
           if (err || !st.isFile()) { notFound(res); return; }
-          res.writeHead(200, {
-            'Content-Type': MIME[ext] || 'application/octet-stream',
-            'Content-Length': st.size,
-            'Cache-Control': 'no-cache',
-            'Access-Control-Allow-Origin': '*',
-          });
-          fs.createReadStream(abs).on('error', () => { try { res.destroy(); } catch {} }).pipe(res);
+          sendMediaFile(req, res, abs, st, false);
         });
         return;
       }
