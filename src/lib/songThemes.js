@@ -5,7 +5,7 @@
 // keeps using cueLyricStyle, so there is no second rendering path to drift.
 // Built-ins ship with the app; operators can save their own from a slide they
 // already styled (localStorage — no schema change, no DB migration).
-import { FONT_OPTIONS } from './constants';
+import { FONT_OPTIONS } from './constants.js';
 
 const FACE = (label) => (FONT_OPTIONS.find((f) => f.label === label) || FONT_OPTIONS[0]).value;
 
@@ -227,6 +227,46 @@ export const deleteCustomSongTheme = (id) => {
   if (!custom.some((t) => t.id === id)) return false;
   writeCustomSongThemes(custom.filter((t) => t.id !== id));
   return true;
+};
+
+// Applying a theme to a song is pure mapping: a theme stores a LOOK, never
+// words. `scope: 'all'` restyles every slide, `'this'` only the cue at
+// `cueIdx` (-1 = the title slide).
+//
+// The background follows the SCOPE: on an "all slides" apply with `includeBg`
+// it becomes the SONG's background. Writing it onto every cue instead turned
+// each slide into an override, so afterwards the song background (and every
+// background pick in Slide Setup) changed nothing on screen — the slides were
+// all carrying their own copy.
+export const applySongThemeToSong = (song, theme, { scope = 'this', cueIdx = 0, includeBg = true } = {}) => {
+  if (!song || !theme || !theme.style) return song;
+  const s = theme.style;
+  const patch = songThemeCuePatch(theme);
+  const baseBox = s.box || DEFAULT_SONG_BOX;
+  const sameBox = (a, b) => !!a && !!b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+  const titleBox = s.titleBox && !sameBox(s.titleBox, baseBox) ? { ...s.titleBox } : { ...baseBox };
+  const style = (cue, isTitle) => {
+    const next = { ...(cue || {}), ...patch, box: { ...(isTitle ? titleBox : baseBox) } };
+    // A theme stores the ghost LOOK, not its words: keep whatever watermark
+    // this slide already had instead of silently emptying the layer.
+    if (patch.ghost) next.ghost = { ...patch.ghost, text: (cue && cue.ghost && cue.ghost.text) || '' };
+    return next;
+  };
+  const bg = includeBg ? { bg_type: s.bgType || 'color', bg_value: s.bgValue || '#000000' } : {};
+  if (scope === 'all') {
+    return {
+      ...song,
+      ...bg,
+      title_cue: song.title_cue ? style(song.title_cue, true) : song.title_cue,
+      cues: (song.cues || []).map((c) => style(c, false)),
+    };
+  }
+  if (cueIdx < 0) return { ...song, ...bg, title_cue: song.title_cue ? style(song.title_cue, true) : song.title_cue };
+  const cues = [...(song.cues || [])];
+  // One slide: the background is that slide's own override, exactly like the
+  // "This slide" background scope in Slide Setup.
+  if (cues[cueIdx]) cues[cueIdx] = { ...style(cues[cueIdx], false), ...bg };
+  return { ...song, cues };
 };
 
 // Cue-level slice a theme writes. Everything here is a field cueLyricStyle

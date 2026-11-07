@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, dialog, protocol, shell, session, Menu, globalShortcut, Notification } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, dialog, protocol, shell, session, Menu, globalShortcut, Notification, nativeImage } from 'electron';
 import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import electronLog from 'electron-log';
@@ -207,6 +207,44 @@ if (!process.env.GEMINI_API_KEY) {
 
 const MEDIA_DIR = path.join(app.getPath('userData'), 'media');
 
+// 480px JPEG thumbnails for grid tiles (renderer: src/lib/mediaThumb.js).
+// A phone photo is 8-12 MP; a long library of them overruns Chromium's decoded
+// image budget and the tiles stop painting — which is exactly what a "media tab
+// with so many pictures" looks like. Building them on demand means an existing
+// library needs no migration: the first tile request builds its thumb, every
+// one after it is a plain small file read. nativeImage decodes PNG/JPEG; for an
+// image it cannot read we return null and the original file is served instead.
+const THUMB_WIDTH = 480;
+const THUMB_DIR = path.join(MEDIA_DIR, 'thumbs');
+
+function thumbFor(fileName) {
+  const safe = path.basename(String(fileName || ''));
+  if (!safe) return null;
+  const ext = path.extname(safe).toLowerCase();
+  if (!MEDIA_IMAGE_EXT.includes(ext)) return null;
+  const src = path.join(MEDIA_DIR, safe);
+  if (path.dirname(src) !== MEDIA_DIR) return null;
+  let srcStat;
+  try { srcStat = fs.statSync(src); } catch { return null; }
+  if (!srcStat.isFile()) return null;
+  const out = path.join(THUMB_DIR, `${path.basename(safe, ext)}.jpg`);
+  try {
+    const outStat = fs.statSync(out);
+    if (outStat.size > 0 && outStat.mtimeMs >= srcStat.mtimeMs) return out;
+  } catch { /* not built yet */ }
+  try {
+    const img = nativeImage.createFromPath(src);
+    if (img.isEmpty()) return null;
+    const width = img.getSize().width;
+    const scaled = width > THUMB_WIDTH ? img.resize({ width: THUMB_WIDTH, quality: 'good' }) : img;
+    fs.mkdirSync(THUMB_DIR, { recursive: true });
+    fs.writeFileSync(out, scaled.toJPEG(78));
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 // `corsEnabled` matters for thumbnails: a frozen tile captures its still by
 // drawing the decoded frame to a canvas, and Chromium taints that canvas for
 // any cross-origin media. Enabling CORS on the scheme + the header below (and
@@ -248,6 +286,20 @@ function serveFileProtocol(rootDir, request) {
 // The bytes-on-disk half of protocol serving, split out so the /bf/ Bible
 // media branch can serve a file from ANY validated folder with the exact
 // same range/stat behaviour as library uploads.
+// A cancelled image request (a lazy tile scrolled out of view) must destroy
+// the read stream. Without this every cancelled load keeps a file handle open
+// until GC, and a long library walks into EMFILE — at which point every new
+// tile fails to load and the whole grid goes blank.
+function streamBody(stream, request) {
+  const signal = request && request.signal;
+  if (signal) {
+    const kill = () => { try { stream.destroy(); } catch {} };
+    if (signal.aborted) kill();
+    else signal.addEventListener('abort', kill, { once: true });
+  }
+  return Readable.toWeb(stream);
+}
+
 function serveFileBody(filePath, request) {
   // One stat, not three: this runs on the MAIN process for every range request
   // the tiles and the projector issue, and a song switch fires dozens of them in
@@ -269,7 +321,7 @@ function serveFileBody(filePath, request) {
       const n = Math.min(parseInt(suffix[1], 10) || 0, total);
       if (n <= 0 || total === 0) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${total}` } });
       const start = total - n;
-      return new Response(Readable.toWeb(fs.createReadStream(filePath, { start, end: total - 1 })), {
+      return new Response(streamBody(fs.createReadStream(filePath, { start, end: total - 1 }), request), {
         status: 206,
         headers: {
           'Content-Type': mime,
@@ -292,7 +344,7 @@ function serveFileBody(filePath, request) {
       return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${total}` } });
     }
     const chunk = fs.createReadStream(filePath, { start, end });
-    return new Response(Readable.toWeb(chunk), {
+    return new Response(streamBody(chunk, request), {
       status: 206,
       headers: {
         'Content-Type': mime,
@@ -303,7 +355,7 @@ function serveFileBody(filePath, request) {
       }
     });
   }
-  return new Response(Readable.toWeb(fs.createReadStream(filePath)), {
+  return new Response(streamBody(fs.createReadStream(filePath), request), {
     status: 200,
     headers: {
       'Content-Type': mime,
@@ -339,6 +391,14 @@ function serveMediaProtocol() {
         if (path.dirname(abs) !== path.resolve(folder)) return new Response(null, { status: 404 });
         return serveFileBody(abs, request);
       }
+      if (url.pathname.startsWith('/thumbs/')) {
+        const name = decodeURIComponent(url.pathname.slice('/thumbs/'.length).split('/').pop() || '');
+        if (!name) return new Response(null, { status: 404 });
+        const thumb = thumbFor(name);
+        // Fall back to the original when a thumb cannot be built, so a tile
+        // degrades to "slow" instead of "blank".
+        return serveFileBody(thumb || path.join(MEDIA_DIR, path.basename(name)), request);
+      }
       if (url.pathname.startsWith('/cd/')) {
         try { fs.mkdirSync(COUNTDOWN_DIR, { recursive: true }); } catch {}
         return serveFileProtocol(COUNTDOWN_DIR, request);
@@ -368,6 +428,9 @@ ipcMain.handle('add-media-file', async (event, sourcePath) => {
     const url = `media://kog-media/${encodeURIComponent(fileName)}`;
     const kind = MEDIA_IMAGE_EXT.includes(ext) ? 'image' : MEDIA_VIDEO_EXT.includes(ext) ? 'video' : 'audio';
     addMediaAsset(url, kind, `${origBase}${ext}`);
+    // Build the grid thumbnail now (off the paint path) so the first Media tab
+    // visit does not pay for a dozen 12 MP decodes in the main process.
+    if (kind === 'image') { try { thumbFor(fileName); } catch {} }
     return url;
   } catch (e) {
     return null;

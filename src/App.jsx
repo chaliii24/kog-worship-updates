@@ -5,6 +5,7 @@ import logoImage from './assets/logo.png';
 import { getTheme } from './lib/theme';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, cssSpeed } from './lib/constants';
 import { applyCaseTransform, renderLyricsLayout, LyricsBlock, SlideTextLayers, cueLyricStyle, growBoxToText, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, fitBoxToText, fitParsedCue, liftBox, ghostLayerOf } from './lib/lyrics';
+import { rememberRecentMedia } from './lib/recentMedia';
 import { textObjectLayers, patchTextObject, moveTextObject, addTextObject, removeTextObject, duplicateTextObject } from './lib/songTextObjects';
 import { reflowCuesToLines } from './lib/splitReflow.js';
 import { parseSongBlocks, splitCuesByLines } from '../electron/songParse.js';
@@ -6099,6 +6100,9 @@ export default function App() {
   // --- DOCK TOOL ACTIONS ---
   const applyMediaToActiveSong = async (kind, url) => {
     if (!activeSong) return;
+    // Feeds Slide Setup's Recent strip, so "Use" here and a pick in the editor
+    // share one history.
+    rememberRecentMedia(kind, url);
     const next = { ...activeSong };
     if (kind === 'audio') next.audio_url = url;
     else { next.bg_type = kind; next.bg_value = url; }

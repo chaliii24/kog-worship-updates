@@ -6,6 +6,7 @@ import { GRADIENT_PACK } from '../lib/backgrounds';
 import { ANIMATED_GRADIENTS } from './CountdownFace';
 import AnimatedBg from './AnimatedBg';
 import { LazyVideo } from '../lib/lazyVideo';
+import { thumbUrl } from '../lib/mediaThumb';
 
 // Center media browser (Media dock tab): filter chips with live counts,
 // Newest/Name sort, grid/list views, uploads, and the built-in loop +
@@ -102,7 +103,10 @@ export default function MediaBrowser() {
     if (it.kind === 'video') {
       return <LazyVideo src={it.url} preload="metadata" playsInline muted style={box} />;
     }
-    return <img src={it.url} alt="" loading="lazy" draggable={false} style={{ ...box, objectFit: 'cover' }} />;
+    // Tiles point at the 480px thumbnail (main.js builds it on demand), not at
+    // the 8-12 MP original: a long library of originals overruns the renderer's
+    // decoded-image budget and the pictures stop painting.
+    return <img src={thumbUrl(it.url, 'image')} alt="" loading="lazy" decoding="async" draggable={false} style={{ ...box, objectFit: 'cover' }} />;
   };
 
   const actions = (it) => (
