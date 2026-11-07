@@ -671,7 +671,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
                             exactly as it always looked. */}
                         {isTitleSlide && (
                           <>
-                            <TitleCardChrome card={st.card} artist={artist} event={st.cardEvent} venue={st.cardVenue} stretch={stretch} />
+                            <TitleCardChrome card={st} artist={artist} event={st.cardEvent} venue={st.cardVenue} stretch={stretch} />
                             {titleCardIsClassic(st.card) && artist && (
                               <div style={{ position: 'absolute', bottom: 20, right: 24 * stretch, fontFamily: st.font, fontSize: 24, fontWeight: 600, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.03em', textShadow: '0 2px 8px rgba(0,0,0,0.8)', whiteSpace: 'nowrap' }}>
                                 Song By: {artist}

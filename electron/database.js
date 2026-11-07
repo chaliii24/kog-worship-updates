@@ -376,11 +376,18 @@ export function setSongChords(songId, chart, key) {
   return true;
 }
 
+// One clamp for the tempo, shared by the narrow setter and the importer: a
+// restored song must come back at the tempo the band learned it at, and an
+// out-of-range number pasted into a backup must not become a 300 BPM click.
+const normalizeBpm = (bpm) => {
+  if (bpm == null || bpm === '') return null;
+  return Math.min(220, Math.max(40, Math.round(Number(bpm) || 0)));
+};
+
 // Per-song stage tempo (own IPC: db-set-song-bpm). Same discipline as the
 // chord chart: narrow UPDATE only. NULL clears it back to "unset".
 export function setSongBpm(songId, bpm) {
-  const v = bpm == null || bpm === '' ? null : Math.min(220, Math.max(40, Math.round(Number(bpm) || 0)));
-  db.prepare('UPDATE songs SET bpm = ? WHERE id = ?').run(v || null, songId);
+  db.prepare('UPDATE songs SET bpm = ? WHERE id = ?').run(normalizeBpm(bpm), songId);
   return true;
 }
 
@@ -652,7 +659,13 @@ export function exportSongs(ids) {
 export function importLibrary(jsonData) {
   try {
     const library = JSON.parse(jsonData);
-    const insertSong = db.prepare('INSERT INTO songs (title, artist, category, is_favorite, bg_type, bg_value, audio_url, title_cue_json, chord_chart, chord_key, ccli, arrangement_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    // EVERY column that carries how the song looks, sounds or plays has to be
+    // in this list — an import that drops one is silent data loss, because the
+    // operator only finds out when the wall reopens without it. `bpm` and
+    // `last_used` were the two that used to go missing (tempo reverted to
+    // unset, the song fell out of Recently Used); created_at/updated_at are
+    // left to the new row on purpose, they describe THIS copy.
+    const insertSong = db.prepare('INSERT INTO songs (title, artist, category, is_favorite, bg_type, bg_value, audio_url, title_cue_json, chord_chart, chord_key, ccli, arrangement_json, bpm, last_used) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const insertCue = db.prepare('INSERT INTO cues (song_id, label, text, sequence_order, bg_type, bg_value, duration, style_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
 
     db.transaction(() => {
@@ -662,7 +675,7 @@ export function importLibrary(jsonData) {
         // backup JSON has no field — extract from cues as a fallback, same
         // rule as saveSong.
         const ccliValue = song.ccli == null ? (extractCcliFromCues(song.cues) || null) : (String(song.ccli).trim() || null);
-        const res = insertSong.run(song.title, song.artist || 'Unknown', song.category || 'Worship', song.is_favorite || 0, song.bg_type || 'color', song.bg_value || '#000000', song.audio_url || null, song.title_cue ? JSON.stringify(song.title_cue) : null, song.chord_chart || null, song.chord_key || 'C', ccliValue, arrangementToJson(song.arrangement));
+        const res = insertSong.run(song.title, song.artist || 'Unknown', song.category || 'Worship', song.is_favorite || 0, song.bg_type || 'color', song.bg_value || '#000000', song.audio_url || null, song.title_cue ? JSON.stringify(song.title_cue) : null, song.chord_chart || null, song.chord_key || 'C', ccliValue, arrangementToJson(song.arrangement), normalizeBpm(song.bpm), song.last_used || null);
         const songId = res.lastInsertRowid;
         if (song.cues) {
           song.cues.forEach((cue, idx) => {

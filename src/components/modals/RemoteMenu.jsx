@@ -93,6 +93,39 @@ export default function RemoteMenu({ C, ACCENT, onClose, dropUp = false }) {
           <UrlRow label="Control (operator)" value={info.controlUrl} C={C} copied={copied === 'ctrl'} onCopy={() => copy(info.controlUrl, 'ctrl')} />
           <UrlRow label="Stage (singers)" value={info.stageUrl} C={C} copied={copied === 'stage'} onCopy={() => copy(info.stageUrl, 'stage')} />
 
+          {/* Which adapter the links above point at. Auto-detection asks the OS
+              which interface owns the default route, so this is usually right
+              and the row stays hidden — it only appears when the machine has
+              a genuine choice (wired + hotspot, dual NIC, VPN). Clicking the
+              live one hands the choice back to auto. */}
+          {Array.isArray(info.addresses) && info.addresses.length > 1 && (
+            <div style={{ marginTop: 9, background: C.elevated2, border: `1px solid ${C.border2}`, borderRadius: 9, padding: '8px 9px' }}>
+              <div style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: 1.3, textTransform: 'uppercase', color: C.faint, marginBottom: 6 }}>
+                Network {info.addressLocked ? '· chosen' : '· auto'}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                {info.addresses.map((a) => {
+                  const on = a.address === info.ip;
+                  return (
+                    <button
+                      key={`${a.name}-${a.address}`}
+                      onClick={() => {
+                        if (!ipc) return;
+                        ipc.invoke('lan-set-address', on ? '' : a.address).then(setInfo).catch(() => {});
+                      }}
+                      title={on ? 'In use — click to go back to automatic detection' : `Point the phone links at ${a.name} (${a.address})`}
+                      style={{ background: on ? 'rgba(255,184,0,0.16)' : 'transparent', border: `1px solid ${on ? 'rgba(255,184,0,0.5)' : C.border2}`, color: on ? ACCENT : C.text2, borderRadius: 7, padding: '4px 7px', fontSize: 10, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%' }}
+                    >
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>{a.name}</span>
+                      <span style={{ fontFamily: 'ui-monospace, Consolas, monospace', opacity: 0.75 }}>{a.address}</span>
+                      {a.virtual && <span style={{ fontSize: 8.5, opacity: 0.6 }}>virtual</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* PIN */}
           <div style={{ background: C.elevated2, border: `1px solid ${C.border2}`, borderRadius: 10, padding: '10px 12px', marginTop: 9, display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ flex: 1, minWidth: 0 }}>

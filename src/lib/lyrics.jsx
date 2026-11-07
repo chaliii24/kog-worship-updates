@@ -1281,6 +1281,9 @@ export const cueLyricStyle = (cue) => ({
   card: cue?.card || null,
   cardEvent: cue?.cardEvent || '',
   cardVenue: cue?.cardVenue || '',
+  // Per-line card colours ride along too: the wall, the console tile and the
+  // editor canvas all draw the framing from this one style object.
+  cardColors: cue?.cardColors && typeof cue.cardColors === 'object' ? cue.cardColors : null,
 });
 
 /**

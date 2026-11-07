@@ -50,6 +50,7 @@ const TitleCardChrome = ({ card, artist = '', event = '', venue = '', stretch = 
             width: r.w * k,
             height: r.h || 2,
             background: 'currentColor',
+            color: chrome.ruleColor || undefined,
             opacity: r.opacity != null ? r.opacity : 0.55,
           }}
         />
@@ -61,6 +62,9 @@ const TitleCardChrome = ({ card, artist = '', event = '', venue = '', stretch = 
             position: 'absolute',
             top: s.y,
             ...slotBox(s, k),
+            // The line's own colour wins over the card tone; the caption
+            // ("LIVE FROM") inherits it, so one pick tints the pair together.
+            color: s.color || undefined,
             display: 'flex',
             flexDirection: 'column',
             maxWidth: s.align === 'center' ? '86%' : '58%',

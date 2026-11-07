@@ -739,9 +739,12 @@ export default function LiveOutputPanel({
           live as a slim footer inside Groups, so the list keeps full height. */}
       <Tabs selectedKey={rightTab} onSelectionChange={setRightTab} className="min-h-0 flex-1 flex flex-col">
         <div style={{ padding: '10px 12px', borderBottom: '1px solid ' + C.border, background: C.panel, flexShrink: 0 }}>
+          {/* Groups leads: it is the panel the operator reaches for mid-song
+              (Quick Jump, timer, output state), while Overlay is set up once.
+              Tab ids and panel content are unchanged — only the order. */}
           <TabList type="button-brand" size="sm" fullWidth>
-            <Tab id="overlay" label="Overlay" />
             <Tab id="groups" label="Groups" />
+            <Tab id="overlay" label="Overlay" />
           </TabList>
         </div>
         <TabPanel id="overlay" className="box-border flex-1 min-h-0 overflow-y-auto p-2.5">
@@ -823,7 +826,14 @@ export default function LiveOutputPanel({
                   const liveBase = liveLabel.replace(/\s*\(Part\s+\d+\)\s*$/i, '');
                   const on = liveLabel === label || (liveBase !== '' && liveBase === label);
                   return (
-                  <motion.button {...stubTap} key={label} onClick={() => {
+                  <motion.button {...stubTap} key={label} onClick={(ev) => {
+                    // Hand the keyboard straight back to the show. A chip is a
+                    // jump, not a control you keep pressing, but leaving it
+                    // focused made the global hotkey guard treat the next
+                    // Arrow/Space as "the button owns this key" — so clicking
+                    // Chorus and hitting → did nothing until the operator
+                    // clicked empty space. Blur first, then jump.
+                    if (ev && ev.currentTarget && ev.currentTarget.blur) ev.currentTarget.blur();
                     // Labels here are BASE names ("Chorus") while split cues
                     // read "Chorus (Part 2)" — exact match found nothing and
                     // the chip silently no-opped on parted songs.

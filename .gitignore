@@ -53,3 +53,6 @@ coverage/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# Throwaway SQLite folder the export/import round-trip test recreates
+/tests/.tmp/

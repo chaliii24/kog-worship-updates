@@ -15,7 +15,6 @@ import http from 'http';
 import net from 'net';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
@@ -23,11 +22,13 @@ import QRCode from 'qrcode';
 import electronLog from 'electron-log';
 import { BIBLE_MEDIA_EXT } from './mediaTypes.js';
 import { canRunLanCommand } from './lanCommandRules.js';
+import { listAddresses, pickAddress, probeRouteAddress } from './netAddress.js';
 
 const log = electronLog || { info: (...a) => console.log(...a), error: (...a) => console.error(...a) };
 
 const PORT = Number(process.env.KOG_LAN_PORT) || 8787;
 const PAIR_FILE_NAME = 'remote-pairing.json';
+const NET_FILE_NAME = 'remote-network.json';
 const MAX_TOKENS = 24;
 const PIN_MAX_ATTEMPTS = 6;
 const PIN_LOCKOUT_MS = 45000;
@@ -61,25 +62,11 @@ const MIME = {
   '.jfif': 'image/jpeg',
 };
 
-function lanAddresses() {
-  const ifs = os.networkInterfaces();
-  const found = [];
-  for (const name of Object.keys(ifs)) {
-    for (const i of ifs[name] || []) {
-      if (i.family === 'IPv4' && !i.internal) found.push({ name, address: i.address });
-    }
-  }
-  if (!found.length) return [];
-  // Prefer a real LAN adapter over a VPN/Hyper-V/Tailscale tunnel, because the
-  // phone has to be able to reach the address we print.
-  const real = found.filter(a => /wi-?fi|ethernet|lan|local/i.test(a.name) && !/vpn|tun|tap|wireguard|tailscale|vmware|vbox|hyper-v|wsl/i.test(a.name));
-  return [...real, ...found.filter(a => !real.includes(a))];
-}
-
-function primaryAddress() {
-  const list = lanAddresses();
-  return list.length ? list[0].address : '127.0.0.1';
-}
+// Address selection lives in netAddress.js (route probe → ranking → operator
+// pin). This thin wrapper keeps the URL builders below readable; the state
+// `primaryAddress()` consults (`probed`, `pinned`) is owned by the server
+// instance, since a pin belongs to one operator's machine.
+const lanAddresses = () => listAddresses();
 
 function distDir() {
   // <app>/dist — same folder the renderer loads in a packaged build.
@@ -89,6 +76,7 @@ function distDir() {
 
 export function createLanServer({ getDistDir = distDir, userDataDir, dev = false, mediaDir = null, builtinMedia = [] } = {}) {
   const pairPath = userDataDir ? path.join(userDataDir, PAIR_FILE_NAME) : null;
+  const netPath = userDataDir ? path.join(userDataDir, NET_FILE_NAME) : null;
 
   let server = null;
   let wss = null;
@@ -98,6 +86,62 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
   let onMessage = null;   // forwards a phone message to the renderer
   let onDeviceConnect = null;
   let onDeviceDisconnect = null;
+
+  // ---- network address -----------------------------------------------------
+  // `probed` is what the OS routing table says, `pinned` is what the operator
+  // chose. Both are re-validated against the live interface list every time a
+  // link is built, so a stale value (laptop moved from church Wi-Fi to home)
+  // is ignored instead of printed.
+  let probed = '';
+  let probedAt = 0;
+  let pinned = '';
+
+  const liveAddresses = () => lanAddresses();
+
+  const loadNetPrefs = () => {
+    if (!netPath) return;
+    try {
+      const data = JSON.parse(fs.readFileSync(netPath, 'utf8'));
+      if (data && typeof data.address === 'string') pinned = data.address;
+    } catch { /* first run: no pin yet */ }
+  };
+
+  const saveNetPrefs = () => {
+    if (!netPath) return;
+    try {
+      fs.mkdirSync(path.dirname(netPath), { recursive: true });
+      fs.writeFileSync(netPath, JSON.stringify({ address: pinned || '' }, null, 2));
+    } catch (e) {
+      log.warn('[lan] could not save network preference:', e.message);
+    }
+  };
+
+  const primaryAddress = () => pickAddress({ addresses: liveAddresses(), probed, pinned });
+
+  // Cheap (a UDP connect that sends nothing) and cached, because the remote
+  // menus poll `info()` every few seconds: re-probing on every poll would open
+  // and close a socket for no new information.
+  const refreshNetwork = async (force = false) => {
+    if (!force && Date.now() - probedAt < 10000) return primaryAddress();
+    probed = await probeRouteAddress();
+    probedAt = Date.now();
+    const picked = primaryAddress();
+    if (picked !== probed) log.info('[lan] using address', picked, probed ? `(route says ${probed})` : '(no default route)');
+    return picked;
+  };
+
+  // '' (or an address that is no longer on this machine) clears the pin and
+  // hands the choice back to auto-detection.
+  const setPreferredAddress = (address) => {
+    const wanted = typeof address === 'string' ? address.trim() : '';
+    const found = liveAddresses().find(a => a.address === wanted);
+    pinned = found ? found.address : '';
+    saveNetPrefs();
+    log.info('[lan] network address:', pinned || '(auto)');
+    return info();
+  };
+
+  loadNetPrefs();
 
   const pairing = { secret: '', tokens: [] };
   let pin = '000000';
@@ -630,6 +674,9 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
     port: PORT,
     ip: primaryAddress(),
     addresses: lanAddresses(),
+    // true when the operator pinned an adapter that still exists — the UI
+    // shows it as a deliberate choice rather than an auto guess.
+    addressLocked: !!pinned && lanAddresses().some(a => a.address === pinned),
     controlUrl: controlUrl(),
     stageUrl: stageUrl(),
     drummerUrl: drummerUrl(),
@@ -678,6 +725,8 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
     qr: (url) => qr(url || controlUrl()),
     regeneratePin: () => newPin(),
     revokeAll,
+    refreshNetwork,
+    setPreferredAddress,
     isRunning: () => !!server,
     sendToDevice,
     sendToAllDevices,

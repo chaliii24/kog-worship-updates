@@ -195,6 +195,60 @@ export const titleCardOf = (cueOrId) => {
 
 export const titleCardIsClassic = (cueOrId) => titleCardOf(cueOrId).chrome == null;
 
+// =====================================================================
+// LINE COLOURS — each small line and the rules can be tinted separately.
+//
+// The templates draw everything in `chrome.tone` (white) because that is what
+// the reference cards do. On a warm background the operator usually wants the
+// venue line or the rules in gold instead of white, so each line can carry its
+// own colour. The picks ride on the cue as `cardColors`, the same free-form
+// place as `cardEvent`/`cardVenue`: no schema change, and a song saved before
+// this build simply resolves to the template's tone.
+//
+// Values are validated on the way OUT (#rrggbb only), never trusted on the way
+// in — a cue is JSON that an older or newer build may have written, and a
+// half-typed or hand-edited string must not reach a style prop.
+// =====================================================================
+export const TITLE_CARD_LINE_KEYS = ['artist', 'event', 'venue', 'rules'];
+
+const HEX6 = /^#[0-9a-fA-F]{6}$/;
+
+/** A usable `#rrggbb` colour, or null for anything else. */
+export const normalizeCardColor = (value) => {
+  const s = String(value == null ? '' : value).trim();
+  return HEX6.test(s) ? s.toLowerCase() : null;
+};
+
+const cardTone = (cueOrId) => {
+  const tpl = titleCardOf(cueOrId);
+  return (tpl.chrome && normalizeCardColor(tpl.chrome.tone)) || '#ffffff';
+};
+
+/**
+ * The colour every line is drawn in, with the operator's picks applied.
+ * Always complete — `colors.rules` is readable even when nothing was ever
+ * customised, so a caller never has to test for undefined.
+ */
+export const titleCardColors = (cueOrId) => {
+  const tone = cardTone(cueOrId);
+  const out = { artist: tone, event: tone, venue: tone, rules: tone };
+  const custom = cueOrId && typeof cueOrId === 'object' ? cueOrId.cardColors : null;
+  if (custom && typeof custom === 'object') {
+    for (const key of TITLE_CARD_LINE_KEYS) {
+      const picked = normalizeCardColor(custom[key]);
+      if (picked) out[key] = picked;
+    }
+  }
+  return out;
+};
+
+/** True when at least one line has been given its own colour. */
+export const hasCardColors = (cueOrId) => {
+  const tone = cardTone(cueOrId);
+  const colors = titleCardColors(cueOrId);
+  return TITLE_CARD_LINE_KEYS.some((k) => colors[k] !== tone);
+};
+
 /**
  * The framing to draw for a title cue, with the operator's own words resolved
  * in. Returns null for templates with no chrome (Classic), which is how the
@@ -222,7 +276,14 @@ export const titleCardChrome = (cueOrId, { artist = '', event = '', venue = '' }
     .filter((s) => s.text);
   const rules = tpl.chrome.rules || [];
   if (!slots.length && !rules.length) return null;
-  return { ...tpl.chrome, slots, rules };
+  const colors = titleCardColors(cueOrId);
+  return {
+    ...tpl.chrome,
+    slots: slots.map((s) => ({ ...s, color: colors[s.key] })),
+    rules,
+    colors,
+    ruleColor: colors.rules,
+  };
 };
 
 /**

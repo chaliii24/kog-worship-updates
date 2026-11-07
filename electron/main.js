@@ -130,6 +130,11 @@ const lan = createLanServer({
 });
 let lanQrCache = { url: '', data: '', stageUrl: '', stageData: '' };
 const lanInfoWithQr = async () => {
+  // Re-check which adapter the links should point at BEFORE reading them, so a
+  // machine that moved networks (church Wi-Fi → home, VPN on, Hyper-V adapter
+  // appearing) never hands a phone the previous address. Cached for a few
+  // seconds inside the server, so the 3 s polling here stays cheap.
+  await lan.refreshNetwork().catch(() => {});
   const info = lan.info();
   if (lanQrCache.url !== info.controlUrl) {
     const data = await lan.qr(info.controlUrl);
@@ -3800,6 +3805,11 @@ ipcMain.handle('lan-start', async () => { await startLan(); return lanInfoWithQr
 ipcMain.handle('lan-stop', async () => { lan.stop(); return lanInfoWithQr(); });
 ipcMain.handle('lan-new-pin', async () => { lan.regeneratePin(); return lanInfoWithQr(); });
 ipcMain.handle('lan-revoke', async () => { lan.revokeAll(); return lanInfoWithQr(); });
+// Pick which adapter the phone links point at. Needed when a machine has two
+// plausible networks (wired + hotspot, dual NIC, a VPN that must be used):
+// detection gets it right the overwhelming majority of the time, but the
+// operator must be able to override it, and the choice is remembered.
+ipcMain.handle('lan-set-address', async (_e, address) => { lan.setPreferredAddress(address); return lanInfoWithQr(); });
 
 // --- GEMINI KEY: bring your own ------------------------------------------
 // The key never ships in the installer (it would be public). It lives in

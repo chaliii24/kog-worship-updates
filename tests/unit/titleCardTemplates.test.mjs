@@ -8,6 +8,10 @@ import {
   titleCardIsClassic,
   titleCardChrome,
   titleCardCue,
+  titleCardColors,
+  hasCardColors,
+  normalizeCardColor,
+  TITLE_CARD_LINE_KEYS,
 } from '../../src/lib/titleCardTemplates.js';
 
 // The card templates are plain data plus two pure helpers, so the rules the
@@ -96,6 +100,50 @@ test('switching Editorial back to Classic resets the look, including Fill mode',
   assert.deepEqual(classic.box, TITLE_CARD_BOX);
   assert.equal(classic.size, titleCardOf('classic').cue.size);
   assert.equal(classic.text, 'Who Else');
+});
+
+// ---- line colours -----------------------------------------------------
+
+test('every line starts on the template tone, ready to read', () => {
+  const colors = titleCardColors('editorial');
+  for (const key of TITLE_CARD_LINE_KEYS) assert.equal(colors[key], '#ffffff', `${key} default`);
+  const chrome = titleCardChrome('editorial', { venue: 'Main' });
+  assert.equal(chrome.slots.find((s) => s.key === 'venue').color, '#ffffff');
+  assert.equal(chrome.ruleColor, '#ffffff');
+  assert.equal(hasCardColors('editorial'), false);
+});
+
+test('a picked color tints only its own line and the rules', () => {
+  const cue = { card: 'editorial', cardColors: { venue: '#FFB800', rules: '#3B82F6' } };
+  const chrome = titleCardChrome(cue, { artist: 'KOG', event: 'PASSION', venue: 'Main' });
+  const byKey = Object.fromEntries(chrome.slots.map((s) => [s.key, s]));
+  assert.equal(byKey.venue.color, '#ffb800', 'the pick is normalised to lower case');
+  assert.equal(byKey.artist.color, '#ffffff', 'untouched lines keep the tone');
+  assert.equal(byKey.event.color, '#ffffff');
+  assert.equal(chrome.ruleColor, '#3b82f6');
+  assert.equal(hasCardColors(cue), true);
+});
+
+test('a hand-edited or half-typed color never reaches the wall', () => {
+  assert.equal(normalizeCardColor('#FFB800'), '#ffb800');
+  assert.equal(normalizeCardColor('  #ffffff  '), '#ffffff');
+  for (const bad of ['red', '#fff', '#gggggg', '', null, undefined, 42, 'rgb(1,2,3)']) {
+    assert.equal(normalizeCardColor(bad), null, `accepted ${JSON.stringify(bad)}`);
+  }
+  const cue = { card: 'editorial', cardColors: { artist: 'red', event: '#123', venue: '#ABC123' } };
+  const colors = titleCardColors(cue);
+  assert.equal(colors.artist, '#ffffff', 'a name is not a color');
+  assert.equal(colors.event, '#ffffff', 'a short hex is not a color');
+  assert.equal(colors.venue, '#abc123');
+});
+
+test('switching cards keeps the chosen colors, and Classic ignores them', () => {
+  const picked = titleCardCue({ text: 'Who Else', cardColors: { venue: '#FFB800' } }, 'editorial');
+  assert.deepEqual(picked.cardColors, { venue: '#FFB800' }, 'a pick does not drop the colors');
+  const back = titleCardCue(picked, 'spotlight');
+  assert.deepEqual(back.cardColors, { venue: '#FFB800' });
+  // Classic draws no chrome at all, so there is nothing to tint.
+  assert.equal(titleCardChrome({ card: 'classic', cardColors: { venue: '#FFB800' } }, { venue: 'Main' }), null);
 });
 
 test('a legacy cue with no card picks Classic without losing its words', () => {

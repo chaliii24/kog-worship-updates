@@ -5997,7 +5997,7 @@ export default function App() {
               title's words — the same component and numbers the wall uses, so
               a console tile is a picture of what will be projected. */}
           {isTitle && st.card ? (
-            <TitleCardChrome card={st.card} artist={song?.artist || ''} event={st.cardEvent} venue={st.cardVenue} />
+            <TitleCardChrome card={st} artist={song?.artist || ''} event={st.cardEvent} venue={st.cardVenue} />
           ) : null}
           {/* Ghost / watermark layer first: part of the slide's composition,
               drawn through the same shared renderer as the main lyric. */}

@@ -15,7 +15,7 @@ import LyricsCanvasEditor from './LyricsCanvasEditor';
 import FontPicker from './FontPicker';
 import SongThemePicker from './SongThemePicker';
 import TitleCardTemplatePicker from './TitleCardTemplatePicker';
-import { titleCardCue, titleCardOf } from '../lib/titleCardTemplates';
+import { titleCardCue, titleCardOf, titleCardColors, hasCardColors, normalizeCardColor, TITLE_CARD_LINE_KEYS } from '../lib/titleCardTemplates';
 import CinematicPanel from './CinematicPanel';
 import BackgroundPicker, { mediaCategory } from './BackgroundPicker';
 import { BG_FIT_MODES, bgMediaFields, bgFitCss } from '../lib/backgrounds';
@@ -2207,7 +2207,7 @@ export default function SongEditorModal() {
                   fx={editorCue?.fx || null}
                   bgFx={editorCue?.bg_fx || null}
                   ghost={ghostLayerOf(editorCue)}
-                  card={editorCueIdx === -1 ? c?.card || null : null}
+                  card={editorCueIdx === -1 && c?.card ? c : null}
                   cardArtist={editingSong.artist || ''}
                   cardEvent={c?.cardEvent || ''}
                   cardVenue={c?.cardVenue || ''}
@@ -2376,6 +2376,52 @@ export default function SongEditorModal() {
                           title="The small line the card prints near the bottom right. Leave it empty and nothing is drawn."
                           style={{ width: '100%', background: C.input, color: C.text, border: '1px solid var(--ui-border2)', borderRadius: 6, padding: '6px 8px', fontSize: 11.5, outline: 'none', boxSizing: 'border-box' }}
                         />
+                        {/* LINE COLORS — each small line and the rules can be
+                            tinted on their own. The swatch shows the colour
+                            actually drawn (the template's white until it is
+                            changed), and a tinted line is marked so it is
+                            obvious which ones were customised. */}
+                        {(() => {
+                          const cardColors = c?.cardColors && typeof c.cardColors === 'object' ? c.cardColors : {};
+                          const colors = titleCardColors(c);
+                          const labels = { artist: 'Artist', event: 'Event', venue: 'Venue', rules: 'Rules' };
+                          const anyCustom = hasCardColors(c);
+                          return (
+                            <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                <label style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2 }}>Line colors</label>
+                                {anyCustom ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => updateCue(-1, { cardColors: null })}
+                                    title="Put every line and the rules back to the card's own colour"
+                                    style={{ background: 'transparent', border: 'none', color: C.faint2, fontSize: 9, fontWeight: 800, letterSpacing: 0.4, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+                                  >Reset</button>
+                                ) : null}
+                              </div>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6 }}>
+                                {TITLE_CARD_LINE_KEYS.map((key) => {
+                                  const own = normalizeCardColor(cardColors[key]);
+                                  return (
+                                    <label
+                                      key={key}
+                                      title={`${labels[key]} colour${own ? ' — customised' : " — follows the card's white"}`}
+                                      style={{ display: 'grid', gap: 3, minWidth: 0, background: C.input, border: '1px solid ' + (own ? 'rgba(255,184,0,0.55)' : 'var(--ui-border2)'), borderRadius: 6, padding: '4px 4px 3px', cursor: 'pointer' }}
+                                    >
+                                      <input
+                                        type="color"
+                                        value={colors[key]}
+                                        onChange={(e) => updateCue(-1, { cardColors: { ...cardColors, [key]: e.target.value } })}
+                                        style={{ width: '100%', height: 16, background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', display: 'block' }}
+                                      />
+                                      <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: 0.7, textTransform: 'uppercase', color: own ? ACCENT : C.faint, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{labels[key]}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
                         <div style={{ fontSize: 9, color: C.faint, lineHeight: 1.45 }}>The singer line comes from the song's artist. Empty lines are simply not drawn.</div>
                       </div>
                     ) : null}
