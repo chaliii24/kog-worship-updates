@@ -407,11 +407,6 @@ export default function SongEditorModal() {
   };
   const [themes, setThemes] = useState(() => allSongThemes());
   const [themeOpen, setThemeOpen] = useState(false);
-  // Slide Setup's Recent strip: the backgrounds the operator actually applied
-  // (recentMedia.js), not the five newest uploads it used to print.
-  const [recentBgsState, setRecentBgsState] = useState(() => readRecentMedia());
-  useEffect(() => subscribeRecentMedia(setRecentBgsState), []);
-  const recentBgs = useMemo(() => recentMediaList(mediaAssets, 5), [recentBgsState, mediaAssets]);
   const [cinePresets, setCinePresets] = useState(() => allCinematicPresets());
   const [cineScope, setCineScope] = useState('this');
   // 'all' or an array of text-box indexes (0 = main, 1..n = cue.texts[n-1]).
@@ -507,6 +502,13 @@ export default function SongEditorModal() {
     () => (mediaLibrary || []).filter((a) => a.kind === 'image' || a.kind === 'video'),
     [mediaLibrary],
   );
+  // Slide Setup's Recent strip: the backgrounds the operator actually applied
+  // (recentMedia.js), not the five newest uploads it used to print. Declared
+  // AFTER mediaAssets on purpose — reading it from a `const` in its temporal
+  // dead zone threw on the editor's first render (v1.1.50).
+  const [recentBgsState, setRecentBgsState] = useState(() => readRecentMedia());
+  useEffect(() => subscribeRecentMedia(setRecentBgsState), []);
+  const recentBgs = useMemo(() => recentMediaList(mediaAssets, 5), [recentBgsState, mediaAssets]);
 
   // ── Background scope ────────────────────────────────────────────────
   // A background can live on ONE slide (an override) or on the song (the
