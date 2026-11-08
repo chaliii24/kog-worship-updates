@@ -470,7 +470,12 @@ function VideoTimerSurface({ timer, media, mediaEpoch, frameStyle, scale, fluid,
   const fadedRef = useRef(false);
   const audio = (media && media.videoAudio) || {};
   const baseVol = Math.min(1, Math.max(0, Number.isFinite(Number(audio.volume)) ? Number(audio.volume) : 0.9));
-  const audioOn = audio.enabled !== false && audio.hasTrack !== false; // no-track → graceful silence
+  // The operator's switches decide sound, never the import probe. `hasTrack`
+  // comes from a DETACHED probe element whose audio decoder is not primed yet,
+  // so a real AAC track routinely reads as "no audio" — gating on it silenced
+  // the live countdown while Test audio (which ignores the flag) played fine.
+  // A file that genuinely has no track simply plays silently on its own.
+  const audioOn = audio.enabled !== false;
   const showOn = (timer.live && timer.live.showOn) || timer.showOn || 'both';
   // Exactly ONE surface may play the original track. `audioOwner` is stamped
   // per window by the main process (the oldest output of each role), so a
@@ -488,8 +493,18 @@ function VideoTimerSurface({ timer, media, mediaEpoch, frameStyle, scale, fluid,
   const paused = !!(phase && phase.paused);
   const looping = media.loop !== false;
 
-  // A fresh epoch (Go Live / Restart) re-arms the end fade.
-  useEffect(() => { fadedRef.current = false; }, [mediaEpoch, media.video]);
+  // A fresh epoch (Go Live / Restart) re-arms the end fade and makes sure the
+  // track is actually audible on the wall from the first frame — the element is
+  // mounted by that same transition, so its `muted` property is written here
+  // rather than trusted from the JSX attribute alone.
+  useEffect(() => {
+    fadedRef.current = false;
+    const el = videoRef.current;
+    if (!el) return;
+    try { el.muted = !audible; } catch {}
+    try { el.volume = baseVol; } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mediaEpoch, media.video]);
 
   // COUNTDOWN TRANSPORT OWNS THE MEDIA: a paused timer must freeze the video
   // and its sound too. Otherwise the picture (and the track) keeps running

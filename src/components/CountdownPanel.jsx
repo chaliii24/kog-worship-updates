@@ -434,7 +434,7 @@ export default function CountdownPanel() {
                                 : media.videoAudio?.probed === false
                                   ? 'Checking audio track…'
                                   : media.videoAudio?.hasTrack === false
-                                    ? 'No audio track detected — the video plays silently.'
+                                    ? 'No audio track detected by the import probe — press Test audio to be sure.'
                                     : media.videoAudio?.hasTrack === true
                                       ? 'Audio track detected.'
                                       : 'Track unknown — use Test audio to verify.'}
