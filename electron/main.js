@@ -1977,9 +1977,27 @@ function withStageAudioOwner(stage, owns) {
   return { ...stage, current: { ...stage.current, timer: { ...timer, audioOwner: !!owns } } };
 }
 
+// WHICH WALL MAY SPEAK: the countdown's routing picks the role (the main wall
+// for both/main, the monitor for stage), and main — the only place that knows
+// every open output — stamps that one window. If the chosen role has no window
+// open the sound falls back to whichever wall is up, so Go Live is never
+// silent just because the operator's preferred surface is closed. Using ONE
+// owner id for both roles is what keeps 'both' from playing twice.
+function countdownShowOn() {
+  const fromSlide = lastLiveSlide && lastLiveSlide.timer;
+  const fromStage = lastLiveStage && lastLiveStage.current && lastLiveStage.current.timer;
+  const timer = fromSlide || fromStage || null;
+  return (timer && timer.showOn) || 'both';
+}
+
+function countdownAudioOwnerId() {
+  if (countdownShowOn() === 'stage') return firstOutputId('stage') || firstOutputId('lyrics');
+  return firstOutputId('lyrics') || firstOutputId('stage');
+}
+
 function broadcastLiveSlide() {
   if (!lastLiveSlide) return;
-  const owner = firstOutputId('lyrics');
+  const owner = countdownAudioOwnerId();
   for (const [id, { win, role }] of outputWindows) {
     if (role !== 'lyrics') continue;
     sendToOutput(win, 'render-live-slide', withSlideAudioOwner(lastLiveSlide, id === owner));
@@ -1988,7 +2006,7 @@ function broadcastLiveSlide() {
 
 function broadcastLiveStage() {
   if (!lastLiveStage) return;
-  const owner = firstOutputId('stage');
+  const owner = countdownAudioOwnerId();
   for (const [id, { win, role }] of outputWindows) {
     if (role !== 'stage') continue;
     sendToOutput(win, 'render-live-stage', withStageAudioOwner(lastLiveStage, id === owner));
@@ -2184,8 +2202,8 @@ ipcMain.handle('get-live-state', (event) => {
     if (entry.win && !entry.win.isDestroyed() && entry.win.webContents === event.sender) { senderId = id; break; }
   }
   return {
-    slide: withSlideAudioOwner(lastLiveSlide, senderId != null && senderId === firstOutputId('lyrics')),
-    stage: withStageAudioOwner(lastLiveStage, senderId != null && senderId === firstOutputId('stage')),
+    slide: withSlideAudioOwner(lastLiveSlide, senderId != null && senderId === countdownAudioOwnerId()),
+    stage: withStageAudioOwner(lastLiveStage, senderId != null && senderId === countdownAudioOwnerId()),
     config: lastStageConfig,
     overlay: lastLiveOverlay,
     draw: lastLiveDraw,

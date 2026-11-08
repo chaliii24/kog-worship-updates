@@ -470,12 +470,12 @@ function VideoTimerSurface({ timer, media, mediaEpoch, frameStyle, scale, fluid,
   const fadedRef = useRef(false);
   const audio = (media && media.videoAudio) || {};
   const baseVol = Math.min(1, Math.max(0, Number.isFinite(Number(audio.volume)) ? Number(audio.volume) : 0.9));
-  // The operator's switches decide sound, never the import probe. `hasTrack`
-  // comes from a DETACHED probe element whose audio decoder is not primed yet,
-  // so a real AAC track routinely reads as "no audio" — gating on it silenced
-  // the live countdown while Test audio (which ignores the flag) played fine.
-  // A file that genuinely has no track simply plays silently on its own.
-  const audioOn = audio.enabled !== false;
+  // SOUND IS NOT THIS SURFACE'S JOB — see CountdownAudioHost below. An output
+  // window is a kiosk document nobody ever clicks, so Chromium is free to
+  // refuse audible playback there, which is exactly why Go Live stayed silent
+  // while Test audio (played from a click in the console) worked. The wall
+  // keeps the picture and stays the media-clock master; the console plays the
+  // one copy of the track.
   const showOn = (timer.live && timer.live.showOn) || timer.showOn || 'both';
   // Exactly ONE surface may play the original track. `audioOwner` is stamped
   // per window by the main process (the oldest output of each role), so a
@@ -486,8 +486,17 @@ function VideoTimerSurface({ timer, media, mediaEpoch, frameStyle, scale, fluid,
     ? (showOn === 'both' || showOn === 'main')
     : surface === 'stage' ? showOn === 'stage'
     : false;
-  const ownsAudio = timer.audioOwner === false ? false : roleOwnsAudio;
-  const audible = !!(ownsAudio && audioOn && !audio.muted);
+  // Main stamps exactly ONE window as the countdown's audio owner and that
+  // stamp is authoritative: a stage wall main picked must play even though the
+  // countdown otherwise routes its picture to the main output, and a window
+  // main explicitly silenced must stay silent. Absent stamp (console state,
+  // older builds) falls back to the surface routing above.
+  const ownsAudio = timer.audioOwner === true
+    ? true
+    : timer.audioOwner === false
+      ? false
+      : roleOwnsAudio;
+  const audible = false;
   const fadeSec = Math.max(0, Number(audio.fadeSec) || 0);
   const remaining = phase ? phase.remaining : null;
   const paused = !!(phase && phase.paused);
@@ -685,6 +694,92 @@ function VideoTimerSurface({ timer, media, mediaEpoch, frameStyle, scale, fluid,
       />
       <VideoTimerOverlay timer={timer} scale={scale} fluid={fluid} phase={phase} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// COUNTDOWN AUDIO HOST — the console plays the countdown video's own track.
+// ---------------------------------------------------------------------------
+// Output windows are kiosk documents: nobody ever clicks them, so audible
+// autoplay can be refused there, and the countdown played its picture in
+// silence while "Test audio" (an element created and played from a click in
+// the console) worked. So exactly one place plays the sound — here, mounted in
+// the console, the document that owns the operator's gestures — and every wall
+// stays picture-only. The host follows the media clock the wall publishes
+// (lib/countdownClock.js) so the track stays locked to the picture on screen,
+// and it honours the same Play / Mute / volume / end-fade contract.
+export function CountdownAudioHost({ timer }) {
+  const t = { ...DEFAULT_COUNTDOWN, ...(timer || {}) };
+  const media = t.bgType === 'media' ? (t.bgMedia || null) : null;
+  const video = media && media.kind === 'video' ? media.video : null;
+  const audio = (media && media.videoAudio) || {};
+  const live = !!(t.live && t.live.endsAt != null);
+  const frozen = !!(t.live && t.live.pausedAt != null);
+  const audible = !!video && live && audio.enabled !== false && !audio.muted;
+  const baseVol = Math.min(1, Math.max(0, Number.isFinite(Number(audio.volume)) ? Number(audio.volume) : 0.9));
+  const fadeSec = Math.max(0, Number(audio.fadeSec) || 0);
+  const epoch = t.live ? (t.live.startedAt ?? null) : null;
+  const endsAt = t.live ? t.live.endsAt : null;
+  const pausedRemain = t.live ? (t.live.pausedRemain ?? null) : null;
+  const elRef = useRef(null);
+
+  // Transport: start with Go Live, stop with Stop, freeze with Pause.
+  useEffect(() => {
+    const el = elRef.current;
+    if (!el) return;
+    if (!audible || frozen) { try { el.pause(); } catch {} return; }
+    try { el.muted = false; el.volume = baseVol; } catch {}
+    const p = el.play();
+    if (p && p.catch) p.catch(() => {});
+  }, [audible, frozen, baseVol, video, epoch]);
+
+  // Follow the wall's clock and apply the end fade, twice a second, only while
+  // a countdown is audible (no standing timer otherwise).
+  useEffect(() => {
+    if (!audible) return undefined;
+    const tick = () => {
+      const el = elRef.current;
+      if (!el) return;
+      let clock = null;
+      try { clock = JSON.parse(localStorage.getItem(COUNTDOWN_CLOCK_KEY) || 'null'); } catch {}
+      const fresh = clock && clock.url === video
+        && (clock.epoch ?? null) === (epoch ?? null)
+        && (Date.now() - (Number(clock.ts) || 0)) < COUNTDOWN_CLOCK_FRESH_MS;
+      if (fresh) {
+        const solved = countdownClockTarget(clock, Date.now(), el.currentTime, Number(el.duration) || 0);
+        if (solved) {
+          try {
+            if (Math.abs(solved.diff) > 1) el.currentTime = solved.target;
+            else el.playbackRate = solved.diff > 0.12 ? 1.08 : solved.diff < -0.12 ? 0.92 : 1;
+          } catch {}
+        }
+      } else {
+        try { if (el.playbackRate !== 1) el.playbackRate = 1; } catch {}
+      }
+      const rem = frozen && pausedRemain != null ? pausedRemain : (endsAt != null ? endsAt - Date.now() : null);
+      try {
+        if (rem == null) el.volume = baseVol;
+        else if (fadeSec > 0 && rem > 0 && rem <= fadeSec * 1000) el.volume = baseVol * Math.max(0, Math.min(1, rem / (fadeSec * 1000)));
+        else if (rem <= 0) el.volume = 0;
+        else el.volume = baseVol;
+      } catch {}
+    };
+    tick();
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+  }, [audible, video, epoch, endsAt, pausedRemain, baseVol, fadeSec, frozen]);
+
+  if (!video) return null;
+  return (
+    <video
+      key={`${video}|${epoch ?? 'idle'}`}
+      ref={elRef}
+      src={video}
+      preload="auto"
+      playsInline
+      loop={media.loop !== false}
+      style={{ position: 'fixed', left: 0, top: 0, width: 2, height: 2, opacity: 0, pointerEvents: 'none', zIndex: -1 }}
+    />
   );
 }
 

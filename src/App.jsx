@@ -17,6 +17,7 @@ import SettingsModal from './components/SettingsModal';
 import StageDisplay from './components/StageDisplay';
 import { loadVideoList } from './components/VideoLibrarySidebar';
 import ProjectorDisplay from './components/ProjectorDisplay';
+import { CountdownAudioHost } from './components/CountdownFace';
 import TopHeader from './components/TopHeader';
 import LiveOutputPanel from './components/LiveOutputPanel';
 import LeftSidebar from './components/LeftSidebar';
@@ -7387,6 +7388,12 @@ export default function App() {
           <NewSongPrompt onChoose={startNewSong} onCancel={() => setNewSongPromptOpen(false)} />
         )}
       </AnimatePresence>
+      {/* COUNTDOWN AUDIO — the countdown video's own track plays HERE, in the
+          console, never in an output window: a wall never receives a click, so
+          audible autoplay can be refused there (Go Live played silently while
+          Test audio worked). One hidden element, locked to the wall's clock. */}
+      <CountdownAudioHost timer={countdown} />
+
       {/* TOASTER — Untitled UI toast stack (portals to body, z-index 10050,
           so it always sits above the modals) */}
       <Toaster />

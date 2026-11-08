@@ -21,6 +21,7 @@ const faceSrc = fs.readFileSync('./src/components/CountdownFace.jsx', 'utf8');
 const clockSrc = fs.readFileSync('./src/lib/countdownClock.js', 'utf8');
 const projSrc = fs.readFileSync('./src/components/ProjectorDisplay.jsx', 'utf8');
 const stageSrc = fs.readFileSync('./src/components/StageDisplay.jsx', 'utf8');
+const appSrc = fs.readFileSync('./src/App.jsx', 'utf8');
 
 console.log('--- one audible surface per role ---');
 check('lyrics payloads are stamped per window', mainSrc.includes('withSlideAudioOwner(lastLiveSlide, id === owner)'));
@@ -28,7 +29,11 @@ check('stage payloads are stamped per window', mainSrc.includes('withStageAudioO
 check('first running output owns the sound', mainSrc.includes('function firstOutputId(role)') && mainSrc.includes('if (entry.role === role && entry.win'));
 check('get-live-state is sender aware', mainSrc.includes('entry.win.webContents === event.sender'));
 check('closing the owner hands the clock over', mainSrc.includes('broadcastLiveSlide();') && mainSrc.includes('broadcastLiveStage();') && mainSrc.includes('if ((lastLiveSlide && lastLiveSlide.timer)'));
-check('countdown honours audioOwner', faceSrc.includes('timer.audioOwner === false ? false : roleOwnsAudio'));
+check('countdown honours audioOwner', faceSrc.includes('timer.audioOwner === true'));
+check('one owner id decides both roles', mainSrc.includes('function countdownAudioOwnerId()'));
+check('walls are picture-only', faceSrc.includes('const audible = false;'));
+check('the console hosts the countdown audio', appSrc.includes('<CountdownAudioHost timer={countdown} />') && faceSrc.includes('export function CountdownAudioHost('));
+check('owner falls back to whichever wall is up', mainSrc.includes("return firstOutputId('lyrics') || firstOutputId('stage');"));
 check('framed projector is a silent preview', projSrc.includes("const timerSurface = surface || (framed ? 'preview' : 'main');"));
 check('projector passes the surface through', projSrc.includes('surface={timerSurface}'));
 check('stage preview is a silent preview', stageSrc.includes("surface={preview ? 'preview' : 'stage'}"));
