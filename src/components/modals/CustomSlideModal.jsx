@@ -54,6 +54,13 @@ function MiniStage({ content, style, C }) {
 export default function CustomSlideModal({ C, ACCENT, newSlideData, setNewSlideData, onCancel, onAdd, editing = false, persistMedia = null }) {
   const style = normalizeCustomSlideStyle(newSlideData.style);
   const lyric = style.lyric;
+  // Hover preview: the font under the pointer paints MiniStage — the same
+  // renderer the room sees — without touching newSlideData. null = no hover,
+  // '' = the default face.
+  const [previewFont, setPreviewFont] = useState(null);
+  const previewStyle = previewFont == null
+    ? style
+    : { ...style, lyric: { ...lyric, font: previewFont || FONT_OPTIONS[0].value } };
 
   const setStyle = (patch) => setNewSlideData({
     ...newSlideData,
@@ -61,6 +68,24 @@ export default function CustomSlideModal({ C, ACCENT, newSlideData, setNewSlideD
   });
   const setLyric = (patch) => setStyle({ lyric: patch });
   const setBg = (type, value) => setStyle({ backgroundType: type, backgroundValue: value });
+  // Blob URL fallback (persistMedia unavailable / copy failed). Each one holds
+  // the whole file until revoked, so the previous is released on replace and the
+  // last one on close — a modal left open all service must not accumulate them.
+  const bgBlobRef = useRef(null);
+  const keepBlob = (file) => {
+    try {
+      const url = URL.createObjectURL(file);
+      if (bgBlobRef.current) { try { URL.revokeObjectURL(bgBlobRef.current); } catch {} }
+      bgBlobRef.current = url;
+      return url;
+    } catch { return null; }
+  };
+  useEffect(() => () => {
+    if (bgBlobRef.current) {
+      try { URL.revokeObjectURL(bgBlobRef.current); } catch {}
+      bgBlobRef.current = null;
+    }
+  }, []);
   const setField = (k, v) => setNewSlideData({ ...newSlideData, [k]: v });
 
   const labelStyle = { fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.1, display: 'block', marginBottom: 5 };
@@ -86,7 +111,7 @@ export default function CustomSlideModal({ C, ACCENT, newSlideData, setNewSlideD
 
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '14px 18px' }}>
           <div style={{ maxWidth: 620, margin: '0 auto' }}>
-            <MiniStage content={newSlideData.content || ''} style={style} C={C} />
+            <MiniStage content={newSlideData.content || ''} style={previewStyle} C={C} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
@@ -110,7 +135,7 @@ export default function CustomSlideModal({ C, ACCENT, newSlideData, setNewSlideD
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
               <div>
                 <label style={labelStyle}>Font</label>
-                <FontPicker value={lyric.font || FONT_OPTIONS[0].value} choices={FONT_OPTIONS} onChange={(v) => setLyric({ font: v })} C={C} />
+                <FontPicker value={lyric.font || FONT_OPTIONS[0].value} choices={FONT_OPTIONS} onChange={(v) => setLyric({ font: v })} C={C} onPreview={setPreviewFont} />
               </div>
               <div>
                 <label style={labelStyle}>Alignment</label>
@@ -187,14 +212,14 @@ export default function CustomSlideModal({ C, ACCENT, newSlideData, setNewSlideD
               <label style={{ background: C.input, color: C.text2, border: '1px solid var(--ui-border2)', padding: '4px 8px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <ImageIcon size={10} /> Image<input type="file" accept="image/*" onChange={async (e) => {
                   const file = e.target.files && e.target.files[0];
-                  if (file) setBg('image', (await persistMedia?.(file)) || URL.createObjectURL(file));
+                  if (file) setBg('image', (await persistMedia?.(file)) || keepBlob(file));
                   e.target.value = '';
                 }} style={{ display: 'none' }} />
               </label>
               <label style={{ background: C.input, color: C.text2, border: '1px solid var(--ui-border2)', padding: '4px 8px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <Film size={10} /> Video<input type="file" accept="video/mp4,video/webm" onChange={async (e) => {
                   const file = e.target.files && e.target.files[0];
-                  if (file) setBg('video', (await persistMedia?.(file)) || URL.createObjectURL(file));
+                  if (file) setBg('video', (await persistMedia?.(file)) || keepBlob(file));
                   e.target.value = '';
                 }} style={{ display: 'none' }} />
               </label>

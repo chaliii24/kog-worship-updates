@@ -33,8 +33,20 @@ export const readRecentMedia = () => {
 // Called wherever a media background is actually applied (this slide, the
 // whole song, or from the Media tab). Colours, gradients and motion loops are
 // not remembered: they are one click away and would crowd out the photos.
+// Stamp the SQLite row too: localStorage only feeds the small "Recent" strip,
+// while the Media tab and every picker order themselves by this timestamp.
+export const touchMediaUrl = (url) => {
+  if (!url || typeof url !== 'string' || !url.startsWith('media://')) return;
+  try {
+    if (!window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    ipcRenderer.invoke('media-touch', url).catch(() => {});
+  } catch { /* not running inside Electron */ }
+};
+
 export const rememberRecentMedia = (kind, url) => {
   if (!url || (kind !== 'image' && kind !== 'video')) return readRecentMedia();
+  touchMediaUrl(url);
   const next = [{ kind, url }, ...readRecentMedia().filter((r) => r.url !== url)].slice(0, MAX);
   cache = next;
   try { localStorage.setItem(KEY, JSON.stringify(next)); } catch {}

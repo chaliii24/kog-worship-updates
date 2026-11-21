@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { ChevronUp, ChevronDown, Trash2, GripVertical } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { abbrevSection, songSectionRuns } from '../lib/arrangement';
+import { sectionKey } from '../lib/medley';
 
 // ONE section-flow editor, two homes.
 //
@@ -18,7 +19,10 @@ import { abbrevSection, songSectionRuns } from '../lib/arrangement';
 // Nothing here touches cues: an arrangement is a running order, never a
 // reorder of the slides themselves.
 let flowKey = 1;
-const samePart = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+// Same section identity the playback resolver uses, so a block saved as
+// "Verse 1" still finds the run labelled "Verse 1a" here (used badges, slide
+// counts) instead of reading as an orphaned block.
+const samePart = (a, b) => sectionKey(a) === sectionKey(b);
 const occOf = (entry) => (Number.isInteger(entry?.occurrence) && entry.occurrence > 0 ? entry.occurrence : 1);
 
 export default function FlowEditor({ song, flow, onChange, layout = 'split', headerExtra, emptyText }) {

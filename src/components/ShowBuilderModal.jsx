@@ -6,6 +6,7 @@ import { stripMarkup } from '../lib/lyrics';
 import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 import { LazyVideo } from '../lib/lazyVideo';
+import { MediaPoster, VirtualMediaGrid } from '../lib/virtualMediaGrid';
 import { arrangedSongSlideTotal, arrangedSongCues, sequenceToFlow, summarizeFlow } from '../lib/arrangement';
 
 // The asset kinds the palette offers. Song and Scripture read from the library
@@ -360,19 +361,23 @@ return (
                     No images/videos in the app yet — use + Upload.
                   </div>
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
-                    {mediaAssets.map((asset, i) => {
+                  <VirtualMediaGrid
+                    items={mediaAssets}
+                    minColWidth={78}
+                    gap={4}
+                    rowHeight={44}
+                    overscanRows={2}
+                    style={{ height: 196 }}
+                    renderItem={(asset, i) => {
                       const label = asset.name || (() => { try { return decodeURIComponent(asset.url.split('/').pop().split('?')[0]); } catch (_) { return 'Media'; } })();
                       return (
                         <button key={asset.url + i} onClick={() => addShowBuilderExistingMedia(asset)} title={`Add "${label}" — already in the app, no upload`} style={{ position: 'relative', padding: 0, height: 44, borderRadius: 7, overflow: 'hidden', border: '1px solid ' + C.border2, background: C.input, cursor: 'pointer' }}>
-                          {asset.kind === 'image'
-                            ? <img src={asset.url} alt={label} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                            : <LazyVideo src={asset.url} muted playsInline preload="metadata" rootMargin="200px" style={{ width: '100%', height: '100%' }} />}
+                          <MediaPoster asset={asset} />
                           <span style={{ position: 'absolute', right: 3, bottom: 3, display: 'flex', alignItems: 'center', gap: 2, background: 'rgba(0,0,0,0.72)', borderRadius: 3, padding: '1px 3px', color: '#fff' }}>{asset.kind === 'video' ? <Video size={8} /> : <ImageIcon size={8} />}</span>
                         </button>
                       );
-                    })}
-                  </div>
+                    }}
+                  />
                 )}
               </>
             )}

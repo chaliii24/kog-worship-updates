@@ -63,13 +63,23 @@ const FontRow = ({ o, selected, hot, C, onPick, onHover }) => (
   </div>
 );
 
+// One line of real letterforms is enough to tell CMG Sans Condensed from
+// Cinzel at a glance; "AaGg 123" in a 12px corner is not.
+const PREVIEW_SAMPLE = 'Amazing grace 123';
+
 // Custom font dropdown replacing the native <select>:
 //  • every row renders its label and an "AaGg 123" sample IN that row's own
 //    typeface, so the user sees each font's actual style in the list — no
 //    more clicking one-by-one to find out what a font looks like;
 //  • clicking a row applies the font immediately, so the editor canvas
 //    (the textbox) previews it right away.
-export default function FontPicker({ value, choices, onChange, C }) {
+export default function FontPicker({ value, choices, onChange, C, onPreview }) {
+  // HOVER PREVIEW reaches the caller's canvas. The picker reports the hovered
+  // face (null when the pointer leaves) and never commits it: the caller paints
+  // with it, so the operator sees the real lyric in that font BEFORE clicking.
+  const onPreviewRef = useRef(onPreview);
+  useEffect(() => { onPreviewRef.current = onPreview; }, [onPreview]);
+
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [hovered, setHovered] = useState(null);
@@ -86,7 +96,9 @@ export default function FontPicker({ value, choices, onChange, C }) {
     if (!r) return;
     const spaceBelow = window.innerHeight - r.bottom;
     const above = spaceBelow < 250 && r.top > spaceBelow;
-    const height = Math.max(180, Math.min(340, above ? r.top - 16 : spaceBelow - 12));
+    // Taller floor than the bare list: the hover-preview band sits above it and
+    // must not squeeze the rows on a short laptop window.
+    const height = Math.max(220, Math.min(360, above ? r.top - 16 : spaceBelow - 12));
     const next = {
       left: Math.min(r.left, window.innerWidth - Math.max(r.width, 300) - 8),
       top: above ? r.top - height - 6 : r.bottom + 6,
@@ -119,6 +131,20 @@ export default function FontPicker({ value, choices, onChange, C }) {
     };
   }, [open]);
 
+  // One report per hover change. Closing the list, Escape, picking a row and
+  // unmounting all funnel through `hovered` (or the cleanup below), so the
+  // canvas can never be left painted with a face that was never chosen.
+  useEffect(() => {
+    const report = onPreviewRef.current;
+    if (typeof report !== 'function') return;
+    try { report(hovered); } catch (_) { /* a preview must never break the picker */ }
+  }, [hovered]);
+  useEffect(() => () => {
+    const report = onPreviewRef.current;
+    if (typeof report !== 'function') return;
+    try { report(null); } catch (_) {}
+  }, []);
+
   // Scroll the active font into view when the list opens.
   useEffect(() => {
     if (!open) return;
@@ -135,6 +161,11 @@ export default function FontPicker({ value, choices, onChange, C }) {
   const system = choices.filter(o => !FONT_OPTIONS.some(p => p.value === o.value)).filter(keep);
 
   const empty = recentRows.length === 0 && presets.length === 0 && system.length === 0;
+
+  // What the preview band shows: the row under the pointer, else the font in
+  // use. Hovering NEVER touches the song — it only redraws this strip — so
+  // moving the mouse across the list cannot repaint a live slide by accident.
+  const preview = (hovered && choices.find(o => o.value === hovered)) || current;
 
   const pick = (o) => {
     rememberFont(o.value);
@@ -168,6 +199,24 @@ export default function FontPicker({ value, choices, onChange, C }) {
             display: 'flex', flexDirection: 'column', overflow: 'hidden',
           }}
         >
+          <div
+            title={preview.label}
+            style={{
+              flexShrink: 0, display: 'flex', alignItems: 'baseline', gap: 8,
+              padding: '7px 10px 6px', borderBottom: '1px solid var(--ui-border2)',
+              background: 'rgba(255,255,255,0.045)',
+            }}
+          >
+            <span style={{
+              flex: 1, minWidth: 0, fontFamily: preview.value || 'inherit',
+              fontSize: 21, lineHeight: 1.3, color: C.text,
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}>{PREVIEW_SAMPLE}</span>
+            <span style={{
+              flexShrink: 0, fontSize: 9.5, fontWeight: 800, color: C.faint,
+              textTransform: 'uppercase', letterSpacing: 1,
+            }}>{hovered ? 'Preview' : 'Current'}</span>
+          </div>
           <input
             autoFocus
             value={query}

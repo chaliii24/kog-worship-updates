@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { LayoutGrid, Folder, Image, Film, Trash2, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GRADIENT_PACK } from '../lib/backgrounds';
 import { ANIMATED_GRADIENTS } from './CountdownFace';
+import { VirtualMediaGrid, MediaPoster } from '../lib/virtualMediaGrid';
+import { pickAndImportMedia } from '../lib/mediaImport';
 
 const mediaKind = (asset) => (asset?.kind === 'video' ? 'video' : 'image');
 
@@ -19,6 +21,11 @@ const assetSize = (asset) => {
   if (asset?.size) {
     const mb = asset.size / (1024 * 1024);
     return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(asset.size / 1024))} KB`;
+  }
+  if (asset?.width && asset?.height) return `${asset.width}×${asset.height}`;
+  if (asset?.duration) {
+    const s = Math.round(asset.duration);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   }
   return '—';
 };
@@ -70,8 +77,6 @@ export default function SongBackgroundPanel({
     whiteSpace: 'nowrap',
   };
 
-  const fileInputRef = useRef(null);
-
   useEffect(() => {
     setActiveBg(toBg(editingSong));
   }, [editingSong?.bg_type, editingSong?.bg_value]);
@@ -119,6 +124,15 @@ export default function SongBackgroundPanel({
     const kind = file.type.startsWith('video/') ? 'video' : 'image';
     songBgFileToBackground(kind, file);
     setIsGalleryModalOpen(false);
+  };
+
+  // NATIVE BROWSE: Electron's own dialog returns real paths, so the clip is
+  // copied and registered in main in one call — no File blob, no second IPC
+  // round trip for the bytes. The imported asset is applied straight away.
+  const browseNative = async () => {
+    const imported = await pickAndImportMedia({ kind: 'all' });
+    const first = imported.find((a) => a && a.url);
+    if (first) applyFileSelect({ url: first.url, kind: first.kind, name: first.name });
   };
 
   return (
@@ -195,7 +209,7 @@ export default function SongBackgroundPanel({
         </button>
 
         <button
-          onClick={() => fileInputRef.current?.click()}
+          onClick={browseNative}
           className="w-full h-12 justify-start px-4 font-medium inline-flex items-center rounded-xl border border-[var(--ui-border2)] bg-[var(--ui-elev)] text-[var(--ui-text2)] transition hover:bg-[var(--ui-elev2)] hover:border-[var(--kog-accent)]"
         >
           <Folder className="w-4 h-4 mr-3" />
@@ -211,20 +225,6 @@ export default function SongBackgroundPanel({
         <div className="text-sm font-bold text-[var(--ui-text)] truncate">{activeBg.title || 'Background'}</div>
         <div className="text-[10px] text-[var(--ui-text2)] capitalize">{activeBg.type || 'none'}</div>
       </div>
-
-      {/* Hidden native file input */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        className="hidden"
-        accept="image/*,video/mp4,video/webm,video/quicktime"
-        onChange={(e) => {
-          if (e.target.files && e.target.files[0]) {
-            handleLocalFile(e.target.files[0]);
-          }
-          e.target.value = '';
-        }}
-      />
 
       {/* COMPACT MEDIA GALLERY MODAL */}
       <AnimatePresence>
@@ -282,7 +282,7 @@ export default function SongBackgroundPanel({
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                <button onClick={() => fileInputRef.current?.click()} style={galleryBtn}>
+                <button onClick={browseNative} style={galleryBtn}>
                   <Folder style={{ color: 'var(--kog-accent)' }} />
                   <span>Open Folder</span>
                 </button>
@@ -304,19 +304,24 @@ export default function SongBackgroundPanel({
               </div>
             </div>
 
-            {/* Media grid — every card is the same 16:9 tile with its label in
-                a footer band. The thumbnail box is sized with padding-top
-                instead of aspect-ratio, so a card can never collapse to a
-                strip and the grid stays a tidy, uniform wall of tiles. */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: 12, background: 'var(--ui-bg)' }}>
+            {/* Media grid — virtualized: only the rows on screen exist in the
+                DOM, and each tile is a still (<img>), never a video element.
+                Cards keep a fixed 84px thumbnail so the grid never shifts. */}
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: 'var(--ui-bg)' }}>
               {filteredAssets.length === 0 ? (
                 <div style={{ height: 160, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, fontSize: 12, color: 'var(--ui-muted)' }}>
                   <Search style={{ fontSize: 18, color: 'var(--ui-muted)' }} />
                   <p style={{ margin: 0 }}>No assets found.</p>
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, alignItems: 'start' }}>
-                  {filteredAssets.map((file, idx) => {
+                <VirtualMediaGrid
+                  items={filteredAssets}
+                  minColWidth={150}
+                  gap={10}
+                  rowHeight={150}
+                  overscanRows={2}
+                  style={{ flex: 1, padding: 12 }}
+                  renderItem={(file) => {
                     const kind = mediaKind(file);
                     const isActive =
                       (editingSong?.bg_type === kind && editingSong?.bg_value === file.url) ||
@@ -324,28 +329,12 @@ export default function SongBackgroundPanel({
 
                     return (
                       <div
-                        key={file.url || idx}
+                        key={file.url}
                         onClick={() => applyFileSelect(file)}
-                        style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', cursor: 'pointer', background: 'var(--ui-elev)', border: isActive ? '2px solid var(--kog-accent)' : '1px solid var(--ui-border)', boxShadow: isActive ? '0 0 0 2px rgba(255, 184, 0, 0.18)' : 'none' }}
+                        style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', cursor: 'pointer', background: 'var(--ui-elev)', border: isActive ? '2px solid var(--kog-accent)' : '1px solid var(--ui-border)', boxShadow: isActive ? '0 0 0 2px rgba(255, 184, 0, 0.18)' : 'none', height: '100%', display: 'flex', flexDirection: 'column' }}
                       >
-                        <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', background: '#000' }}>
-                          {kind === 'video' ? (
-                            <video
-                              src={file.url}
-                              muted
-                              playsInline
-                              preload="metadata"
-                              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                            />
-                          ) : (
-                            <img
-                              src={file.url}
-                              alt=""
-                              loading="lazy"
-                              decoding="async"
-                              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                            />
-                          )}
+                        <div style={{ position: 'relative', width: '100%', height: 84, flexShrink: 0, background: '#000' }}>
+                          <MediaPoster asset={file} />
 
                           {/* Gradient kept for badge legibility */}
                           <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.72), rgba(0,0,0,0.10) 55%, rgba(0,0,0,0.04))', pointerEvents: 'none' }} />
@@ -361,19 +350,19 @@ export default function SongBackgroundPanel({
                           )}
                         </div>
 
-                        <div style={{ padding: '7px 8px 8px', minWidth: 0 }}>
-                          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--ui-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <div style={{ padding: '6px 8px 7px', minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ui-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {assetName(file)}
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 2, fontSize: 9.5, color: 'var(--ui-muted)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 2, fontSize: 9, color: 'var(--ui-muted)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{assetSize(file)}</span>
                             <span style={{ flexShrink: 0, textTransform: 'capitalize' }}>{kind}</span>
                           </div>
                         </div>
                       </div>
                     );
-                  })}
-                </div>
+                  }}
+                />
               )}
             </div>
 
@@ -390,6 +379,18 @@ export default function SongBackgroundPanel({
         </motion.div>
       )}
       </AnimatePresence>
+
+      {/* Hidden file input — drag/drop and non-Electron fallback only */}
+      <input
+        type="file"
+        className="hidden"
+        accept="image/*,video/mp4,video/webm,video/quicktime"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          if (e.target.files && e.target.files[0]) handleLocalFile(e.target.files[0]);
+          e.target.value = '';
+        }}
+      />
     </div>
   );
 }

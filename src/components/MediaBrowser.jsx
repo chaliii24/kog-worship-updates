@@ -1,12 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { Image as ImageIcon, Film, Infinity as InfinityIcon, Palette, Trash2, LayoutGrid, List, Upload } from 'lucide-react';
+import { Image as ImageIcon, Film, Infinity as InfinityIcon, Palette, Trash2, LayoutGrid, List, Upload, FolderOpen, Link2, AlertTriangle } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { GRADIENT_PACK } from '../lib/backgrounds';
 import { ANIMATED_GRADIENTS } from './CountdownFace';
 import AnimatedBg from './AnimatedBg';
-import { LazyVideo } from '../lib/lazyVideo';
-import { thumbUrl } from '../lib/mediaThumb';
+import { VirtualMediaGrid, VirtualMediaList, MediaPoster } from '../lib/virtualMediaGrid';
+import { pickAndImportMedia, MEDIA_IMAGE_LIMIT, MEDIA_VIDEO_LIMIT, relinkMediaSource, revealMediaSource } from '../lib/mediaImport';
+import { toast } from '../untitledui/components/ui/toast';
 
 // Center media browser (Media dock tab): filter chips with live counts,
 // Newest/Name sort, grid/list views, uploads, and the built-in loop +
@@ -28,10 +29,11 @@ const fileNameOf = (url) => {
 export default function MediaBrowser() {
   const {
     C, ACCENT, mediaLibrary, activeSong, applyMediaToActiveSong,
-    removeMediaAsset, importMediaAsset,
+    removeMediaAsset, importMediaAsset, fetchMediaLibrary,
   } = useApp();
+  const fileRef = useRef(null);
   const [filter, setFilter] = useState('all');
-  const [sort, setSort] = useState('newest');
+  const [sort, setSort] = useState('recent');
   const [view, setView] = useState(() => {
     try { return localStorage.getItem('kog-media-view') || 'grid'; } catch { return 'grid'; }
   });
@@ -40,14 +42,28 @@ export default function MediaBrowser() {
     try { localStorage.setItem('kog-media-view', v); } catch {}
   };
 
-  const uploads = useMemo(() => (mediaLibrary || []).filter((a) => a.kind === 'image' || a.kind === 'video'), [mediaLibrary]);
+  // Recently used first (the DB orders by last_used_at). Rows are NOT trimmed
+  // to the cap: an oversized library (an old version, or a restore from a
+  // bigger machine) has to stay visible, or the entries that block new uploads
+  // could never be seen and deleted. The cap is enforced on import; the chips
+  // turn red while the library is over it.
+  const uploads = useMemo(() => {
+    const pics = [];
+    const vids = [];
+    for (const a of mediaLibrary || []) {
+      if (a.kind === 'video') vids.push(a);
+      else if (a.kind === 'image') pics.push(a);
+    }
+    return [...pics, ...vids];
+  }, [mediaLibrary]);
   const audioCount = useMemo(() => (mediaLibrary || []).filter((a) => a.kind === 'audio').length, [mediaLibrary]);
 
   const items = useMemo(() => {
     const list = [
       ...uploads.map((a) => ({
-        key: `u:${a.url}`, kind: a.kind, name: fileNameOf(a.url),
-        url: a.url, builtin: false, createdAt: a.createdAt || null, asset: a,
+        key: `u:${a.url}`, kind: a.kind, name: a.name || fileNameOf(a.url),
+        url: a.url, builtin: false, createdAt: a.createdAt || null, lastUsedAt: a.lastUsedAt || null, asset: a,
+        missing: !!a.missing, sourcePath: a.sourcePath || null,
       })),
       ...ANIMATED_GRADIENTS.map((g) => ({
         key: `loop:${g.id}`, kind: 'loop', name: g.name,
@@ -61,11 +77,16 @@ export default function MediaBrowser() {
     const shown = filter === 'all' ? list : list.filter((it) => it.kind === (filter === 'loop' ? 'loop' : filter === 'gradient' ? 'gradient' : filter));
     const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''));
     if (sort === 'name') return shown.sort(byName);
-    // Newest first (uploads carry created_at; built-ins have none and sink).
+    // Recently used first (last_used_at, else upload time). Built-ins carry
+    // neither and sink to the bottom.
+    const when = (it) => {
+      const t = Date.parse(it.lastUsedAt || it.createdAt || '');
+      return Number.isFinite(t) ? t : 0;
+    };
     return shown.sort((a, b) => {
-      if (a.createdAt && b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
-      if (a.createdAt) return -1;
-      if (b.createdAt) return 1;
+      const ta = when(a);
+      const tb = when(b);
+      if (ta || tb) return tb - ta;
       return byName(a, b);
     });
   }, [uploads, filter, sort]);
@@ -85,11 +106,42 @@ export default function MediaBrowser() {
     else applyMediaToActiveSong(it.kind, it.url);
   };
 
-  const thumb = (it, h) => {
-    const box = { width: '100%', height: h, background: '#000', position: 'relative', overflow: 'hidden', display: 'block' };
+  // A tile whose source file is gone cannot be applied — the wall would just
+  // go black. Offer the relink picker first, then apply if the file is back.
+  const useItem = async (it) => {
+    if (!it || it.builtin || !it.missing || !it.url) { applyBg(it); return; }
+    const res = await relinkMediaSource(it.url);
+    if (!res || !res.ok) return;
+    try { await fetchMediaLibrary(); } catch {}
+    applyBg(it);
+  };
+
+  const relink = async (it) => {
+    if (!it || !it.url) return;
+    const res = await relinkMediaSource(it.url);
+    if (res && res.canceled) return;
+    if (!res || !res.ok) {
+      try { toast.add({ type: 'error', title: 'Could not relink', description: (res && res.error) || 'That file could not be used.', duration: 5000 }); } catch {}
+      return;
+    }
+    try { toast.add({ type: 'success', title: 'Source relinked', description: 'Every song using this file works again.', duration: 3500 }); } catch {}
+    try { await fetchMediaLibrary(); } catch {}
+  };
+
+  const reveal = async (it) => {
+    const res = await revealMediaSource(it.url);
+    if (res && res.ok) return;
+    try { toast.add({ type: 'error', title: 'Source not available', description: (res && res.error) || 'That folder could not be opened.', duration: 5000 }); } catch {}
+  };
+
+  // STATIC STILLS ONLY. A video tile draws the poster the main-process pipeline
+  // extracted (or borrows ONE element from the app-wide video budget until the
+  // still lands) — never a decode per card. Three hundred clips are three
+  // hundred small JPEGs, so mounting the tab costs no media pipelines at all.
+  const thumb = (it) => {
     if (it.kind === 'loop') {
       return (
-        <div style={box}>
+        <div style={{ width: '100%', height: '100%', background: '#000', position: 'relative', overflow: 'hidden' }}>
           <AnimatedBg value={`anim:${it.animId}`} k={0.25} />
           <span style={{ position: 'absolute', top: 6, left: 6, width: 22, height: 22, borderRadius: 6, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <InfinityIcon size={13} color="#c084fc" />
@@ -97,22 +149,28 @@ export default function MediaBrowser() {
         </div>
       );
     }
-    if (it.kind === 'gradient') {
-      return <div style={{ ...box, background: it.css }} />;
-    }
-    if (it.kind === 'video') {
-      return <LazyVideo src={it.url} preload="metadata" playsInline muted style={box} />;
-    }
-    // Tiles point at the 480px thumbnail (main.js builds it on demand), not at
-    // the 8-12 MP original: a long library of originals overruns the renderer's
-    // decoded-image budget and the pictures stop painting.
-    return <img src={thumbUrl(it.url, 'image')} alt="" loading="lazy" decoding="async" draggable={false} style={{ ...box, objectFit: 'cover' }} />;
+    if (it.kind === 'gradient') return <div style={{ width: '100%', height: '100%', background: it.css }} />;
+    return <MediaPoster asset={it.asset || { url: it.url, kind: it.kind }} />;
+  };
+
+  // Native OS picker → straight into SQLite; the library refetch keeps every
+  // other panel in step. The DOM input stays as the non-Electron fallback.
+  const importNative = async () => {
+    if (!window.require) { if (fileRef.current) fileRef.current.click(); return; }
+    const assets = await pickAndImportMedia({ kind: 'all' });
+    if (assets.length) { try { await fetchMediaLibrary(); } catch {} }
   };
 
   const actions = (it) => (
     <span style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
       {activeSong && (
-        <button onClick={(e) => { e.stopPropagation(); applyBg(it); }} title="Set as the open song's background" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: '#36C982', borderRadius: 6, fontSize: 10, fontWeight: 800, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Use</button>
+        <button onClick={(e) => { e.stopPropagation(); useItem(it); }} title="Set as the open song's background" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: '#36C982', borderRadius: 6, fontSize: 10, fontWeight: 800, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Use</button>
+      )}
+      {!it.builtin && it.missing && (
+        <button onClick={(e) => { e.stopPropagation(); relink(it); }} title="Find this file on this computer" style={{ background: 'rgba(255,69,69,0.14)', border: '1px solid rgba(255,69,69,0.55)', color: '#FF6B6B', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px 6px' }}><Link2 size={12} /></button>
+      )}
+      {!it.builtin && it.sourcePath && (
+        <button onClick={(e) => { e.stopPropagation(); reveal(it); }} title={`Show in folder\n${it.sourcePath}`} style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', display: 'flex', padding: 4 }}><FolderOpen size={12} /></button>
       )}
       {!it.builtin && (
         <button onClick={(e) => { e.stopPropagation(); removeMediaAsset(it.asset); }} title="Remove from library" style={{ background: 'transparent', border: 'none', color: C.faint, cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={12} /></button>
@@ -128,6 +186,10 @@ export default function MediaBrowser() {
             const on = filter === f.id;
             const Icon = f.icon;
             const n = counts[f.id === 'all' ? 'all' : f.id] ?? 0;
+            // Uploads are capped per kind (see mediaImport.js) — show the room
+            // left right where the operator is about to add more.
+            const cap = f.id === 'image' ? MEDIA_IMAGE_LIMIT : f.id === 'video' ? MEDIA_VIDEO_LIMIT : null;
+            const over = !!cap && n > cap;
             return (
               <button
                 key={f.id}
@@ -135,26 +197,26 @@ export default function MediaBrowser() {
                 style={{ display: 'flex', alignItems: 'center', gap: 6, background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#1C1C1E' : C.muted, borderRadius: 999, padding: '6px 12px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: on ? '0 0 0 1px rgba(255,184,0,0.5), 0 6px 20px rgba(255,184,0,0.35)' : 'none' }}
               >
                 {Icon ? <Icon size={12} /> : null}{f.label}
-                <span style={{ fontSize: 10, fontWeight: 800, opacity: on ? 0.85 : 0.6 }}>{n}</span>
+                <span style={{ fontSize: 10, fontWeight: 800, opacity: on ? 0.85 : 0.6, color: over ? '#FF6B6B' : undefined }} title={cap ? (over ? `${n} of ${cap} — delete ${n - cap} to add more` : `${n} of ${cap} used`) : undefined}>{cap ? `${n}/${cap}` : n}</span>
               </button>
             );
           })}
         </div>
-        <label style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '6px 11px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+        <button type="button" onClick={importNative} title={counts.image >= MEDIA_IMAGE_LIMIT && counts.video >= MEDIA_VIDEO_LIMIT ? 'Library full — delete a picture or video first' : 'Add images and videos from this computer'} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '6px 11px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
           <Upload size={12} /> Upload
-          <input type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple style={{ display: 'none' }} onChange={(e) => {
-            const files = Array.from(e.target.files || []);
-            files.forEach((f) => importMediaAsset({ target: { files: [f] } }, f.type.startsWith('video') ? 'video' : 'image'));
-            e.target.value = '';
-          }} />
-        </label>
+        </button>
+        <input ref={fileRef} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple style={{ display: 'none' }} onChange={(e) => {
+          const files = Array.from(e.target.files || []);
+          files.forEach((f) => importMediaAsset({ target: { files: [f] } }, f.type.startsWith('video') ? 'video' : 'image'));
+          e.target.value = '';
+        }} />
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value)}
           title="Sort order"
           style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 8, color: C.text2, fontSize: 11.5, fontWeight: 700, padding: '6px 8px', cursor: 'pointer', outline: 'none' }}
         >
-          <option value="newest">Newest</option>
+          <option value="recent">Recently used</option>
           <option value="name">Name A–Z</option>
         </select>
         <div style={{ display: 'flex', background: C.elevated2, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: 2, gap: 2 }}>
@@ -164,22 +226,37 @@ export default function MediaBrowser() {
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '2px 18px 8px 18px', minHeight: 0 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, padding: '2px 18px 8px 18px' }}>
         {!activeSong && (
-          <div style={{ fontSize: 11, color: C.faint2, marginBottom: 8 }}>Open a song to apply a background from here.</div>
+          <div style={{ fontSize: 11, color: C.faint2, marginBottom: 8, flexShrink: 0 }}>Open a song to apply a background from here.</div>
         )}
         {items.length === 0 ? (
           <div style={{ fontSize: 12, color: C.faint2, border: '1px dashed var(--ui-border2)', borderRadius: 10, padding: 20, textAlign: 'center', lineHeight: 1.6 }}>
             Nothing here yet — upload an image or video above.
           </div>
         ) : view === 'grid' ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, alignContent: 'start' }}>
-            {items.map((it) => (
-              <div key={it.key} style={{ background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 10, overflow: 'hidden' }}>
-                <div style={{ aspectRatio: '16 / 10' }}>{thumb(it, '100%')}</div>
-                <div style={{ padding: '8px 10px 9px 10px' }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 800, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3 }}>
+          // Virtualized: only the rows on screen exist in the DOM. A 300-file
+          // library scrolls at the cost of one row's worth of elements.
+          <VirtualMediaGrid
+            items={items}
+            minColWidth={180}
+            gap={12}
+            rowHeight={176}
+            overscanRows={2}
+            style={{ flex: 1 }}
+            renderItem={(it) => (
+              <div key={it.key} style={{ background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 10, overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ height: 104, flexShrink: 0, position: 'relative' }}>
+                  {thumb(it)}
+                  {it.missing && (
+                    <span title="The source file is not on this computer right now" style={{ position: 'absolute', left: 6, top: 6, display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(0,0,0,0.75)', border: '1px solid rgba(255,69,69,0.7)', color: '#FF6B6B', borderRadius: 6, padding: '2px 6px', fontSize: 9, fontWeight: 800, letterSpacing: 0.4, whiteSpace: 'nowrap' }}>
+                      <AlertTriangle size={10} /> SOURCE MISSING
+                    </span>
+                  )}
+                </div>
+                <div style={{ padding: '7px 10px 8px 10px', minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <div title={it.sourcePath ? `${it.name}\n${it.sourcePath}` : it.name} style={{ fontSize: 12, fontWeight: 800, color: it.missing ? C.muted : C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 4 }}>
                     {it.builtin
                       ? <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.8, color: '#36C982' }}>BUILT-IN</span>
                       : <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.8, color: C.faint, textTransform: 'uppercase' }}>{it.kind}</span>}
@@ -187,21 +264,25 @@ export default function MediaBrowser() {
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
+            )}
+          />
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignContent: 'start' }}>
-            {items.map((it) => (
-              <div key={it.key} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 10, padding: 8 }}>
-                <div style={{ width: 96, flexShrink: 0, borderRadius: 6, overflow: 'hidden' }}>{thumb(it, 54)}</div>
+          <VirtualMediaList
+            items={items}
+            rowHeight={64}
+            gap={6}
+            style={{ flex: 1 }}
+            renderItem={(it) => (
+              <div key={it.key} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--ui-elev2)', border: '1px solid var(--ui-border)', borderRadius: 10, padding: 8, height: '100%', boxSizing: 'border-box' }}>
+                <div style={{ width: 84, height: 47, flexShrink: 0, borderRadius: 6, overflow: 'hidden' }}>{thumb(it)}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 800, color: C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
-                  <div style={{ fontSize: 10, color: C.faint, marginTop: 2 }}>{it.builtin ? 'BUILT-IN' : it.kind.toUpperCase()}</div>
+                  <div title={it.sourcePath || undefined} style={{ fontSize: 12.5, fontWeight: 800, color: it.missing ? C.muted : C.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
+                  <div style={{ fontSize: 10, color: it.missing ? '#FF6B6B' : C.faint, marginTop: 2 }}>{it.builtin ? 'BUILT-IN' : it.kind.toUpperCase()}{it.missing ? ' · SOURCE MISSING' : ''}</div>
                 </div>
                 {actions(it)}
               </div>
-            ))}
-          </div>
+            )}
+          />
         )}
       </div>
 

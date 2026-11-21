@@ -6,7 +6,7 @@ import { ROW_KIND, iconHue } from '../lib/icons';
 import { stubTap, iconBtnTap } from '../lib/anim';
 import Dropdown from './Dropdown';
 import VideoLibrarySidebar from './VideoLibrarySidebar';
-import { LazyVideo } from '../lib/lazyVideo';
+import { VirtualMediaGrid, MediaPoster } from '../lib/virtualMediaGrid';
 // Untitled UI — migration phase 3 (tabs): RAC-backed Tabs for the Service
 // Order / Shows / Songs switcher (mirror layout documented in NewSongPrompt).
 import { Tabs, TabList, Tab } from '../untitledui/components/application/tabs/tabs';
@@ -778,19 +778,23 @@ export default function LeftSidebar() {
                       No images/videos in the app yet — use Image or Video below to upload one.
                     </div>
                   ) : (
-                    <div style={{ maxHeight: 170, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 5, padding: 2 }}>
-                      {mediaLibrary.filter(a => a.kind === 'image' || a.kind === 'video').map((asset, i) => {
+                    <VirtualMediaGrid
+                      items={mediaLibrary.filter(a => a.kind === 'image' || a.kind === 'video')}
+                      minColWidth={74}
+                      gap={5}
+                      rowHeight={46}
+                      overscanRows={2}
+                      style={{ height: 170, padding: 2 }}
+                      renderItem={(asset, i) => {
                         const label = asset.name || (() => { try { return decodeURIComponent(asset.url.split('/').pop().split('?')[0]); } catch (_) { return 'Media'; } })();
                         return (
                           <button key={asset.url + i} onClick={() => addExistingMediaToService(asset)} title={`Add "${label}" to the service order — already in the app, no upload`} style={{ position: 'relative', padding: 0, height: 46, borderRadius: 7, overflow: 'hidden', border: '1px solid var(--ui-border)', background: '#000', cursor: 'pointer' }}>
-                            {asset.kind === 'image'
-                              ? <img src={asset.url} alt={label} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                              : <LazyVideo src={asset.url} muted playsInline preload="metadata" rootMargin="200px" style={{ width: '100%', height: '100%' }} />}
+                            <MediaPoster asset={asset} />
                             <span style={{ position: 'absolute', right: 3, bottom: 3, display: 'flex', alignItems: 'center', gap: 2, background: 'rgba(0,0,0,0.72)', borderRadius: 3, padding: '1px 3px', color: '#fff' }}>{asset.kind === 'video' ? <Video size={8} /> : <ImageIcon size={8} />}</span>
                           </button>
                         );
-                      })}
-                    </div>
+                      }}
+                    />
                   ))}
                   <button onClick={() => { const el = document.getElementById('service-media-input'); if (el) el.click(); }} style={{ textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--ui-text)', padding: '5px 8px', borderRadius: 6, fontSize: 11.5, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontWeight: 700 }}><ImageIcon size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Image</span>

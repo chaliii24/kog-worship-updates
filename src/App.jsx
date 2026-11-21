@@ -5,7 +5,8 @@ import logoImage from './assets/logo.png';
 import { getTheme } from './lib/theme';
 import { TRANSITIONS, TRANSITION_KEYS, SPEED_OPTIONS, cssSpeed } from './lib/constants';
 import { applyCaseTransform, renderLyricsLayout, LyricsBlock, SlideTextLayers, cueLyricStyle, growBoxToText, FONT_SIZE_MAX, DEFAULT_LYRIC_SIZE, fitBoxToText, fitParsedCue, liftBox, ghostLayerOf } from './lib/lyrics';
-import { rememberRecentMedia } from './lib/recentMedia';
+import { rememberRecentMedia, touchMediaUrl } from './lib/recentMedia';
+import { notifyMediaChanged, subscribeMediaChanged } from './lib/mediaImport';
 import { textObjectLayers, patchTextObject, moveTextObject, addTextObject, removeTextObject, duplicateTextObject } from './lib/songTextObjects';
 import { reflowCuesToLines } from './lib/splitReflow.js';
 import { parseSongBlocks, splitCuesByLines } from '../electron/songParse.js';
@@ -29,7 +30,7 @@ import NewSongPrompt from './components/NewSongPrompt';
 import PresentationModal from './components/PresentationModal';
 import PresentationSlide from './components/PresentationSlide';
 import ShowBuilderModal from './components/ShowBuilderModal';
-import { parseMedleyDef, flattenMedley, medleySongIds, medleyTitleId, basePartLabel } from './lib/medley';
+import { parseMedleyDef, flattenMedley, medleySongIds, medleyTitleId, basePartLabel, medleyIndexOf } from './lib/medley';
 import { mediaLabel, bgMediaFields } from './lib/backgrounds';
 import { audioEngine } from './lib/audioEngine';
 import { resolveArrangementFlow, songSequenceCues, songSequenceIds, songSlideTotal, songFlowCues, arrangedSongSlideTotal, arrangedSongCues, summarizeFlow, sortSectionLabels } from './lib/arrangement';
@@ -1127,6 +1128,52 @@ export default function App() {
     return promise;
   };
 
+  // EVERY IMPORT SHOWS UP NOW: uploading from the song editor's gallery (or any
+  // other inline picker) registers the file in main, yet the list on screen
+  // still came from App state, so it only appeared after closing and reopening
+  // the editor. An import fires one event; this debounced listener re-reads the
+  // library once the burst is over, and waits out any query already in flight
+  // so the newest rows cannot be overwritten by an older answer.
+  useEffect(() => {
+    const mediaRefresh = { timer: null };
+    const onMediaChanged = () => {
+      if (mediaRefresh.timer) clearTimeout(mediaRefresh.timer);
+      mediaRefresh.timer = setTimeout(async () => {
+        mediaRefresh.timer = null;
+        const running = mediaFetchRef.current.inflight;
+        if (running) { try { await running; } catch {} }
+        try { await fetchMediaLibrary(); } catch {}
+      }, 200);
+    };
+    const off = subscribeMediaChanged(onMediaChanged);
+    return () => { if (mediaRefresh.timer) clearTimeout(mediaRefresh.timer); off(); };
+  }, []);
+
+  // POSTER PIPELINE FEEDBACK: main extracts a still for a video in the
+  // background. When one lands, patch that row in place — every mounted tile
+  // swaps from its budgeted fallback element to a plain <img> without a library
+  // refetch (a refetch would re-render the whole list mid-scroll).
+  useEffect(() => {
+    if (!window.require) return undefined;
+    let ipcRenderer;
+    try { ({ ipcRenderer } = window.require('electron')); } catch { return undefined; }
+    if (!ipcRenderer) return undefined;
+    const onThumb = (event, info) => {
+      if (!info || !info.url) return;
+      setMediaLibrary((prev) => {
+        let hit = false;
+        const next = prev.map((a) => {
+          if (!a || a.url !== info.url) return a;
+          hit = true;
+          return { ...a, thumb: info.thumb || a.thumb, width: info.width ?? a.width, height: info.height ?? a.height, duration: info.duration ?? a.duration };
+        });
+        return hit ? next : prev;
+      });
+    };
+    ipcRenderer.on('media-thumb-ready', onThumb);
+    return () => { try { ipcRenderer.removeListener('media-thumb-ready', onThumb); } catch {} };
+  }, []);
+
   const fetchLibraryStats = async () => {
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
@@ -1759,7 +1806,10 @@ export default function App() {
       if (!medleyRef.current || String(medleyRef.current.itemId) !== String(rowId)) return;
       if (!slides.length) return;
       const prevIdx = medleyRef.current.index;
-      const at = slides.findIndex(s => (s.cue ? s.cue.id : medleyTitleId(s.songId)) === activeCue?.id);
+      // Keep the CURRENT position when it survives the rebuild: the same cue id
+      // can appear twice in a flow, so a plain findIndex would snap back to the
+      // first occurrence after a mid-flow save.
+      const at = medleyIndexOf(slides, activeCue?.id, prevIdx);
       medleyRef.current = { itemId: rowId, slides, songs, index: at > -1 ? at : Math.min(prevIdx, slides.length - 1) };
     }).catch(() => {});
   };
@@ -2106,7 +2156,8 @@ export default function App() {
   const medleyIndexOfCue = (cueId) => {
     const med = medleyRef.current;
     if (!med || !cueId) return -1;
-    return med.slides.findIndex(s => (s.cue ? s.cue.id : medleyTitleId(s.songId)) === cueId);
+    // Session index first (repeated slides share cue ids), identity second.
+    return medleyIndexOf(med.slides, cueId, med.index);
   };
   const handleNextCue = useCallback(() => {
     if (activePresentation) { presentationNextRef.current && presentationNextRef.current(1); return; }
@@ -2306,7 +2357,11 @@ export default function App() {
       const { ipcRenderer, webUtils } = window.require('electron');
       const filePath = (webUtils && webUtils.getPathForFile) ? webUtils.getPathForFile(file) : (file.path || '');
       if (!filePath) return null;
-      return await ipcRenderer.invoke('add-media-file', filePath);
+      const url = await ipcRenderer.invoke('add-media-file', filePath);
+      // The file is registered; tell every picker to show it without the
+      // operator having to leave and re-enter the editor.
+      if (url) notifyMediaChanged();
+      return url;
     } catch (e) {
       return null;
     }
@@ -3185,12 +3240,20 @@ export default function App() {
       ? a.index
       : (activeCue?.id ? cueList.findIndex(c => c.id === activeCue.id) : -1);
     const nextCue = at > -1 ? cueList[at + 1] : (cueList.length > 0 ? cueList[0] : null);
+    // CLEAR LYRICS TAKES EVERY BOX OFF, not just the main one. The extra text
+    // boxes and the ghost watermark are words too, and they ride INSIDE the
+    // live style object (`style.texts` / `style.ghost`) — so copying that style
+    // kept Box 2, Box 3… on the wall after the main lyric went (the wall draws
+    // the text layer when `text` OR `style.texts` has anything in it). They are
+    // stripped here; every background key (backgroundType/Value, bg media
+    // fields, fx) is kept, so the backdrop keeps running and never remounts.
+    const { texts: _texts, ghost: _ghost, lyric: _mainLyric, slideAnim: _slideAnim, ...clearBg } = liveOutputStyle();
     const slidePayload = {
       title: activeSong?.title || live?.title || '',
       artist: activeSong?.artist || '',
       text: '',
       label: '',
-      style: { ...liveOutputStyle(), transition: 'fade', speed: '600ms' },
+      style: { ...clearBg, transition: 'fade', speed: '600ms' },
       // A running sermon deck is not lyrics — Clear Lyrics must not take it down.
       presentation: live?.presentation || null,
       meta: live?.meta || null,
@@ -4215,6 +4278,8 @@ export default function App() {
       try { title = decodeURIComponent(String(asset.url).split('/').pop().split('?')[0]).replace(/\.[^.]+$/, ''); } catch (_) { title = ''; }
     }
     const newItem = { item_type: 'media', title: title || 'Media', subtitle: asset.kind === 'video' ? 'Video' : 'Image', content: '', media_type: asset.kind, media_url: asset.url };
+    // Adding it to the service order counts as using it.
+    touchMediaUrl(asset.url);
     insertServiceItem(newItem);
     setServiceAddMenu(null);
     setServiceMediaPicker(false);
@@ -4718,10 +4783,28 @@ export default function App() {
     });
   };
 
+  // Blob URLs are the fallback when a file could not be copied into the library
+  // (permission denied, disk full). Each one pins the WHOLE file in memory for
+  // the life of the page, so they are tracked here and revoked explicitly when
+  // the console unmounts instead of waiting for a page teardown that never comes.
+  const bgBlobUrlsRef = useRef([]);
+  const blobUrlFor = (file) => {
+    try {
+      const url = URL.createObjectURL(file);
+      bgBlobUrlsRef.current.push(url);
+      return url;
+    } catch { return null; }
+  };
+  useEffect(() => () => {
+    const urls = bgBlobUrlsRef.current;
+    bgBlobUrlsRef.current = [];
+    for (const u of urls) { try { URL.revokeObjectURL(u); } catch {} }
+  }, []);
+
   const cueFileToBackground = async (idx, type, file) => {
     if (file) {
       const url = await persistMediaFile(file);
-      setCueBackground(idx, type, url || URL.createObjectURL(file));
+      setCueBackground(idx, type, url || blobUrlFor(file));
     }
   };
 
@@ -4730,7 +4813,7 @@ export default function App() {
   const songBgFileToBackground = async (type, file) => {
     if (file) {
       const url = await persistMediaFile(file);
-      setSongBackground(type, url || URL.createObjectURL(file));
+      setSongBackground(type, url || blobUrlFor(file));
     }
   };
 
@@ -4927,7 +5010,10 @@ export default function App() {
   // bare /[a-z]$/i ate the last letter of every plain label instead — "Chorus"
   // became "Choru", "Bridge" became "Bridg" — and that is what the group header
   // printed.
-  const baseGroupLabel = (label = '') => label.replace(/\s*\(Part\s+\d+\)\s*$/i, '').replace(/(?<=[\s0-9])[A-Za-z]$/, '').trim() || 'Slides';
+  // String(label || ''), not just a default parameter: callers pass
+  // `editorCue && editorCue.label`, which is null when no slide is open — and a
+  // default only fires for undefined, so null.replace() crashed the editor.
+  const baseGroupLabel = (label = '') => String(label || '').replace(/\s*\(Part\s+\d+\)\s*$/i, '').replace(/(?<=[\s0-9])[A-Za-z]$/, '').trim() || 'Slides';
 
   const nextSuffixLetter = (labels, base) => {
     const used = labels.filter(l => l.startsWith(base)).map(l => l.slice(base.length).toLowerCase()).filter(x => /^[a-z]$/.test(x));
@@ -5111,7 +5197,9 @@ export default function App() {
     if (window.require) {
       const { ipcRenderer } = window.require('electron');
       const success = await ipcRenderer.invoke('db-import');
-      if (success) fetchSongs();
+      // A v2 backup carries the media manifest too, so the library (and the
+      // missing-source flags a restore may have raised) must be re-read.
+      if (success) { fetchSongs(); fetchMediaLibrary(); }
     }
   };
 
@@ -6102,8 +6190,10 @@ export default function App() {
   const applyMediaToActiveSong = async (kind, url) => {
     if (!activeSong) return;
     // Feeds Slide Setup's Recent strip, so "Use" here and a pick in the editor
-    // share one history.
-    rememberRecentMedia(kind, url);
+    // share one history. Audio is not a background, but attaching it is still
+    // "recently used" for the library ordering.
+    if (kind === 'audio') touchMediaUrl(url);
+    else rememberRecentMedia(kind, url);
     const next = { ...activeSong };
     if (kind === 'audio') next.audio_url = url;
     else { next.bg_type = kind; next.bg_value = url; }

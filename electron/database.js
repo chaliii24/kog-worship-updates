@@ -117,6 +117,33 @@ try { db.exec(`ALTER TABLE services ADD COLUMN resolution TEXT DEFAULT '1920x108
 // Per-cue style (box position/scale, font, size, color, align, animation, ...)
 // stored as JSON so editor adjustments survive save/reload.
 try { db.exec(`ALTER TABLE cues ADD COLUMN style_json TEXT;`); } catch (_) {}
+// MEDIA METADATA CACHE. A media tile must never have to open the file to know
+// what it is: the background pipeline (electron/main.js) writes the poster it
+// extracted and the dimensions/duration it probed here, so a grid of 300 clips
+// is one SELECT and 300 small JPEGs. Columns are added with swallowed errors so
+// an existing library needs no migration step — NULL simply means "not probed".
+try { db.exec(`ALTER TABLE media_assets ADD COLUMN thumb TEXT;`); } catch (_) {}
+try { db.exec(`ALTER TABLE media_assets ADD COLUMN width INTEGER;`); } catch (_) {}
+try { db.exec(`ALTER TABLE media_assets ADD COLUMN height INTEGER;`); } catch (_) {}
+try { db.exec(`ALTER TABLE media_assets ADD COLUMN duration REAL;`); } catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_media_assets_created ON media_assets (created_at DESC);`); } catch (_) {}
+// EXTERNAL SOURCE + RECENCY. Library entries no longer copy bytes into
+// userData: source_path is the operator's own file on their disk, and
+// last_used_at is what the Media tab and every picker sort by, so the list
+// answers "what did I just use?" instead of "what did I upload?" Both are
+// added with swallowed errors so an existing library needs no migration.
+try { db.exec(`ALTER TABLE media_assets ADD COLUMN source_path TEXT;`); } catch (_) {}
+try { db.exec(`ALTER TABLE media_assets ADD COLUMN last_used_at DATETIME;`); } catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_media_assets_used ON media_assets (last_used_at DESC);`); } catch (_) {}
+// SOURCE HEALTH. An external reference can move, be renamed, or sit on a drive
+// that is not plugged in, and the tile used to render black with no clue why.
+// `missing_at` records the last audit that could NOT find the file, so every
+// surface can say "source missing" and offer a relink; it clears itself the
+// moment an audit finds the file again.
+try { db.exec(`ALTER TABLE media_assets ADD COLUMN missing_at DATETIME;`); } catch (_) {}
+// A file picked twice must resolve to the one row that already references it,
+// whatever its URL happens to look like (relinked paths keep their old URL).
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_media_assets_source ON media_assets (source_path);`); } catch (_) {}
 // Editable title slide (box, font, size, color, ...) stored on the song.
 try { db.exec(`ALTER TABLE songs ADD COLUMN title_cue_json TEXT;`); } catch (_) {}
 // Stage chord chart: raw chart text + the key it is WRITTEN in. The Stage tab
@@ -391,26 +418,70 @@ export function setSongBpm(songId, bpm) {
   return true;
 }
 
+// Posters are stored as a bare file name (/thumbs/<name>.jpg); the renderer
+// gets a servable media:// URL so a tile never has to build one itself.
+const mediaThumbUrl = (name) => (name ? `media://kog-media/thumbs/${encodeURIComponent(name)}` : null);
+
 export function getMediaLibrary() {
   const rows = db.prepare(
-    `SELECT url, kind, name, created_at, id AS asset_id FROM media_assets
+    `SELECT url, kind, name, created_at, last_used_at, source_path, missing_at, id AS asset_id, thumb, width, height, duration FROM media_assets
      UNION
-     SELECT bg_value AS url, bg_type AS kind, NULL AS name, NULL AS created_at, NULL AS asset_id FROM cues WHERE bg_value LIKE 'media://%'
-     UNION SELECT bg_value AS url, bg_type AS kind, NULL AS name, NULL AS created_at, NULL AS asset_id FROM songs WHERE bg_value LIKE 'media://%'
-     UNION SELECT audio_url AS url, 'audio' AS kind, NULL AS name, NULL AS created_at, NULL AS asset_id FROM songs WHERE audio_url LIKE 'media://%'`
+     SELECT bg_value AS url, bg_type AS kind, NULL AS name, NULL AS created_at, NULL AS last_used_at, NULL AS source_path, NULL AS missing_at, NULL AS asset_id, NULL AS thumb, NULL AS width, NULL AS height, NULL AS duration FROM cues WHERE bg_value LIKE 'media://%'
+     UNION SELECT bg_value AS url, bg_type AS kind, NULL AS name, NULL AS created_at, NULL AS last_used_at, NULL AS source_path, NULL AS missing_at, NULL AS asset_id, NULL AS thumb, NULL AS width, NULL AS height, NULL AS duration FROM songs WHERE bg_value LIKE 'media://%'
+     UNION SELECT audio_url AS url, 'audio' AS kind, NULL AS name, NULL AS created_at, NULL AS last_used_at, NULL AS source_path, NULL AS missing_at, NULL AS asset_id, NULL AS thumb, NULL AS width, NULL AS height, NULL AS duration FROM songs WHERE audio_url LIKE 'media://%'`
   ).all();
-  const seen = new Set();
-  const list = [];
+  // UNION can surface the same URL twice (a registered asset plus a cue/song
+  // reference to it) with different NULL-ness. Merge instead of "first wins",
+  // or the row that knows the thumbnail/last-used stamp could be dropped.
+  const byUrl = new Map();
   for (const r of rows) {
-    if (!r.url || seen.has(r.url)) continue;
-    seen.add(r.url);
-    list.push({ url: r.url, kind: r.kind || 'image', name: r.name || null, createdAt: r.created_at || null, assetId: r.asset_id ?? null });
+    if (!r.url) continue;
+    const row = {
+      url: r.url,
+      kind: r.kind || 'image',
+      name: r.name || null,
+      createdAt: r.created_at || null,
+      lastUsedAt: r.last_used_at || null,
+      sourcePath: r.source_path || null,
+      missing: !!r.missing_at,
+      assetId: r.asset_id ?? null,
+      thumb: mediaThumbUrl(r.thumb),
+      width: r.width ?? null,
+      height: r.height ?? null,
+      duration: r.duration ?? null,
+    };
+    const prev = byUrl.get(r.url);
+    if (!prev) { byUrl.set(r.url, row); continue; }
+    byUrl.set(r.url, {
+      ...prev,
+      kind: row.kind || prev.kind,
+      name: prev.name || row.name,
+      createdAt: prev.createdAt || row.createdAt,
+      lastUsedAt: prev.lastUsedAt || row.lastUsedAt,
+      sourcePath: prev.sourcePath || row.sourcePath,
+      missing: !!(prev.missing || row.missing),
+      assetId: prev.assetId ?? row.assetId,
+      thumb: prev.thumb || row.thumb,
+      width: prev.width ?? row.width,
+      height: prev.height ?? row.height,
+      duration: prev.duration ?? row.duration,
+    });
   }
+  const list = [...byUrl.values()];
+  // RECENTLY USED FIRST, everywhere. The Media tab, the song-editor gallery,
+  // the service-plan picker and the video/audio panels all read this list, so
+  // ordering it once here is what makes every surface agree. An item that has
+  // never been applied falls back to its upload time.
+  const stampOf = (r) => {
+    const t = Date.parse(r.lastUsedAt || r.createdAt || '');
+    return Number.isFinite(t) ? t : 0;
+  };
+  list.sort((a, b) => stampOf(b) - stampOf(a));
   // House gradients need no registration (pure CSS, zero bytes); user media
   // arrives via media_assets plus any media:// refs already on songs/cues.
   for (const b of [...getBuiltinVideoAssets(), ...getBuiltinPhotoAssets()]) {
-    if (seen.has(b.url)) continue;
-    seen.add(b.url);
+    if (!b || !b.url || byUrl.has(b.url)) continue;
+    byUrl.set(b.url, b);
     list.push(b);
   }
   return list;
@@ -437,10 +508,128 @@ export function getBuiltinPhotoAssets() {
   return [];
 }
 
-export function addMediaAsset(url, kind = 'image', name = '') {
+// One page of the library, newest first — the SQL side of the virtualized
+// grids. `db-get-media` still returns everything (three other panels index the
+// whole list), but a surface that only renders a viewport can ask for pages and
+// never materialize 300+ rows.
+export function getMediaLibraryPage({ limit = 60, offset = 0, kind = null } = {}) {
+  const lim = Math.min(500, Math.max(1, Math.floor(Number(limit) || 60)));
+  const off = Math.max(0, Math.floor(Number(offset) || 0));
+  const hasKind = !!kind && kind !== 'all';
+  const order = 'ORDER BY COALESCE(last_used_at, created_at) DESC, created_at DESC';
+  const rows = hasKind
+    ? db.prepare(`SELECT url, kind, name, created_at, last_used_at, source_path, missing_at, id AS asset_id, thumb, width, height, duration FROM media_assets WHERE kind = ? ${order} LIMIT ? OFFSET ?`).all(kind, lim, off)
+    : db.prepare(`SELECT url, kind, name, created_at, last_used_at, source_path, missing_at, id AS asset_id, thumb, width, height, duration FROM media_assets ${order} LIMIT ? OFFSET ?`).all(lim, off);
+  const total = hasKind
+    ? db.prepare('SELECT COUNT(*) AS c FROM media_assets WHERE kind = ?').get(kind).c
+    : db.prepare('SELECT COUNT(*) AS c FROM media_assets').get().c;
+  return {
+    total,
+    offset: off,
+    items: rows.map((r) => ({
+      url: r.url,
+      kind: r.kind || 'image',
+      name: r.name || null,
+      createdAt: r.created_at || null,
+      lastUsedAt: r.last_used_at || null,
+      sourcePath: r.source_path || null,
+      missing: !!r.missing_at,
+      assetId: r.asset_id ?? null,
+      thumb: mediaThumbUrl(r.thumb),
+      width: r.width ?? null,
+      height: r.height ?? null,
+      duration: r.duration ?? null,
+    })),
+  };
+}
+
+// What the background pipeline learned about a file (poster file name, probed
+// dimensions, duration). Narrow UPDATE, called from main.js only.
+export function setMediaMeta(url, meta = {}) {
   if (!url) return;
   try {
-    db.prepare('INSERT OR IGNORE INTO media_assets (url, kind, name) VALUES (?, ?, ?)').run(url, kind, name);
+    db.prepare('UPDATE media_assets SET thumb = ?, width = ?, height = ?, duration = ? WHERE url = ?')
+      .run(meta.thumb || null, meta.width ?? null, meta.height ?? null, meta.duration ?? null, url);
+  } catch (_) {}
+}
+
+// Library headroom for the upload caps. Counts only the operator's own rows —
+// the built-in gradients/loops never enter media_assets.
+export function countMediaAssets(kind = null) {
+  try {
+    return kind
+      ? db.prepare('SELECT COUNT(*) AS c FROM media_assets WHERE kind = ?').get(kind).c
+      : db.prepare('SELECT COUNT(*) AS c FROM media_assets').get().c;
+  } catch (_) { return 0; }
+}
+
+export function addMediaAsset(url, kind = 'image', name = '', sourcePath = null) {
+  if (!url) return null;
+  try {
+    const res = db.prepare('INSERT OR IGNORE INTO media_assets (url, kind, name, source_path) VALUES (?, ?, ?, ?)')
+      .run(url, kind, name, sourcePath || null);
+    // A row that predates external sources (or was healed from a song ref)
+    // gains its path the first time the file is registered again.
+    if (sourcePath) {
+      try { db.prepare('UPDATE media_assets SET source_path = ? WHERE url = ? AND (source_path IS NULL OR source_path = \'\')').run(sourcePath, url); } catch (_) {}
+    }
+    return res.lastInsertRowid || null;
+  } catch (_) { return null; }
+}
+
+/** One library row by its media:// URL (the protocol handler's resolver). */
+export function getMediaAssetByUrl(url) {
+  if (!url) return null;
+  try { return db.prepare('SELECT * FROM media_assets WHERE url = ?').get(url) || null; } catch (_) { return null; }
+}
+
+// "Recently used": every apply/attach stamps the asset, and the Media tab plus
+// every picker sorts on it. Unknown URLs (built-in gradients, Bible-folder art)
+// are a no-op.
+export function touchMediaAsset(url) {
+  if (!url) return false;
+  try { db.prepare('UPDATE media_assets SET last_used_at = CURRENT_TIMESTAMP WHERE url = ?').run(url); return true; } catch (_) { return false; }
+}
+
+/** The row that already references this file on disk (Windows paths are
+ *  case-insensitive, so the compare is too). This is what keeps one file from
+ *  becoming two tiles when it is picked again after a relink. */
+export function getMediaAssetBySourcePath(absPath) {
+  if (!absPath) return null;
+  try {
+    return db.prepare('SELECT * FROM media_assets WHERE source_path IS NOT NULL AND source_path != \'\' AND source_path = ? COLLATE NOCASE').get(String(absPath)) || null;
+  } catch (_) { return null; }
+}
+
+/** RELINK: point an existing entry at wherever the file lives now. The URL is
+ *  deliberately untouched — songs, cues and service items reference it, and
+ *  identity here is the row, not the path. */
+export function setMediaSourcePath(url, absPath) {
+  if (!url || !absPath) return false;
+  try {
+    db.prepare('UPDATE media_assets SET source_path = ?, missing_at = NULL WHERE url = ?').run(String(absPath), url);
+    return true;
+  } catch (_) { return false; }
+}
+
+/** Every library row, for the source audit and the storage sweep. Legacy
+ *  entries have no source_path but still resolve to a copy inside userData, so
+ *  they must be included: their file can go missing exactly like an external
+ *  one, and the sweep needs their cached still names to avoid deleting them. */
+export function getMediaSourceRows() {
+  try {
+    return db.prepare('SELECT url, kind, source_path, thumb FROM media_assets').all();
+  } catch (_) { return []; }
+}
+
+/** Record (or clear) "the file this entry points at is not there". Narrow
+ *  updates only when the state actually changes, so a repeated audit writes
+ *  nothing. */
+export function setMediaMissing(url, missing) {
+  if (!url) return;
+  try {
+    if (missing) db.prepare('UPDATE media_assets SET missing_at = CURRENT_TIMESTAMP WHERE url = ? AND missing_at IS NULL').run(url);
+    else db.prepare('UPDATE media_assets SET missing_at = NULL WHERE url = ? AND missing_at IS NOT NULL').run(url);
   } catch (_) {}
 }
 
@@ -615,9 +804,35 @@ export function getUsageReport(from, to) {
   return { ...report, from: fromStr, to: toStr };
 }
 
+// FULL BACKUP: songs plus the media rows their URLs resolve through. The song
+// rows alone were the whole file back when every import copied its bytes into
+// userData; now a media:// URL is a POINTER, and a backup without its manifest
+// restores songs whose backgrounds resolve to nothing (silently black on the
+// wall). v2 is an object; the legacy array shape is still accepted on import.
 export function exportLibrary() {
   const songs = db.prepare('SELECT * FROM songs').all();
-  return JSON.stringify(songs.map(songToExport).filter(Boolean), null, 2);
+  let media = [];
+  try {
+    media = db.prepare('SELECT url, kind, name, source_path, last_used_at, thumb, width, height, duration FROM media_assets').all().map((m) => ({
+      url: m.url,
+      kind: m.kind || 'image',
+      name: m.name || null,
+      sourcePath: m.source_path || null,
+      lastUsedAt: m.last_used_at || null,
+      thumb: m.thumb || null,
+      width: m.width ?? null,
+      height: m.height ?? null,
+      duration: m.duration ?? null,
+    }));
+  } catch (_) {}
+  return JSON.stringify({
+    app: 'kog-worship',
+    kind: 'library-backup',
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    songs: songs.map(songToExport).filter(Boolean),
+    media,
+  }, null, 2);
 }
 
 // One song (or many) in EXACTLY the library shape above, so the existing
@@ -658,7 +873,11 @@ export function exportSongs(ids) {
 
 export function importLibrary(jsonData) {
   try {
-    const library = JSON.parse(jsonData);
+    const parsed = JSON.parse(jsonData);
+    // Two shapes: the v2 backup object, and the legacy bare array of songs
+    // (which is also what a per-song "Back up selected" file is).
+    const library = Array.isArray(parsed) ? parsed : (Array.isArray(parsed && parsed.songs) ? parsed.songs : []);
+    const media = Array.isArray(parsed && parsed.media) ? parsed.media : [];
     // EVERY column that carries how the song looks, sounds or plays has to be
     // in this list — an import that drops one is silent data loss, because the
     // operator only finds out when the wall reopens without it. `bpm` and
@@ -682,6 +901,29 @@ export function importLibrary(jsonData) {
             insertCue.run(songId, cue.label, cue.text, cue.sequence_order || idx + 1, cue.bg_type || 'color', cue.bg_value || '#000000', cue.duration || 0, cueStyleJson(cue));
           });
         }
+      }
+    })();
+
+    // MEDIA MANIFEST. Keep the operator's absolute source path so a backup
+    // taken on THIS machine comes back working. A path that no longer exists
+    // is kept anyway: the audit flags it as missing and the Media tab offers a
+    // relink, which beats a slide that renders black for no stated reason.
+    const findMedia = db.prepare('SELECT id FROM media_assets WHERE url = ?');
+    const insertMedia = db.prepare('INSERT INTO media_assets (url, kind, name, source_path, last_used_at, thumb) VALUES (?, ?, ?, ?, ?, ?)');
+    const updateMedia = db.prepare('UPDATE media_assets SET name = COALESCE(?, name), source_path = COALESCE(?, source_path), last_used_at = COALESCE(?, last_used_at), thumb = COALESCE(?, thumb) WHERE url = ?');
+    const kinds = new Set(['image', 'video', 'audio']);
+    db.transaction(() => {
+      for (const m of media) {
+        if (!m || typeof m.url !== 'string' || !m.url.startsWith('media://')) continue;
+        const kind = kinds.has(m.kind) ? m.kind : 'image';
+        const name = typeof m.name === 'string' ? m.name : null;
+        const sourcePath = typeof m.sourcePath === 'string' && m.sourcePath ? m.sourcePath : null;
+        const lastUsed = typeof m.lastUsedAt === 'string' && m.lastUsedAt ? m.lastUsedAt : null;
+        // Bare file name only: this string is later joined onto the thumbs
+        // folder, so a value carrying a path separator is refused.
+        const thumb = typeof m.thumb === 'string' && m.thumb && !/[\\/]/.test(m.thumb) ? m.thumb : null;
+        if (findMedia.get(m.url)) updateMedia.run(name, sourcePath, lastUsed, thumb, m.url);
+        else insertMedia.run(m.url, kind, name, sourcePath, lastUsed, thumb);
       }
     })();
     return true;

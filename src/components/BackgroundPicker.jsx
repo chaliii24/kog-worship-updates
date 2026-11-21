@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { Check, Image as ImageIcon, Play } from 'lucide-react';
 import { GRADIENT_PACK } from '../lib/backgrounds';
 import { ANIMATED_GRADIENTS } from './CountdownFace';
+import { VirtualMediaGrid, MediaPoster } from '../lib/virtualMediaGrid';
+import { pickAndImportMedia } from '../lib/mediaImport';
 
 // Name shown on a media tile / in its tooltip.
 const assetName = (asset) => {
@@ -90,6 +92,15 @@ export default function BackgroundPicker({
   }, [assets]);
 
   const visible = cat === 'all' ? assets : assets.filter((a) => mediaCategory(a) === cat);
+
+  // Native OS picker → import into the library → apply to the current target.
+  // The old flow round-tripped a File blob through IPC; this hands main the real
+  // paths and lets it register + thumbnail them in one call.
+  const importNative = async (kind) => {
+    const imported = await pickAndImportMedia({ kind });
+    const first = imported.find((a) => a && a.url);
+    if (first) onPick(first.kind || kind, first.url);
+  };
 
   // One ring for every applied state — no layout shift between 1px and 2px.
   const ring = (on) => ({
@@ -223,14 +234,12 @@ export default function BackgroundPicker({
       {!hideMedia && tab === 'media' && (
         <>
           <div style={{ display: 'flex', gap: 5, marginBottom: 8 }}>
-            <label style={uploadBtn} title="Upload an image from this computer">
+            <button type="button" onClick={() => importNative('image')} style={uploadBtn} title="Add images from this computer">
               <ImageIcon size={10} /> Image
-              <input type="file" accept="image/*" onChange={(e) => { if (e.target.files[0]) onUpload('image', e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
-            </label>
-            <label style={uploadBtn} title="Upload a video from this computer">
+            </button>
+            <button type="button" onClick={() => importNative('video')} style={uploadBtn} title="Add videos from this computer">
               <Play size={10} /> Video
-              <input type="file" accept="video/mp4,video/webm" onChange={(e) => { if (e.target.files[0]) onUpload('video', e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
-            </label>
+            </button>
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
@@ -265,8 +274,16 @@ export default function BackgroundPicker({
               {assets.length === 0 ? 'No media yet — upload an image or video above.' : `Nothing tagged ${CATEGORIES.find((c) => c.k === cat)?.label.toLowerCase()} in your library.`}
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 5 }}>
-              {visible.map((a) => {
+            // Virtualized and still-only: the rail can hold a 300-file library
+            // without mounting 300 decoders — a tile is one small <img>.
+            <VirtualMediaGrid
+              items={visible}
+              minColWidth={92}
+              gap={5}
+              rowHeight={58}
+              overscanRows={2}
+              style={{ height: 244 }}
+              renderItem={(a) => {
                 const on = activeType === a.kind && activeValue === a.url;
                 return (
                   <button
@@ -274,13 +291,9 @@ export default function BackgroundPicker({
                     type="button"
                     onClick={() => onPick(a.kind, a.url)}
                     title={assetName(a)}
-                    style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', padding: 0, background: '#000', ...ring(on) }}
+                    style={{ position: 'relative', height: '100%', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', padding: 0, background: '#000', ...ring(on) }}
                   >
-                    {a.kind === 'video' ? (
-                      <video src={a.url} muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-                    ) : (
-                      <img src={a.url} alt="" loading="lazy" decoding="async" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-                    )}
+                    <MediaPoster asset={a} />
                     <span
                       title={a.kind === 'video' ? 'Video' : 'Image'}
                       style={{ position: 'absolute', top: 3, left: 3, width: 14, height: 14, borderRadius: 4, background: 'rgba(0,0,0,0.62)', border: '1px solid rgba(255,255,255,0.22)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}
@@ -290,8 +303,8 @@ export default function BackgroundPicker({
                     {on && <CheckMark ACCENT={ACCENT} />}
                   </button>
                 );
-              })}
-            </div>
+              }}
+            />
           )}
         </>
       )}

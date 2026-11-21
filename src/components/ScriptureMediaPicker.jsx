@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 import { mediaLabel } from '../lib/backgrounds';
 import { BIBLE_MEDIA_EXT, SUPPORTED_LABEL, extOf } from '../../electron/mediaTypes.js';
-import { LazyVideo } from '../lib/lazyVideo';
+import { VirtualMediaGrid, MediaPoster } from '../lib/virtualMediaGrid';
 
 const FOLDER_KEY = 'bible_media_folder';
 
@@ -139,7 +139,7 @@ export default function ScriptureMediaPicker({ mode = 'session', onClose, onPick
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search by filename…" style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', color: C.text, fontSize: 12, outline: 'none' }} />
         </div>
 
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', marginRight: -4, paddingRight: 4 }}>
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflowX: 'hidden', marginRight: -4, paddingRight: 4 }}>
           {!folder && (
             <div style={{ textAlign: 'center', padding: '26px 16px 20px 16px' }}>
               <FolderOpen size={30} color={C.faint} style={{ margin: '0 auto 10px 0', display: 'block' }} />
@@ -162,56 +162,70 @@ export default function ScriptureMediaPicker({ mode = 'session', onClose, onPick
                   {q ? 'No files match that search.' : 'No pictures or videos in this folder.'}
                 </div>
               )}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8, marginBottom: 14 }}>
-                {folderItems.map((it) => (
-                  <motion.button
-                    {...stubTap}
-                    key={it.url}
-                    onClick={() => onPick({ type: it.type, value: it.url, name: it.name })}
-                    title={it.name}
-                    style={{
-                      position: 'relative', aspectRatio: '16 / 10', borderRadius: 8, overflow: 'hidden',
-                      border: current === it.url ? '2px solid ' + ACCENT : '1px solid var(--ui-border2)',
-                      background: '#000', padding: 0, cursor: 'pointer', display: 'block', width: '100%',
-                    }}
-                  >
-                    {it.type === 'video'
-                      ? <Film size={20} color="#8b8ba0" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }} />
-                      : <img src={it.url} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
-                    <span style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 6px 4px 6px', fontSize: 9.5, fontWeight: 700, color: '#fff', background: 'linear-gradient(transparent, rgba(0,0,0,0.85))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}>
-                      {mediaLabel(it.name)}
-                    </span>
-                  </motion.button>
-                ))}
-              </div>
+              {/* Virtualized: a Bible art folder can hold hundreds of files,
+                  and only the tiles on screen are mounted. */}
+              {folderItems.length > 0 && (
+                <VirtualMediaGrid
+                  items={folderItems}
+                  minColWidth={110}
+                  gap={8}
+                  rowHeight={82}
+                  overscanRows={2}
+                  style={{ flex: '1 1 45%', minHeight: 120, marginBottom: 10 }}
+                  renderItem={(it) => (
+                    <motion.button
+                      {...stubTap}
+                      key={it.url}
+                      onClick={() => onPick({ type: it.type, value: it.url, name: it.name })}
+                      title={it.name}
+                      style={{
+                        position: 'relative', height: '100%', borderRadius: 8, overflow: 'hidden',
+                        border: current === it.url ? '2px solid ' + ACCENT : '1px solid var(--ui-border2)',
+                        background: '#000', padding: 0, cursor: 'pointer', display: 'block', width: '100%',
+                      }}
+                    >
+                      {it.type === 'video'
+                        ? <Film size={20} color="#8b8ba0" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }} />
+                        : <img src={it.url} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                      <span style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 6px 4px 6px', fontSize: 9.5, fontWeight: 700, color: '#fff', background: 'linear-gradient(transparent, rgba(0,0,0,0.85))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}>
+                        {mediaLabel(it.name)}
+                      </span>
+                    </motion.button>
+                  )}
+                />
+              )}
             </>
           )}
 
           {appItems.length > 0 && (
             <>
               <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 6 }}>In the app</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 8 }}>
-                {appItems.map((o) => (
+              <VirtualMediaGrid
+                items={appItems}
+                minColWidth={110}
+                gap={8}
+                rowHeight={82}
+                overscanRows={2}
+                style={{ flex: 1, minHeight: 120 }}
+                renderItem={(o) => (
                   <motion.button
                     {...stubTap}
                     key={o.value}
                     onClick={() => onPick({ type: o.type, value: o.value, name: o.name || o.label })}
                     title={o.label}
                     style={{
-                      position: 'relative', aspectRatio: '16 / 10', borderRadius: 8, overflow: 'hidden',
+                      position: 'relative', height: '100%', borderRadius: 8, overflow: 'hidden',
                       border: current === o.value ? '2px solid ' + ACCENT : '1px solid var(--ui-border2)',
                       background: '#000', padding: 0, cursor: 'pointer', display: 'block', width: '100%',
                     }}
                   >
-                    {o.type === 'video'
-                      ? <LazyVideo src={o.value} preload="metadata" muted playsInline rootMargin="250px" style={{ width: '100%', height: '100%' }} />
-                      : <img src={o.value} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                    <MediaPoster url={o.value} kind={o.type === 'video' ? 'video' : 'image'} />
                     <span style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 6px 4px 6px', fontSize: 9.5, fontWeight: 700, color: '#fff', background: 'linear-gradient(transparent, rgba(0,0,0,0.85))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textAlign: 'left' }}>
                       {o.label}
                     </span>
                   </motion.button>
-                ))}
-              </div>
+                )}
+              />
             </>
           )}
         </div>

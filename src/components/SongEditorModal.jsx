@@ -14,7 +14,7 @@ import { toast } from '../untitledui/components/ui/toast';
 import LyricsCanvasEditor from './LyricsCanvasEditor';
 import FontPicker from './FontPicker';
 import SongThemePicker from './SongThemePicker';
-import { thumbUrl } from '../lib/mediaThumb';
+import { VirtualMediaGrid, MediaPoster } from '../lib/virtualMediaGrid';
 import { readRecentMedia, rememberRecentMedia, recentMediaList, subscribeRecentMedia } from '../lib/recentMedia';
 import { applyLookToSong } from '../lib/lookApply';
 import { applySongThemeToSong } from '../lib/songThemes';
@@ -498,10 +498,18 @@ export default function SongEditorModal() {
   // one button instead of 30 tiles burned into the rail.
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryCat, setGalleryCat] = useState('all');
-  const mediaAssets = useMemo(
-    () => (mediaLibrary || []).filter((a) => a.kind === 'image' || a.kind === 'video'),
-    [mediaLibrary],
-  );
+  // Recently used first: the gallery is a "what did I just use?" tray, and the
+  // DB already orders by last_used_at. Sorting again here keeps it honest if a
+  // caller hands over an unsorted list.
+  const mediaAssets = useMemo(() => {
+    const stamp = (a) => {
+      const t = Date.parse(a.lastUsedAt || a.createdAt || '');
+      return Number.isFinite(t) ? t : 0;
+    };
+    return (mediaLibrary || [])
+      .filter((a) => a.kind === 'image' || a.kind === 'video')
+      .sort((a, b) => stamp(b) - stamp(a));
+  }, [mediaLibrary]);
   // Slide Setup's Recent strip: the backgrounds the operator actually applied
   // (recentMedia.js), not the five newest uploads it used to print. Declared
   // AFTER mediaAssets on purpose — reading it from a `const` in its temporal
@@ -518,6 +526,11 @@ export default function SongEditorModal() {
   // scope is armed BEFORE the pick now, and every route below — colour,
   // motion, recent, gallery, upload, clear — reads and writes that one layer.
   const [bgScope, setBgScope] = useState('slide');
+  // Font hover preview: the face under the pointer paints the CENTER CANVAS
+  // (LyricsCanvasEditor) without being written to the cue, so nothing is saved,
+  // no history entry is made, and the dirty flag stays clean. null = no hover,
+  // '' = the default face (FontPicker reports the raw choice value).
+  const [previewFont, setPreviewFont] = useState(null);
   // A BLOCK is every slide in the section the editor has open ("Verse 1",
   // "Chorus 1"). It is the unit an operator actually repeats: one photo behind
   // the chorus — not the whole song, and not four chorus slides one click at a
@@ -1670,7 +1683,7 @@ export default function SongEditorModal() {
                 <div style={{ background: C.elevated, border: '1px solid var(--ui-border2)', borderRadius: 10, padding: 10 }}>
                   <div style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>Typography</div>
                   <label style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>Font Family</label>
-                  <FontPicker value={c?.font || FONT_OPTIONS[0].value} choices={fontChoices} onChange={(v) => patchText({ font: v })} C={C} />
+                  <FontPicker value={c?.font || FONT_OPTIONS[0].value} choices={fontChoices} onChange={(v) => patchText({ font: v })} C={C} onPreview={setPreviewFont} />
                   {/* FONT STYLE — Regular / Italic as named buttons, because the
                       slanted "I" icon further down is easy to miss and reading
                       "is this face italic?" off an icon is guesswork. Same field
@@ -2160,11 +2173,15 @@ export default function SongEditorModal() {
                 picture, scaled only, at any window size or output setting. */}
             <div style={{ flex: 1, minHeight: 0, padding: 12, overflow: 'hidden' }}>
               <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {/* Hover preview overrides lyricStyle, not just the prop:
+                  LyricsCanvasEditor merges `{ ...propSt, ...lyricStyle }` and
+                  lyricStyle carries the cue's own font, so a preview passed
+                  only as fontFamily was silently discarded. */}
               {editorCue ? (
                 <LyricsCanvasEditor
-                  lyricStyle={cueLyricStyle(c)}
+                  lyricStyle={previewFont == null ? cueLyricStyle(c) : { ...cueLyricStyle(c), font: previewFont || FONT_OPTIONS[0].value }}
                   text={c.text || ''}
-                  fontFamily={c.font || FONT_OPTIONS[0].value}
+                  fontFamily={previewFont == null ? (c.font || FONT_OPTIONS[0].value) : (previewFont || FONT_OPTIONS[0].value)}
                   fontSize={Number(c.size) || DEFAULT_LYRIC_SIZE}
                   fontColor={c.color || '#f5f5f4'}
                   textAlign={c.align || 'center'}
@@ -2850,9 +2867,8 @@ export default function SongEditorModal() {
                               title={`${mediaName(a.url, mediaLibrary)} → ${slideScope ? 'this slide' : 'all slides'}`}
                               style={{ flex: 1, aspectRatio: '16 / 9', borderRadius: 6, overflow: 'hidden', cursor: 'pointer', padding: 0, background: '#000', border: '1px solid var(--ui-border2)', position: 'relative' }}
                             >
-                              {a.kind === 'video'
-                                ? <video src={a.url} muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-                                : <img src={thumbUrl(a.url, 'image')} alt="" loading="lazy" decoding="async" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />}
+                              {/* Still only — a recent tile is never a decoder. */}
+                              <MediaPoster asset={a} />
                             </button>
                           ))}
                           {recentBgs.length === 0 && (
@@ -3021,7 +3037,7 @@ export default function SongEditorModal() {
               })}
             </div>
 
-            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: 14 }}>
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 14 }}>
               {mediaAssets.length === 0 ? (
                 <div style={{ padding: 24, textAlign: 'center', fontSize: 11, color: C.faint, border: '1px dashed var(--ui-border2)', borderRadius: 10 }}>
                   No images or videos in the library yet — upload one above.
@@ -3032,8 +3048,14 @@ export default function SongEditorModal() {
                   return <div style={{ padding: 24, textAlign: 'center', fontSize: 11, color: C.faint, border: '1px dashed var(--ui-border2)', borderRadius: 10 }}>Nothing tagged {galleryCat} in the library.</div>;
                 }
                 return (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8 }}>
-                    {shown.map((a) => {
+                  <VirtualMediaGrid
+                    items={shown}
+                    minColWidth={130}
+                    gap={8}
+                    rowHeight={104}
+                    overscanRows={2}
+                    style={{ flex: 1 }}
+                    renderItem={(a) => {
                       const armed = bgScope === 'song' ? editingSong : editorCue;
                       const on = (armed.bg_type === a.kind) && armed.bg_value === a.url;
                       return (
@@ -3041,19 +3063,17 @@ export default function SongEditorModal() {
                           key={a.url}
                           onClick={() => { applyBg(a.kind, a.url); setGalleryOpen(false); }}
                           title={mediaName(a.url, mediaLibrary)}
-                          style={{ position: 'relative', aspectRatio: '16 / 9', borderRadius: 8, overflow: 'hidden', cursor: 'pointer', padding: 0, background: '#000', border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), boxShadow: on ? `0 0 0 2px ${ACCENT}55` : 'none' }}
+                          style={{ position: 'relative', height: '100%', borderRadius: 8, overflow: 'hidden', cursor: 'pointer', padding: 0, background: '#000', border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), boxShadow: on ? `0 0 0 2px ${ACCENT}55` : 'none' }}
                         >
-                          {a.kind === 'video'
-                            ? <video src={a.url} muted playsInline preload="metadata" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-                            : <img src={a.url} alt="" loading="lazy" decoding="async" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />}
+                          <MediaPoster asset={a} />
                           <span style={{ position: 'absolute', top: 4, left: 4, width: 15, height: 15, borderRadius: 4, background: 'rgba(0,0,0,0.62)', border: '1px solid rgba(255,255,255,0.22)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
                             {a.kind === 'video' ? <Play size={8} strokeWidth={3} /> : <ImageIcon size={8} strokeWidth={2.5} />}
                           </span>
                           {on && <span style={{ position: 'absolute', top: 4, right: 4, zIndex: 3, width: 15, height: 15, borderRadius: 999, background: ACCENT, color: '#0D1014', fontSize: 9, fontWeight: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✓</span>}
                         </button>
                       );
-                    })}
-                  </div>
+                    }}
+                  />
                 );
               })()}
             </div>

@@ -8,6 +8,7 @@ import {
   orderToFlow, summarizeFlow, splitCuesToLineChunks,
   abbrevSection, songSectionRuns, sequenceToFlow,
 } from '../lib/arrangement';
+import { sectionKey } from '../lib/medley';
 
 // Song Arrangement modal — the SERVICE ROW's play order for one song.
 //
@@ -76,9 +77,11 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
   const initFlow = (arr, song) => {
     const runs = songSectionRuns(song);
     if (!runs.length) return [];
-    const samePart = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    // The SAME section identity playback uses: "Verse 1" must find the run
+    // labelled "Verse 1a", or a stored block would silently lose its slides.
+    const samePart = sectionKey;
     const pick = (part, occurrence) => {
-      const list = runs.filter((r) => samePart(r.part, part));
+      const list = runs.filter((r) => samePart(r.part) === samePart(part));
       if (!list.length) return null;
       const n = Number.isInteger(occurrence) && occurrence > 0 ? occurrence : 1;
       return list[Math.min(n - 1, list.length - 1)];
@@ -145,7 +148,7 @@ export default function ArrangementModal({ songId, title, existing, onSave, onCl
 
   const runs = songSectionRuns(details);
   const runOf = (entry) => {
-    const list = runs.filter((r) => String(r.part || '').trim().toLowerCase() === String(entry?.part || '').trim().toLowerCase());
+    const list = runs.filter((r) => sectionKey(r.part) === sectionKey(entry?.part));
     if (!list.length) return null;
     const n = Number.isInteger(entry?.occurrence) && entry.occurrence > 0 ? entry.occurrence : 1;
     return list[Math.min(n - 1, list.length - 1)];

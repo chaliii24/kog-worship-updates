@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Film, Plus, Search, Upload, LayoutGrid, List as ListIcon } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Plus, Search, Upload, LayoutGrid, List as ListIcon } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { LazyVideo } from '../lib/lazyVideo';
+import { VirtualMediaGrid, VirtualMediaList, MediaPoster } from '../lib/virtualMediaGrid';
+import { pickAndImportMedia } from '../lib/mediaImport';
 
 // Video-domain shared bits: the system left sidebar (library browser) and
 // the Videos center workspace (player + Up Next) both run off the playlist
@@ -44,26 +45,19 @@ export function extOf(url) {
 }
 
 // ---- Static previews --------------------------------------------------------
-// The video element itself, muted with metadata preloaded: Chromium paints
-// the first frame without ever playing, so every row shows a real static
-// preview of its file. Same pattern MediaBrowser's thumbs use. Deliberately
-// NOT a canvas grab — drawing a media:// frame to canvas taints it and
-// toDataURL throws, which is why rows used to fall back to the film icon.
-// Anything unloadable still falls back to the icon; a thumb never breaks.
-// Mounting is lazy and globally budgeted (lib/lazyVideo.jsx) — a list of
-// clips must never open every file at once.
-export function VideoThumb({ url, h = 64, rounded = 7 }) {
-  const box = { width: '100%', height: h, borderRadius: rounded, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#52525b' };
+// A row preview is a STILL, not a video element. The main process extracts one
+// frame per clip into the thumbs folder during background indexing and caches
+// it in SQLite, so a 300-clip library mounts 300 small <img> tags instead of 300
+// media pipelines. Until a clip's still exists the tile borrows ONE element from
+// the app-wide video budget (lib/videoSlots.js) and swaps to the image the
+// moment the pipeline reports it — never blank, and never a decoder per card.
+export function VideoThumb({ url, asset, h = 64, rounded = 7 }) {
   return (
-    <LazyVideo
-      src={url}
-      muted
-      playsInline
-      preload="metadata"
-      rootMargin="300px"
-      style={box}
-      videoStyle={{ borderRadius: rounded, pointerEvents: 'none' }}
-      fallback={<Film size={Math.max(14, Math.min(26, h * 0.4))} />}
+    <MediaPoster
+      asset={asset || { url, kind: 'video' }}
+      rounded={rounded}
+      style={{ height: h }}
+      imgStyle={{ borderRadius: rounded }}
     />
   );
 }
@@ -74,8 +68,10 @@ export function VideoThumb({ url, h = 64, rounded = 7 }) {
 // live); + Queue appends to Up Next. The player resets its own clocks when
 // the cued url changes, so this side never reaches into transport state.
 export default function VideoLibrarySidebar() {
-  const { C, ACCENT, mediaLibrary, persistMediaFile, displays, videoList: list, setVideoList: setList, videoIdx: idx, setVideoIdx: setIdx } = useApp();
-  const fileRef = useRef(null);
+  const {
+    C, mediaLibrary, persistMediaFile, fetchMediaLibrary, displays,
+    videoList: list, setVideoList: setList, videoIdx: idx, setVideoIdx: setIdx,
+  } = useApp();
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [sort, setSort] = useState('recent');
@@ -107,11 +103,6 @@ export default function VideoLibrarySidebar() {
     return rows;
   }, [mediaLibrary, query, typeFilter, sort]);
 
-  const cueAt = (i) => {
-    if (i < 0 || i >= list.length) return;
-    setIdx(i);
-  };
-
   const queue = (a) => {
     if (!a || !a.url) return;
     const at = list.findIndex((v) => v.url === a.url);
@@ -128,6 +119,15 @@ export default function VideoLibrarySidebar() {
     setList((prev) => [...prev, { url: a.url, name: libName(a) }]);
   };
 
+  const appendFresh = (fresh) => {
+    if (!fresh.length) return;
+    setList((prev) => {
+      const have = new Set(prev.map((v) => v.url));
+      return [...prev, ...fresh.filter((v) => !have.has(v.url))];
+    });
+  };
+
+  // Drag & drop / legacy File path — unchanged.
   const addFiles = async (files) => {
     const vids = [...(files || [])].filter((f) => f && /\.(mp4|webm|mov)$/i.test(f.name || ''));
     if (!vids.length || busy) return;
@@ -140,12 +140,22 @@ export default function VideoLibrarySidebar() {
           if (url) fresh.push({ url, name: String(f.name || 'video').replace(/\.[^.]+$/, '') });
         } catch {}
       }
-      if (fresh.length) {
-        setList((prev) => {
-          const have = new Set(prev.map((v) => v.url));
-          return [...prev, ...fresh.filter((v) => !have.has(v.url))];
-        });
-      }
+      appendFresh(fresh);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Native picker path: the OS dialog returns real paths, main copies and
+  // registers them in SQLite, and the whole library — not just this queue —
+  // picks up the new clips.
+  const addNative = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const assets = await pickAndImportMedia({ kind: 'video' });
+      appendFresh(assets.map((a) => ({ url: a.url, name: String(a.name || 'video').replace(/\.[^.]+$/, '') })));
+      if (assets.length) { try { await fetchMediaLibrary(); } catch {} }
     } finally {
       setBusy(false);
     }
@@ -162,10 +172,9 @@ export default function VideoLibrarySidebar() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, textTransform: 'uppercase', letterSpacing: 1.5 }}>Library{libVids.length ? ` · ${libVids.length}` : ''}</span>
           <span style={{ flex: 1 }} />
-          <label title="Add videos (MP4 / WebM / MOV)" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, padding: 6, cursor: 'pointer', display: 'flex' }}>
+          <button type="button" onClick={addNative} title="Add videos from this computer (MP4 / WebM / MOV)" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, padding: 6, cursor: 'pointer', display: 'flex' }}>
             <Upload size={13} />
-            <input ref={fileRef} type="file" accept={ACCEPT} multiple style={{ display: 'none' }} onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
-          </label>
+          </button>
           <button onClick={() => setView((x) => (x === 'grid' ? 'list' : 'grid'))} title={view === 'grid' ? 'Compact list view' : 'Thumbnail grid view'} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.muted, borderRadius: 8, padding: 6, cursor: 'pointer', display: 'flex' }}>{view === 'grid' ? <ListIcon size={13} /> : <LayoutGrid size={13} />}</button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.input, border: '1px solid var(--ui-border2)', borderRadius: 8, padding: '5px 9px', marginTop: 8 }}>
@@ -186,53 +195,61 @@ export default function VideoLibrarySidebar() {
         {dragOver && <div style={{ fontSize: 11, fontWeight: 800, color: '#FFC72C', marginTop: 6, textAlign: 'center' }}>Drop to add to the library</div>}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 10 }}>
-        {libVids.length === 0 ? (
-          <div style={{ fontSize: 12, color: C.faint, textAlign: 'center', padding: 18, lineHeight: 1.7 }}>
-            {query || typeFilter !== 'all' ? 'Nothing matches — clear the search or filter.' : 'No videos yet — drop files here or use Add above.'}
-          </div>
-        ) : view === 'grid' ? (
-          <div className="grid grid-cols-2 gap-2">
-            {libVids.map((a) => {
-              const queued = list.some((v) => v.url === a.url);
-              const isLive = liveUrl === a.url;
-              const isCued = cur && cur.url === a.url;
-              return (
-                <div key={a.url} style={{ background: C.elevated2, border: '1px solid ' + (isLive ? 'rgba(255,69,69,0.6)' : isCued ? 'rgba(54,201,130,0.45)' : 'var(--ui-border2)'), borderRadius: 9, overflow: 'hidden' }}>
-                  <button onClick={() => queue(a)} title={`Cue ${libName(a)}`} style={{ display: 'block', width: '100%', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}>
-                    <VideoThumb url={a.url} h={72} rounded={0} />
-                  </button>
-                  <div style={{ padding: '6px 8px' }}>
-                    <div title={libName(a)} style={{ fontSize: 11, fontWeight: 700, color: isLive ? '#FF4545' : isCued ? '#36C982' : C.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{libName(a)}</div>
-                    <div style={{ display: 'flex', gap: 4, marginTop: 5 }}>
-                      <button onClick={() => queue(a)} style={{ flex: 1, background: 'transparent', border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 6, padding: '3px 0', fontSize: 10.5, fontWeight: 800, cursor: 'pointer' }}>Cue</button>
-                      <button onClick={() => queueOnly(a)} title="Add to Up Next without cueing" style={{ flex: 1, background: queued ? 'rgba(255,184,0,0.16)' : 'transparent', border: '1px solid ' + (queued ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), color: queued ? '#FFC72C' : C.muted, borderRadius: 6, padding: '3px 0', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}><Plus size={10} /> Queue</button>
-                    </div>
+      {libVids.length === 0 ? (
+        <div style={{ fontSize: 12, color: C.faint, textAlign: 'center', padding: 18, lineHeight: 1.7 }}>
+          {query || typeFilter !== 'all' ? 'Nothing matches — clear the search or filter.' : 'No videos yet — drop files here or use Add above.'}
+        </div>
+      ) : view === 'grid' ? (
+        <VirtualMediaGrid
+          items={libVids}
+          minColWidth={128}
+          gap={8}
+          rowHeight={158}
+          overscanRows={2}
+          style={{ flex: 1, minHeight: 0, padding: 10 }}
+          renderItem={(a) => {
+            const queued = list.some((v) => v.url === a.url);
+            const isLive = liveUrl === a.url;
+            const isCued = cur && cur.url === a.url;
+            return (
+              <div key={a.url} style={{ background: C.elevated2, border: '1px solid ' + (isLive ? 'rgba(255,69,69,0.6)' : isCued ? 'rgba(54,201,130,0.45)' : 'var(--ui-border2)'), borderRadius: 9, overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <button onClick={() => queue(a)} title={`Cue ${libName(a)}`} style={{ display: 'block', width: '100%', height: 76, flexShrink: 0, background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}>
+                  <VideoThumb url={a.url} asset={a} h={76} rounded={0} />
+                </button>
+                <div style={{ padding: '5px 7px 6px 7px', minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <div title={libName(a)} style={{ fontSize: 10.5, fontWeight: 700, color: isLive ? '#FF4545' : isCued ? '#36C982' : C.text2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{libName(a)}</div>
+                  <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                    <button onClick={() => queue(a)} style={{ flex: 1, background: 'transparent', border: '1px solid var(--ui-border2)', color: C.text2, borderRadius: 6, padding: '3px 0', fontSize: 10, fontWeight: 800, cursor: 'pointer' }}>Cue</button>
+                    <button onClick={() => queueOnly(a)} title="Add to Up Next without cueing" style={{ flex: 1, background: queued ? 'rgba(255,184,0,0.16)' : 'transparent', border: '1px solid ' + (queued ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), color: queued ? '#FFC72C' : C.muted, borderRadius: 6, padding: '3px 0', fontSize: 10, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}><Plus size={9} /> Queue</button>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {libVids.map((a) => {
-              const queued = list.some((v) => v.url === a.url);
-              const isLive = liveUrl === a.url;
-              const isCued = cur && cur.url === a.url;
-              return (
-                <div key={a.url} style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.elevated2, border: '1px solid ' + (isLive ? 'rgba(255,69,69,0.6)' : isCued ? 'rgba(54,201,130,0.45)' : 'var(--ui-border2)'), borderRadius: 9, padding: '6px 8px 6px 6px', minWidth: 0 }}>
-                  <button onClick={() => queue(a)} title={`Cue ${libName(a)}`} style={{ width: 72, flexShrink: 0, background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}>
-                    <VideoThumb url={a.url} h={42} />
-                  </button>
-                  <button onClick={() => queue(a)} title={`Cue ${libName(a)}`} style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', color: isLive ? '#FF4545' : isCued ? '#36C982' : C.text2, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{libName(a)}</button>
-                  <button onClick={() => queueOnly(a)} title="Add to Up Next without cueing" style={{ background: queued ? 'rgba(255,184,0,0.16)' : 'transparent', border: '1px solid ' + (queued ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), color: queued ? '#FFC72C' : C.muted, borderRadius: 6, padding: '4px 7px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}><Plus size={10} /></button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+              </div>
+            );
+          }}
+        />
+      ) : (
+        <VirtualMediaList
+          items={libVids}
+          rowHeight={52}
+          gap={6}
+          overscan={8}
+          style={{ flex: 1, minHeight: 0, padding: 10 }}
+          renderItem={(a) => {
+            const queued = list.some((v) => v.url === a.url);
+            const isLive = liveUrl === a.url;
+            const isCued = cur && cur.url === a.url;
+            return (
+              <div key={a.url} style={{ display: 'flex', alignItems: 'center', gap: 8, background: C.elevated2, border: '1px solid ' + (isLive ? 'rgba(255,69,69,0.6)' : isCued ? 'rgba(54,201,130,0.45)' : 'var(--ui-border2)'), borderRadius: 9, padding: '5px 8px 5px 5px', minWidth: 0, height: '100%', boxSizing: 'border-box' }}>
+                <button onClick={() => queue(a)} title={`Cue ${libName(a)}`} style={{ width: 68, height: 40, flexShrink: 0, background: 'transparent', border: 'none', padding: 0, cursor: 'pointer' }}>
+                  <VideoThumb url={a.url} asset={a} h={40} />
+                </button>
+                <button onClick={() => queue(a)} title={`Cue ${libName(a)}`} style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', color: isLive ? '#FF4545' : isCued ? '#36C982' : C.text2, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{libName(a)}</button>
+                <button onClick={() => queueOnly(a)} title="Add to Up Next without cueing" style={{ background: queued ? 'rgba(255,184,0,0.16)' : 'transparent', border: '1px solid ' + (queued ? 'rgba(255,184,0,0.5)' : 'var(--ui-border2)'), color: queued ? '#FFC72C' : C.muted, borderRadius: 6, padding: '4px 7px', fontSize: 10.5, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}><Plus size={10} /></button>
+              </div>
+            );
+          }}
+        />
+      )}
     </div>
   );
 }
-

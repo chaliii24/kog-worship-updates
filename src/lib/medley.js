@@ -24,6 +24,20 @@ export const medleyTitleId = (songId) => `medley-title-${songId}`;
 export const basePartLabel = (label) =>
   String(label || '').replace(/\s*\(Part\s+\d+\)\s*$/i, '').trim();
 
+// THE one section identity in the app. It folds the "(Part N)" chunk suffix
+// (basePartLabel) AND the trailing letter the editor's own grouping already
+// treats as part of the same section ("Verse 1a" ≡ "Verse 1"), then lowercases.
+//
+// Playback, the arrangement editor and the medley part filters must all match
+// on this key. They used to fold different things: a song labelled "Verse 1a"
+// played correctly but vanished from sequenceToFlow, and a stored block saying
+// "Verse 1" silently disappeared once the operator renamed the slide "Verse 1a".
+export const sectionKey = (label) =>
+  basePartLabel(label)
+    .replace(/(?<=[\s0-9])[A-Za-z]$/, '')
+    .trim()
+    .toLowerCase();
+
 // Parse + validate a medley definition from a service item. Returns null for
 // anything that is not a usable medley (bad JSON, no anchor, no links).
 export function parseMedleyDef(item) {
@@ -77,9 +91,10 @@ export function songSections(song) {
 // otherwise the cue's BASE label must equal one of the parts (case-insensitive).
 function cueIncluded(cue, includedParts) {
   if (!cue) return false;
-  if (includedParts.includes('ALL')) return true;
-  const base = basePartLabel(cue.label).toLowerCase();
-  return includedParts.some((p) => String(p).toLowerCase() === base);
+  const parts = Array.isArray(includedParts) ? includedParts : ['ALL'];
+  if (parts.some((p) => String(p || '').trim().toUpperCase() === 'ALL')) return true;
+  const key = sectionKey(cue.label);
+  return parts.some((p) => sectionKey(p) === key);
 }
 
 function titleSlide(songId, song) {
@@ -89,6 +104,21 @@ function titleSlide(songId, song) {
     text: song?.title || '',
   };
   return { kind: 'title', songId, cue: { ...titleCue, id: medleyTitleId(songId) } };
+}
+
+// Where the live slide sits in a flattened flow. `sessionIndex` is
+// AUTHORITATIVE for repeated slides: one cue id can appear more than once in a
+// flow (an arranged repeat, the same section linked twice), and a bare
+// findIndex would send Next back to the FIRST occurrence — the flow appeared
+// to jump backwards and then loop. The index is trusted only while the slide
+// it points at is still the live one; otherwise identity wins (the operator
+// jumped elsewhere and the session is over).
+export function medleyIndexOf(slides, cueId, sessionIndex) {
+  const list = Array.isArray(slides) ? slides : [];
+  if (cueId == null) return -1;
+  const isLive = (s) => !!s && (s.cue ? s.cue.id : medleyTitleId(s.songId)) === cueId;
+  if (Number.isInteger(sessionIndex) && list[sessionIndex] && isLive(list[sessionIndex])) return sessionIndex;
+  return list.findIndex(isLive);
 }
 
 // Flatten a medley into ONE array of slides, in performance order:
@@ -107,7 +137,7 @@ function titleSlide(songId, song) {
 // all hit): service rows round-trip through a TEXT column, so exact-key
 // matching silently dropped whole songs from the flow.
 export function flattenMedley(def, songsById, ordersBySong) {
-  if (!def) return [];
+  if (!def || !def.anchor) return [];
   const get = (id) => {
     if (songsById == null || id == null) return null;
     if (songsById instanceof Map) {
@@ -123,9 +153,13 @@ export function flattenMedley(def, songsById, ordersBySong) {
     return Array.isArray(o) && o.length ? o : null;
   };
   const slides = [];
-  const pushSong = (songId, includedParts, skipTitle, partOrder) => {
+  const pushSong = (songId, includedPartsRaw, skipTitle, partOrderRaw) => {
     const song = get(songId);
     if (!song) return;
+    // Defensive: a def built by hand (or stored before includedParts existed)
+    // must behave as ALL rather than crash the whole flow on .includes().
+    const includedParts = Array.isArray(includedPartsRaw) && includedPartsRaw.length ? includedPartsRaw : ['ALL'];
+    const partOrder = Array.isArray(partOrderRaw) && partOrderRaw.length ? partOrderRaw : includedParts;
     let cues = (song.cues || []).filter((c) => cueIncluded(c, includedParts));
     const ord = orderOf(songId);
     if (ord) {
@@ -134,14 +168,16 @@ export function flattenMedley(def, songsById, ordersBySong) {
       // deliberately omitted slides must not be appended back here.
       const byId = new Map(cues.map((c) => [c.id, c]));
       cues = ord.map((id) => byId.get(id)).filter(Boolean);
-    } else if (Array.isArray(partOrder) && partOrder.length && !includedParts.includes('ALL')) {
+    } else if (!includedParts.some((p) => String(p || '').trim().toUpperCase() === 'ALL')) {
       // Link part order: picked parts play in tick sequence, song order
       // inside each part. Renamed-since-linking slides still play (appended).
-      const want = partOrder.map((p) => String(p).toLowerCase());
+      // Keys go through sectionKey so a part ticked "Verse 1" still catches
+      // slides labelled "Verse 1a".
+      const want = partOrder.map((p) => sectionKey(p));
       const grouped = [];
       for (const p of want) {
         for (const c of cues) {
-          if (basePartLabel(c.label).toLowerCase() === p && !grouped.includes(c)) grouped.push(c);
+          if (sectionKey(c.label) === p && !grouped.includes(c)) grouped.push(c);
         }
       }
       for (const c of cues) if (!grouped.includes(c)) grouped.push(c);
@@ -151,7 +187,11 @@ export function flattenMedley(def, songsById, ordersBySong) {
     else if (cues.length === 0) return; // nothing to show, drop the song
     for (const cue of cues) slides.push({ kind: 'cue', songId, cue });
   };
-  pushSong(def.anchor.songId, def.anchor.includedParts, false, def.anchor.includedParts);
-  for (const link of def.links) pushSong(link.songId, link.includedParts, link.skipTitleSlide, link.includedParts);
+  const anchorParts = Array.isArray(def.anchor.includedParts) && def.anchor.includedParts.length ? def.anchor.includedParts : ['ALL'];
+  pushSong(def.anchor.songId, anchorParts, false, anchorParts);
+  for (const link of Array.isArray(def.links) ? def.links : []) {
+    if (!link || link.songId == null) continue;
+    pushSong(link.songId, link.includedParts, link.skipTitleSlide, link.includedParts);
+  }
   return slides;
 }

@@ -74,7 +74,7 @@ function distDir() {
   return path.resolve(here, '..', 'dist');
 }
 
-export function createLanServer({ getDistDir = distDir, userDataDir, dev = false, mediaDir = null, builtinMedia = [] } = {}) {
+export function createLanServer({ getDistDir = distDir, userDataDir, dev = false, mediaDir = null, builtinMedia = [], resolveMediaUrl = null } = {}) {
   const pairPath = userDataDir ? path.join(userDataDir, PAIR_FILE_NAME) : null;
   const netPath = userDataDir ? path.join(userDataDir, NET_FILE_NAME) : null;
 
@@ -414,6 +414,18 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
         if (!folder || !file || !BIBLE_MEDIA_EXT.includes(ext)) { notFound(res); return; }
         const abs = path.resolve(folder, file);
         if (path.dirname(abs) !== path.resolve(folder)) { notFound(res); return; }
+        fs.stat(abs, (err, st) => {
+          if (err || !st.isFile()) { notFound(res); return; }
+          sendMediaFile(req, res, abs, st, false);
+        });
+        return;
+      }
+      // Library entries that reference the operator's own file (external
+      // sources). `lib/<hash>.<ext>` is resolved by main through SQLite, so a
+      // crafted URL can never reach an arbitrary path.
+      if (name.startsWith('lib/')) {
+        const abs = resolveMediaUrl ? resolveMediaUrl(`media://kog-media/${name}`) : null;
+        if (!abs) { notFound(res); return; }
         fs.stat(abs, (err, st) => {
           if (err || !st.isFile()) { notFound(res); return; }
           sendMediaFile(req, res, abs, st, false);

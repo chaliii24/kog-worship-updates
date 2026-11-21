@@ -23,5 +23,10 @@ export const thumbUrl = (url, kind) => {
   if (cut < 0) return url;
   const name = url.slice(cut + 1);
   if (!IMAGE_EXT.test(name.split('?')[0])) return url;
+  // External-source library entry (media://kog-media/lib/<hash>.<ext>): its
+  // still is keyed by the hash, in the shared thumbs folder.
+  if (url.slice(0, cut).endsWith('/lib')) {
+    return `media://kog-media/thumbs/${name.replace(/\.[^.]+$/, '').split('?')[0]}.jpg`;
+  }
   return `${url.slice(0, cut)}/thumbs/${name}`;
 };

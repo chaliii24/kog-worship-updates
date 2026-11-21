@@ -6,14 +6,15 @@
 // and two rows can play the same song differently. Repeats are the point —
 // the same run may appear several times. Pure functions only.
 
-import { basePartLabel } from './medley.js';
+import { basePartLabel, sectionKey } from './medley.js';
 
 // Library order: every cue once, top to bottom.
 export function defaultArrangement(song) {
   return (song?.cues || []).map((c) => c.id).filter((id) => id != null);
 }
 
-const normPart = (part) => String(part || '').trim().toLowerCase();
+// Section identity, shared with playback and the medley filters (medley.js).
+const normPart = sectionKey;
 const occurrenceOf = (entry) => (Number.isInteger(entry?.occurrence) && entry.occurrence > 0 ? entry.occurrence : 1);
 
 // A song can contain the SAME section more than once (Chorus before and
@@ -29,18 +30,19 @@ export function songSectionRuns(song) {
   const runs = [];
   for (const cue of song?.cues || []) {
     const part = basePartLabel(cue?.label) || 'Slide';
+    // Group on the SHARED key, not the display label: "Verse 1a" and a later
+    // "Verse 1b" are runs of one section (run 1 and run 2), exactly what the
+    // sequence resolver and the editor's section groups already assume.
+    const k = normPart(part);
     const last = runs[runs.length - 1];
-    if (last && normPart(last.part) === normPart(part)) last.cues.push(cue);
-    else runs.push({ part, cues: [cue] });
+    if (last && last.k === k) last.cues.push(cue);
+    else runs.push({ part, k, cues: [cue] });
   }
   const totals = new Map();
-  for (const run of runs) {
-    const k = normPart(run.part);
-    totals.set(k, (totals.get(k) || 0) + 1);
-  }
+  for (const run of runs) totals.set(run.k, (totals.get(run.k) || 0) + 1);
   const seen = new Map();
   for (const run of runs) {
-    const k = normPart(run.part);
+    const k = run.k;
     const n = (seen.get(k) || 0) + 1;
     seen.set(k, n);
     run.occurrence = n;
@@ -70,11 +72,7 @@ export function normalizeArrangement(order, song) {
 // real verse runs instead of expanding every verse twice. A label that no
 // longer exists is skipped, never fatal. No sequence → [] so callers fall back
 // to the song's own cue order.
-const normSection = (label) => String(label == null ? '' : label)
-  .replace(/\s*\(Part\s+\d+\)\s*$/i, '')
-  .replace(/(?<=[\s0-9])[A-Za-z]$/, '')
-  .trim()
-  .toLowerCase();
+const normSection = sectionKey;
 
 export function songSequenceCues(song) {
   const raw = Array.isArray(song?.arrangement) ? song.arrangement : [];
@@ -87,13 +85,13 @@ export function songSequenceCues(song) {
     // before the first verse must not come back sorted by the library.
     const byRun = new Map();
     for (const run of songSectionRuns(song)) {
-      const k = normPart(run.part);
+      const k = normSection(run.part);
       if (!byRun.has(k)) byRun.set(k, []);
       byRun.get(k).push(run);
     }
     const ordered = [];
     for (const e of raw) {
-      const list = byRun.get(normPart(e?.part));
+      const list = byRun.get(normSection(e?.part));
       if (!list || !list.length) continue;
       const idx = Math.max(0, Math.min(occurrenceOf(e) - 1, list.length - 1));
       ordered.push(...list[idx].cues);
@@ -148,7 +146,7 @@ export function sequenceToFlow(song) {
     const runs = songSectionRuns(song);
     const byPart = new Map();
     for (const run of runs) {
-      const k = normPart(run.part);
+      const k = normSection(run.part);
       if (!byPart.has(k)) byPart.set(k, []);
       byPart.get(k).push(run);
     }
@@ -156,7 +154,7 @@ export function sequenceToFlow(song) {
     for (const e of raw) {
       const part = String(e?.part || '').trim();
       if (!part) continue;
-      const list = byPart.get(normPart(part));
+      const list = byPart.get(normSection(part));
       if (!list || !list.length) continue; // section gone from the song
       const run = list[Math.max(0, Math.min(occurrenceOf(e) - 1, list.length - 1))];
       out.push({ part: run.part, occurrence: run.occurrence });
@@ -168,7 +166,7 @@ export function sequenceToFlow(song) {
   if (!runs.length) return [];
   const byPart = new Map();
   for (const run of runs) {
-    const k = normPart(run.part);
+    const k = normSection(run.part);
     if (!byPart.has(k)) byPart.set(k, []);
     byPart.get(k).push(run);
   }
@@ -237,8 +235,8 @@ export function resolveArrangementFlow(song, arr) {
     const out = [];
     const counters = new Map();
     for (const e of arr.flow) {
-      const k = normPart(e?.part);
-      const list = runs.filter((r) => normPart(r.part) === k);
+      const k = normSection(e?.part);
+      const list = runs.filter((r) => normSection(r.part) === k);
       if (!list.length) continue;
       let idx;
       if (Number.isInteger(e?.occurrence) && e.occurrence > 0) {
@@ -258,14 +256,14 @@ export function resolveArrangementFlow(song, arr) {
     if (Array.isArray(arr.known) && arr.known.length) {
       const knownMax = new Map();
       for (const k of arr.known) {
-        const p = normPart(k?.part);
+        const p = normSection(k?.part);
         if (!p) continue;
         knownMax.set(p, Math.max(knownMax.get(p) || 0, Number(k?.occurrence) || 0));
       }
       const used = new Set(out);
       for (const run of runs) {
         if (run.cueIds.some((id) => used.has(id))) continue;
-        if (run.occurrence > (knownMax.get(normPart(run.part)) || 0)) out.push(...run.cueIds);
+        if (run.occurrence > (knownMax.get(normSection(run.part)) || 0)) out.push(...run.cueIds);
       }
     }
     return out.length ? out : ids;

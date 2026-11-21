@@ -7,6 +7,7 @@ import os from 'os';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { Readable } from 'stream';
+import { createHash } from 'crypto';
 import { GoogleGenAI } from '@google/genai';
 import PptxGenJS from 'pptxgenjs';
 import dotenv from 'dotenv';
@@ -37,6 +38,15 @@ import {
   getMediaLibrary,
   addMediaAsset,
   deleteMediaAsset,
+  getMediaLibraryPage,
+  countMediaAssets,
+  setMediaMeta,
+  getMediaAssetByUrl,
+  touchMediaAsset,
+  getMediaAssetBySourcePath,
+  getMediaSourceRows,
+  setMediaSourcePath,
+  setMediaMissing,
   getLibraryStats,
   exportLibrary,
   exportSongs,
@@ -122,6 +132,9 @@ const lan = createLanServer({
   // Phone miniatures: image backgrounds served over HTTP (media:// only
   // resolves inside Electron). Videos stay desktop-side — phones get a badge.
   mediaDir: path.join(app.getPath('userData'), 'media'),
+  // Library entries pointing outside the app: the phone mirror asks main to
+  // resolve a lib/ URL to the operator's real file (same allowlist as desktop).
+  resolveMediaUrl: (mediaUrl) => librarySourcePath(mediaUrl),
   builtinMedia: [
     // Countdown-private uploads (media://kog-media/cd/…): same auth +
     // traversal rules, own folder, still no listing endpoint.
@@ -217,32 +230,277 @@ const MEDIA_DIR = path.join(app.getPath('userData'), 'media');
 const THUMB_WIDTH = 480;
 const THUMB_DIR = path.join(MEDIA_DIR, 'thumbs');
 
-function thumbFor(fileName) {
-  const safe = path.basename(String(fileName || ''));
-  if (!safe) return null;
-  const ext = path.extname(safe).toLowerCase();
+// A derived still is 480px wide, so decoding a 300 MB master for one is pure
+// main-thread stall — and on a network share it stalls the whole console.
+// Oversized sources keep their original as the tile; a file that cannot be
+// decoded goes on a short cooldown instead of being retried on every visit.
+const THUMB_MAX_SOURCE_BYTES = 80 * 1024 * 1024;
+const THUMB_RETRY_MS = 60000;
+const thumbFailedAt = new Map();
+
+// ---------------------------------------------------------------------------
+// LIBRARY SOURCES LIVE OUTSIDE THE APP
+//
+// Importing used to copy every picture and clip into userData/media, so the
+// app's own folder grew with the library and a long-serving machine ended up
+// with hundreds of megabytes of duplicates it never needed. A library entry is
+// now a REFERENCE: the operator's original file stays where it is and only the
+// small thumbnails live in userData. New URLs carry a hash of the absolute
+// path (`media://kog-media/lib/<hash>.<ext>`), which is stable, collision-free
+// and reveals nothing; older `media://kog-media/<file>` URLs still resolve to
+// the copies previous versions made, so an existing library keeps working and
+// can be deleted/cleaned up by hand whenever the operator wants.
+const LIB_URL_PREFIX = 'media://kog-media/lib/';
+const libraryUrlKey = (absPath) => createHash('sha1').update(String(absPath).toLowerCase()).digest('hex').slice(0, 16);
+
+function libTail(url) {
+  const s = String(url || '');
+  if (!s.startsWith(LIB_URL_PREFIX)) return '';
+  try { return decodeURIComponent(s.slice(LIB_URL_PREFIX.length)); } catch { return ''; }
+}
+
+// The real file a library URL points at, wherever it lives now (external
+// original, or a legacy copy inside userData/media).
+function librarySourcePath(url) {
+  const s = String(url || '');
+  // SQLite is the authority whenever the row knows a path. This must run for
+  // LEGACY urls too: relinking an older entry (media://kog-media/<file>) stores
+  // the operator's new file in source_path, and only the /lib/ branch used to
+  // read it — so the tile and the wall kept resolving to the old, missing copy.
+  try {
+    const row = getMediaAssetByUrl(s);
+    const p = row && row.source_path ? String(row.source_path) : '';
+    if (p && fs.existsSync(p)) return p;
+  } catch { /* fall back to the app-owned copy below */ }
+  if (s.startsWith(LIB_URL_PREFIX)) return null;
+  const name = libraryFileName(s);
+  if (!name) return null;
+  const p = path.join(MEDIA_DIR, name);
+  if (path.dirname(p) !== MEDIA_DIR) return null;
+  return fs.existsSync(p) ? p : null;
+}
+
+// Where a library row's bytes should be: the registered external path, or the
+// legacy copy the pre-reference importer made inside MEDIA_DIR (those rows
+// have no source_path at all, and used to escape the source audit entirely).
+function rowSourcePath(row) {
+  const stored = row && row.source_path ? String(row.source_path) : '';
+  if (stored) return stored;
+  const name = libraryFileName(row && row.url);
+  return name ? path.join(MEDIA_DIR, name) : null;
+}
+
+// One thumb/poster name per asset, without the extension.
+function thumbKeyFor(url) {
+  const s = String(url || '');
+  if (s.startsWith(LIB_URL_PREFIX)) {
+    const tail = libTail(s);
+    return tail ? path.basename(tail, path.extname(tail)) : null;
+  }
+  const name = libraryFileName(s);
+  return name ? path.basename(name, path.extname(name)) : null;
+}
+
+const mediaThumbUrl = (name) => (name ? `media://kog-media/thumbs/${encodeURIComponent(name)}` : null);
+
+// Build the 480px grid still for an image library URL (cached by mtime).
+function thumbFor(url) {
+  const src = librarySourcePath(url);
+  if (!src) return null;
+  const ext = path.extname(src).toLowerCase();
   if (!MEDIA_IMAGE_EXT.includes(ext)) return null;
-  const src = path.join(MEDIA_DIR, safe);
-  if (path.dirname(src) !== MEDIA_DIR) return null;
+  const key = thumbKeyFor(url);
+  if (!key) return null;
   let srcStat;
   try { srcStat = fs.statSync(src); } catch { return null; }
-  if (!srcStat.isFile()) return null;
-  const out = path.join(THUMB_DIR, `${path.basename(safe, ext)}.jpg`);
+  if (!srcStat.isFile() || !srcStat.size) return null;
+  // Too large to decode for a grid tile: serve the original and let Chromium
+  // scale it rather than block the main process on a print master.
+  if (srcStat.size > THUMB_MAX_SOURCE_BYTES) return null;
+  const out = path.join(THUMB_DIR, `${key}.jpg`);
   try {
     const outStat = fs.statSync(out);
     if (outStat.size > 0 && outStat.mtimeMs >= srcStat.mtimeMs) return out;
   } catch { /* not built yet */ }
+  const failedAt = thumbFailedAt.get(url);
+  if (failedAt && Date.now() - failedAt < THUMB_RETRY_MS) return null;
   try {
     const img = nativeImage.createFromPath(src);
-    if (img.isEmpty()) return null;
+    if (img.isEmpty()) { thumbFailedAt.set(url, Date.now()); return null; }
     const width = img.getSize().width;
     const scaled = width > THUMB_WIDTH ? img.resize({ width: THUMB_WIDTH, quality: 'good' }) : img;
     fs.mkdirSync(THUMB_DIR, { recursive: true });
     fs.writeFileSync(out, scaled.toJPEG(78));
+    thumbFailedAt.delete(url);
     return out;
   } catch {
+    thumbFailedAt.set(url, Date.now());
     return null;
   }
+}
+
+// --- BACKGROUND VIDEO POSTER PIPELINE ----------------------------------------
+// A media tile must never be a <video>. Chromium opens a real media pipeline
+// per element, so 300 clips in a grid = 300 decoders + 300 decodes on the
+// renderer's main thread, which is the freeze this pipeline exists to remove.
+//
+// Instead, one hidden window (main process, off the renderer thread) opens a
+// clip, seeks ~1s in, draws the frame to a canvas and returns a small JPEG. The
+// file lands beside the image thumbs and its name is cached in SQLite
+// (media_assets.thumb), so every later tile is a plain <img>. Work is strictly
+// sequential and capped: a 300-clip library warms up in the background without
+// ever competing with the operator's clicks.
+const POSTER_WIDTH = 480;
+const POSTER_QUEUE_MAX = 600;
+
+let posterWin = null;
+let posterBusy = false;
+const posterQueue = [];
+const posterQueued = new Set();
+const posterFailed = new Set();
+
+// media://kog-media/<file> — library uploads only (never /cd/, /bf/, thumbs).
+function libraryFileName(url) {
+  const s = String(url || '');
+  const prefix = 'media://kog-media/';
+  if (!s.startsWith(prefix)) return null;
+  const rest = s.slice(prefix.length);
+  if (!rest || rest.includes('/') || rest.includes('?')) return null;
+  try { return decodeURIComponent(rest); } catch { return null; }
+}
+
+function posterFileFor(url) {
+  const key = thumbKeyFor(url);
+  if (!key) return null;
+  const tail = libTail(url) || libraryFileName(url) || '';
+  const ext = path.extname(tail).toLowerCase();
+  if (!MEDIA_VIDEO_EXT.includes(ext)) return null;
+  return path.join(THUMB_DIR, `${key}.jpg`);
+}
+
+async function ensurePosterWindow() {
+  if (posterWin && !posterWin.isDestroyed()) return posterWin;
+  posterWin = new BrowserWindow({
+    show: false,
+    width: 640,
+    height: 360,
+    webPreferences: {
+      backgroundThrottling: false,
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  posterWin.on('closed', () => { posterWin = null; });
+  await posterWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent('<!doctype html><title>kog-poster</title><body style="margin:0;background:#000"></body>'));
+  return posterWin;
+}
+
+// Probe + frame-grab in one pass: the same decode tells us the dimensions, the
+// duration and what the first second looks like.
+async function grabVideoPoster(url) {
+  const out = posterFileFor(url);
+  if (!out) return null;
+  const srcUrl = url;
+  const win = await ensurePosterWindow();
+  const script = `(() => new Promise((resolve) => {
+    const v = document.createElement('video');
+    v.crossOrigin = 'anonymous';
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = 'auto';
+    let settled = false;
+    const finish = (val) => { if (settled) return; settled = true; try { v.removeAttribute('src'); v.load(); } catch (e) {} resolve(val); };
+    const shot = () => {
+      try {
+        if (!v.videoWidth || !v.videoHeight) return finish(null);
+        const w = Math.min(${POSTER_WIDTH}, v.videoWidth);
+        const h = Math.max(1, Math.round((w * v.videoHeight) / v.videoWidth));
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(v, 0, 0, w, h);
+        finish({
+          data: c.toDataURL('image/jpeg', 0.75),
+          width: v.videoWidth,
+          height: v.videoHeight,
+          duration: isFinite(v.duration) ? v.duration : 0,
+        });
+      } catch (e) { finish(null); }
+    };
+    setTimeout(() => finish(null), 15000);
+    v.addEventListener('error', () => finish(null), { once: true });
+    v.addEventListener('loadeddata', () => {
+      try { v.currentTime = Math.min(1, (isFinite(v.duration) ? v.duration : 2) * 0.15); } catch (e) { shot(); }
+      setTimeout(() => { if (!settled && v.readyState >= 2) shot(); }, 3000);
+    }, { once: true });
+    v.addEventListener('seeked', shot, { once: true });
+    v.src = ${JSON.stringify(srcUrl)};
+  }))()`;
+  try {
+    const got = await win.webContents.executeJavaScript(script, true);
+    if (!got || typeof got.data !== 'string' || got.data.indexOf('base64,') < 0) return null;
+    const b64 = got.data.slice(got.data.indexOf('base64,') + 7);
+    if (!b64) return null;
+    fs.mkdirSync(THUMB_DIR, { recursive: true });
+    fs.writeFileSync(out, Buffer.from(b64, 'base64'));
+    return {
+      thumb: path.basename(out),
+      width: got.width || null,
+      height: got.height || null,
+      duration: got.duration || null,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// Tell every window a poster landed so mounted tiles swap to the still.
+function broadcastThumbReady(url, meta) {
+  if (!meta) return;
+  const payload = { url, thumb: mediaThumbUrl(meta.thumb), width: meta.width, height: meta.height, duration: meta.duration };
+  for (const w of BrowserWindow.getAllWindows()) {
+    try { if (w && !w.isDestroyed() && w.webContents) w.webContents.send('media-thumb-ready', payload); } catch {}
+  }
+}
+
+async function pumpPosters() {
+  if (posterBusy) return;
+  posterBusy = true;
+  try {
+    while (posterQueue.length) {
+      const url = posterQueue.shift();
+      try {
+        const meta = await grabVideoPoster(url);
+        if (meta) {
+          setMediaMeta(url, meta);
+          broadcastThumbReady(url, meta);
+        } else {
+          // Remember the miss so a codec Chromium cannot open is not retried on
+          // every library visit for the life of the session.
+          posterFailed.add(url);
+        }
+      } catch (e) {
+        posterFailed.add(url);
+      } finally {
+        posterQueued.delete(url);
+      }
+    }
+  } finally {
+    posterBusy = false;
+  }
+}
+
+/** Queue a background still for one library video (no-op when one exists). */
+function queueVideoPoster(url) {
+  if (!url || !thumbKeyFor(url)) return;
+  if (posterQueued.has(url) || posterFailed.has(url)) return;
+  const out = posterFileFor(url);
+  if (!out) return;
+  try { if (fs.statSync(out).size > 0) return; } catch { /* not built yet */ }
+  if (posterQueue.length >= POSTER_QUEUE_MAX) return;
+  posterQueued.add(url);
+  posterQueue.push(url);
+  pumpPosters();
 }
 
 // `corsEnabled` matters for thumbnails: a frozen tile captures its still by
@@ -394,15 +652,47 @@ function serveMediaProtocol() {
       if (url.pathname.startsWith('/thumbs/')) {
         const name = decodeURIComponent(url.pathname.slice('/thumbs/'.length).split('/').pop() || '');
         if (!name) return new Response(null, { status: 404 });
-        const thumb = thumbFor(name);
-        // Fall back to the original when a thumb cannot be built, so a tile
-        // degrades to "slow" instead of "blank".
-        return serveFileBody(thumb || path.join(MEDIA_DIR, path.basename(name)), request);
+        // 1) A still already on disk is served as-is. thumbFor() only trusts
+        //    IMAGE sources, so a cached video poster (<clip-base>.jpg, with no
+        //    same-named file in MEDIA_DIR) used to be rejected before it was
+        //    ever looked up: every clip tile 404'd while its JPEG sat in
+        //    thumbs/, and the renderer retried on each remount.
+        const cached = path.join(THUMB_DIR, path.basename(name));
+        if (path.dirname(cached) === THUMB_DIR && fs.existsSync(cached)) return serveFileBody(cached, request);
+        // 2) No still yet: build the image derivative on demand.
+        const thumb = thumbFor(`media://kog-media/${encodeURIComponent(name)}`);
+        if (thumb && fs.existsSync(thumb)) return serveFileBody(thumb, request);
+        // 3) Fall back to the original when a thumb cannot be built, so a tile
+        //    degrades to "slow" instead of "blank".
+        const original = path.join(MEDIA_DIR, path.basename(name));
+        if (fs.existsSync(original)) return serveFileBody(original, request);
+        // 4) Genuinely absent — a poster the pipeline has not written yet. The
+        //    tile keeps its budgeted fallback instead of a broken image.
+        return new Response(null, { status: 404 });
+      }
+      // Library entries that point at the operator's own file (external
+      // sources). The URL is a hash, never a path: it resolves through SQLite,
+      // so a URL cannot be turned into a read of an arbitrary file.
+      if (url.pathname.startsWith('/lib/')) {
+        const src = librarySourcePath(`media://kog-media${url.pathname}`);
+        if (!src) return new Response(null, { status: 404 });
+        return serveFileBody(src, request);
       }
       if (url.pathname.startsWith('/cd/')) {
         try { fs.mkdirSync(COUNTDOWN_DIR, { recursive: true }); } catch {}
         return serveFileProtocol(COUNTDOWN_DIR, request);
       }
+      // A bare library filename may have been RELINKED to a file outside
+      // userData (the old copy is gone). Resolve it through its row first; the
+      // folder fallback below only knows the app-owned copies.
+      try {
+        const bare = decodeURIComponent(url.pathname.slice(1));
+        if (bare && !bare.includes('/') && !bare.includes('\\') && bare !== '..') {
+          const asset = getMediaAssetByUrl(`media://kog-media/${encodeURIComponent(bare)}`);
+          const src = asset && asset.source_path ? String(asset.source_path) : '';
+          if (src && fs.existsSync(src)) return serveFileBody(src, request);
+        }
+      } catch { /* malformed escape: fall through to the folder */ }
       return serveFileProtocol(MEDIA_DIR, request);
     } catch (e) {
       return new Response(null, { status: 500 });
@@ -410,31 +700,178 @@ function serveMediaProtocol() {
   });
 }
 
-ipcMain.handle('add-media-file', async (event, sourcePath) => {
+// LIBRARY CAP — 50 pictures + 50 videos. Every tile costs a poster decode and
+// three panels (Media tab, background pickers, service media rows) index the
+// whole list, so an unbounded library is what made the console stutter.
+// Enforced here, at the one import path every surface funnels through, so the
+// native picker, drag & drop and the legacy <input> upload all obey it.
+// Audio is uncapped: it never renders a grid tile.
+const MEDIA_LIBRARY_LIMIT = 50;
+const MEDIA_LIMITED_KINDS = ['image', 'video'];
+const mediaSlotsLeft = (kind) => {
+  if (!MEDIA_LIMITED_KINDS.includes(kind)) return Infinity;
+  return Math.max(0, MEDIA_LIBRARY_LIMIT - countMediaAssets(kind));
+};
+
+const MEDIA_EXT_ALL = [...MEDIA_IMAGE_EXT, ...MEDIA_VIDEO_EXT, ...MEDIA_AUDIO_EXT];
+const HEIC_EXT = ['.heic', '.heif'];
+
+// Why a picked file cannot become a library entry — one answer shared by the
+// importer and the renderer's skip report, so "nothing happened" is never the
+// whole reply to a pick.
+function mediaImportProblem(sourcePath) {
   try {
-    if (!sourcePath || !fs.existsSync(sourcePath)) return null;
-    const ext = path.extname(sourcePath).toLowerCase();
+    if (!sourcePath) return 'No file was chosen.';
+    if (!fs.existsSync(sourcePath)) return 'That file is not on this computer.';
+    const st = fs.statSync(sourcePath);
+    if (!st.isFile()) return 'That is not a file.';
+    if (!st.size) return 'That file is empty.';
+    const ext = path.extname(String(sourcePath)).toLowerCase();
+    if (HEIC_EXT.includes(ext)) return 'iPhone photos (HEIC) cannot display here — save it as JPG, then add that.';
+    if (!MEDIA_EXT_ALL.includes(ext)) return 'That type of file cannot be shown on the wall.';
+    // The app's own folders hold copies and derivatives, never originals:
+    // registering one would make the library depend on its own cache.
+    const abs = path.resolve(String(sourcePath)).toLowerCase();
+    for (const [dir, what] of [[THUMB_DIR, 'thumbnail cache'], [COUNTDOWN_DIR, 'countdown media folder'], [MEDIA_DIR, 'media folder']]) {
+      if (!dir) continue;
+      const root = path.resolve(dir).toLowerCase();
+      if (abs === root || abs.startsWith(root + path.sep)) return `That file is inside the app's own ${what} — choose the original instead.`;
+    }
+    return null;
+  } catch {
+    return 'That file could not be read.';
+  }
+}
+
+// One import path for every entry point (native picker, drag & drop, the old
+// File-based upload). The file is NOT copied: its absolute path is registered
+// in SQLite and served from where it sits, so importing a video costs a few
+// bytes of database, not another copy of the video. Only the small grid
+// thumbnail is built (into userData/thumbs), by the background pipelines.
+function importMediaFromPath(sourcePath) {
+  try {
+    const problem = mediaImportProblem(sourcePath);
+    if (problem) return { ok: false, error: problem };
+    const abs = path.resolve(String(sourcePath));
+    const ext = path.extname(abs).toLowerCase();
     // One gate with the folder browser (mediaTypes.js): a picture the grid
     // shows must always be uploadable too — BMP used to list but not upload.
-    if (![...MEDIA_IMAGE_EXT, ...MEDIA_VIDEO_EXT, ...MEDIA_AUDIO_EXT].includes(ext)) return null;
-    fs.mkdirSync(MEDIA_DIR, { recursive: true });
-    // Keep the original filename readable: <timestamp>-<rand>-<original>.<ext>
-    // so libraries, queues and pickers can show the real track name. The
-    // timestamp+rand prefix still guarantees uniqueness on disk.
-    const origBase = path.basename(sourcePath, ext);
-    const safeBase = origBase.slice(0, 60).replace(/[^\w\-. ]+/g, '').trim() || 'file';
-    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeBase}${ext}`;
-    fs.copyFileSync(sourcePath, path.join(MEDIA_DIR, fileName));
-    const url = `media://kog-media/${encodeURIComponent(fileName)}`;
     const kind = MEDIA_IMAGE_EXT.includes(ext) ? 'image' : MEDIA_VIDEO_EXT.includes(ext) ? 'video' : 'audio';
-    addMediaAsset(url, kind, `${origBase}${ext}`);
+    // Same file picked twice: reuse its row instead of a duplicate tile.
+    // This happens BEFORE the cap check, so re-picking a file that is already
+    // in a full library still resolves to its asset instead of failing.
+    const url = `media://kog-media/lib/${libraryUrlKey(abs)}${ext}`;
+    const name = `${path.basename(abs, ext)}${ext}`;
+    // One file, one row: a file re-picked after a relink has a DIFFERENT url
+    // than the row that now points at it, so the path is the reliable key.
+    const existing = getMediaAssetBySourcePath(abs) || getMediaAssetByUrl(url);
+    // Register nothing once the library is full for that kind — and say why,
+    // so a pick that adds nothing is never silent.
+    if (!existing && mediaSlotsLeft(kind) <= 0) {
+      return { ok: false, error: `The library already holds ${MEDIA_LIBRARY_LIMIT} ${kind}s. Delete one in the Media tab first.` };
+    }
+    if (existing) {
+      // Re-picking heals the row: a restored backup (path from another
+      // machine), a relinked entry, or a legacy copy gains this machine's
+      // path and loses its "source missing" flag.
+      if (existing.source_path !== abs || existing.missing_at) {
+        try { setMediaSourcePath(existing.url, abs); } catch {}
+      }
+      // Every derivative is keyed off the ROW's URL, not the freshly computed
+      // one — after a relink the two differ, and building the still under the
+      // new key left the tile pointing at a thumbnail never written.
+      if (kind === 'image') {
+        try {
+          if (thumbFor(existing.url) && !existing.thumb) setMediaMeta(existing.url, { thumb: `${thumbKeyFor(existing.url)}.jpg` });
+        } catch {}
+      }
+      if (kind === 'video') { try { queueVideoPoster(existing.url); } catch {} }
+      return {
+        ok: true,
+        url: existing.url,
+        kind,
+        name: existing.name || name,
+        thumb: mediaThumbUrl(existing.thumb || (kind === 'image' ? `${thumbKeyFor(existing.url)}.jpg` : '')) || null,
+      };
+    }
+    addMediaAsset(url, kind, name, abs);
     // Build the grid thumbnail now (off the paint path) so the first Media tab
-    // visit does not pay for a dozen 12 MP decodes in the main process.
-    if (kind === 'image') { try { thumbFor(fileName); } catch {} }
-    return url;
+    // visit does not pay for a dozen 12 MP decodes in the main process, and
+    // cache its name on the row so every tile is a plain <img>.
+    if (kind === 'image') {
+      try {
+        if (thumbFor(url)) setMediaMeta(url, { thumb: `${thumbKeyFor(url)}.jpg` });
+      } catch {}
+    }
+    if (kind === 'video') { try { queueVideoPoster(url); } catch {} }
+    return {
+      ok: true,
+      url,
+      kind,
+      name,
+      thumb: kind === 'image' ? mediaThumbUrl(`${thumbKeyFor(url)}.jpg`) : null,
+    };
   } catch (e) {
     return null;
   }
+}
+
+ipcMain.handle('add-media-file', async (event, sourcePath) => {
+  const asset = importMediaFromPath(sourcePath);
+  return asset ? asset.url : null;
+});
+
+// Native OS picker: the dialog belongs to the OS, not to a DOM input, and it
+// hands back paths — no File blob, no second IPC round trip for the bytes.
+const MEDIA_PICK_FILTERS = {
+  video: [{ name: 'Videos', extensions: ['mp4', 'mov', 'webm', 'mkv'] }],
+  image: [{ name: 'Images', extensions: [...MEDIA_IMAGE_EXT].map((e) => e.replace('.', '')) }],
+  audio: [{ name: 'Audio', extensions: [...MEDIA_AUDIO_EXT].map((e) => e.replace('.', '')) }],
+};
+
+// Free slots per kind, for the renderer's "12/50" chips and its pre-pick check.
+ipcMain.handle('media-library-status', async () => ({
+  limit: MEDIA_LIBRARY_LIMIT,
+  image: MEDIA_LIBRARY_LIMIT - mediaSlotsLeft('image'),
+  video: MEDIA_LIBRARY_LIMIT - mediaSlotsLeft('video'),
+}));
+
+ipcMain.handle('media-pick-files', async (event, opts = {}) => {
+  try {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const kind = opts && opts.kind ? String(opts.kind) : 'all';
+    // Never open a dialog that cannot accept a single file.
+    if (MEDIA_LIMITED_KINDS.includes(kind) && mediaSlotsLeft(kind) <= 0) return [];
+    const filters = kind !== 'all' && MEDIA_PICK_FILTERS[kind]
+      ? MEDIA_PICK_FILTERS[kind]
+      : [MEDIA_PICK_FILTERS.video[0], MEDIA_PICK_FILTERS.image[0], MEDIA_PICK_FILTERS.audio[0]];
+    const properties = ['openFile'];
+    if (!opts || opts.multiple !== false) properties.push('multiSelections');
+    const result = await dialog.showOpenDialog(win || undefined, {
+      title: kind === 'video' ? 'Add videos' : kind === 'image' ? 'Add images' : kind === 'audio' ? 'Add audio' : 'Add media',
+      filters,
+      properties,
+    });
+    if (!result || result.canceled) return [];
+    return Array.isArray(result.filePaths) ? result.filePaths : [];
+  } catch (e) {
+    return [];
+  }
+});
+
+// Import a batch of paths picked by the native dialog. Returns assets that are
+// already registered, so a caller can queue them without re-reading the library.
+ipcMain.handle('media-import-paths', async (event, paths) => {
+  const list = Array.isArray(paths) ? paths : [];
+  const assets = [];
+  const skipped = [];
+  for (const p of list) {
+    // Each call re-reads the count, so a batch stops exactly at the cap.
+    const asset = importMediaFromPath(p);
+    if (asset && asset.url) assets.push(asset);
+    else skipped.push({ path: String(p || ''), name: path.basename(String(p || '')), reason: (asset && asset.error) || 'That file could not be added.' });
+  }
+  return { assets, skipped };
 });
 
 // Countdown-private uploads: same copy + media:// serving, but NEVER
@@ -769,6 +1206,10 @@ app.whenReady().then(() => {
   try { deleteAllMessages(); } catch {}
   // Also prune messages older than 3 hours while the app stays open.
   setInterval(() => { try { cleanupOldMessages(); } catch {} }, 15 * 60 * 1000);
+
+  // Quiet storage hygiene, well after the window is interactive: unreferenced
+  // legacy copies and orphaned thumbnails are app-owned bytes, safe to sweep.
+  setTimeout(() => { try { reclaimMediaStorage(); } catch {} }, 20000);
 
   // Electron ships a default application menu whose Edit section binds Undo
   // to CmdOrCtrl+Z and Redo to Ctrl+Y — the exact keys the Song Editor now
@@ -2643,7 +3084,31 @@ ipcMain.handle('db-set-song-arrangement', (event, id, arrangement) => setSongArr
 ipcMain.handle('db-set-song-chords', (event, id, chart, key) => setSongChords(id, chart, key));
 // Per-song stage tempo (Stage tab popup): narrow UPDATE, never rewrites cues.
 ipcMain.handle('db-set-song-bpm', (event, id, bpm) => setSongBpm(id, bpm));
-ipcMain.handle('db-get-media', () => getMediaLibrary());
+ipcMain.handle('db-get-media', (event, opts) => {
+  // Throttled existence sweep before the renderer paints: a referenced file
+  // that moved or sits on an unplugged drive is flagged here, not discovered
+  // as a black rectangle during the service.
+  try { auditMediaSources(); } catch {}
+  const rows = getMediaLibrary();
+  for (const r of rows) {
+    if (!r) continue;
+    // A cached poster name whose JPEG is gone (thumbs folder cleared, write
+    // failed, library restored on another machine) must not become a 404 per
+    // tile per remount: drop it here and let the pipeline redo the work.
+    if (r.thumb) {
+      const marker = '/thumbs/';
+      const at = String(r.thumb).indexOf(marker);
+      const file = at >= 0 ? path.join(THUMB_DIR, decodeURIComponent(String(r.thumb).slice(at + marker.length))) : null;
+      if (!file || path.dirname(file) !== THUMB_DIR || !fs.existsSync(file)) r.thumb = null;
+    }
+    // Warm the poster cache for any clip that has no still yet: the tiles swap
+    // from their budgeted fallback element to a JPEG once, in the background.
+    if (r.kind === 'video' && !r.thumb) { try { queueVideoPoster(r.url); } catch {} }
+  }
+  return rows;
+});
+
+ipcMain.handle('db-get-media-page', (event, opts) => getMediaLibraryPage(opts || {}));
 // Built-in packs removed (house gradients carry the load now): always empty,
 // channel kept so old renderers never break on the call.
 ipcMain.handle('list-builtin-assets', () => ({
@@ -2653,13 +3118,191 @@ ipcMain.handle('list-builtin-assets', () => ({
 ipcMain.handle('db-delete-media', (event, fileUrl) => {
   try {
     deleteMediaAsset(fileUrl);
-    const fileName = decodeURIComponent((fileUrl || '').split('/').pop() || '');
+    // Drop the cached still too — otherwise every deleted clip leaves a JPEG
+    // behind in userData for good.
+    const key = thumbKeyFor(fileUrl);
+    if (key) {
+      const still = path.join(THUMB_DIR, `${key}.jpg`);
+      if (path.dirname(still) === THUMB_DIR && fs.existsSync(still)) { try { fs.unlinkSync(still); } catch {} }
+    }
+    // Only remove bytes the app itself owns. A library entry that references
+    // the operator's own file is dropped from the library; the original file
+    // on their disk is NEVER deleted.
+    const fileName = libraryFileName(fileUrl);
+    if (!fileName) return true;
     const filePath = path.join(MEDIA_DIR, fileName);
-    if (!fileName || !filePath.startsWith(MEDIA_DIR) || !fs.existsSync(filePath)) return true;
+    if (!filePath.startsWith(MEDIA_DIR) || !fs.existsSync(filePath)) return true;
     fs.unlinkSync(filePath);
     return true;
   } catch (e) {
     return false;
+  }
+});
+// "Recently used": fired wherever media is applied/attached, so the Media tab
+// and every picker can sort by what the operator actually reached for.
+ipcMain.handle('media-touch', (event, url) => touchMediaAsset(url));
+
+// --- SOURCE HEALTH -----------------------------------------------------------
+// Every library entry can point at a file the app does not own, so "is it still
+// there?" is now a real question. The sweep is throttled and budgeted: a dead
+// network path makes fs.existsSync block, and one slow share must never stall
+// the Media tab. Rows it does not reach stay as they were and are checked by
+// the next sweep.
+const AUDIT_EVERY_MS = 15000;
+const AUDIT_BUDGET_MS = 1500;
+let lastAuditAt = 0;
+function auditMediaSources({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && now - lastAuditAt < AUDIT_EVERY_MS) return null;
+  lastAuditAt = now;
+  let rows = [];
+  try { rows = getMediaSourceRows(); } catch { rows = []; }
+  const started = Date.now();
+  let checked = 0;
+  let missing = 0;
+  for (const r of rows) {
+    if (Date.now() - started > AUDIT_BUDGET_MS) break;
+    const p = rowSourcePath(r);
+    // A row whose bytes are not on disk at all (cd/ or remote URL registered
+    // by an old build) cannot be judged here — leave it exactly as it was.
+    if (!p) continue;
+    let here = false;
+    try { here = fs.existsSync(p); } catch { here = false; }
+    checked += 1;
+    if (!here) missing += 1;
+    try { setMediaMissing(r.url, !here); } catch {}
+  }
+  return { checked, missing, total: rows.length };
+}
+
+// --- STORAGE RECLAIM ---------------------------------------------------------
+// Two caches grow silently over a long life: copies the pre-reference importer
+// left inside userData/media once no row points at them any more, and the
+// 480px stills/posters of entries that were deleted, relinked or restored over.
+// Both are bytes the app itself wrote, so they can be swept without touching a
+// single operator file. The grace window keeps an in-flight poster from the
+// same launch, and any file another process is mid-write on, safe.
+const RECLAIM_GRACE_MS = 6 * 60 * 60 * 1000;
+
+function reclaimMediaStorage() {
+  const keepCopies = new Set();
+  const keepThumbs = new Set();
+  const addThumb = (name) => {
+    const s = name == null ? '' : String(name);
+    if (s && !s.includes('/') && !s.includes('\\')) keepThumbs.add(s.toLowerCase());
+  };
+  // getMediaLibrary() unions media_assets with every song/cue reference, so a
+  // copy still named by an old song is kept even when its row is gone.
+  let urls = [];
+  try { urls = getMediaLibrary(); } catch { urls = []; }
+  for (const a of urls) {
+    if (!a || !a.url) continue;
+    const copy = libraryFileName(a.url);
+    if (copy) keepCopies.add(copy.toLowerCase());
+    const key = thumbKeyFor(a.url);
+    if (key) addThumb(`${key}.jpg`);
+    const at = String(a.url).indexOf('/thumbs/');
+    if (at >= 0) { try { addThumb(decodeURIComponent(String(a.url).slice(at + '/thumbs/'.length))); } catch {} }
+  }
+  try {
+    for (const r of getMediaSourceRows()) {
+      addThumb(r.thumb);
+      const key = thumbKeyFor(r.url);
+      if (key) addThumb(`${key}.jpg`);
+    }
+  } catch {}
+  const cutoff = Date.now() - RECLAIM_GRACE_MS;
+  const sweep = (dir, keep, accept) => {
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch { return 0; }
+    let removed = 0;
+    for (const name of names) {
+      if (keep.has(String(name).toLowerCase())) continue;
+      if (accept && !accept(name)) continue;
+      const full = path.join(dir, name);
+      if (path.dirname(full) !== dir) continue;
+      let st;
+      try { st = fs.statSync(full); } catch { continue; }
+      // isFile() alone keeps the thumbs/ and countdown folders out of the walk.
+      if (!st.isFile() || st.mtimeMs > cutoff) continue;
+      try { fs.unlinkSync(full); removed += 1; } catch {}
+    }
+    return removed;
+  };
+  const thumbs = sweep(THUMB_DIR, keepThumbs, (n) => /\.jpg$/i.test(n));
+  const copies = sweep(MEDIA_DIR, keepCopies);
+  if (thumbs || copies) electronLog.info('[media] reclaimed', { thumbs, copies });
+  return { thumbs, copies };
+}
+
+// The operator's own file, revealed where it lives. When it is gone, open the
+// folder it was last seen in: "which folder was that drive?" is the actual
+// question behind a blank background.
+ipcMain.handle('media-reveal-source', async (event, url) => {
+  try {
+    const asset = getMediaAssetByUrl(url);
+    const src = librarySourcePath(url) || (asset && asset.source_path ? String(asset.source_path) : '');
+    if (!src) return { ok: false, path: '', error: 'This entry has no file on disk to show.' };
+    if (fs.existsSync(src)) {
+      shell.showItemInFolder(src);
+      return { ok: true, path: src };
+    }
+    const dir = path.dirname(src);
+    if (dir && fs.existsSync(dir)) {
+      await shell.openPath(dir);
+      return { ok: true, path: src, folderOnly: true };
+    }
+    return { ok: false, path: src, error: 'That folder is not available right now.' };
+  } catch {
+    return { ok: false, path: '', error: 'Could not open that folder.' };
+  }
+});
+
+// RELINK: pick the file again and keep the same library entry (and therefore
+// every song, cue and service item that already references it).
+ipcMain.handle('media-relink-source', async (event, url) => {
+  try {
+    const asset = getMediaAssetByUrl(url);
+    if (!asset) return { ok: false, error: 'That library entry no longer exists.' };
+    const kind = asset.kind || 'image';
+    const filters = MEDIA_PICK_FILTERS[kind]
+      || [MEDIA_PICK_FILTERS.video[0], MEDIA_PICK_FILTERS.image[0], MEDIA_PICK_FILTERS.audio[0]];
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showOpenDialog(win || undefined, {
+      title: `Locate "${asset.name || path.basename(String(asset.source_path || 'this file'))}"`,
+      filters,
+      properties: ['openFile'],
+    });
+    if (!result || result.canceled || !result.filePaths || !result.filePaths[0]) return { ok: false, canceled: true };
+    const picked = path.resolve(result.filePaths[0]);
+    const ext = path.extname(picked).toLowerCase();
+    if (!fs.existsSync(picked)) return { ok: false, error: 'That file could not be read.' };
+    if (![...MEDIA_IMAGE_EXT, ...MEDIA_VIDEO_EXT, ...MEDIA_AUDIO_EXT].includes(ext)) {
+      return { ok: false, error: 'That is not an image, video or audio file.' };
+    }
+    // The row's kind decides how every tile and every consumer renders it, so
+    // relinking an image entry to a video would leave a wall background that
+    // never plays. Refuse the mismatch and name what to pick.
+    const pickedKind = MEDIA_IMAGE_EXT.includes(ext) ? 'image' : MEDIA_VIDEO_EXT.includes(ext) ? 'video' : 'audio';
+    if (pickedKind !== kind) {
+      return { ok: false, error: kind === 'image' ? 'Pick a picture file for this entry.' : kind === 'video' ? 'Pick a video file for this entry.' : 'Pick an audio file for this entry.' };
+    }
+    if (!setMediaSourcePath(url, picked)) return { ok: false, error: 'Could not update the library entry.' };
+    // The cached still/poster belongs to the OLD file. Drop it so the tile
+    // rebuilds from the new one instead of showing the wrong picture.
+    const key = thumbKeyFor(url);
+    if (key) {
+      const still = path.join(THUMB_DIR, `${key}.jpg`);
+      if (path.dirname(still) === THUMB_DIR && fs.existsSync(still)) { try { fs.unlinkSync(still); } catch {} }
+      try { setMediaMeta(url, {}); } catch {}
+      if (kind === 'image') {
+        try { if (thumbFor(url)) setMediaMeta(url, { thumb: `${key}.jpg` }); } catch {}
+      }
+      if (kind === 'video') { try { queueVideoPoster(url); } catch {} }
+    }
+    return { ok: true, url, sourcePath: picked };
+  } catch (e) {
+    return { ok: false, error: 'Could not relink that file.' };
   }
 });
 ipcMain.handle('db-get-stats', () => getLibraryStats());
@@ -2689,10 +3332,11 @@ async function urlToDataUri(url) {
     if (!url) return null;
     if (url.startsWith('data:')) return url;
     if (url.startsWith('media://')) {
-      const fileName = decodeURIComponent(url.split('/').pop() || '');
-      const filePath = path.join(MEDIA_DIR, fileName);
-      if (!fileName || !fs.existsSync(filePath)) return null;
-      return `data:${mediaMime(fileName)};base64,${fs.readFileSync(filePath).toString('base64')}`;
+      // Resolves external-source entries too (lib/<hash>), not only copies in
+      // userData — otherwise a PPTX export silently dropped library pictures.
+      const filePath = librarySourcePath(url);
+      if (!filePath) return null;
+      return `data:${mediaMime(filePath)};base64,${fs.readFileSync(filePath).toString('base64')}`;
     }
     if (url.startsWith('file://')) {
       const filePath = fileURLToPath(url);
@@ -4001,7 +4645,11 @@ ipcMain.handle('db-import', async () => {
   const { filePaths } = await dialog.showOpenDialog({ title: 'Import Song Library', filters: [{ name: 'JSON Files', extensions: ['json'] }], properties: ['openFile'] });
   if (filePaths && filePaths[0]) {
     const data = fs.readFileSync(filePaths[0], 'utf8');
-    return importLibrary(data);
+    const ok = importLibrary(data);
+    // A restore from another machine lands paths this computer may not have:
+    // audit once so the Media tab names exactly which entries need a relink.
+    if (ok) { try { auditMediaSources({ force: true }); } catch {} }
+    return ok;
   }
   return false;
 });

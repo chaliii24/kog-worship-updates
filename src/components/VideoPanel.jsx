@@ -5,6 +5,7 @@ import { useApp } from '../context/AppContext';
 import { stubTap } from '../lib/anim';
 import { audioEngine } from '../lib/audioEngine';
 import { ACCEPT, saveVideoList, clearVideoList } from './VideoLibrarySidebar';
+import { pickAndImportMedia } from '../lib/mediaImport';
 
 function fmt(s) {
   const n = Math.max(0, Math.floor(Number(s) || 0));
@@ -12,7 +13,7 @@ function fmt(s) {
 }
 
 export default function VideoPanel() {
-  const { C, persistMediaFile, fireVideoLive, displays, videoList: list, setVideoList: setList, videoIdx: idx, setVideoIdx: setIdx } = useApp();
+  const { C, persistMediaFile, fetchMediaLibrary, fireVideoLive, displays, videoList: list, setVideoList: setList, videoIdx: idx, setVideoIdx: setIdx } = useApp();
   const videoRef = useRef(null);
   const stageRef = useRef(null);
   const fileRef = useRef(null);
@@ -273,6 +274,26 @@ export default function VideoPanel() {
     }
   };
 
+  // Native picker: paths go straight to main, which copies + registers them.
+  // Dropping files still works through addFiles above.
+  const addNative = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const assets = await pickAndImportMedia({ kind: 'video' });
+      const fresh = assets.map((a) => ({ url: a.url, name: String(a.name || 'video').replace(/\.[^.]+$/, '') }));
+      if (fresh.length) {
+        setList((prev) => {
+          const have = new Set(prev.map((v) => v.url));
+          return [...prev, ...fresh.filter((v) => !have.has(v.url))];
+        });
+        try { await fetchMediaLibrary(); } catch {}
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const toggleFull = () => {
     const el = stageRef.current;
     if (!el) return;
@@ -315,10 +336,10 @@ export default function VideoPanel() {
           <input type="checkbox" checked={duckBgm} onChange={(e) => setDuckBgm(e.target.checked)} />
           Pause BGM on play
         </label>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '6px 12px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
+        <button type="button" onClick={addNative} title="Add videos from this computer (MP4 / WebM / MOV)" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '6px 12px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>
           <Upload size={12} /> Add
-          <input ref={fileRef} type="file" accept={ACCEPT} multiple style={{ display: 'none' }} onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
-        </label>
+        </button>
+        <input ref={fileRef} type="file" accept={ACCEPT} multiple style={{ display: 'none' }} onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
       </div>
 
       {/* ============ STICKY PLAYER (top ~half, never scrolls away) ============ */}
