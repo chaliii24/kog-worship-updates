@@ -312,8 +312,15 @@ export default function App() {
   const [unreadTotal, setUnreadTotal] = useState(0);
   const [urgentBanner, setUrgentBanner] = useState(null); // {message, conversationId}
   const [normalBanner, setNormalBanner] = useState(null); // {message, conversationId}
+  const [mutedDevices, setMutedDevices] = useState(() => new Set());
+  // Shared canned messages: the desktop and every phone offer the same list.
+  const quickRepliesRef = useRef([]);
   const messagesRef = useRef({ conversations, messagesByConv });
   messagesRef.current = { conversations, messagesByConv };
+  // The IPC listener is installed once; read mutes through a ref so a mute
+  // toggled after mount takes effect on the very next message.
+  const mutedRef = useRef(mutedDevices);
+  mutedRef.current = mutedDevices;
   // Mirror for the song-editor live-sync below: it runs from a debounce timer,
   // where a render-time read would hold yesterday's cue.
   const activeCueRef = useRef(activeCue);
@@ -5524,6 +5531,7 @@ export default function App() {
       if (!ev) return;
       if (ev.type === 'msg') {
         const m = ev.message;
+        const muted = mutedRef.current.has(m.senderId);
         // persist incoming
         if (window.require) {
           const { ipcRenderer } = window.require('electron');
@@ -5540,6 +5548,7 @@ export default function App() {
           return { ...prev, [m.conversationId]: [...list, { ...m, status: 'delivered' }] };
         });
         reloadConversations();
+        if (muted) return;
         if (m.priority === 'urgent') {
           setUrgentBanner({ message: m, conversationId: m.conversationId });
           // notification beep
@@ -5566,19 +5575,34 @@ export default function App() {
         reloadConversations();
       } else if (ev.type === 'msg-ack' || ev.type === 'msg-status') {
         const { id, status, readAt, deliveredAt, ackAt } = ev;
+        const deviceId = ev.device?.deviceId || null;
+        const st = ev.type === 'msg-ack' ? 'delivered' : (status || 'delivered');
+        // A booth message is only "read" once every member has read it, so the
+        // receipt is recorded per device and the row is then re-aggregated.
+        const applyStatus = (nextStatus) => setMessagesByConv((prev) => {
+          const out = { ...prev };
+          for (const k of Object.keys(out)) {
+            out[k] = out[k].map((m) => m.id === id ? {
+              ...m,
+              status: nextStatus || m.status,
+              readAt: readAt || m.readAt,
+              deliveredAt: deliveredAt || m.deliveredAt,
+              ackAt: ackAt || m.ackAt,
+            } : m);
+          }
+          return out;
+        });
         if (window.require) {
           const { ipcRenderer } = window.require('electron');
-          const st = ev.type === 'msg-ack' ? 'delivered' : (status || 'delivered');
-          ipcRenderer.invoke('messages-ack', { id, status: st, extra: { deliveredAt: deliveredAt || Date.now(), readAt, ackAt } }).catch(() => {});
-          // propagate status back to originating phone if needed
-        }
-        setMessagesByConv((prev) => {
-          const next = { ...prev };
-          for (const k of Object.keys(next)) {
-            next[k] = next[k].map((m) => m.id === id ? { ...m, status: status || m.status, readAt: readAt || m.readAt, deliveredAt: deliveredAt || m.deliveredAt, ackAt: ackAt || m.ackAt } : m);
+          if (deviceId) {
+            ipcRenderer.invoke('messages-receipt', { id, deviceId, status: st, at: ackAt || readAt || deliveredAt || Date.now() })
+              .then((agg) => applyStatus(agg))
+              .catch(() => applyStatus(status));
+          } else {
+            ipcRenderer.invoke('messages-ack', { id, status: st, extra: { deliveredAt: deliveredAt || Date.now(), readAt, ackAt } }).catch(() => {});
+            applyStatus(status);
           }
-          return next;
-        });
+        }
         reloadConversations();
       }
     };
@@ -5609,14 +5633,22 @@ export default function App() {
     };
   }, [isOutputWindow]);
 
-  // helper to load messages for a conversation
+  // helper to load messages for a conversation (DM keyed by device, or booth)
   const loadConversationMessages = useCallback(async (convId) => {
     if (!window.require) return;
     const { ipcRenderer } = window.require('electron');
     try {
-      const msgs = await ipcRenderer.invoke('messages-get', convId);
+      const [msgs, receiptRows] = await Promise.all([
+        ipcRenderer.invoke('messages-get', convId),
+        ipcRenderer.invoke('messages-receipts-get', convId).catch(() => []),
+      ]);
+      const receiptsByMsg = {};
+      for (const r of (Array.isArray(receiptRows) ? receiptRows : [])) {
+        (receiptsByMsg[r.message_id] = receiptsByMsg[r.message_id] || []).push(r);
+      }
       const normalized = (Array.isArray(msgs) ? msgs : []).map((r) => ({
         id: r.id,
+        channelId: r.conversation_id === 'booth' ? 'booth' : 'dm',
         conversationId: r.conversation_id,
         senderId: r.sender_id,
         senderName: r.sender_name,
@@ -5624,23 +5656,78 @@ export default function App() {
         content: r.content,
         priority: r.priority,
         status: r.status,
+        context: r.context || null,
         timestamp: r.timestamp,
         deliveredAt: r.delivered_at,
         readAt: r.read_at,
         ackAt: r.ack_at,
+        receipts: receiptsByMsg[r.id] || [],
       }));
       setMessagesByConv((prev) => ({ ...prev, [convId]: normalized }));
     } catch {}
   }, []);
 
-  const sendMessageToRemote = useCallback(async ({ deviceId, content, priority }) => {
+  const sendMessageToRemote = useCallback(async ({ deviceId, channelId, content, priority, context }) => {
     if (!window.require || !content.trim()) return null;
     const { ipcRenderer } = window.require('electron');
     try {
-      const m = await ipcRenderer.invoke('messages-send', { deviceId, conversationId: deviceId, content, priority });
+      const m = await ipcRenderer.invoke('messages-send', {
+        deviceId,
+        channelId: channelId || (deviceId === 'booth' ? 'booth' : 'dm'),
+        conversationId: channelId === 'booth' || deviceId === 'booth' ? 'booth' : deviceId,
+        content,
+        priority,
+        context,
+      });
       return m;
     } catch { return null; }
   }, []);
+
+  // Search goes through the database so it finds messages in threads that are
+  // not loaded into the renderer yet.
+  const searchMessageHistory = useCallback(async (query) => {
+    if (!window.require || !String(query || '').trim()) return [];
+    const { ipcRenderer } = window.require('electron');
+    try {
+      const rows = await ipcRenderer.invoke('messages-search', query);
+      return (Array.isArray(rows) ? rows : []).map((r) => ({
+        id: r.id,
+        channelId: r.conversation_id === 'booth' ? 'booth' : 'dm',
+        conversationId: r.conversation_id,
+        senderId: r.sender_id,
+        senderName: r.sender_name,
+        content: r.content,
+        priority: r.priority,
+        status: r.status,
+        context: r.context || null,
+        timestamp: r.timestamp,
+      }));
+    } catch { return []; }
+  }, []);
+
+  const setDeviceMutedPref = useCallback(async (deviceId, muted) => {
+    setMutedDevices((prev) => {
+      const next = new Set(prev);
+      if (muted) next.add(deviceId); else next.delete(deviceId);
+      return next;
+    });
+    if (!window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    try { await ipcRenderer.invoke('messages-mute-set', { deviceId, muted }); } catch {}
+  }, []);
+
+  // Load persisted mutes and the shared canned-message catalogue once.
+  useEffect(() => {
+    if (isOutputWindow || !window.require) return;
+    const { ipcRenderer } = window.require('electron');
+    ipcRenderer.invoke('messages-mutes-get').then((rows) => {
+      const on = (Array.isArray(rows) ? rows : []).filter((r) => r.muted).map((r) => r.device_id);
+      if (on.length) setMutedDevices(new Set(on));
+    }).catch(() => {});
+    ipcRenderer.invoke('quick-replies-shared').then((rows) => {
+      quickRepliesRef.current = (Array.isArray(rows) ? rows : []).map((r) => ({ id: r.id, label: r.label, text: r.text }));
+    }).catch(() => {});
+  }, [isOutputWindow]);
 
   const markConversationRead = useCallback(async (convId) => {
     if (!window.require) return;
@@ -5667,6 +5754,8 @@ export default function App() {
       v: 1,
       at: Date.now(),
       themeDark: !!themeDark,
+      // Shared canned messages, so both ends offer the same one-tap phrases.
+      quickReplies: quickRepliesRef.current,
       // Visual metronome settings. Drummer phones own their transport; this
       // block only tells them WHAT to play (tempo + meter), never whether the
       // pulse is running.
@@ -7586,10 +7675,14 @@ export default function App() {
           conversations={conversations}
           messagesByConv={messagesByConv}
           connectedDevices={connectedDevices}
+          mutedDevices={mutedDevices}
+          setDeviceMuted={setDeviceMutedPref}
           loadConversationMessages={loadConversationMessages}
           sendMessageToRemote={sendMessageToRemote}
           markConversationRead={markConversationRead}
+          searchMessageHistory={searchMessageHistory}
           unreadTotal={unreadTotal}
+          liveContext={liveOutputPayload()?.title || ''}
           onClose={() => setMessageCenterOpen(false)}
         />
       )}
@@ -7602,7 +7695,7 @@ export default function App() {
           initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
           style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 99999, background: '#ef4444', color: '#fff', padding: '10px 18px', borderRadius: 10, boxShadow: '0 8px 30px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: 12, maxWidth: '80vw' }}
         >
-          <span style={{ fontWeight: 800 }}>URGENT:</span>
+          <span style={{ fontWeight: 800 }}>URGENT{urgentBanner.message.channelId === 'booth' && urgentBanner.message.senderName ? ` · ${urgentBanner.message.senderName}` : ''}:</span>
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{urgentBanner.message.content}</span>
           <button onClick={() => { setMessageCenterOpen(true); setUrgentBanner(null); }} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>Reply</button>
           <button onClick={() => setUrgentBanner(null)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}>✕</button>
@@ -7617,7 +7710,7 @@ export default function App() {
           initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
           style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 99998, background: '#22c55e', color: '#0a1a0f', padding: '10px 18px', borderRadius: 10, boxShadow: '0 8px 30px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', gap: 12, maxWidth: '80vw' }}
         >
-          <span style={{ fontWeight: 800 }}>Message:</span>
+          <span style={{ fontWeight: 800 }}>{normalBanner.message.channelId === 'booth' && normalBanner.message.senderName ? `${normalBanner.message.senderName}:` : 'Message:'}</span>
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{normalBanner.message.content}</span>
           <button onClick={() => { setMessageCenterOpen(true); setNormalBanner(null); }} style={{ background: 'rgba(0,0,0,0.15)', border: 'none', color: '#0a1a0f', padding: '4px 10px', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>Reply</button>
         </motion.div>

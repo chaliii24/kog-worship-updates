@@ -36,7 +36,7 @@ export default function HomeScreen({ state, send, unread, messages, onNavigate, 
     { id: 'countdown', label: 'Countdown', Icon: Clock, hint: state?.countdown?.live ? 'Running' : 'Timer', dot: !!state?.countdown?.live },
     { id: 'presentation', label: 'Presentation', Icon: MonitorPlay, hint: state?.sermon?.loaded ? `${state.sermon.total || 0} slides` : 'No deck', dot: !!state?.sermon?.loaded },
     { id: 'draw', label: 'Draw', Icon: PenLine, hint: state?.draw?.strokes?.length ? `${state.draw.strokes.length} strokes` : 'Annotate', dot: !!state?.draw?.strokes?.length },
-    { id: 'messages', label: 'Messages', Icon: MessageCircle, hint: 'Projectionist', badge: unread },
+    { id: 'messages', label: 'Messages', Icon: MessageCircle, hint: 'Booth & direct', badge: unread },
   ];
 
   const NAV_VIEWS = new Set(['lyrics', 'bible', 'countdown', 'messages']);
@@ -154,7 +154,9 @@ export default function HomeScreen({ state, send, unread, messages, onNavigate, 
             {unread ? <Pill tone="accent" style={{ fontSize: 9, padding: '2px 6px' }}>{unread} new</Pill> : null}
           </span>
           <span style={{ display: 'block', fontSize: 12, color: C.faint, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {lastMsg ? `${lastMsg.senderId === 'operator' ? 'Desktop' : 'You'}: ${lastMsg.content}` : 'No messages yet — coordinate with the booth.'}
+            {lastMsg
+              ? `${lastMsg.senderId === 'operator' ? 'Desktop' : lastMsg.senderId === 'self' ? 'You' : (lastMsg.senderName || 'Remote')}${lastMsg.channelId === 'booth' ? ' · Booth' : ''}: ${lastMsg.content}`
+              : 'No messages yet — coordinate with the booth.'}
           </span>
         </span>
         <ChevronRight size={17} color={C.faint} />

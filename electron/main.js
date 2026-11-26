@@ -66,9 +66,18 @@ import {
   getBuiltinVideoAssets,
   getBuiltinPhotoAssets,
   getMessages,
+  getMessagesForDevice,
   getAllConversations,
   saveMessage,
   updateMessageStatus,
+  getMessageReceipts,
+  getReceiptsForConversation,
+  recordReceipt,
+  recomputeMessageStatus,
+  getDevicePrefs,
+  setDeviceMuted,
+  setDeviceName,
+  searchMessages,
   getQuickReplies,
   saveQuickReply,
   deleteQuickReply,
@@ -1164,9 +1173,14 @@ const startLan = async () => {
       onMessage: (ev) => {
         if (ev && ev.type === 'msg') {
           try {
-            const n = new Notification({ title: `Message from ${ev.message?.senderName || 'Remote'}`, body: String(ev.message?.content || '').slice(0, 200), urgency: ev.message?.priority === 'urgent' ? 'critical' : 'normal' });
-            n.on('click', () => { if (operatorWindow && !operatorWindow.isDestroyed()) { operatorWindow.restore(); operatorWindow.focus(); operatorWindow.webContents.send('mobile-message-open'); } });
-            n.show();
+            // Mute is a notification preference, not a delivery one: the
+            // message is still stored and shown in the inbox.
+            const prefs = getDevicePrefs(ev.message?.senderId) || {};
+            if (!prefs.muted) {
+              const n = new Notification({ title: `Message from ${ev.message?.senderName || 'Remote'}`, body: String(ev.message?.content || '').slice(0, 200), urgency: ev.message?.priority === 'urgent' ? 'critical' : 'normal' });
+              n.on('click', () => { if (operatorWindow && !operatorWindow.isDestroyed()) { operatorWindow.restore(); operatorWindow.focus(); operatorWindow.webContents.send('mobile-message-open'); } });
+              n.show();
+            }
           } catch {}
         }
         if (!operatorWindow || operatorWindow.isDestroyed()) return;
@@ -2490,6 +2504,7 @@ ipcMain.handle('messages-save', (event, m) => {
       content: m.content,
       priority: m.priority,
       status: m.status,
+      context: m.context || null,
       timestamp: m.timestamp,
       deliveredAt: m.deliveredAt || m.delivered_at,
       readAt: m.readAt || m.read_at,
@@ -2500,22 +2515,42 @@ ipcMain.handle('messages-save', (event, m) => {
   } catch (e) { electronLog.warn('[msg] save failed:', e.message); return false; }
 });
 ipcMain.handle('messages-send', (event, payload) => {
-  // Desktop operator → a specific phone. Persist + forward.
+  // Desktop operator → the booth (shared) or one phone. Persist + forward.
   try {
+    const booth = payload.channelId === 'booth' || payload.conversationId === 'booth' || payload.deviceId === 'booth';
+    // A direct reply needs an address. Without one the INSERT fails on
+    // recipient_id (NOT NULL) and the operator's message vanishes with only a
+    // log line, so refuse it up front instead.
+    const targetDevice = booth ? '' : String(payload.deviceId || payload.conversationId || '').trim();
+    if (!booth && !targetDevice) { electronLog.warn('[msg] send rejected: no device for a direct message'); return null; }
     const m = {
       id: payload.id || crypto.randomUUID(),
-      conversationId: payload.conversationId || payload.deviceId,
+      channelId: booth ? 'booth' : 'dm',
+      conversationId: booth ? 'booth' : targetDevice,
       senderId: 'operator',
       senderName: payload.senderName || 'Operator',
-      recipientId: payload.deviceId,
+      recipientId: booth ? 'booth' : targetDevice,
       content: String(payload.content || '').slice(0, 4000),
       priority: ['normal','important','urgent'].includes(payload.priority) ? payload.priority : 'normal',
+      context: String(payload.context || '').slice(0, 160) || null,
       status: 'sent',
       timestamp: Date.now(),
     };
     saveMessage(m);
-    const sent = lan.sendToDevice(payload.deviceId, { t: 'msg', ...m });
-    if (!sent) { updateMessageStatus(m.id, 'failed'); m.status = 'failed'; }
+    if (booth) {
+      // One receipt per currently-connected control phone. A phone that joins
+      // later gets the message in its sync and a receipt on delivery.
+      const devices = (() => { try { return lan.getDevices(); } catch { return []; } })();
+      const now = Date.now();
+      for (const d of devices) recordReceipt(m.id, d.deviceId, 'delivered', now);
+      m.status = devices.length ? 'delivered' : 'sent';
+      updateMessageStatus(m.id, m.status, { deliveredAt: devices.length ? now : undefined });
+      lan.sendToAllDevices({ t: 'msg', ...m });
+    } else {
+      const sent = lan.sendToDevice(targetDevice, { t: 'msg', ...m });
+      if (sent) recordReceipt(m.id, targetDevice, 'delivered', Date.now());
+      else { updateMessageStatus(m.id, 'failed'); m.status = 'failed'; }
+    }
     // Notify renderer of the new outgoing message (already in DB).
     if (operatorWindow && !operatorWindow.isDestroyed()) operatorWindow.webContents.send('mobile-message', { type: 'msg-out', message: m });
     return m;
@@ -2527,11 +2562,11 @@ ipcMain.handle('messages-mark-read', (event, { conversationId, reader } = {}) =>
     const msgs = getMessages(conversationId);
     const now = Date.now();
     for (const m of msgs) {
-      if (m.recipient_id === 'operator' && m.status !== 'read' && m.status !== 'acknowledged') {
+      if (m.sender_id !== 'operator' && m.status !== 'read' && m.status !== 'acknowledged') {
         updateMessageStatus(m.id, 'read', { readAt: now });
-        // notify originating device
-        // find device from conversationId
-        lan.sendToDevice(conversationId, { t: 'msg-status', id: m.id, status: 'read', readAt: now });
+        // Tell whoever wrote it. A booth message can come from any phone, so
+        // the sender is read from the row, not inferred from the room.
+        lan.sendToDevice(m.sender_id, { t: 'msg-status', id: m.id, status: 'read', readAt: now });
       }
     }
     return true;
@@ -2542,6 +2577,30 @@ ipcMain.handle('messages-ack', (event, { id, status, extra } = {}) => {
     updateMessageStatus(id, status, extra || {});
     return true;
   } catch (e) { electronLog.warn('[msg] ack failed:', e.message); return false; }
+});
+ipcMain.handle('messages-receipt', (event, { id, deviceId, status, at } = {}) => {
+  try {
+    recordReceipt(id, deviceId, status, at || Date.now());
+    return recomputeMessageStatus(id);
+  } catch (e) { electronLog.warn('[msg] receipt failed:', e.message); return null; }
+});
+ipcMain.handle('messages-receipts-get', (event, conversationId) => {
+  try { return getReceiptsForConversation(conversationId); } catch { return []; }
+});
+ipcMain.handle('messages-receipts-for', (event, id) => {
+  try { return getMessageReceipts(id); } catch { return []; }
+});
+ipcMain.handle('messages-search', (event, query) => {
+  try { return searchMessages(query); } catch { return []; }
+});
+ipcMain.handle('messages-mutes-get', () => {
+  try { return getDevicePrefs(); } catch { return []; }
+});
+ipcMain.handle('messages-mute-set', (event, { deviceId, muted } = {}) => {
+  try { setDeviceMuted(deviceId, !!muted); return true; } catch { return false; }
+});
+ipcMain.handle('messages-name-set', (event, { deviceId, name } = {}) => {
+  try { setDeviceName(deviceId, name); return true; } catch { return false; }
 });
 ipcMain.handle('messages-get-devices', () => {
   try { return lan.getDevices(); } catch (e) { return []; }
@@ -2554,9 +2613,12 @@ ipcMain.handle('mobile-send-status', (event, { deviceId, id, status, deliveredAt
 });
 ipcMain.handle('mobile-send-sync', (event, { deviceId }) => {
   try {
-    const msgs = getMessages(deviceId);
+    // Both lanes in one payload: the phone never needs a second sync call to
+    // discover the booth thread.
+    const msgs = getMessagesForDevice(deviceId);
     const normalized = (Array.isArray(msgs) ? msgs : []).map((r) => ({
       id: r.id,
+      channelId: r.conversation_id === 'booth' ? 'booth' : 'dm',
       conversationId: r.conversation_id,
       senderId: r.sender_id,
       senderName: r.sender_name,
@@ -2564,11 +2626,15 @@ ipcMain.handle('mobile-send-sync', (event, { deviceId }) => {
       content: r.content,
       priority: r.priority,
       status: r.status,
+      context: r.context || null,
       timestamp: r.timestamp,
     }));
     lan.sendToDevice(deviceId, { t: 'msg-sync', messages: normalized });
     return true;
   } catch (e) { return false; }
+});
+ipcMain.handle('quick-replies-shared', () => {
+  try { return getQuickReplies('shared'); } catch { return []; }
 });
 ipcMain.handle('quick-replies-get', (event, owner) => {
   try { return getQuickReplies(owner); } catch (e) { return []; }

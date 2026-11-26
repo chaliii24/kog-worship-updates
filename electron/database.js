@@ -1013,7 +1013,34 @@ try { db.exec(`
     text TEXT NOT NULL,
     sort_order INTEGER DEFAULT 0
   );
+
+  -- Per-device delivery receipts. A booth message has one row per member, so
+  -- "read" is never a single column that the last phone overwrites.
+  CREATE TABLE IF NOT EXISTS message_receipts (
+    message_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    delivered_at INTEGER,
+    read_at INTEGER,
+    ack_at INTEGER,
+    PRIMARY KEY (message_id, device_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_receipts_device ON message_receipts(device_id);
+
+  -- Operator preferences about a remote. Mute silences banners/notifications
+  -- without stopping history, and the display name survives re-pairing.
+  CREATE TABLE IF NOT EXISTS device_prefs (
+    device_id TEXT PRIMARY KEY,
+    display_name TEXT,
+    muted INTEGER NOT NULL DEFAULT 0
+  );
 `); } catch (e) { /* noop */ }
+
+// Messages gained a context line (what was live when it was sent). Older
+// databases created the table without it, so add it in place once.
+try {
+  const cols = db.prepare("PRAGMA table_info(messages)").all().map((c) => c.name);
+  if (!cols.includes('context')) db.exec('ALTER TABLE messages ADD COLUMN context TEXT');
+} catch (e) { /* noop */ }
 
 try {
   const c = db.prepare('SELECT COUNT(*) AS n FROM quick_replies').get().n;
@@ -1037,6 +1064,25 @@ try {
     ];
     rm.forEach((r, i) => ins.run('remote', r[0], r[1], i));
   }
+  // One catalogue both ends read: the booth sees exactly the phrases the
+  // phones offer, so a reply label never means two different things.
+  const shared = db.prepare("SELECT COUNT(*) AS n FROM quick_replies WHERE owner = 'shared'").get().n;
+  if (!shared) {
+    const ins = db.prepare('INSERT INTO quick_replies (owner, label, text, sort_order) VALUES (?,?,?,?)');
+    const rows = [
+      ['Received.', 'Received.'],
+      ['Go ahead.', 'Go ahead.'],
+      ['Standby.', 'Standby.'],
+      ['Hold — 1 minute.', 'Hold — 1 minute.'],
+      ['Please repeat.', 'Please repeat.'],
+      ['Understood.', 'Understood.'],
+      ['Song is wrong.', 'Wrong song — check the live item.'],
+      ['Slide is wrong.', 'Wrong slide — please check the live slide.'],
+      ['Mic is live.', 'Mic is live.'],
+      ['Thank you.', 'Thank you.'],
+    ];
+    rows.forEach((r, i) => ins.run('shared', r[0], r[1], i));
+  }
 } catch (e) { /* noop */ }
 
 export function getMessages(conversationId) {
@@ -1053,21 +1099,113 @@ export function getAllConversations() {
   `).all();
   return rows.map((r) => {
     const last = db.prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp DESC LIMIT 1').get(r.conversation_id);
-    const unread = db.prepare("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND recipient_id = 'operator' AND status IN ('sent','delivered')").get(r.conversation_id).n;
-    return { conversationId: r.conversation_id, lastMessage: last, unread };
+    // Unread means "not from the operator and not yet seen" — works for a DM
+    // (recipient is the operator) and for the booth (recipient is the room).
+    const unread = db.prepare("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ? AND sender_id != 'operator' AND status IN ('sent','delivered')").get(r.conversation_id).n;
+    return {
+      conversationId: r.conversation_id,
+      kind: r.conversation_id === 'booth' ? 'booth' : 'dm',
+      lastMessage: last,
+      unread,
+    };
   });
+}
+
+// Everything a phone should hold: its own DM thread plus the shared booth.
+export function getMessagesForDevice(deviceId) {
+  if (!deviceId) return db.prepare("SELECT * FROM messages WHERE conversation_id = 'booth' ORDER BY timestamp ASC").all();
+  return db.prepare("SELECT * FROM messages WHERE conversation_id = 'booth' OR conversation_id = ? ORDER BY timestamp ASC").all(deviceId);
+}
+
+export function getMessageReceipts(messageId) {
+  if (!messageId) return [];
+  return db.prepare('SELECT * FROM message_receipts WHERE message_id = ?').all(messageId);
+}
+
+export function getReceiptsForConversation(conversationId) {
+  return db.prepare(`
+    SELECT r.* FROM message_receipts r
+    JOIN messages m ON m.id = r.message_id
+    WHERE m.conversation_id = ?
+    ORDER BY r.message_id ASC, r.device_id ASC
+  `).all(conversationId);
+}
+
+// One receipt per recipient device. Later events only ever move a receipt
+// forward (delivered → read → acknowledged), never backwards.
+export function recordReceipt(messageId, deviceId, status, at = Date.now()) {
+  if (!messageId || !deviceId) return;
+  db.prepare('INSERT OR IGNORE INTO message_receipts (message_id, device_id) VALUES (?, ?)').run(messageId, deviceId);
+  if (status === 'delivered') {
+    db.prepare('UPDATE message_receipts SET delivered_at = COALESCE(delivered_at, ?) WHERE message_id = ? AND device_id = ?').run(at, messageId, deviceId);
+  } else if (status === 'read') {
+    db.prepare('UPDATE message_receipts SET delivered_at = COALESCE(delivered_at, ?), read_at = COALESCE(read_at, ?) WHERE message_id = ? AND device_id = ?').run(at, at, messageId, deviceId);
+  } else if (status === 'acknowledged') {
+    db.prepare('UPDATE message_receipts SET delivered_at = COALESCE(delivered_at, ?), read_at = COALESCE(read_at, ?), ack_at = COALESCE(ack_at, ?) WHERE message_id = ? AND device_id = ?').run(at, at, at, messageId, deviceId);
+  }
+}
+
+// Aggregate a booth message from its receipts: it is only "read" once every
+// member has read it, otherwise the slowest device decides the badge.
+export function recomputeMessageStatus(messageId) {
+  const receipts = getMessageReceipts(messageId);
+  if (!receipts.length) return null;
+  let status = 'acknowledged';
+  for (const r of receipts) {
+    if (!r.ack_at) { status = 'read'; break; }
+  }
+  if (status !== 'acknowledged') {
+    for (const r of receipts) {
+      if (!r.read_at) { status = 'delivered'; break; }
+    }
+  }
+  if (status !== 'acknowledged' && status !== 'read') {
+    for (const r of receipts) {
+      if (!r.delivered_at) { status = 'sent'; break; }
+    }
+  }
+  db.prepare('UPDATE messages SET status = ? WHERE id = ?').run(status, messageId);
+  return status;
+}
+
+export function getDevicePrefs(deviceId) {
+  if (!deviceId) return db.prepare('SELECT * FROM device_prefs').all();
+  return db.prepare('SELECT * FROM device_prefs WHERE device_id = ?').get(deviceId) || null;
+}
+
+export function setDeviceMuted(deviceId, muted) {
+  db.prepare('INSERT INTO device_prefs (device_id, muted) VALUES (?, ?) ON CONFLICT(device_id) DO UPDATE SET muted = excluded.muted').run(deviceId, muted ? 1 : 0);
+}
+
+export function setDeviceName(deviceId, displayName) {
+  const name = String(displayName || '').slice(0, 64);
+  db.prepare('INSERT INTO device_prefs (device_id, display_name) VALUES (?, ?) ON CONFLICT(device_id) DO UPDATE SET display_name = excluded.display_name').run(deviceId, name);
+}
+
+export function searchMessages(query, limit = 80) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+  return db.prepare('SELECT * FROM messages WHERE content LIKE ? ORDER BY timestamp DESC LIMIT ?').all(`%${q}%`, limit);
 }
 
 export function saveMessage(m) {
   const existing = db.prepare('SELECT id FROM messages WHERE id = ?').get(m.id);
   if (existing) {
-    db.prepare(`UPDATE messages SET status=?, delivered_at=?, read_at=?, ack_at=?, content=? WHERE id=?`)
-      .run(m.status || 'sent', m.deliveredAt || null, m.readAt || null, m.ackAt || null, m.content, m.id);
+    db.prepare(`UPDATE messages SET status=?, delivered_at=?, read_at=?, ack_at=?, content=?, context=? WHERE id=?`)
+      .run(m.status || 'sent', m.deliveredAt || null, m.readAt || null, m.ackAt || null, m.content, m.context || null, m.id);
     return m.id;
   }
-  db.prepare(`INSERT INTO messages (id, conversation_id, sender_id, sender_name, recipient_id, content, priority, status, timestamp, delivered_at, read_at, ack_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(m.id, m.conversationId, m.senderId, m.senderName || null, m.recipientId, m.content, m.priority || 'normal', m.status || 'sent', m.timestamp || Date.now(), m.deliveredAt || null, m.readAt || null, m.ackAt || null);
+  // A phone stamps its own messages with its own clock. If that clock is a
+  // little behind, or a queued message flushes late, the row would be filed
+  // above messages that were already on screen and the thread would read out
+  // of order. Keep each conversation's inserts monotonic so the chat is
+  // sequenced by who spoke first, never by a drifting device clock.
+  const prev = db.prepare('SELECT MAX(timestamp) AS ts FROM messages WHERE conversation_id = ?').get(m.conversationId);
+  const timestamp = Math.max(Number(m.timestamp) || Date.now(), (Number(prev && prev.ts) || 0) + 1);
+  db.prepare(`INSERT INTO messages (id, conversation_id, sender_id, sender_name, recipient_id, content, priority, status, timestamp, delivered_at, read_at, ack_at, context)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(m.id, m.conversationId, m.senderId, m.senderName || null, m.recipientId, m.content, m.priority || 'normal', m.status || 'sent', timestamp, m.deliveredAt || null, m.readAt || null, m.ackAt || null, m.context || null);
+  m.timestamp = timestamp;
   return m.id;
 }
 
@@ -1099,6 +1237,9 @@ export function deleteQuickReply(id) {
 export function cleanupOldMessages(maxAgeMs = 3 * 60 * 60 * 1000) {
   const cutoff = Date.now() - maxAgeMs;
   try { db.prepare('DELETE FROM messages WHERE timestamp < ?').run(cutoff); } catch (e) { /* noop */ }
+  // Receipts follow their message out; a booth thread can otherwise leave
+  // thousands of orphan rows behind after a long service.
+  try { db.prepare('DELETE FROM message_receipts WHERE message_id NOT IN (SELECT id FROM messages)').run(); } catch (e) { /* noop */ }
 }
 
 // Delete every message (used on app close/restart per operator preference).

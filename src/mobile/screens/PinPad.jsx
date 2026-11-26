@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { ShieldCheck, Delete } from 'lucide-react';
 import { C, T, R, TOUCH } from '../theme.js';
@@ -7,6 +7,11 @@ import { C, T, R, TOUCH } from '../theme.js';
 // auto-zooms, and there is no field to mistap while a service is running.
 export default function PinPad({ C: theme, value, onChange, onSubmit, error, role, onSwitchRole }) {
   const themeC = theme || C;
+  // Name at pairing: the booth credits every message to this label, so it is
+  // worth asking once instead of showing "Remote a3f2" forever.
+  const [name, setName] = useState(() => {
+    try { return localStorage.getItem('kog-device-name') || ''; } catch { return ''; }
+  });
   useEffect(() => {
     if (value.length === 6) onSubmit(value);
   }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -26,6 +31,34 @@ export default function PinPad({ C: theme, value, onChange, onSubmit, error, rol
           Open <b style={{ color: themeC.text }}>Remote</b> on the computer and enter the 6-digit code shown there.
         </div>
       </div>
+
+      {role !== 'stage' ? (
+        <div style={{ width: '100%', maxWidth: 300 }}>
+          <label htmlFor="kog-pair-name" style={{ display: 'block', fontSize: 10, fontWeight: 900, letterSpacing: 1, textTransform: 'uppercase', color: themeC.faint, marginBottom: 5, textAlign: 'center' }}>
+            Name this phone
+          </label>
+          <input
+            id="kog-pair-name"
+            value={name}
+            onChange={(e) => {
+              const next = e.target.value.slice(0, 64);
+              setName(next);
+              try {
+                if (next.trim()) localStorage.setItem('kog-device-name', next.trim());
+                else localStorage.removeItem('kog-device-name');
+              } catch { /* private mode */ }
+            }}
+            placeholder="e.g. Camera phone"
+            autoComplete="off"
+            style={{
+              width: '100%', boxSizing: 'border-box', textAlign: 'center',
+              background: C.input, border: `1px solid ${C.border2}`, borderRadius: R.sm,
+              color: C.text, fontSize: 16, fontWeight: 600, fontFamily: 'inherit',
+              padding: '10px 12px', outline: 'none',
+            }}
+          />
+        </div>
+      ) : null}
 
       {/* Dots — one per digit so progress is obvious without reading numbers. */}
       <div style={{ display: 'flex', gap: 10 }}>

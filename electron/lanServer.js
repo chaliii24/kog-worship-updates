@@ -518,30 +518,64 @@ export function createLanServer({ getDistDir = distDir, userDataDir, dev = false
       return;
     }
 
-    // Two-way messaging: a phone submits a message to the operator.
+    // Two-way messaging: a phone submits a message to the booth (shared) or to
+    // the projectionist alone (dm). The socket decides the sender identity, so
+    // a phone cannot post as another device.
     if (msg.t === 'msg') {
       if (!sock.kogAuthed || sock.kogRole !== 'control') {
         try { sock.send(JSON.stringify({ t: 'ack', cmd: 'msg', ok: false, reason: 'forbidden' })); } catch {}
         return;
       }
+      if (!sock.kogDeviceId) {
+        // No identity means no attribution and no receipt row: reject rather
+        // than invent a "Remote" that the operator can never reply to.
+        try { sock.send(JSON.stringify({ t: 'ack', cmd: 'msg', ok: false, reason: 'identity' })); } catch {}
+        return;
+      }
+      const kind = msg.channelId === 'booth' || msg.conversationId === 'booth' ? 'booth' : 'dm';
       const m = {
         id: String(msg.id || crypto.randomUUID()),
-        conversationId: String(msg.conversationId || sock.kogDeviceId || 'unknown'),
-        senderId: sock.kogDeviceId || 'unknown',
+        channelId: kind,
+        conversationId: kind === 'booth' ? 'booth' : String(sock.kogDeviceId),
+        senderId: sock.kogDeviceId,
         senderName: sock.kogDeviceName || 'Remote',
-        recipientId: 'operator',
+        recipientId: kind === 'booth' ? 'booth' : 'operator',
         content: String(msg.content || '').slice(0, 4000),
         priority: ['normal','important','urgent'].includes(msg.priority) ? msg.priority : 'normal',
+        context: String(msg.context || '').slice(0, 160) || null,
         timestamp: Number(msg.timestamp) || Date.now(),
+        status: 'sent',
       };
       try { onMessage && onMessage({ type: 'msg', device: { deviceId: sock.kogDeviceId, deviceName: sock.kogDeviceName }, message: m }); } catch (e) { log.error('[lan] onMessage failed:', e.message); }
+      // A booth message is a room message: the other phones see it too, so two
+      // operators stop sending the same instruction at once. The sender gets
+      // its own copy back and de-duplicates by id.
+      if (kind === 'booth') {
+        const raw = JSON.stringify({ t: 'msg', ...m });
+        for (const s of sockets) {
+          if (s.readyState !== 1 || s.kogRole !== 'control' || !s.kogAuthed) continue;
+          try { s.send(raw); } catch { /* noop */ }
+        }
+      }
       return;
     }
 
-    // Phone acknowledges / updates status of an operator message.
+    // A phone edited its display name; keep the open socket in sync so the
+    // next booth message is attributed correctly without a re-pair.
+    if (msg.t === 'rename') {
+      const name = String(msg.deviceName || '').slice(0, 64).trim();
+      if (!name || !sock.kogDeviceId) return;
+      sock.kogDeviceName = name;
+      try { onDeviceConnect && onDeviceConnect({ deviceId: sock.kogDeviceId, deviceName: name, role: sock.kogRole }); } catch {}
+      return;
+    }
+
+    // Phone acknowledges / updates status of an operator message. Receipts
+    // are keyed by the socket's identity, never by a client-supplied id.
     if (msg.t === 'msg-ack' || msg.t === 'msg-status') {
       const id = String(msg.id || '');
       if (!id) return;
+      if (!sock.kogAuthed || sock.kogRole !== 'control' || !sock.kogDeviceId) return;
       try { onMessage && onMessage({ type: msg.t === 'msg-ack' ? 'msg-ack' : 'msg-status', device: { deviceId: sock.kogDeviceId, deviceName: sock.kogDeviceName }, id, status: msg.status, deliveredAt: msg.deliveredAt, readAt: msg.readAt, ackAt: msg.ackAt }); } catch {}
       return;
     }

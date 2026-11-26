@@ -183,7 +183,7 @@ export function createLink({ role, onState, onStatus, onMessage }) {
       if (msg.t === 'state') {
         try { onState(msg.data); } catch { /* noop */ }
       }
-      if (msg.t === 'msg' || msg.t === 'msg-ack' || msg.t === 'msg-status' || msg.t === 'hello-ack') {
+      if (msg.t === 'msg' || msg.t === 'msg-ack' || msg.t === 'msg-status' || msg.t === 'msg-sync' || msg.t === 'hello-ack') {
         try { onMessage && onMessage(msg); } catch { /* noop */ }
       }
     };
@@ -223,6 +223,7 @@ export function createLink({ role, onState, onStatus, onMessage }) {
     send: (cmd, payload) => send({ t: 'cmd', cmd, payload }),
     sendMessage: (msg) => send({ t: 'msg', ...msg }),
     sendStatus: (id, status, extra = {}) => send({ t: 'msg-status', id, status, ...extra }),
+    renameDevice: (deviceName) => send({ t: 'rename', deviceName: String(deviceName || '').slice(0, 64) }),
     sendAck: (id) => send({ t: 'msg-ack', id }),
     submitPin: (pin) => send({ t: 'pin', pin: String(pin || '').trim() }),
     retry: () => {

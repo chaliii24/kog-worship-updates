@@ -62,6 +62,20 @@ const PIN_STATUSES = ['need-pin', 'wrong', 'locked'];
 function readDeviceName() {
   try { return localStorage.getItem('kog-device-name') || 'This phone'; } catch { return 'This phone'; }
 }
+function readDeviceId() {
+  try { return localStorage.getItem('kog-device-id') || ''; } catch { return ''; }
+}
+function writeDeviceName(name) {
+  const clean = String(name || '').trim().slice(0, 64);
+  if (!clean) return;
+  try { localStorage.setItem('kog-device-name', clean); } catch { /* private mode */ }
+}
+
+// Two lanes travel the same socket: the booth is shared by every paired phone,
+// direct is the private projectionist thread.
+function channelOf(m) {
+  return m && (m.channelId === 'booth' || m.conversationId === 'booth') ? 'booth' : 'direct';
+}
 
 export default function MobileApp() {
   // Parsed once on load: the URL is the provisioner, not a live preference.
@@ -74,14 +88,21 @@ export default function MobileApp() {
   const [pinError, setPinError] = useState('');
   const linkRef = useRef(null);
   const [messages, setMessages] = useState([]);
-  const [unread, setUnread] = useState(0);
+  const [unreadBy, setUnreadBy] = useState({ booth: 0, direct: 0 });
+  const unread = (unreadBy.booth || 0) + (unreadBy.direct || 0);
+  const [msgChannel, setMsgChannel] = useState('booth');
   const [toast, setToast] = useState(null);
   const [view, setView] = useState('home');
   const [sub, setSub] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deviceName, setDeviceNameState] = useState(readDeviceName);
 
+  // Refs so the socket listener (installed once) sees the live conversation
+  // instead of the channel that was open when it mounted.
   const chatOpenRef = useRef(false);
+  const msgChannelRef = useRef('booth');
+  useEffect(() => { msgChannelRef.current = msgChannel; }, [msgChannel]);
   useEffect(() => { chatOpenRef.current = view === 'messages' && !sub; }, [view, sub]);
 
   useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 5200); return () => clearTimeout(t); }, [toast]);
@@ -92,27 +113,41 @@ export default function MobileApp() {
       onState: (s) => setState(s),
       onMessage: (m) => {
         if (m.t === 'msg') {
-          // acknowledge receipt to desktop
-          try { linkRef.current?.sendAck?.(m.id); } catch { /* noop */ }
+          const channel = channelOf(m);
+          const fromOperator = m.senderId === 'operator';
+          const self = readDeviceId();
+          const ownEcho = !fromOperator && !!self && m.senderId === self;
+          // Only the operator's messages are receipts; a phone-authored booth
+          // message has no receipt rows to answer.
+          if (fromOperator) { try { linkRef.current?.sendAck?.(m.id); } catch { /* noop */ } }
           setMessages((prev) => {
             if (prev.some((x) => x.id === m.id)) return prev;
+            // The phone and the computer rarely share a clock exactly, so a
+            // raw sort on the sender's timestamp can file a fresh reply above
+            // messages already on screen. Sequence by arrival instead.
+            const newest = prev.reduce((n, x) => Math.max(n, Number(x.timestamp) || 0), 0);
             return [...prev, {
               id: m.id,
-              conversationId: 'self',
-              senderId: 'operator',
-              senderName: m.senderName || 'Operator',
-              recipientId: 'self',
+              channelId: channel,
+              conversationId: channel,
+              senderId: fromOperator ? 'operator' : (ownEcho ? 'self' : m.senderId),
+              senderName: fromOperator ? (m.senderName || 'Projectionist') : (ownEcho ? 'You' : (m.senderName || 'Remote')),
+              recipientId: fromOperator ? 'self' : 'booth',
               content: m.content,
               priority: m.priority || 'normal',
+              context: m.context || null,
               status: 'delivered',
-              timestamp: m.timestamp,
+              timestamp: Math.max(Number(m.timestamp) || Date.now(), newest + 1),
             }];
           });
-          if (chatOpenRef.current) {
-            try { linkRef.current?.sendStatus?.(m.id, 'read', { readAt: Date.now() }); } catch { /* noop */ }
-          } else {
-            setUnread((u) => u + 1);
-            setToast({ id: m.id, sender: m.senderName || 'Projectionist', text: m.content });
+          if (fromOperator) {
+            const open = chatOpenRef.current && msgChannelRef.current === channel;
+            if (open) {
+              try { linkRef.current?.sendStatus?.(m.id, 'read', { readAt: Date.now() }); } catch { /* noop */ }
+            } else {
+              setUnreadBy((u) => ({ ...u, [channel]: (u[channel] || 0) + 1 }));
+              setToast({ id: m.id, sender: m.senderName || 'Projectionist', text: m.content, channel });
+            }
           }
         } else if (m.t === 'msg-ack') {
           setMessages((prev) => prev.map((x) => x.id === m.id ? { ...x, status: 'delivered' } : x));
@@ -120,32 +155,47 @@ export default function MobileApp() {
           setMessages((prev) => prev.map((x) => x.id === m.id ? { ...x, status: m.status || x.status } : x));
         } else if (m.t === 'msg-sync') {
           const incoming = Array.isArray(m.messages) ? m.messages : [];
+          const self = readDeviceId();
           setMessages((prev) => {
             const map = new Map(prev.map((x) => [x.id, x]));
+            // Sync arrives in the desktop's stored order; keep that order and
+            // never let an older device clock drop a message above the ones
+            // already showing here.
+            let clock = prev.reduce((n, x) => Math.max(n, Number(x.timestamp) || 0), 0);
             for (const im of incoming) {
+              const channel = channelOf(im);
+              const mine = im.senderId === self;
               if (!map.has(im.id)) {
+                clock = Math.max(Number(im.timestamp) || 0, clock + 1);
                 map.set(im.id, {
                   id: im.id,
-                  conversationId: 'self',
-                  senderId: im.senderId === 'operator' ? 'operator' : im.senderId,
-                  senderName: im.senderName,
+                  channelId: channel,
+                  conversationId: channel,
+                  senderId: im.senderId === 'operator' ? 'operator' : (mine ? 'self' : im.senderId),
+                  senderName: im.senderName || (mine ? 'You' : 'Remote'),
                   recipientId: im.recipientId,
                   content: im.content,
                   priority: im.priority || 'normal',
+                  context: im.context || null,
                   status: im.status || 'sent',
-                  timestamp: im.timestamp,
+                  timestamp: clock,
                 });
               } else {
                 const existing = map.get(im.id);
-                map.set(im.id, { ...existing, status: im.status || existing.status });
+                map.set(im.id, { ...existing, status: im.status || existing.status, channelId: channel });
               }
             }
             return [...map.values()].sort((a, b) => a.timestamp - b.timestamp);
           });
-          if (!chatOpenRef.current) {
-            const pending = incoming.filter((im) => im.senderId === 'operator' && im.status !== 'read' && im.status !== 'acknowledged').length;
-            if (pending) setUnread((u) => Math.max(u, pending));
+          // Unread is per lane, and the open lane never accrues a badge.
+          const pending = { booth: 0, direct: 0 };
+          for (const im of incoming) {
+            if (im.senderId !== 'operator') continue;
+            if (im.status === 'read' || im.status === 'acknowledged') continue;
+            pending[channelOf(im)] += 1;
           }
+          pending[msgChannelRef.current] = 0;
+          setUnreadBy((u) => ({ booth: Math.max(u.booth || 0, pending.booth), direct: Math.max(u.direct || 0, pending.direct) }));
         }
       },
       onStatus: (s, why) => {
@@ -172,14 +222,17 @@ export default function MobileApp() {
     const failed = messages.filter((m) => m.status === 'failed' && m.senderId !== 'operator');
     if (!failed.length) return;
     for (const m of failed) {
+      const channel = m.channelId === 'booth' ? 'booth' : 'dm';
       const ok = linkRef.current?.sendMessage?.({
         id: m.id,
-        conversationId: (() => { try { return localStorage.getItem('kog-device-id') || 'device'; } catch { return 'device'; } })(),
-        senderId: (() => { try { return localStorage.getItem('kog-device-id') || 'device'; } catch { return 'device'; } })(),
+        channelId: channel,
+        conversationId: channel === 'booth' ? 'booth' : readDeviceId(),
+        senderId: readDeviceId(),
         senderName: readDeviceName(),
-        recipientId: 'operator',
+        recipientId: channel === 'booth' ? 'booth' : 'operator',
         content: m.content,
         priority: m.priority || 'normal',
+        context: m.context || undefined,
         timestamp: Date.now(),
       });
       setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, status: ok ? 'sending' : 'failed' } : x)));
@@ -309,10 +362,14 @@ export default function MobileApp() {
           <MessagesScreen
             messages={messages}
             setMessages={setMessages}
-            unread={unread}
-            setUnread={setUnread}
+            channel={msgChannel}
+            setChannel={setMsgChannel}
+            unreadBy={unreadBy}
+            setUnreadBy={setUnreadBy}
             linkRef={linkRef}
             online={status === 'online'}
+            state={state}
+            deviceName={readDeviceName()}
           />
         ) : (
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
@@ -356,7 +413,13 @@ export default function MobileApp() {
           >
             <button
               type="button"
-              onClick={() => { setToast(null); setUnread(0); go('messages'); }}
+              onClick={() => {
+                const ch = toast.channel || 'booth';
+                setToast(null);
+                setUnreadBy((u) => ({ ...u, [ch]: 0 }));
+                setMsgChannel(ch);
+                go('messages');
+              }}
               style={{
                 flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10,
                 background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
@@ -389,7 +452,7 @@ export default function MobileApp() {
         <SheetRow icon={Monitor} label="Live outputs" hint={`${(state?.outputs || []).length} display${(state?.outputs || []).length === 1 ? '' : 's'} configured`} onClick={() => openSub('outputs')} />
         <Divider />
         <SheetRow icon={Smartphone} label="Singer view" hint="Stage monitor for singers, locked to follow" onClick={() => { setMoreOpen(false); switchRole('stage'); }} />
-        <SheetRow icon={Settings2} label="Settings & device" hint={readDeviceName()} onClick={() => { setMoreOpen(false); setSettingsOpen(true); }} />
+        <SheetRow icon={Settings2} label="Settings & device" hint={deviceName} onClick={() => { setMoreOpen(false); setSettingsOpen(true); }} />
       </Sheet>
 
       <Sheet open={settingsOpen} title="Settings" onClose={() => setSettingsOpen(false)}>
@@ -415,6 +478,25 @@ export default function MobileApp() {
               {state?.service?.name || 'None open'}
             </span>
           </Row>
+        </div>
+        <div style={{ background: C.elevated, border: `1px solid ${C.border}`, borderRadius: R.md, padding: 12, marginBottom: 10 }}>
+          <label htmlFor="kog-phone-name" style={{ display: 'block', fontSize: 10, fontWeight: 900, letterSpacing: 1, textTransform: 'uppercase', color: C.faint, marginBottom: 6 }}>Name this phone</label>
+          <input
+            id="kog-phone-name"
+            defaultValue={deviceName}
+            placeholder="e.g. Camera phone"
+            maxLength={64}
+            onBlur={(e) => {
+              const next = e.target.value.trim();
+              if (!next || next === deviceName) return;
+              writeDeviceName(next);
+              setDeviceNameState(next);
+              linkRef.current?.renameDevice?.(next);
+            }}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+            style={{ width: '100%', boxSizing: 'border-box', background: C.input, border: `1px solid ${C.border2}`, borderRadius: R.sm, color: C.text, fontSize: 16, fontWeight: 600, fontFamily: 'inherit', padding: '10px 12px', outline: 'none' }}
+          />
+          <div style={{ fontSize: 10.5, color: C.faint2, marginTop: 6, lineHeight: 1.45 }}>The projectionist sees this name on every message you send.</div>
         </div>
         <SheetRow icon={WifiOff} label="Reconnect now" hint="Re-run pairing with the desktop" onClick={() => { setSettingsOpen(false); linkRef.current?.retry(); }} />
         <SheetRow
