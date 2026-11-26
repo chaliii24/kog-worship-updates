@@ -39,7 +39,6 @@ import {
   addMediaAsset,
   deleteMediaAsset,
   getMediaLibraryPage,
-  countMediaAssets,
   setMediaMeta,
   getMediaAssetByUrl,
   touchMediaAsset,
@@ -357,10 +356,9 @@ function thumbFor(url) {
 // clip, seeks ~1s in, draws the frame to a canvas and returns a small JPEG. The
 // file lands beside the image thumbs and its name is cached in SQLite
 // (media_assets.thumb), so every later tile is a plain <img>. Work is strictly
-// sequential and capped: a 300-clip library warms up in the background without
-// ever competing with the operator's clicks.
+// sequential: a large library warms up in the background, one clip at a time,
+// without ever competing with the operator's clicks.
 const POSTER_WIDTH = 480;
-const POSTER_QUEUE_MAX = 600;
 
 let posterWin = null;
 let posterBusy = false;
@@ -506,7 +504,6 @@ function queueVideoPoster(url) {
   const out = posterFileFor(url);
   if (!out) return;
   try { if (fs.statSync(out).size > 0) return; } catch { /* not built yet */ }
-  if (posterQueue.length >= POSTER_QUEUE_MAX) return;
   posterQueued.add(url);
   posterQueue.push(url);
   pumpPosters();
@@ -709,18 +706,11 @@ function serveMediaProtocol() {
   });
 }
 
-// LIBRARY CAP — 50 pictures + 50 videos. Every tile costs a poster decode and
-// three panels (Media tab, background pickers, service media rows) index the
-// whole list, so an unbounded library is what made the console stutter.
-// Enforced here, at the one import path every surface funnels through, so the
-// native picker, drag & drop and the legacy <input> upload all obey it.
-// Audio is uncapped: it never renders a grid tile.
-const MEDIA_LIBRARY_LIMIT = 50;
-const MEDIA_LIMITED_KINDS = ['image', 'video'];
-const mediaSlotsLeft = (kind) => {
-  if (!MEDIA_LIMITED_KINDS.includes(kind)) return Infinity;
-  return Math.max(0, MEDIA_LIBRARY_LIMIT - countMediaAssets(kind));
-};
+// NO LIBRARY CAP. The library used to stop at 50 pictures + 50 videos because
+// a tile cost a decoder. Every media surface now virtualizes its grid (only the
+// rows on screen are mounted) and every card is a still — the cached 480px
+// thumbnail/poster, or a placeholder until the background pipeline writes one —
+// so a library of thousands costs the same as a library of ten.
 
 const MEDIA_EXT_ALL = [...MEDIA_IMAGE_EXT, ...MEDIA_VIDEO_EXT, ...MEDIA_AUDIO_EXT];
 const HEIC_EXT = ['.heic', '.heif'];
@@ -774,11 +764,6 @@ function importMediaFromPath(sourcePath) {
     // One file, one row: a file re-picked after a relink has a DIFFERENT url
     // than the row that now points at it, so the path is the reliable key.
     const existing = getMediaAssetBySourcePath(abs) || getMediaAssetByUrl(url);
-    // Register nothing once the library is full for that kind — and say why,
-    // so a pick that adds nothing is never silent.
-    if (!existing && mediaSlotsLeft(kind) <= 0) {
-      return { ok: false, error: `The library already holds ${MEDIA_LIBRARY_LIMIT} ${kind}s. Delete one in the Media tab first.` };
-    }
     if (existing) {
       // Re-picking heals the row: a restored backup (path from another
       // machine), a relinked entry, or a legacy copy gains this machine's
@@ -838,19 +823,10 @@ const MEDIA_PICK_FILTERS = {
   audio: [{ name: 'Audio', extensions: [...MEDIA_AUDIO_EXT].map((e) => e.replace('.', '')) }],
 };
 
-// Free slots per kind, for the renderer's "12/50" chips and its pre-pick check.
-ipcMain.handle('media-library-status', async () => ({
-  limit: MEDIA_LIBRARY_LIMIT,
-  image: MEDIA_LIBRARY_LIMIT - mediaSlotsLeft('image'),
-  video: MEDIA_LIBRARY_LIMIT - mediaSlotsLeft('video'),
-}));
-
 ipcMain.handle('media-pick-files', async (event, opts = {}) => {
   try {
     const win = BrowserWindow.fromWebContents(event.sender);
     const kind = opts && opts.kind ? String(opts.kind) : 'all';
-    // Never open a dialog that cannot accept a single file.
-    if (MEDIA_LIMITED_KINDS.includes(kind) && mediaSlotsLeft(kind) <= 0) return [];
     const filters = kind !== 'all' && MEDIA_PICK_FILTERS[kind]
       ? MEDIA_PICK_FILTERS[kind]
       : [MEDIA_PICK_FILTERS.video[0], MEDIA_PICK_FILTERS.image[0], MEDIA_PICK_FILTERS.audio[0]];
@@ -3150,6 +3126,32 @@ ipcMain.handle('db-set-song-arrangement', (event, id, arrangement) => setSongArr
 ipcMain.handle('db-set-song-chords', (event, id, chart, key) => setSongChords(id, chart, key));
 // Per-song stage tempo (Stage tab popup): narrow UPDATE, never rewrites cues.
 ipcMain.handle('db-set-song-bpm', (event, id, bpm) => setSongBpm(id, bpm));
+// A cached poster name whose JPEG is gone (thumbs folder cleared, write failed,
+// library restored on another machine) must not become a 404 per tile per
+// remount. The answer is memoized: every dock-tab visit refetches the list, and
+// stat-ing one path per row made a large library slow in the main process. A
+// fresh poster is broadcast by broadcastThumbReady anyway, so a minute of TTL
+// never hides a still that was just written.
+const THUMB_CHECK_TTL_MS = 60000;
+const thumbCheckCache = new Map();
+function cachedThumbExists(thumb) {
+  const key = String(thumb || '');
+  if (!key) return false;
+  const now = Date.now();
+  const hit = thumbCheckCache.get(key);
+  if (hit && now - hit.at < THUMB_CHECK_TTL_MS) return hit.ok;
+  let ok = false;
+  try {
+    const marker = '/thumbs/';
+    const at = key.indexOf(marker);
+    const file = at >= 0 ? path.join(THUMB_DIR, decodeURIComponent(key.slice(at + marker.length))) : null;
+    ok = !!file && path.dirname(file) === THUMB_DIR && fs.existsSync(file);
+  } catch { ok = false; }
+  thumbCheckCache.set(key, { at: now, ok });
+  if (thumbCheckCache.size > 5000) thumbCheckCache.clear();
+  return ok;
+}
+
 ipcMain.handle('db-get-media', (event, opts) => {
   // Throttled existence sweep before the renderer paints: a referenced file
   // that moved or sits on an unplugged drive is flagged here, not discovered
@@ -3158,15 +3160,7 @@ ipcMain.handle('db-get-media', (event, opts) => {
   const rows = getMediaLibrary();
   for (const r of rows) {
     if (!r) continue;
-    // A cached poster name whose JPEG is gone (thumbs folder cleared, write
-    // failed, library restored on another machine) must not become a 404 per
-    // tile per remount: drop it here and let the pipeline redo the work.
-    if (r.thumb) {
-      const marker = '/thumbs/';
-      const at = String(r.thumb).indexOf(marker);
-      const file = at >= 0 ? path.join(THUMB_DIR, decodeURIComponent(String(r.thumb).slice(at + marker.length))) : null;
-      if (!file || path.dirname(file) !== THUMB_DIR || !fs.existsSync(file)) r.thumb = null;
-    }
+    if (r.thumb && !cachedThumbExists(r.thumb)) r.thumb = null;
     // Warm the poster cache for any clip that has no still yet: the tiles swap
     // from their budgeted fallback element to a JPEG once, in the background.
     if (r.kind === 'video' && !r.thumb) { try { queueVideoPoster(r.url); } catch {} }

@@ -17,17 +17,14 @@
 // its media folder small (only thumbnails), and the library cannot bloat
 // userData no matter how often files are added.
 //
-// LIBRARY CAP: 50 pictures + 50 videos. The main process enforces the hard
-// limit (electron/main.js) so no entry point can slip past it; this module
-// adds the friendly half — it refuses to open a dialog with no room left and
-// trims an oversized batch to the slots that remain, telling the operator why.
+// NO LIBRARY CAP. The old 50-picture / 50-video limit is gone. Every surface
+// that shows the library virtualizes its grid and renders cached stills (see
+// lib/virtualMediaGrid.jsx), so the size of the library no longer decides how
+// fast the panel feels; the main process builds video posters in the
+// background, one clip at a time.
 // ---------------------------------------------------------------------------
 
 import { toast } from '../untitledui/components/ui/toast';
-import { MEDIA_IMAGE_EXT, MEDIA_VIDEO_EXT, extOf } from '../../electron/mediaTypes.js';
-
-export const MEDIA_IMAGE_LIMIT = 50;
-export const MEDIA_VIDEO_LIMIT = 50;
 
 // LIBRARY CHANGED: main writes the row, but App holds the one library list that
 // every picker (Media tab, song editor gallery, background rails) renders. A
@@ -48,33 +45,8 @@ export const subscribeMediaChanged = (fn) => {
 
 const hasElectron = () => !!(typeof window !== 'undefined' && window.require);
 
-const kindOfPath = (p) => {
-  const ext = extOf(p);
-  if (MEDIA_IMAGE_EXT.includes(ext)) return 'image';
-  if (MEDIA_VIDEO_EXT.includes(ext)) return 'video';
-  return 'audio';
-};
-
-/** How many pictures/videos the library already holds, and the cap per kind. */
-export const getMediaLibraryStatus = async () => {
-  const fallback = { limit: MEDIA_IMAGE_LIMIT, image: 0, video: 0 };
-  if (!hasElectron()) return fallback;
-  try {
-    const { ipcRenderer } = window.require('electron');
-    const s = await ipcRenderer.invoke('media-library-status');
-    if (!s || typeof s !== 'object') return fallback;
-    return {
-      limit: Number(s.limit) || MEDIA_IMAGE_LIMIT,
-      image: Math.max(0, Number(s.image) || 0),
-      video: Math.max(0, Number(s.video) || 0),
-    };
-  } catch {
-    return fallback;
-  }
-};
-
 // The main process says, per file, why it could not be added (wrong type,
-// HEIC, app-owned copy, library full). Repeating that here is the difference
+// HEIC, app-owned copy, unreadable). Repeating that here is the difference
 // between "the picker did nothing" and "that file cannot be used, here is why".
 const reportSkipped = (skipped) => {
   if (!Array.isArray(skipped) || !skipped.length) return;
@@ -86,28 +58,6 @@ const reportSkipped = (skipped) => {
       title: skipped.length === 1 ? 'That file was not added' : `${skipped.length} files were not added`,
       description: `${reasons.join(' ') || 'Those files could not be used.'}${extra}`,
       duration: 8000,
-    });
-  } catch {}
-};
-
-const announceFull = (limit) => {
-  try {
-    toast.add({
-      type: 'error',
-      title: 'Media library is full',
-      description: `The library keeps ${limit} pictures and ${limit} videos so the Media tab stays fast. Delete a few there to upload more.`,
-      duration: 6000,
-    });
-  } catch {}
-};
-
-const announceSkipped = (skipped, limit) => {
-  try {
-    toast.add({
-      type: 'info',
-      title: 'Library limit reached',
-      description: `Skipped ${skipped} file${skipped === 1 ? '' : 's'} — the library keeps ${limit} pictures and ${limit} videos. Delete a few in the Media tab to free room.`,
-      duration: 6000,
     });
   } catch {}
 };
@@ -169,33 +119,7 @@ export const relinkMediaSource = async (url) => {
 
 /** Pick + import in one call — what an "Upload" / "Add" button should do. */
 export const pickAndImportMedia = async (opts = {}) => {
-  const kind = opts.kind || 'all';
-  const status = await getMediaLibraryStatus();
-  const full = (k) => (k === 'video' ? status.video : status.image) >= status.limit;
-
-  // Nothing can be added: say so before the OS dialog opens.
-  if (kind === 'video' && full('video')) { announceFull(status.limit); return []; }
-  if (kind === 'image' && full('image')) { announceFull(status.limit); return []; }
-  if (kind === 'all' && full('image') && full('video')) { announceFull(status.limit); return []; }
-
   const paths = await pickMediaFiles(opts);
   if (!paths.length) return [];
-
-  // Trim the selection to the slots that are left; audio is uncapped.
-  const room = {
-    image: Math.max(0, status.limit - status.image),
-    video: Math.max(0, status.limit - status.video),
-  };
-  const taken = { image: 0, video: 0 };
-  let skipped = 0;
-  const accepted = paths.filter((p) => {
-    const k = kindOfPath(p);
-    if (k === 'audio') return true;
-    taken[k] += 1;
-    if (taken[k] > room[k]) { skipped += 1; return false; }
-    return true;
-  });
-  if (skipped) announceSkipped(skipped, status.limit);
-  if (!accepted.length) return [];
-  return importMediaPaths(accepted);
+  return importMediaPaths(paths);
 };

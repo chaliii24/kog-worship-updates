@@ -6,7 +6,7 @@ import { GRADIENT_PACK } from '../lib/backgrounds';
 import { ANIMATED_GRADIENTS } from './CountdownFace';
 import AnimatedBg from './AnimatedBg';
 import { VirtualMediaGrid, VirtualMediaList, MediaPoster } from '../lib/virtualMediaGrid';
-import { pickAndImportMedia, MEDIA_IMAGE_LIMIT, MEDIA_VIDEO_LIMIT, relinkMediaSource, revealMediaSource } from '../lib/mediaImport';
+import { pickAndImportMedia, relinkMediaSource, revealMediaSource } from '../lib/mediaImport';
 import { toast } from '../untitledui/components/ui/toast';
 
 // Center media browser (Media dock tab): filter chips with live counts,
@@ -42,11 +42,9 @@ export default function MediaBrowser() {
     try { localStorage.setItem('kog-media-view', v); } catch {}
   };
 
-  // Recently used first (the DB orders by last_used_at). Rows are NOT trimmed
-  // to the cap: an oversized library (an old version, or a restore from a
-  // bigger machine) has to stay visible, or the entries that block new uploads
-  // could never be seen and deleted. The cap is enforced on import; the chips
-  // turn red while the library is over it.
+  // Recently used first (the DB orders by last_used_at). The library is
+  // uncapped, so nothing is trimmed here: the virtualized grid below mounts
+  // only the tiles on screen, whether the list holds ten files or ten thousand.
   const uploads = useMemo(() => {
     const pics = [];
     const vids = [];
@@ -186,10 +184,6 @@ export default function MediaBrowser() {
             const on = filter === f.id;
             const Icon = f.icon;
             const n = counts[f.id === 'all' ? 'all' : f.id] ?? 0;
-            // Uploads are capped per kind (see mediaImport.js) — show the room
-            // left right where the operator is about to add more.
-            const cap = f.id === 'image' ? MEDIA_IMAGE_LIMIT : f.id === 'video' ? MEDIA_VIDEO_LIMIT : null;
-            const over = !!cap && n > cap;
             return (
               <button
                 key={f.id}
@@ -197,12 +191,12 @@ export default function MediaBrowser() {
                 style={{ display: 'flex', alignItems: 'center', gap: 6, background: on ? ACCENT : C.elevated2, border: '1px solid ' + (on ? ACCENT : 'var(--ui-border2)'), color: on ? '#1C1C1E' : C.muted, borderRadius: 999, padding: '6px 12px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: on ? '0 0 0 1px rgba(255,184,0,0.5), 0 6px 20px rgba(255,184,0,0.35)' : 'none' }}
               >
                 {Icon ? <Icon size={12} /> : null}{f.label}
-                <span style={{ fontSize: 10, fontWeight: 800, opacity: on ? 0.85 : 0.6, color: over ? '#FF6B6B' : undefined }} title={cap ? (over ? `${n} of ${cap} — delete ${n - cap} to add more` : `${n} of ${cap} used`) : undefined}>{cap ? `${n}/${cap}` : n}</span>
+                <span style={{ fontSize: 10, fontWeight: 800, opacity: on ? 0.85 : 0.6 }}>{n}</span>
               </button>
             );
           })}
         </div>
-        <button type="button" onClick={importNative} title={counts.image >= MEDIA_IMAGE_LIMIT && counts.video >= MEDIA_VIDEO_LIMIT ? 'Library full — delete a picture or video first' : 'Add images and videos from this computer'} style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '6px 11px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+        <button type="button" onClick={importNative} title="Add images and videos from this computer" style={{ background: C.elevated2, border: '1px solid var(--ui-border2)', color: C.text2, padding: '6px 11px', borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
           <Upload size={12} /> Upload
         </button>
         <input ref={fileRef} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple style={{ display: 'none' }} onChange={(e) => {

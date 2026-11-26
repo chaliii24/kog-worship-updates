@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { LazyVideo } from './lazyVideo';
+import { Film } from 'lucide-react';
 import { thumbUrl } from './mediaThumb';
 
 // ---------------------------------------------------------------------------
@@ -17,10 +17,11 @@ import { thumbUrl } from './mediaThumb';
 //     below) are in the DOM, so 300 files cost ~2 rows of elements;
 //   * rows are absolute-positioned at a FIXED height, so scrolling never
 //     reflows the page and nothing shifts when a tile enters the DOM;
-//   * a tile renders a static poster <img> — never a <video> — unless the
-//     background pipeline has not produced a poster yet, and then it borrows
-//     ONE element from the app-wide video budget (lib/videoSlots.js), so a grid
-//     can never stampede the media pipeline.
+//   * a tile renders a static poster <img> — NEVER a <video>, even before the
+//     background pipeline has produced a poster. With no library cap a grid can
+//     hold thousands of clips; decoding even a handful of them inside cards is
+//     what used to stall the renderer, so a clip without a still shows a cheap
+//     placeholder until 'media-thumb-ready' patches one in.
 // ---------------------------------------------------------------------------
 
 const clampInt = (v, min, fallback) => {
@@ -177,11 +178,11 @@ export const posterFor = (asset) => {
 };
 
 /**
- * Media tile face. NEVER renders a <video> while a poster exists — that is the
- * whole point: a grid of 300 clips is a grid of 300 small JPEGs, and only the
- * player (the booth stage, the wall) ever gets a media element.
+ * Media tile face. NEVER renders a <video> — that is the whole point: a grid of
+ * 3000 clips is a grid of 3000 small JPEGs, and only the player (the booth
+ * stage, the wall) ever gets a media element.
  */
-export function MediaPoster({ asset, url, kind = 'image', alt = '', rounded = 0, style, imgStyle, videoProps }) {
+export function MediaPoster({ asset, url, kind = 'image', alt = '', rounded = 0, style, imgStyle }) {
   const [failed, setFailed] = useState(false);
   const [triedOriginal, setTriedOriginal] = useState(false);
   const mediaUrl = url || (asset && (asset.url || asset.value)) || '';
@@ -223,22 +224,16 @@ export function MediaPoster({ asset, url, kind = 'image', alt = '', rounded = 0,
     );
   }
 
-  // Video with no poster yet (just imported): borrow one element from the
-  // app-wide budget so the card is not blank, then swap to the still the
-  // moment the pipeline reports it.
+  // Clip with no still yet (just imported, or a codec the poster pipeline could
+  // not open): a placeholder, never a decoder. The poster lands in the
+  // background and App patches this row, so the tile becomes a JPEG without a
+  // library refetch — and mounting a 3000-clip grid still costs zero pipelines.
   if (mediaKind === 'video' && mediaUrl) {
     return (
       <div style={box}>
-        <LazyVideo
-          src={mediaUrl}
-          muted
-          playsInline
-          preload="metadata"
-          rootMargin="200px"
-          style={{ position: 'absolute', inset: 0 }}
-          videoStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          {...(videoProps || {})}
-        />
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b6b78' }}>
+          <Film size={rounded ? 13 : 18} strokeWidth={1.6} />
+        </div>
       </div>
     );
   }
