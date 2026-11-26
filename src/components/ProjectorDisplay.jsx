@@ -300,6 +300,22 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
   }, [bgImage]);
   // Standby / clear: the incoming slide has no lyrics and no deck on it.
   const blankSlide = !cs.text && !cs.presentation;
+  // MEDIA-ONLY SLIDE: a picture (or clip) added to the service plan — `media:
+  // true`, no words — is the slide's SUBJECT, not a backdrop behind lyrics.
+  // Its background therefore lives inside the picture frame, exactly like the
+  // framed card already draws it, instead of bleeding over the whole window.
+  // Without this the card and the wall disagreed on any screen whose shape is
+  // not the selected ratio: a 16:9 output on a 4:3/16:10 projector painted the
+  // photo across the WHOLE window (cropped, zoomed, running past the frame the
+  // operator saw in Live Output) while the card showed it inside a 16:9 box.
+  // Lyrics/background slides keep the historic edge-to-edge bleed.
+  const mediaOnly = !!cs.media;
+  // A media-only PICTURE is fitted, never cropped: cover on a screen whose
+  // shape differs from the photo's cuts the edges off (a portrait shot becomes
+  // a strip), which is what "not fit / overflowed" looked like on the wall.
+  // Contain shows the whole picture on black, and because both surfaces read
+  // this one value the card and the wall always agree.
+  const mediaImageFit = mediaOnly ? 'contain' : bgFitCss(slideStyle.bgFit);
 
   // Dev HUD flag: read once, never subscribed — enabling it takes an output
   // restart, which is exactly right for a wall (no surprise overlays live).
@@ -529,7 +545,10 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
           Black bars are impossible around the live picture; only the DESIGN
           below letterboxes. A FRAMED card is different: it is a letterboxed
           PICTURE of the wall inside the console, so its background stays in
-          the picture's frame (the card keeps its own chrome outside it). */}
+          the picture's frame (the card keeps its own chrome outside it).
+          A MEDIA-ONLY slide (a photo/clip from the service plan) is framed on
+          BOTH surfaces — picture, not wallpaper — so what the operator
+          approves in Live Output is what the wall draws. */}
       <AnimatePresence>
         <motion.div
           key={bgKey}
@@ -539,7 +558,9 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
           transition={{ duration: bgFade }}
           style={{
             position: 'absolute',
-            ...(framed ? { left: fx, top: fy, width: fw, height: fh } : { inset: 0 }),
+            ...(framed || mediaOnly
+              ? { left: fx, top: fy, width: fw, height: fh }
+              : { inset: 0 }),
             overflow: 'hidden',
             zIndex: 0
           }}
@@ -552,7 +573,7 @@ export default function ProjectorDisplay({ currentSlide, C, aspect, config, over
                 editor. Absent fields fall back to the historic look (cover,
                 no wash), so old songs render exactly as before. */}
             {slideStyle.backgroundType === 'image' && (
-              <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', background: `url("${String(shownImage || bgValue || '').replace(/"/g, '%22')}") center / ${bgFitCss(slideStyle.bgFit)} no-repeat`, backgroundColor: '#000' }} />
+              <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', background: `url("${String(shownImage || bgValue || '').replace(/"/g, '%22')}") center / ${mediaImageFit} no-repeat`, backgroundColor: '#000' }} />
             )}
             {slideStyle.backgroundType === 'video' && (
               <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', transform: 'translateZ(0)' }}>
