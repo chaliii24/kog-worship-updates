@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { BookOpen, Search, Play, ChevronLeft, ChevronRight } from 'lucide-react';
 import { C, T, TXT, TOUCH } from '../theme.js';
 import { Screen, Card, Row, Pill, Dot, Btn, Field, Segmented, EmptyState, IconBtn } from '../ui.jsx';
@@ -17,6 +17,14 @@ export default function BibleScreen({ C: theme, ACCENT, state, send }) {
   const [bookQ, setBookQ] = useState('');
   const [testament, setTestament] = useState('all');
   const [showQ, setShowQ] = useState('');
+  // Browse is a three-step drill-down (books → chapter grid → reader), the
+  // way the YouVersion app reads: pick a book, pick a chapter, read.
+  const [view, setView] = useState('books'); // books | chapters | reader
+  const [bookPick, setBookPick] = useState(null);
+  // Set only for the request whose answer should open the reader — a
+  // translation swap refreshes books and must never re-open a stale chapter.
+  const wantReaderRef = useRef(false);
+  const booksForRef = useRef('');
 
   // Ask once per mount until the desktop answers (reconnects re-push state,
   // so no polling — a missing panel after 1s means "not answered yet").
@@ -28,6 +36,9 @@ export default function BibleScreen({ C: theme, ACCENT, state, send }) {
   const catalog = panel?.catalog || [];
   const abbrev = panel?.abbrev || '';
   const pickTrans = (a) => {
+    setView('books');
+    setBookPick(null);
+    wantReaderRef.current = false;
     if (a === abbrev && panel?.books) return;
     send('bibleBooks', { abbrev: a });
   };
@@ -38,6 +49,44 @@ export default function BibleScreen({ C: theme, ACCENT, state, send }) {
     if (q && !`${b.name} ${b.abbr || ''}`.toLowerCase().includes(q)) return false;
     return true;
   });
+  // Old/New Testament groups with their own headers, so the list reads like a
+  // Bible's table of contents instead of one undifferentiated wall of books.
+  const bookGroups = testament === 'all'
+    ? [
+      { key: 'ot', title: 'Old Testament', rows: books.filter((b) => b.testament === 'ot') },
+      { key: 'nt', title: 'New Testament', rows: books.filter((b) => b.testament === 'nt') },
+    ].filter((g) => g.rows.length)
+    : [{ key: testament, title: testament === 'ot' ? 'Old Testament' : 'New Testament', rows: books }];
+  const chapterCount = Math.max(0, Math.floor(Number(
+    (bookPick && (books.find((b) => b.nr === bookPick.nr) || bookPick).chapters) || 0,
+  )) || 0);
+
+  // The book list powers Browse even when the first passage arrived from a
+  // reference jump, so load it once per translation.
+  useEffect(() => {
+    if (!abbrev) return;
+    if ((panel?.books || []).length) return;
+    if (booksForRef.current === abbrev) return;
+    booksForRef.current = abbrev;
+    send('bibleBooks', { abbrev });
+  }, [abbrev, panel?.books]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A chapter we asked for (book tap, chapter grid, arrow, Go, search hit)
+  // opens the reader once its answer lands.
+  useEffect(() => {
+    const p = panel?.passage;
+    if (!p || !wantReaderRef.current) return;
+    wantReaderRef.current = false;
+    setBookPick({ nr: p.bookIndex, name: p.book, chapters: p.totalChapters || 0 });
+    setView('reader');
+  }, [panel?.stamp]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openBook = (b) => { setBookPick(b); setView('chapters'); };
+  const openChapter = (book, chapter) => {
+    const n = Math.max(1, Math.floor(Number(chapter) || 1));
+    wantReaderRef.current = true;
+    send('bibleChapter', { abbrev, book, chapter: n });
+  };
 
   const passage = panel?.passage || null;
   // Local multi-select, reseeded whenever a new passage arrives (Go /
@@ -58,7 +107,9 @@ export default function BibleScreen({ C: theme, ACCENT, state, send }) {
 
   const goRef = () => {
     const r = refText.trim();
-    if (r) send('bibleGo', { abbrev, ref: r });
+    if (!r) return;
+    wantReaderRef.current = true;
+    send('bibleGo', { abbrev, ref: r });
   };
 
   // Shows search + active project (snapshot-local: no new commands — the
@@ -132,103 +183,169 @@ export default function BibleScreen({ C: theme, ACCENT, state, send }) {
       </Card>
 
       {mode === 'browse' ? (
-        <>
-          {(panel?.books || []).length > 0 && !passage ? (
-            <Card pad={14}>
-              <Row style={{ justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ ...TXT.label }}>Books</span>
-                <span style={{ ...TXT.meta, fontSize: 10.5 }}>{books.length} shown</span>
-              </Row>
-              <Row gap={6} style={{ marginBottom: 8 }}>
-                <Field value={bookQ} onChange={(e) => setBookQ(e.target.value)} placeholder="Filter books…" style={{ flex: 1, fontSize: 14 }} />
-              </Row>
-              <Segmented
-                value={testament}
-                onChange={setTestament}
-                options={[['all', 'All'], ['ot', 'Old'], ['nt', 'New']]}
-                style={{ marginBottom: 10 }}
-              />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, maxHeight: '42dvh', overflowY: 'auto' }}>
-                {books.map((b) => (
+        view === 'reader' && passage ? (
+          <Card pad={14}>
+            <Row gap={8} style={{ marginBottom: 10 }}>
+              <IconBtn label="All chapters" size={38} variant="ghost" onClick={() => setView('chapters')}>
+                <ChevronLeft size={17} />
+              </IconBtn>
+              <span style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 16.5, fontWeight: 900, color: ui.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {passage.book} {passage.chapter}
+                </span>
+                <span style={{ display: 'block', fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: ui.faint, marginTop: 1 }}>
+                  {sel.length ? `${sel.length} selected` : 'Tap verses to select'}
+                </span>
+              </span>
+              <Pill tone="neutral">{String(abbrev || '').toUpperCase()}</Pill>
+            </Row>
+
+            {/* Chapter pager — arrows walk the book, the middle shows where
+                you are, exactly like a Bible app's chapter strip. */}
+            <Row gap={6} style={{ marginBottom: 10 }}>
+              <Btn
+                size="sm"
+                variant="quiet"
+                disabled={passage.prev == null}
+                onClick={() => openChapter(passage.bookIndex, passage.prev)}
+                style={{ flex: 1, minWidth: 0, fontSize: 11.5 }}
+              >{passage.prev == null ? '—' : `Ch. ${passage.prev}`}</Btn>
+              <span style={{ ...TXT.meta, fontSize: 10.5, minWidth: 56, textAlign: 'center' }}>
+                {passage.chapter} / {passage.totalChapters || '?'}
+              </span>
+              <Btn
+                size="sm"
+                variant="quiet"
+                disabled={passage.next == null}
+                onClick={() => openChapter(passage.bookIndex, passage.next)}
+                style={{ flex: 1, minWidth: 0, fontSize: 11.5 }}
+              >{passage.next == null ? '—' : `Ch. ${passage.next}`}</Btn>
+            </Row>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: '46dvh', overflowY: 'auto', paddingRight: 2 }}>
+              {(passage.verses || []).map((v) => {
+                const on = sel.includes(Number(v.verse));
+                return (
                   <button
-                    key={b.nr}
+                    key={v.verse}
                     type="button"
-                    onClick={() => send('bibleChapter', { abbrev, book: b.nr, chapter: 1 })}
+                    onClick={() => toggleVerse(Number(v.verse))}
                     style={{
-                      minHeight: TOUCH, borderRadius: 10, padding: '7px 8px', cursor: 'pointer',
-                      fontFamily: 'inherit', background: ui.elevated2, border: `1px solid ${ui.border2}`,
-                      color: ui.text, textAlign: 'left', minWidth: 0,
+                      textAlign: 'left', borderRadius: 10, padding: '9px 10px', fontSize: 15,
+                      lineHeight: 1.65, cursor: 'pointer', fontFamily: 'inherit',
+                      background: on ? T.ACCENT_SOFT : 'transparent',
+                      border: `1px solid ${on ? T.ACCENT_LINE : 'transparent'}`,
+                      color: on ? ui.text : ui.text2,
                     }}
                   >
-                    <span style={{ display: 'block', fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</span>
-                    <span style={{ display: 'block', fontSize: 9.5, color: ui.faint, fontWeight: 700, marginTop: 1 }}>{b.chapters} ch</span>
+                    <b style={{ color: on ? T.ACCENT : ui.faint, marginRight: 7, fontVariantNumeric: 'tabular-nums' }}>{v.verse}</b>{v.text}
                   </button>
-                ))}
-              </div>
-              {books.length === 0 ? <div style={{ fontSize: 12.5, color: ui.faint, marginTop: 8 }}>No books match.</div> : null}
-            </Card>
-          ) : null}
+                );
+              })}
+            </div>
 
-          {passage ? (
-            <Card pad={14} live={false}>
-              <Row gap={8} style={{ marginBottom: 10 }}>
-                <IconBtn
-                  label="Previous chapter"
-                  size={38}
-                  variant="ghost"
-                  onClick={() => send('bibleChapter', { abbrev, book: passage.bookIndex, chapter: Math.max(1, passage.chapter - 1) })}
-                  style={{ opacity: passage.prev == null ? 0.4 : 1 }}
-                ><ChevronLeft size={17} /></IconBtn>
-                <span style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
-                  <span style={{ display: 'block', fontSize: 15.5, fontWeight: 900, color: ui.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {passage.book} {passage.chapter}
-                  </span>
-                  <span style={{ display: 'block', fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: ui.faint, marginTop: 1 }}>
-                    {sel.length ? `${sel.length} selected` : 'Tap verses to select'}
-                  </span>
+            <Row gap={8} style={{ marginTop: 12 }}>
+              <Btn variant="primary" size="lg" icon={<Play size={16} />} onClick={fireSelected} disabled={!sel.length} style={{ flex: 1.5, fontWeight: 900 }}>
+                Fire{sel.length ? ` ${sel.length} verse${sel.length > 1 ? 's' : ''}` : ''}
+              </Btn>
+              <Btn variant="ghost" size="lg" onClick={() => setView('chapters')} style={{ flex: 1 }}>
+                Chapters
+              </Btn>
+            </Row>
+          </Card>
+        ) : view === 'chapters' && bookPick ? (
+          <Card pad={14}>
+            <Row gap={8} style={{ marginBottom: 10 }}>
+              <IconBtn label="All books" size={38} variant="ghost" onClick={() => { setView('books'); setBookPick(null); }}>
+                <ChevronLeft size={17} />
+              </IconBtn>
+              <span style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 16.5, fontWeight: 900, color: ui.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {bookPick.name}
                 </span>
-                <IconBtn
-                  label="Next chapter"
-                  size={38}
-                  variant="ghost"
-                  onClick={() => send('bibleChapter', { abbrev, book: passage.bookIndex, chapter: passage.chapter + 1 })}
-                  style={{ opacity: passage.next == null ? 0.4 : 1 }}
-                ><ChevronRight size={17} /></IconBtn>
-              </Row>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: '40dvh', overflowY: 'auto', paddingRight: 2 }}>
-                {(passage.verses || []).map((v) => {
-                  const on = sel.includes(Number(v.verse));
+                <span style={{ display: 'block', fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: 'uppercase', color: ui.faint, marginTop: 1 }}>
+                  {chapterCount || '—'} chapters · {String(abbrev || '').toUpperCase()}
+                </span>
+              </span>
+              <span style={{ width: 38, flexShrink: 0 }} />
+            </Row>
+            {chapterCount ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 8, maxHeight: '52dvh', overflowY: 'auto', paddingRight: 2 }}>
+                {Array.from({ length: chapterCount }, (_, i) => i + 1).map((n) => {
+                  const on = !!passage && passage.bookIndex === bookPick.nr && Number(passage.chapter) === n;
                   return (
                     <button
-                      key={v.verse}
+                      key={n}
                       type="button"
-                      onClick={() => toggleVerse(Number(v.verse))}
+                      onClick={() => openChapter(bookPick.nr, n)}
                       style={{
-                        textAlign: 'left', borderRadius: 10, padding: '9px 10px', fontSize: 13.5,
-                        lineHeight: 1.55, cursor: 'pointer', fontFamily: 'inherit',
-                        background: on ? T.ACCENT_SOFT : 'transparent',
-                        border: `1px solid ${on ? T.ACCENT_LINE : 'transparent'}`,
-                        color: on ? ui.text : ui.text2,
+                        minHeight: TOUCH, borderRadius: 11, cursor: 'pointer', fontFamily: 'inherit',
+                        fontSize: 15, fontWeight: 800, fontVariantNumeric: 'tabular-nums',
+                        background: on ? T.ACCENT : ui.elevated2,
+                        border: `1px solid ${on ? T.ACCENT : ui.border2}`,
+                        color: on ? T.ON_ACCENT : ui.text2,
                       }}
-                    >
-                      <b style={{ color: on ? T.ACCENT : ui.faint, marginRight: 7, fontVariantNumeric: 'tabular-nums' }}>{v.verse}</b>{v.text}
-                    </button>
+                    >{n}</button>
                   );
                 })}
               </div>
-
-              <Row gap={8} style={{ marginTop: 12 }}>
-                <Btn variant="primary" size="lg" icon={<Play size={16} />} onClick={fireSelected} disabled={!sel.length} style={{ flex: 1.5, fontWeight: 900 }}>
-                  Fire{sel.length ? ` ${sel.length} verse${sel.length > 1 ? 's' : ''}` : ''}
-                </Btn>
-                <Btn variant="ghost" size="lg" onClick={() => send('bibleBooks', { abbrev })} style={{ flex: 1 }}>
-                  Books
-                </Btn>
+            ) : (
+              <div style={{ fontSize: 12.5, color: ui.faint }}>Chapter list unavailable — pick a chapter below.</div>
+            )}
+          </Card>
+        ) : (
+          <Card pad={14}>
+            <Row style={{ justifyContent: 'space-between', marginBottom: 10 }}>
+              <Row gap={7}>
+                <BookOpen size={14} color={T.ACCENT} />
+                <span style={{ ...TXT.label }}>Books</span>
               </Row>
-            </Card>
-          ) : null}
-        </>
+              <span style={{ ...TXT.meta, fontSize: 10.5 }}>{books.length} shown</span>
+            </Row>
+            <Field value={bookQ} onChange={(e) => setBookQ(e.target.value)} placeholder="Find a book…" style={{ fontSize: 15 }} />
+            <Segmented
+              value={testament}
+              onChange={setTestament}
+              options={[['all', 'All'], ['ot', 'Old Testament'], ['nt', 'New Testament']]}
+              style={{ marginTop: 8, marginBottom: 8 }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '56dvh', overflowY: 'auto', paddingRight: 2 }}>
+              {bookGroups.map((g) => (
+                <div key={g.key}>
+                  <div style={{ ...TXT.label, position: 'sticky', top: 0, zIndex: 1, background: ui.elevated, padding: '10px 2px 6px' }}>
+                    {g.title} · {g.rows.length}
+                  </div>
+                  {g.rows.map((b) => (
+                    <button
+                      key={b.nr}
+                      type="button"
+                      onClick={() => openBook(b)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                        minHeight: TOUCH + 4, padding: '8px 10px', marginBottom: 4, borderRadius: 11,
+                        background: ui.elevated2, border: `1px solid ${ui.border2}`,
+                        color: ui.text, fontFamily: 'inherit', textAlign: 'left', cursor: 'pointer',
+                      }}
+                    >
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: 14.5, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</span>
+                        <span style={{ display: 'block', fontSize: 10.5, color: ui.faint, fontWeight: 700, marginTop: 1 }}>
+                          {b.abbr ? `${b.abbr} · ` : ''}{b.chapters} chapters
+                        </span>
+                      </span>
+                      <ChevronRight size={16} color={ui.faint} />
+                    </button>
+                  ))}
+                </div>
+              ))}
+              {books.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: ui.faint, padding: '10px 2px' }}>
+                  {panel?.books ? 'No books match.' : 'Loading books…'}
+                </div>
+              ) : null}
+            </div>
+          </Card>
+        )
       ) : (
         <Card pad={14}>
           <Row gap={7} style={{ marginBottom: 10 }}>
@@ -255,7 +372,7 @@ export default function BibleScreen({ C: theme, ACCENT, state, send }) {
               <button
                 key={`${r.ref}-${i}`}
                 type="button"
-                onClick={() => send('bibleGo', { abbrev, ref: r.ref })}
+                onClick={() => { wantReaderRef.current = true; send('bibleGo', { abbrev, ref: r.ref }); }}
                 style={{
                   textAlign: 'left', borderRadius: 11, padding: '10px 11px', cursor: 'pointer',
                   fontFamily: 'inherit', background: ui.elevated2, border: `1px solid ${ui.border2}`,
